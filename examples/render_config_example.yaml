@@ -1,0 +1,39 @@
+# KooD3plot Render Configuration - YAML Format
+# 렌더링 설정 파일 예제
+
+analysis:
+  data_path: ./results
+  output_path: ./output
+  run_ids:
+    - run_001
+    - run_002
+
+fringe:
+  type: von_mises          # von_mises, displacement, stress_xx, etc.
+  min: 0
+  max: 500
+  auto_range: false
+
+output:
+  movie: true
+  images: false
+  width: 1920
+  height: 1080
+  fps: 30
+  format: MP4
+
+view:
+  orientation: left        # front, back, left, right, top, bottom, iso
+  zoom_factor: 1.2
+  auto_fit: true
+
+# 섹션 평면 설정 (선택사항)
+sections:
+  - part:
+      name: Hood
+      id: 1
+    planes:
+      - point: [0, 0, 50]
+        normal: [0, 0, 1]
+      - point: [0, 0, 100]
+        normal: [0, 0, 1]

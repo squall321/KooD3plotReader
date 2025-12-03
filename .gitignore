@@ -1,0 +1,110 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+out/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.cmake
+!CMakeLists.txt
+Makefile
+
+# Compiled object files
+*.o
+*.obj
+*.lo
+*.slo
+
+# Precompiled headers
+*.gch
+*.pch
+
+# Compiled dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled static libraries
+*.a
+*.lib
+*.lai
+*.la
+
+# Executables
+*.exe
+*.out
+*.app
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+Testing/
+CTestTestfile.cmake
+*.gcda
+*.gcno
+*.gcov
+
+# Documentation generated files
+docs/html/
+docs/latex/
+docs/xml/
+
+# Package files
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Python (for any helper scripts)
+__pycache__/
+*.pyc
+*.pyo
+
+# Coverage reports
+coverage/
+*.coverage
+htmlcov/
+
+# Test data and results
+results/
+output/
+test_output/
+streaming_output/
+multirun_output/
+installed/
+
+# Generated data files
+*.csv
+*.cfile
+*.msg
+
+# Video files
+*.mp4
+*.mp4.mp4
+
+# YAML test configs (keep examples)
+auto_sections_*.yaml
+test_*.yaml
+test_*.json
+
+# Build output
+build_output.txt
+parallel_*.txt
+
+# References (external tools)
+references/
