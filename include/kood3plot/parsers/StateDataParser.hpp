@@ -12,6 +12,10 @@ namespace parsers {
 
 /**
  * @brief Parser for state data section
+ *
+ * Supports two parsing modes:
+ * - Fast mode (default): Uses bulk array reads for performance
+ * - Legacy mode: Uses individual word reads (slower but more debuggable)
  */
 class StateDataParser {
 public:
@@ -27,42 +31,94 @@ public:
                     bool is_family_file = false);
 
     /**
-     * @brief Parse all state data from file
+     * @brief Parse all state data from file (uses fast mode by default)
      * @return Vector of state data for each time step
      */
     std::vector<data::StateData> parse_all();
 
     /**
-     * @brief Parse single state at given offset
+     * @brief Parse single state at given offset (uses fast mode by default)
      * @param offset Word offset to state data
      * @return Parsed state data
      */
     data::StateData parse_state(size_t offset);
 
+    /**
+     * @brief Enable or disable fast bulk read mode
+     * @param enable true for fast mode (default), false for legacy mode
+     */
+    void set_fast_mode(bool enable) { use_fast_mode_ = enable; }
+
+    /**
+     * @brief Check if fast mode is enabled
+     */
+    bool is_fast_mode() const { return use_fast_mode_; }
+
+    // ============ Legacy API (individual word reads) ============
+
+    /**
+     * @brief Parse all states using legacy individual word reads
+     * @return Vector of state data
+     * @note Slower than parse_all() but useful for debugging
+     */
+    std::vector<data::StateData> parse_all_legacy();
+
+    /**
+     * @brief Parse single state using legacy individual word reads
+     * @param offset Word offset to state data
+     * @return Parsed state data
+     */
+    data::StateData parse_state_legacy(size_t offset);
+
 private:
     std::shared_ptr<core::BinaryReader> reader_;
     const data::ControlData& control_data_;
     bool is_family_file_;  ///< True if this is a family file (starts at offset 0)
+    bool use_fast_mode_ = true;  ///< Use bulk read mode by default
 
     /**
      * @brief Find offset to first state data
      */
     size_t find_state_offset();
 
-    /**
-     * @brief Parse global variables for a state
-     */
-    void parse_global_vars(data::StateData& state, size_t& offset);
+    // ============ Fast mode parsing (bulk reads) ============
 
     /**
-     * @brief Parse nodal data for a state
+     * @brief Parse state using bulk array reads (fast)
      */
-    void parse_nodal_data(data::StateData& state, size_t& offset);
+    data::StateData parse_state_fast(size_t offset);
 
     /**
-     * @brief Parse element data for a state
+     * @brief Parse global variables using bulk read
      */
-    void parse_element_data(data::StateData& state, size_t& offset);
+    void parse_global_vars_fast(data::StateData& state, size_t& offset);
+
+    /**
+     * @brief Parse nodal data using bulk read
+     */
+    void parse_nodal_data_fast(data::StateData& state, size_t& offset);
+
+    /**
+     * @brief Parse element data using bulk read
+     */
+    void parse_element_data_fast(data::StateData& state, size_t& offset);
+
+    // ============ Legacy mode parsing (individual reads) ============
+
+    /**
+     * @brief Parse global variables (legacy individual reads)
+     */
+    void parse_global_vars_legacy(data::StateData& state, size_t& offset);
+
+    /**
+     * @brief Parse nodal data (legacy individual reads)
+     */
+    void parse_nodal_data_legacy(data::StateData& state, size_t& offset);
+
+    /**
+     * @brief Parse element data (legacy individual reads)
+     */
+    void parse_element_data_legacy(data::StateData& state, size_t& offset);
 
     /**
      * @brief Parse element deletion data
