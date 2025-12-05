@@ -1,0 +1,42 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 02: Effective Plastic Strain Analysis Only
+# ============================================================
+# 이 예제는 유효 소성 변형률 분석만 수행합니다.
+# 소성 변형이 발생하는 영역을 파악하는데 유용합니다.
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/strain_analysis"
+  json: true
+  csv: true
+
+performance:
+  threads: 4  # 명시적으로 4스레드 사용
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 모든 파트의 유효 소성 변형률
+  - name: "All Parts Plastic Strain"
+    type: eff_plastic_strain
+    parts: []
+    output_prefix: "all_plastic_strain"
+
+  # Job 2: 취약 부위 (용접부 등)
+  - name: "Weld Zone Strain"
+    type: eff_plastic_strain
+    parts: [5, 6, 7]
+    output_prefix: "weld_strain"
+
+  # Job 3: 충격 흡수 구조
+  - name: "Crash Box Strain"
+    type: eff_plastic_strain
+    parts: [20, 21, 22, 23]
+    output_prefix: "crashbox_strain"

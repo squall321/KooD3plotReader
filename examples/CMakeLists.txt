@@ -136,18 +136,48 @@ target_link_libraries(test_raw_dump PRIVATE kood3plot)
 add_executable(find_states find_states.cpp)
 target_link_libraries(find_states PRIVATE kood3plot)
 
-# ============================================================
-# Comprehensive Example (requires V3 Query and V4 Render)
-# ============================================================
-if(KOOD3PLOT_BUILD_V3_QUERY AND KOOD3PLOT_BUILD_V4_RENDER)
-    add_executable(comprehensive_example comprehensive_example.cpp)
-    target_link_libraries(comprehensive_example PRIVATE kood3plot kood3plot_query kood3plot_render)
+# Advanced analysis example (TimeHistoryAnalyzer)
+add_executable(advanced_analysis advanced_analysis.cpp)
+target_link_libraries(advanced_analysis PRIVATE kood3plot)
 
-    # Install comprehensive example
-    install(TARGETS comprehensive_example
-        RUNTIME DESTINATION bin/examples
-    )
-endif()
+# ============================================================
+# Comprehensive Example (uses SinglePassAnalyzer - no extra deps)
+# ============================================================
+add_executable(comprehensive_example comprehensive_example.cpp)
+target_link_libraries(comprehensive_example PRIVATE kood3plot)
+
+# ============================================================
+# Benchmark Parallel (state-level vs element-level parallelization)
+# ============================================================
+add_executable(benchmark_parallel benchmark_parallel.cpp)
+target_link_libraries(benchmark_parallel PRIVATE kood3plot)
+
+# Install comprehensive example
+install(TARGETS comprehensive_example
+    RUNTIME DESTINATION bin/examples
+)
+
+# ============================================================
+# Unified Analyzer (v2.0 - Job-based YAML configuration)
+# ============================================================
+add_executable(unified_analyzer unified_analyzer.cpp)
+target_link_libraries(unified_analyzer PRIVATE kood3plot)
+
+# Install unified analyzer
+install(TARGETS unified_analyzer
+    RUNTIME DESTINATION bin/examples
+)
+
+# ============================================================
+# Full Extraction Example (demonstrates ALL data extraction features)
+# ============================================================
+add_executable(full_extraction_example full_extraction_example.cpp)
+target_link_libraries(full_extraction_example PRIVATE kood3plot)
+
+# Install full extraction example
+install(TARGETS full_extraction_example
+    RUNTIME DESTINATION bin/examples
+)
 
 # ============================================================
 # V4 Render System Examples

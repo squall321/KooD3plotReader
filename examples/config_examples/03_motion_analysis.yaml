@@ -1,0 +1,88 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 03: Part Motion Analysis (Displacement, Velocity, Acceleration)
+# ============================================================
+# 이 예제는 파트의 운동 분석을 수행합니다.
+# - 평균 변위 (Average Displacement)
+# - 평균 속도 (Average Velocity)
+# - 평균 가속도 (Average Acceleration)
+# - 최대 변위 (Maximum Displacement)
+#
+# 충돌 시험에서 더미(Dummy)의 운동이나
+# 낙하 시험에서 제품의 운동 분석에 유용합니다.
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/motion_analysis"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 전체 모델 운동 (무게 중심 추적)
+  - name: "Full Model Motion"
+    type: part_motion
+    parts: []  # 모든 파트
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+    output_prefix: "full_model_motion"
+
+  # Job 2: 더미 Head 운동 분석
+  - name: "Dummy Head Motion"
+    type: part_motion
+    parts: [301]  # Head part
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "dummy_head"
+
+  # Job 3: 더미 Chest 운동 분석
+  - name: "Dummy Chest Motion"
+    type: part_motion
+    parts: [302]  # Chest part
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+    output_prefix: "dummy_chest"
+
+  # Job 4: 더미 Pelvis 운동 분석
+  - name: "Dummy Pelvis Motion"
+    type: part_motion
+    parts: [303]  # Pelvis part
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+    output_prefix: "dummy_pelvis"
+
+  # Job 5: 차량 B-Pillar 변위
+  - name: "B-Pillar Intrusion"
+    type: part_motion
+    parts: [100, 101]  # B-Pillar parts
+    quantities:
+      - max_displacement  # 침입량(intrusion) 측정
+    output_prefix: "b_pillar_intrusion"
+
+  # Job 6: 바닥면 침하량 (Drop test용)
+  - name: "Bottom Deflection"
+    type: part_motion
+    parts: [1, 2, 3]
+    quantities:
+      - avg_displacement
+      - max_displacement
+    output_prefix: "bottom_deflection"

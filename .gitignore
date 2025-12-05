@@ -108,3 +108,26 @@ parallel_*.txt
 
 # References (external tools)
 references/
+
+# Session documentation (local only)
+*_PLAN.md
+*_PROGRESS.md
+*_SUMMARY.md
+*_STATUS.md
+*_COMPLETE.md
+*_CHECKLIST.md
+*_ANALYSIS.md
+PROGRESS.md
+USAGE.md
+BUILD.md
+
+# Sample results directories
+sample_results/
+sample_results_old/
+analysis_output/
+test_comp_output/
+test_comp_output2/
+unified_output/
+
+# Text reports
+*_report.txt

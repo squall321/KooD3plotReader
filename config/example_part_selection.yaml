@@ -1,0 +1,32 @@
+# KooD3plot Part-Selective Analysis Configuration
+# ================================================
+# This configuration demonstrates analysis for specific parts only.
+# Useful when you only need results from certain components.
+
+d3plot_path: "path/to/your/d3plot"
+output_directory: "./selected_parts_output"
+
+# Specify which parts to analyze (empty = all parts)
+# List part IDs you want to include
+parts: [1, 2, 3, 21, 22, 24]
+
+analysis:
+  stress: true
+  strain: true
+  acceleration: false
+
+# Surface analysis for specific parts only
+surfaces:
+  - description: "Critical parts bottom (-Z)"
+    direction: [0, 0, -1]
+    angle_threshold: 45.0
+    # Limit surface analysis to these parts
+    parts: [1, 21, 22]
+
+output:
+  json: true
+  csv: true
+
+performance:
+  threads: 8  # Fixed thread count
+  verbose: true

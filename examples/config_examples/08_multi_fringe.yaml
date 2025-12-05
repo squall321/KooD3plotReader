@@ -1,0 +1,224 @@
+# ============================================================
+# KooD3plot Render Configuration
+# Example 08: Multi-Fringe Rendering (Same Section, Different Fringes)
+# ============================================================
+# 이 예제는 동일한 단면에서 다양한 Fringe 타입으로 렌더링합니다.
+# 같은 위치를 다른 물리량으로 비교할 때 유용합니다.
+#
+# 지원 Fringe 타입:
+# - von_mises: Von Mises 응력
+# - eff_plastic_strain: 유효 소성 변형률
+# - pressure: 압력
+# - max_principal: 최대 주응력
+# - min_principal: 최소 주응력
+# - displacement_mag: 변위 크기
+# - velocity_mag: 속도 크기
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/multi_fringe"
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 렌더링 작업 정의
+# ============================================================
+render_jobs:
+  # ========================================
+  # Z축 중앙 단면 - 모든 Fringe 타입
+  # ========================================
+  # Job 1: Von Mises 응력
+  - name: "Z-Center Von Mises"
+    type: section_view
+    fringe: von_mises
+    fringe_range:
+      min: 0
+      max: 0  # 0 = auto
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_vonmises.mp4"
+      fps: 30
+
+  # Job 2: 유효 소성 변형률
+  - name: "Z-Center Plastic Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    fringe_range:
+      min: 0
+      max: 0.1  # 10% strain
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_plastic_strain.mp4"
+      fps: 30
+
+  # Job 3: 압력 (양수: 인장, 음수: 압축)
+  - name: "Z-Center Pressure"
+    type: section_view
+    fringe: pressure
+    fringe_range:
+      min: -500
+      max: 500
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_pressure.mp4"
+      fps: 30
+
+  # Job 4: 최대 주응력
+  - name: "Z-Center Max Principal"
+    type: section_view
+    fringe: max_principal
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_max_principal.mp4"
+      fps: 30
+
+  # Job 5: 최소 주응력
+  - name: "Z-Center Min Principal"
+    type: section_view
+    fringe: min_principal
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_min_principal.mp4"
+      fps: 30
+
+  # Job 6: 변위 크기
+  - name: "Z-Center Displacement"
+    type: section_view
+    fringe: displacement_mag
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_displacement.mp4"
+      fps: 30
+
+  # Job 7: 속도 크기
+  - name: "Z-Center Velocity"
+    type: section_view
+    fringe: velocity_mag
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_velocity.mp4"
+      fps: 30
+
+  # ========================================
+  # 동일 Fringe, 다른 축
+  # ========================================
+  # Job 8-10: Von Mises 응력으로 X, Y, Z축 모두
+  - name: "X-Center Von Mises"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: x
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "x_center_vonmises.mp4"
+      fps: 30
+
+  - name: "Y-Center Von Mises"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: y
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "y_center_vonmises.mp4"
+      fps: 30
+
+  # ========================================
+  # Fringe Range 테스트
+  # ========================================
+  # Job 11: 고정 범위 Von Mises
+  - name: "Fixed Range Von Mises"
+    type: section_view
+    fringe: von_mises
+    fringe_range:
+      min: 0
+      max: 1000  # 0~1000 MPa 고정
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_vonmises_fixed.mp4"
+      fps: 30
+
+  # Job 12: 자동 범위 vs 고정 범위 비교용
+  - name: "Auto Range Von Mises"
+    type: section_view
+    fringe: von_mises
+    fringe_range:
+      min: 0
+      max: 0  # auto
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_vonmises_auto.png"
+
+  - name: "Fixed Range 500"
+    type: section_view
+    fringe: von_mises
+    fringe_range:
+      min: 0
+      max: 500
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_vonmises_500.png"
+
+  - name: "Fixed Range 1000"
+    type: section_view
+    fringe: von_mises
+    fringe_range:
+      min: 0
+      max: 1000
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_vonmises_1000.png"

@@ -270,8 +270,8 @@ PartTimeHistory PartAnalyzer::analyze_part(int32_t part_id, StressComponent comp
 
     history.part_name = part->name;
 
-    // Read all states
-    auto states = reader_.read_all_states();
+    // Read all states (parallel for performance)
+    auto states = reader_.read_all_states_parallel();
 
     history.times.reserve(states.size());
     history.max_values.reserve(states.size());
@@ -306,9 +306,9 @@ std::vector<PartTimeHistory> PartAnalyzer::analyze_all_parts_with_progress(
         return histories;
     }
 
-    // Read all states once
+    // Read all states once (parallel for performance)
     if (callback) callback(0, parts_.size(), "Loading states...");
-    auto states = reader_.read_all_states();
+    auto states = reader_.read_all_states_parallel();
 
     histories.resize(parts_.size());
     size_t num_states = states.size();
@@ -329,6 +329,68 @@ std::vector<PartTimeHistory> PartAnalyzer::analyze_all_parts_with_progress(
         const auto& state = states[s];
 
         if (callback && s % 10 == 0) {
+            callback(s, num_states, "Processing state " + std::to_string(s));
+        }
+
+        // Analyze each part for this state
+        for (size_t p = 0; p < parts_.size(); ++p) {
+            auto stats = analyze_state(parts_[p].part_id, state, component);
+
+            histories[p].times.push_back(state.time);
+            histories[p].max_values.push_back(stats.stress_max);
+            histories[p].min_values.push_back(stats.stress_min);
+            histories[p].avg_values.push_back(stats.stress_avg);
+            histories[p].max_elem_ids.push_back(stats.max_element_id);
+        }
+    }
+
+    if (callback) callback(num_states, num_states, "Analysis complete");
+
+    return histories;
+}
+
+std::vector<PartTimeHistory> PartAnalyzer::analyze_with_states(
+    const std::vector<data::StateData>& states,
+    StressComponent component)
+{
+    return analyze_with_states_progress(states, component, nullptr);
+}
+
+std::vector<PartTimeHistory> PartAnalyzer::analyze_with_states_progress(
+    const std::vector<data::StateData>& states,
+    StressComponent component,
+    std::function<void(size_t, size_t, const std::string&)> callback)
+{
+    std::vector<PartTimeHistory> histories;
+
+    if (!initialized_ && !initialize()) {
+        return histories;
+    }
+
+    if (states.empty()) {
+        last_error_ = "No states provided";
+        return histories;
+    }
+
+    histories.resize(parts_.size());
+    size_t num_states = states.size();
+
+    // Initialize all histories
+    for (size_t p = 0; p < parts_.size(); ++p) {
+        histories[p].part_id = parts_[p].part_id;
+        histories[p].part_name = parts_[p].name;
+        histories[p].times.reserve(num_states);
+        histories[p].max_values.reserve(num_states);
+        histories[p].min_values.reserve(num_states);
+        histories[p].avg_values.reserve(num_states);
+        histories[p].max_elem_ids.reserve(num_states);
+    }
+
+    // Process each state (using pre-loaded data - no file I/O!)
+    for (size_t s = 0; s < num_states; ++s) {
+        const auto& state = states[s];
+
+        if (callback && s % 100 == 0) {
             callback(s, num_states, "Processing state " + std::to_string(s));
         }
 

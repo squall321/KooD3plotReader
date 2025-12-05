@@ -1,0 +1,68 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 06: Comprehensive Analysis (Multiple Types per Part)
+# ============================================================
+# 이 예제는 하나의 파트에서 여러 분석을 동시에 수행합니다.
+# - Von Mises 응력
+# - 유효 소성 변형률
+# - 평균 속도
+#
+# 단일 패스(Single-pass)로 모든 분석이 수행되어 효율적입니다.
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/comprehensive"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 충격 흡수 구조 종합 분석
+  - name: "Crash Structure Analysis"
+    type: comprehensive
+    parts: [1, 2, 3]
+    quantities:
+      - von_mises
+      - eff_plastic_strain
+      - avg_velocity
+    output_prefix: "crash_structure"
+
+  # Job 2: 더미 종합 분석
+  - name: "Dummy Full Analysis"
+    type: comprehensive
+    parts: [301, 302, 303]  # Head, Chest, Pelvis
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "dummy_full"
+
+  # Job 3: 프레임 구조 종합
+  - name: "Frame Structure"
+    type: comprehensive
+    parts: [10, 11, 12]
+    quantities:
+      - von_mises
+      - eff_plastic_strain
+    output_prefix: "frame_structure"
+
+  # Job 4: 외판 종합 분석
+  - name: "Outer Panel Analysis"
+    type: comprehensive
+    parts: [50, 51, 52]
+    quantities:
+      - von_mises
+      - eff_plastic_strain
+      - avg_displacement
+    output_prefix: "outer_panel"

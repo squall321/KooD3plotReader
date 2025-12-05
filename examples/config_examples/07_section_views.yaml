@@ -1,0 +1,144 @@
+# ============================================================
+# KooD3plot Render Configuration
+# Example 07: Section View Rendering (LSPrePost Backend)
+# ============================================================
+# 이 예제는 다양한 단면뷰 렌더링 작업을 정의합니다.
+# LSPrePost를 백엔드로 사용하여 고품질 이미지/영상을 생성합니다.
+#
+# 지원 단면 옵션:
+# - axis: x, y, z (단면 축)
+# - position: 0.0~1.0 (정규화) 또는 절대 좌표
+# - auto: center, edge_min, edge_max, quarter1~4
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/section_views"
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 렌더링 작업 정의 (V4 Render / LSPrePost)
+# ============================================================
+render_jobs:
+  # ========================================
+  # Z축 단면 (수평 단면)
+  # ========================================
+  # Job 1: Z축 중앙 단면 - Von Mises 응력
+  - name: "Z-Section Center VonMises"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center  # auto: center
+    states: all
+    output:
+      format: mp4
+      filename: "z_center_vonmises.mp4"
+      fps: 30
+      resolution: [1920, 1080]
+
+  # Job 2: Z축 25% 위치 단면
+  - name: "Z-Section Quarter1"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: 0.25  # normalized position
+    states: all
+    output:
+      format: mp4
+      filename: "z_quarter1_vonmises.mp4"
+      fps: 30
+
+  # Job 3: Z축 75% 위치 단면
+  - name: "Z-Section Quarter3"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: 0.75
+    states: all
+    output:
+      format: mp4
+      filename: "z_quarter3_vonmises.mp4"
+      fps: 30
+
+  # ========================================
+  # Y축 단면 (정면/측면)
+  # ========================================
+  # Job 4: Y축 중앙 단면 - 변형률
+  - name: "Y-Section Center Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    section:
+      axis: y
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "y_center_strain.mp4"
+      fps: 30
+
+  # Job 5: Y축 최소 경계 단면
+  - name: "Y-Section Edge Min"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: y
+      position: edge_min  # auto: 최소 경계
+    states: all
+    output:
+      format: mp4
+      filename: "y_edge_min.mp4"
+      fps: 30
+
+  # ========================================
+  # X축 단면 (측면)
+  # ========================================
+  # Job 6: X축 중앙 단면
+  - name: "X-Section Center"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: x
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "x_center_vonmises.mp4"
+      fps: 30
+
+  # ========================================
+  # 특정 State만 렌더링 (이미지)
+  # ========================================
+  # Job 7: 마지막 State만 PNG
+  - name: "Final State Section"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: [-1]  # -1 = 마지막 state
+    output:
+      format: png
+      filename: "final_state_section.png"
+      resolution: [1920, 1080]
+
+  # Job 8: 특정 State들만 (0, 중간, 마지막)
+  - name: "Key States Sections"
+    type: section_view
+    fringe: eff_plastic_strain
+    section:
+      axis: z
+      position: center
+    states: [0, 100, 200, 300, 400, 500, -1]
+    output:
+      format: png
+      directory: "key_states/"
+      filename_pattern: "state_{state}.png"

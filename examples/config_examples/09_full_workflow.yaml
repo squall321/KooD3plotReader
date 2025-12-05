@@ -1,0 +1,307 @@
+# ============================================================
+# KooD3plot Unified Configuration
+# Example 09: Full Workflow (Analysis + Rendering Combined)
+# ============================================================
+# 이 예제는 분석과 렌더링을 모두 포함한 완전한 워크플로우입니다.
+#
+# 시나리오: 자동차 전면 충돌 해석 후처리
+# - 충격 구조물: 응력/변형률 분석
+# - 더미: 운동 분석 (가속도 등)
+# - 표면: 접촉 응력 분석
+# - 단면뷰: 다양한 Fringe로 렌더링
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/full_workflow"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+  cache_geometry: true
+
+# ============================================================
+# 분석 작업 정의 (C++ SinglePassAnalyzer)
+# ============================================================
+analysis_jobs:
+  # ========================================
+  # 1. 응력 분석
+  # ========================================
+  - name: "All Parts Stress"
+    type: von_mises
+    parts: []
+    output_prefix: "stress/all_parts"
+
+  - name: "Bumper Stress"
+    type: von_mises
+    parts: [1, 2, 3]
+    output_prefix: "stress/bumper"
+
+  - name: "Frame Stress"
+    type: von_mises
+    parts: [10, 11, 12, 13]
+    output_prefix: "stress/frame"
+
+  # ========================================
+  # 2. 변형률 분석
+  # ========================================
+  - name: "All Parts Strain"
+    type: eff_plastic_strain
+    parts: []
+    output_prefix: "strain/all_parts"
+
+  - name: "Crash Box Strain"
+    type: eff_plastic_strain
+    parts: [20, 21, 22, 23]
+    output_prefix: "strain/crash_box"
+
+  # ========================================
+  # 3. 운동 분석
+  # ========================================
+  - name: "Dummy Head Motion"
+    type: part_motion
+    parts: [301]
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "motion/dummy_head"
+
+  - name: "Dummy Chest Motion"
+    type: part_motion
+    parts: [302]
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+    output_prefix: "motion/dummy_chest"
+
+  - name: "Dummy Pelvis Motion"
+    type: part_motion
+    parts: [303]
+    quantities:
+      - avg_velocity
+      - avg_acceleration
+    output_prefix: "motion/dummy_pelvis"
+
+  - name: "B-Pillar Intrusion"
+    type: part_motion
+    parts: [100, 101]
+    quantities:
+      - max_displacement
+    output_prefix: "motion/b_pillar"
+
+  # ========================================
+  # 4. 표면 응력 분석
+  # ========================================
+  - name: "Front Impact Surface"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [1, 0, 0]
+      angle: 45.0
+    output_prefix: "surface/front_impact"
+
+  - name: "Bottom Contact"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 30.0
+    output_prefix: "surface/bottom_contact"
+
+  # ========================================
+  # 5. 표면 변형률 분석
+  # ========================================
+  - name: "Outer Panel Surface Strain"
+    type: surface_strain
+    parts: [50, 51, 52]
+    surface:
+      direction: [1, 0, 0]
+      angle: 60.0
+    output_prefix: "surface/outer_panel_strain"
+
+  # ========================================
+  # 6. 종합 분석
+  # ========================================
+  - name: "Critical Zone Comprehensive"
+    type: comprehensive
+    parts: [1, 2, 3, 20, 21]
+    quantities:
+      - von_mises
+      - eff_plastic_strain
+      - avg_velocity
+    output_prefix: "comprehensive/critical_zone"
+
+# ============================================================
+# 렌더링 작업 정의 (V4 Render / LSPrePost)
+# ============================================================
+render_jobs:
+  # ========================================
+  # 1. 메인 애니메이션 (Z축 단면)
+  # ========================================
+  - name: "Main Section Animation - Stress"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "main_section_stress.mp4"
+      fps: 30
+      resolution: [1920, 1080]
+
+  - name: "Main Section Animation - Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    fringe_range:
+      min: 0
+      max: 0.1
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "main_section_strain.mp4"
+      fps: 30
+
+  # ========================================
+  # 2. 다중 단면 (Z축 여러 위치)
+  # ========================================
+  - name: "Multi-Z Sections"
+    type: multi_section
+    fringe: von_mises
+    sections:
+      - axis: z
+        positions: [0.25, 0.5, 0.75]
+    states: all
+    output:
+      format: mp4
+      filename: "multi_z_sections.mp4"
+      fps: 30
+
+  # ========================================
+  # 3. Y축 단면 (측면뷰)
+  # ========================================
+  - name: "Side Section - Stress"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: y
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "side_section_stress.mp4"
+      fps: 30
+
+  - name: "Side Section - Displacement"
+    type: section_view
+    fringe: displacement_mag
+    section:
+      axis: y
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "side_section_displacement.mp4"
+      fps: 30
+
+  # ========================================
+  # 4. X축 단면 (정면뷰)
+  # ========================================
+  - name: "Front Section - Stress"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: x
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "front_section_stress.mp4"
+      fps: 30
+
+  # ========================================
+  # 5. 주요 State 스냅샷
+  # ========================================
+  - name: "Key States Stress"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: [0, 50, 100, 200, 300, 500, -1]
+    output:
+      format: png
+      directory: "snapshots/stress/"
+      filename_pattern: "stress_state_{state}.png"
+      resolution: [1920, 1080]
+
+  - name: "Key States Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    section:
+      axis: z
+      position: center
+    states: [0, 50, 100, 200, 300, 500, -1]
+    output:
+      format: png
+      directory: "snapshots/strain/"
+      filename_pattern: "strain_state_{state}.png"
+
+  # ========================================
+  # 6. 최종 State 다양한 Fringe
+  # ========================================
+  - name: "Final State - All Fringes"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_vonmises.png"
+
+  - name: "Final Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_strain.png"
+
+  - name: "Final Displacement"
+    type: section_view
+    fringe: displacement_mag
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_displacement.png"
+
+  - name: "Final Velocity"
+    type: section_view
+    fringe: velocity_mag
+    section:
+      axis: z
+      position: center
+    states: [-1]
+    output:
+      format: png
+      filename: "final_velocity.png"

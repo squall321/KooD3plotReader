@@ -1,0 +1,50 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 01: Von Mises Stress Analysis Only
+# ============================================================
+# 이 예제는 Von Mises 응력 분석만 수행합니다.
+# 특정 파트들에 대해 시간별 최대/최소/평균 응력을 추출합니다.
+# ============================================================
+version: "2.0"
+
+# 입력 파일 설정
+input:
+  d3plot: "results/d3plot"  # d3plot 기본 파일 경로
+
+# 출력 설정
+output:
+  directory: "./output/stress_analysis"
+  json: true   # JSON 요약 파일 생성
+  csv: true    # CSV 시계열 데이터 생성
+
+# 성능 설정
+performance:
+  threads: 0     # 0 = 자동 (모든 코어 사용)
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 모든 파트의 Von Mises 응력
+  - name: "All Parts Stress"
+    type: von_mises
+    parts: []  # 비어있으면 모든 파트 분석
+    output_prefix: "all_parts_stress"
+
+  # Job 2: 특정 파트들만 (예: 충격 받는 부분)
+  - name: "Impact Zone Stress"
+    type: von_mises
+    parts: [1, 2, 3]  # 파트 ID 지정
+    output_prefix: "impact_zone_stress"
+
+  # Job 3: 프레임 파트들
+  - name: "Frame Stress"
+    type: von_mises
+    parts: [10, 11, 12, 13]
+    output_prefix: "frame_stress"
+
+# ============================================================
+# 렌더링 작업 (이 예제에서는 사용 안함)
+# ============================================================
+# render_jobs: []

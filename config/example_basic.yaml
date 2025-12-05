@@ -1,0 +1,38 @@
+# KooD3plot Basic Analysis Configuration
+# ========================================
+# This configuration demonstrates basic stress/strain analysis
+# for all parts in a d3plot file.
+
+# Input d3plot file path (required)
+# Can be relative or absolute path
+d3plot_path: "path/to/your/d3plot"
+
+# Output directory for results
+output_directory: "./analysis_output"
+
+# Analysis options
+analysis:
+  # Analyze Von Mises stress time history per part
+  stress: true
+
+  # Analyze effective plastic strain time history per part
+  strain: true
+
+  # Analyze acceleration (disabled by default - memory intensive)
+  acceleration: false
+
+# Output format options
+output:
+  # Export results as JSON summary
+  json: true
+
+  # Export results as CSV files (one per part)
+  csv: true
+
+# Performance settings
+performance:
+  # Number of OpenMP threads (0 = auto-detect)
+  threads: 0
+
+  # Verbose output
+  verbose: true

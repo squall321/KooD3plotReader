@@ -185,6 +185,30 @@ public:
         std::function<void(size_t, size_t, const std::string&)> callback);
 
     /**
+     * @brief Analyze all parts using pre-loaded state data (no file I/O)
+     * @param states Pre-loaded state data from read_all_states()
+     * @param component Stress component to analyze
+     * @return Vector of PartTimeHistory for each part
+     *
+     * This method avoids redundant file reads when state data is already loaded.
+     */
+    std::vector<PartTimeHistory> analyze_with_states(
+        const std::vector<data::StateData>& states,
+        StressComponent component = StressComponent::VON_MISES);
+
+    /**
+     * @brief Analyze all parts using pre-loaded state data with progress callback
+     * @param states Pre-loaded state data
+     * @param component Stress component to analyze
+     * @param callback Progress callback (current, total, message)
+     * @return Vector of PartTimeHistory for each part
+     */
+    std::vector<PartTimeHistory> analyze_with_states_progress(
+        const std::vector<data::StateData>& states,
+        StressComponent component,
+        std::function<void(size_t, size_t, const std::string&)> callback);
+
+    /**
      * @brief Export time history to CSV
      * @param history Single part history
      * @param filepath Output CSV file path

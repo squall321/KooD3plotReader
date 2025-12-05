@@ -1,0 +1,65 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 05: Surface Strain Analysis (Direction-based)
+# ============================================================
+# 이 예제는 방향 기반 표면 변형률 분석을 수행합니다.
+# 특정 방향을 바라보는 표면의 Normal strain과 Shear strain을 추출합니다.
+#
+# 용도:
+# - 코팅/도장 균열 예측
+# - 표면 처리 부위 변형 분석
+# - 접착 조인트 변형 분석
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/surface_strain"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 바닥면 변형률
+  - name: "Bottom Surface Strain"
+    type: surface_strain
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 45.0
+    output_prefix: "bottom_strain"
+
+  # Job 2: 상단면 변형률
+  - name: "Top Surface Strain"
+    type: surface_strain
+    parts: []
+    surface:
+      direction: [0, 0, 1]
+      angle: 45.0
+    output_prefix: "top_strain"
+
+  # Job 3: 도장면 변형률 (외부 표면)
+  - name: "Painted Surface Strain"
+    type: surface_strain
+    parts: [50, 51, 52]  # 도장 부위 파트들
+    surface:
+      direction: [1, 0, 0]
+      angle: 60.0  # 넓은 범위
+    output_prefix: "painted_strain"
+
+  # Job 4: 접착 조인트 영역
+  - name: "Adhesive Joint Strain"
+    type: surface_strain
+    parts: [30, 31]  # 접착 부위
+    surface:
+      direction: [0, 1, 0]
+      angle: 30.0
+    output_prefix: "adhesive_strain"

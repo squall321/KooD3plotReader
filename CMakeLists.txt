@@ -77,6 +77,17 @@ set(KOOD3PLOT_SOURCES
     # Analysis
     src/analysis/PartAnalyzer.cpp
     src/analysis/BoundingBox.cpp
+    src/analysis/VectorMath.cpp
+    src/analysis/AnalysisResult.cpp
+    src/analysis/SurfaceExtractor.cpp
+    src/analysis/SurfaceStressAnalyzer.cpp
+    src/analysis/TimeHistoryAnalyzer.cpp
+    src/analysis/SinglePassAnalyzer.cpp
+    src/analysis/AnalysisConfigParser.cpp
+    src/analysis/UnifiedConfigParser.cpp
+    src/analysis/MotionAnalyzer.cpp
+    src/analysis/SurfaceStrainAnalyzer.cpp
+    src/analysis/UnifiedAnalyzer.cpp
 )
 
 # Library headers
@@ -110,6 +121,17 @@ set(KOOD3PLOT_HEADERS
     # Analysis headers
     include/kood3plot/analysis/PartAnalyzer.hpp
     include/kood3plot/analysis/BoundingBox.hpp
+    include/kood3plot/analysis/VectorMath.hpp
+    include/kood3plot/analysis/AnalysisResult.hpp
+    include/kood3plot/analysis/SurfaceExtractor.hpp
+    include/kood3plot/analysis/SurfaceStressAnalyzer.hpp
+    include/kood3plot/analysis/TimeHistoryAnalyzer.hpp
+    include/kood3plot/analysis/SinglePassAnalyzer.hpp
+    include/kood3plot/analysis/AnalysisTypes.hpp
+    include/kood3plot/analysis/UnifiedConfigParser.hpp
+    include/kood3plot/analysis/MotionAnalyzer.hpp
+    include/kood3plot/analysis/SurfaceStrainAnalyzer.hpp
+    include/kood3plot/analysis/UnifiedAnalyzer.hpp
 )
 
 # Create library target
@@ -370,4 +392,12 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/KooD3plotConfigVersion.cmake
     DESTINATION lib/cmake/KooD3plot
+)
+
+# ============================================================
+# Install example configuration files
+# ============================================================
+install(DIRECTORY config/
+    DESTINATION share/kood3plot/config
+    FILES_MATCHING PATTERN "*.yaml"
 )

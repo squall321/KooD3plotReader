@@ -1,0 +1,74 @@
+# KooD3plot Full Analysis Configuration
+# ======================================
+# Comprehensive analysis configuration with all features enabled.
+# Use this as a template for complete d3plot analysis.
+
+d3plot_path: "path/to/your/d3plot"
+output_directory: "./full_analysis_output"
+
+# Part selection (empty = all parts)
+parts: []
+
+analysis:
+  # Von Mises stress time history (recommended)
+  stress: true
+
+  # Effective plastic strain time history
+  strain: true
+
+  # Acceleration analysis (memory intensive)
+  acceleration: false
+
+# Complete surface analysis for all 6 directions
+surfaces:
+  # Z-direction surfaces
+  - description: "Bottom surface (-Z)"
+    direction: [0, 0, -1]
+    angle_threshold: 45.0
+
+  - description: "Top surface (+Z)"
+    direction: [0, 0, 1]
+    angle_threshold: 45.0
+
+  # X-direction surfaces
+  - description: "Front surface (+X)"
+    direction: [1, 0, 0]
+    angle_threshold: 45.0
+
+  - description: "Back surface (-X)"
+    direction: [-1, 0, 0]
+    angle_threshold: 45.0
+
+  # Y-direction surfaces
+  - description: "Left surface (-Y)"
+    direction: [0, -1, 0]
+    angle_threshold: 45.0
+
+  - description: "Right surface (+Y)"
+    direction: [0, 1, 0]
+    angle_threshold: 45.0
+
+output:
+  # JSON summary with all results
+  json: true
+
+  # CSV files for time series data
+  csv: true
+
+performance:
+  # Use all available cores (0 = auto)
+  threads: 0
+
+  # Print progress messages
+  verbose: true
+
+# Expected output files:
+# ----------------------
+# {output_directory}/
+# ├── stress/
+# │   └── part_N_von_mises.csv (one per part)
+# ├── strain/
+# │   └── part_N_eff_plastic_strain.csv (one per part)
+# ├── surface/
+# │   └── {surface_description}.csv (one per surface)
+# └── analysis_result.json (complete summary)

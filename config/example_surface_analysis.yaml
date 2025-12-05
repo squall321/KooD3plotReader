@@ -1,0 +1,43 @@
+# KooD3plot Surface Stress Analysis Configuration
+# ================================================
+# This configuration demonstrates surface stress analysis
+# with direction-based filtering for specific surfaces.
+
+d3plot_path: "path/to/your/d3plot"
+output_directory: "./surface_analysis_output"
+
+analysis:
+  stress: true
+  strain: true
+  acceleration: false
+
+# Surface analysis specifications
+# Define surfaces by reference direction and angle threshold
+surfaces:
+  # Bottom surface (faces pointing in -Z direction)
+  - description: "Bottom surface (-Z)"
+    direction: [0, 0, -1]
+    angle_threshold: 45.0
+
+  # Top surface (faces pointing in +Z direction)
+  - description: "Top surface (+Z)"
+    direction: [0, 0, 1]
+    angle_threshold: 45.0
+
+  # Front surface (+X direction)
+  - description: "Front surface (+X)"
+    direction: [1, 0, 0]
+    angle_threshold: 45.0
+
+  # Back surface (-X direction)
+  - description: "Back surface (-X)"
+    direction: [-1, 0, 0]
+    angle_threshold: 45.0
+
+output:
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true

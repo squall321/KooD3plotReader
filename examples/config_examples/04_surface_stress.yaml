@@ -1,0 +1,101 @@
+# ============================================================
+# KooD3plot Analysis Configuration
+# Example 04: Surface Stress Analysis (Direction-based)
+# ============================================================
+# 이 예제는 방향 기반 표면 응력 분석을 수행합니다.
+# 특정 방향을 바라보는 표면(요소)들의 응력만 추출합니다.
+#
+# 용도:
+# - 바닥면 접촉 응력 (낙하 시험)
+# - 측면 충격 응력 (Side impact)
+# - 지지대 반력 영역 응력
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "results/d3plot"
+
+output:
+  directory: "./output/surface_stress"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # Job 1: 바닥면 응력 (-Z 방향)
+  - name: "Bottom Surface Stress"
+    type: surface_stress
+    parts: []  # 모든 파트
+    surface:
+      direction: [0, 0, -1]   # 아래 방향 법선
+      angle: 45.0             # 45도 이내의 요소 포함
+    output_prefix: "bottom_surface"
+
+  # Job 2: 상단면 응력 (+Z 방향)
+  - name: "Top Surface Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, 1]
+      angle: 45.0
+    output_prefix: "top_surface"
+
+  # Job 3: 전면 응력 (+X 방향)
+  - name: "Front Surface Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [1, 0, 0]
+      angle: 45.0
+    output_prefix: "front_surface"
+
+  # Job 4: 후면 응력 (-X 방향)
+  - name: "Rear Surface Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [-1, 0, 0]
+      angle: 45.0
+    output_prefix: "rear_surface"
+
+  # Job 5: 좌측면 응력 (+Y 방향)
+  - name: "Left Side Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 1, 0]
+      angle: 45.0
+    output_prefix: "left_surface"
+
+  # Job 6: 우측면 응력 (-Y 방향)
+  - name: "Right Side Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, -1, 0]
+      angle: 45.0
+    output_prefix: "right_surface"
+
+  # Job 7: 경사면 (45도 기울어진 방향)
+  - name: "Angled Surface Stress"
+    type: surface_stress
+    parts: [15, 16]  # 특정 파트만
+    surface:
+      direction: [0.707, 0, -0.707]  # 45도 경사
+      angle: 30.0  # 좀 더 좁은 범위
+    output_prefix: "angled_surface"
+
+  # Job 8: 좁은 각도 범위 (정확한 방향만)
+  - name: "Precise Bottom"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 15.0  # 15도 이내만 (정확한 바닥면)
+    output_prefix: "precise_bottom"

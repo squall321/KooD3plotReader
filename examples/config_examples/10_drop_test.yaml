@@ -1,0 +1,203 @@
+# ============================================================
+# KooD3plot Unified Configuration
+# Example 10: Drop Test Analysis (제품 낙하 시험)
+# ============================================================
+# 시나리오: 전자제품 낙하 시험 후처리
+#
+# 분석 항목:
+# - 바닥면 충격 응력/변형률
+# - 제품 전체 가속도
+# - 취약 부위 소성 변형
+# - PCB 기판 응력
+# ============================================================
+version: "2.0"
+
+input:
+  d3plot: "drop_test/d3plot"
+
+output:
+  directory: "./output/drop_test"
+  json: true
+  csv: true
+
+performance:
+  threads: 0
+  verbose: true
+
+# ============================================================
+# 분석 작업 정의
+# ============================================================
+analysis_jobs:
+  # ========================================
+  # 1. 바닥면 충격 분석
+  # ========================================
+  - name: "Bottom Impact Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 30.0  # 정확한 바닥면만
+    output_prefix: "impact/bottom_stress"
+
+  - name: "Bottom Impact Strain"
+    type: surface_strain
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 30.0
+    output_prefix: "impact/bottom_strain"
+
+  # ========================================
+  # 2. 제품 전체 운동
+  # ========================================
+  - name: "Product Motion"
+    type: part_motion
+    parts: []  # 모든 파트
+    quantities:
+      - avg_displacement
+      - avg_velocity
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "motion/product"
+
+  # ========================================
+  # 3. 케이스별 운동
+  # ========================================
+  - name: "Top Case Motion"
+    type: part_motion
+    parts: [1]
+    quantities:
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "motion/top_case"
+
+  - name: "Bottom Case Motion"
+    type: part_motion
+    parts: [2]
+    quantities:
+      - avg_acceleration
+      - max_displacement
+    output_prefix: "motion/bottom_case"
+
+  # ========================================
+  # 4. 내부 부품 응력
+  # ========================================
+  - name: "PCB Stress"
+    type: von_mises
+    parts: [10, 11, 12]  # PCB parts
+    output_prefix: "stress/pcb"
+
+  - name: "Battery Stress"
+    type: von_mises
+    parts: [20]
+    output_prefix: "stress/battery"
+
+  - name: "Connector Stress"
+    type: von_mises
+    parts: [30, 31, 32]
+    output_prefix: "stress/connectors"
+
+  # ========================================
+  # 5. 취약 부위 변형
+  # ========================================
+  - name: "Snap Fit Strain"
+    type: eff_plastic_strain
+    parts: [40, 41, 42, 43]  # Snap-fit features
+    output_prefix: "strain/snap_fit"
+
+  - name: "Thin Wall Strain"
+    type: eff_plastic_strain
+    parts: [50, 51]
+    output_prefix: "strain/thin_wall"
+
+  # ========================================
+  # 6. 종합 분석
+  # ========================================
+  - name: "Critical Components"
+    type: comprehensive
+    parts: [10, 11, 40, 41]
+    quantities:
+      - von_mises
+      - eff_plastic_strain
+      - avg_acceleration
+    output_prefix: "comprehensive/critical"
+
+# ============================================================
+# 렌더링 작업 정의
+# ============================================================
+render_jobs:
+  # ========================================
+  # 1. 메인 단면 애니메이션
+  # ========================================
+  - name: "Main Section Stress"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "drop_section_stress.mp4"
+      fps: 60  # 고속 촬영 효과
+
+  - name: "Main Section Strain"
+    type: section_view
+    fringe: eff_plastic_strain
+    fringe_range:
+      min: 0
+      max: 0.05
+    section:
+      axis: z
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "drop_section_strain.mp4"
+      fps: 60
+
+  # ========================================
+  # 2. 충격 순간 스냅샷
+  # ========================================
+  - name: "Impact Sequence"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: center
+    states: [0, 5, 10, 15, 20, 25, 30, 40, 50, 100]  # 충격 직후
+    output:
+      format: png
+      directory: "impact_sequence/"
+      filename_pattern: "impact_{state}.png"
+      resolution: [1920, 1080]
+
+  # ========================================
+  # 3. 바닥면 접촉 뷰
+  # ========================================
+  - name: "Bottom View"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: z
+      position: edge_min  # 바닥 경계
+    states: all
+    output:
+      format: mp4
+      filename: "bottom_view_stress.mp4"
+      fps: 60
+
+  # ========================================
+  # 4. 내부 부품 단면
+  # ========================================
+  - name: "Internal Section"
+    type: section_view
+    fringe: von_mises
+    section:
+      axis: y
+      position: center
+    states: all
+    output:
+      format: mp4
+      filename: "internal_section.mp4"
+      fps: 60
