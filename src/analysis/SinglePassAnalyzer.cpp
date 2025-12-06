@@ -89,7 +89,7 @@ AnalysisResult SinglePassAnalyzer::analyzeParallel(
     std::atomic<size_t> completed_states{0};
 
     #pragma omp parallel for schedule(dynamic, 1)
-    for (size_t state_idx = 0; state_idx < num_states; ++state_idx) {
+    for (int64_t state_idx = 0; state_idx < static_cast<int64_t>(num_states); ++state_idx) {
         const data::StateData& state = all_states[state_idx];
 
         // Analyze parts (sequential within thread)
@@ -379,7 +379,7 @@ void SinglePassAnalyzer::analyzePartStats(
         auto& local_stats = thread_stats[tid];
 
         #pragma omp for nowait
-        for (size_t elem_idx = 0; elem_idx < num_solid_elements_; ++elem_idx) {
+        for (int64_t elem_idx = 0; elem_idx < static_cast<int64_t>(num_solid_elements_); ++elem_idx) {
             if (elem_idx >= elem_to_part_.size()) continue;
 
             int32_t part_id = elem_to_part_[elem_idx];
@@ -527,7 +527,7 @@ void SinglePassAnalyzer::analyzeSurfaceStats(
             auto& local_stats = thread_stats[tid];
 
             #pragma omp for nowait
-            for (size_t fi = 0; fi < faces.size(); ++fi) {
+            for (int64_t fi = 0; fi < static_cast<int64_t>(faces.size()); ++fi) {
                 const auto& face = faces[fi];
 
                 // Get element index
