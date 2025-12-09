@@ -121,6 +121,13 @@ PROGRESS.md
 USAGE.md
 BUILD.md
 
+# Keep important documentation
+!COMPREHENSIVE_YAML_GUIDE.md
+!KOOD3PLOT_V3_QUICKREF.md
+!KOOD3PLOT_CLI_*.md
+!V2_VS_V3_COMPARISON.md
+!PENDING_FEATURES.md
+
 # Sample results directories
 sample_results/
 sample_results_old/
