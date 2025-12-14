@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="KooD3plotViewer.Views.VeldridView"
+             Background="#252526"
+             Focusable="True">
+    <!-- Placeholder for 3D viewport - will use software rendering initially -->
+    <Border x:Name="RenderTarget">
+        <TextBlock Text="3D Viewport (Initializing...)"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="#666666"
+                   x:Name="StatusText"/>
+    </Border>
+</UserControl>

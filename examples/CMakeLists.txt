@@ -180,6 +180,44 @@ install(TARGETS full_extraction_example
 )
 
 # ============================================================
+# Phase 1: HDF5 Quantization System Examples
+# ============================================================
+if(KOOD3PLOT_BUILD_HDF5 AND HDF5_FOUND)
+    message(STATUS "Building Phase 1 HDF5 examples")
+
+    # Week 1: Basic HDF5 export
+    add_executable(01_basic_hdf5_export 01_basic_hdf5_export.cpp)
+    target_link_libraries(01_basic_hdf5_export
+        PRIVATE
+            kood3plot_hdf5
+            kood3plot
+    )
+    target_include_directories(01_basic_hdf5_export
+        PRIVATE
+            ${HDF5_INCLUDE_DIRS}
+    )
+
+    # Week 2: HDF5 benchmark (compression + quantization)
+    add_executable(02_hdf5_benchmark 02_hdf5_benchmark.cpp)
+    target_link_libraries(02_hdf5_benchmark
+        PRIVATE
+            kood3plot_hdf5
+            kood3plot
+    )
+    target_include_directories(02_hdf5_benchmark
+        PRIVATE
+            ${HDF5_INCLUDE_DIRS}
+    )
+
+    # Install Phase 1 examples
+    install(TARGETS 01_basic_hdf5_export 02_hdf5_benchmark
+        RUNTIME DESTINATION bin/examples
+    )
+
+    message(STATUS "Phase 1 HDF5 examples configured")
+endif()
+
+# ============================================================
 # V4 Render System Examples
 # ============================================================
 if(KOOD3PLOT_BUILD_V4_RENDER)

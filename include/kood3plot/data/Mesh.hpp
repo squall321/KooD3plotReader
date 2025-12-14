@@ -7,6 +7,10 @@
 namespace kood3plot {
 namespace data {
 
+// Re-export types from kood3plot namespace
+using kood3plot::Node;
+using kood3plot::Element;
+
 /**
  * @brief Mesh geometry data structure
  */

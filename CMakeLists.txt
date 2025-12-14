@@ -15,8 +15,116 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(KOOD3PLOT_BUILD_TESTS "Build unit tests" ON)
 option(KOOD3PLOT_BUILD_EXAMPLES "Build example programs" ON)
 option(KOOD3PLOT_BUILD_V3_QUERY "Build V3 Query System" ON)
+option(KOOD3PLOT_BUILD_HDF5 "Build HDF5 quantization system (Phase 1)" ON)
 option(KOOD3PLOT_ENABLE_OPENMP "Enable OpenMP parallelization" ON)
 option(KOOD3PLOT_ENABLE_SIMD "Enable SIMD optimizations" ON)
+option(KOOD3PLOT_USE_LOCAL_DEPS "Use local dependencies from deps/ folder" OFF)
+
+# ============================================================
+# Local Dependencies Setup (like Python venv)
+# ============================================================
+# Detect triplet for local deps folder
+if(WIN32)
+    set(KOOD3PLOT_TRIPLET "x64-windows")
+elseif(APPLE)
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        set(KOOD3PLOT_TRIPLET "arm64-osx")
+    else()
+        set(KOOD3PLOT_TRIPLET "x64-osx")
+    endif()
+else()
+    set(KOOD3PLOT_TRIPLET "x64-linux")
+endif()
+
+set(KOOD3PLOT_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/${KOOD3PLOT_TRIPLET}")
+
+# Auto-detect: if deps/ exists, use it automatically
+if(EXISTS "${KOOD3PLOT_DEPS_DIR}/include" AND NOT DEFINED KOOD3PLOT_USE_LOCAL_DEPS)
+    message(STATUS "Local dependencies detected at: ${KOOD3PLOT_DEPS_DIR}")
+    set(KOOD3PLOT_USE_LOCAL_DEPS ON)
+endif()
+
+# Configure local dependencies paths
+if(KOOD3PLOT_USE_LOCAL_DEPS AND EXISTS "${KOOD3PLOT_DEPS_DIR}")
+    message(STATUS "========================================")
+    message(STATUS " Using LOCAL dependencies (like venv)")
+    message(STATUS "   Path: ${KOOD3PLOT_DEPS_DIR}")
+    message(STATUS "========================================")
+
+    # Set CMake prefix path to find packages in local deps
+    list(INSERT CMAKE_PREFIX_PATH 0 "${KOOD3PLOT_DEPS_DIR}")
+    list(INSERT CMAKE_PREFIX_PATH 0 "${KOOD3PLOT_DEPS_DIR}/share")
+
+    # Include directories
+    include_directories(BEFORE "${KOOD3PLOT_DEPS_DIR}/include")
+
+    # Library directories
+    link_directories(BEFORE "${KOOD3PLOT_DEPS_DIR}/lib")
+    if(WIN32)
+        link_directories(BEFORE "${KOOD3PLOT_DEPS_DIR}/bin")
+    endif()
+
+    # Set HDF5 hints for find_package
+    set(HDF5_ROOT "${KOOD3PLOT_DEPS_DIR}")
+    set(ENV{HDF5_ROOT} "${KOOD3PLOT_DEPS_DIR}")
+
+    # Set yaml-cpp hints
+    set(yaml-cpp_DIR "${KOOD3PLOT_DEPS_DIR}/share/yaml-cpp")
+
+    # Set blosc hints
+    set(blosc_DIR "${KOOD3PLOT_DEPS_DIR}/share/blosc")
+
+    # Set GTest hints
+    set(GTest_DIR "${KOOD3PLOT_DEPS_DIR}/share/gtest")
+
+    # For Windows, copy DLLs to output directory
+    if(WIN32)
+        file(GLOB KOOD3PLOT_DEP_DLLS "${KOOD3PLOT_DEPS_DIR}/bin/*.dll")
+        if(KOOD3PLOT_DEP_DLLS)
+            message(STATUS "Found ${CMAKE_COMMAND} DLLs to copy: ${KOOD3PLOT_DEP_DLLS}")
+        endif()
+    endif()
+
+elseif(KOOD3PLOT_USE_LOCAL_DEPS)
+    message(WARNING "Local deps requested but not found at: ${KOOD3PLOT_DEPS_DIR}")
+    message(WARNING "Run: scripts/copy_dependencies.bat (Windows) or scripts/copy_dependencies.sh (Linux/macOS)")
+    set(KOOD3PLOT_USE_LOCAL_DEPS OFF)
+endif()
+
+# ============================================================
+# Find Dependencies
+# ============================================================
+if(KOOD3PLOT_BUILD_HDF5)
+    # HDF5 with C++ bindings (required for Phase 1)
+    find_package(HDF5 COMPONENTS CXX)
+    if(HDF5_FOUND)
+        message(STATUS "HDF5 found: ${HDF5_VERSION}")
+        message(STATUS "HDF5 include dirs: ${HDF5_INCLUDE_DIRS}")
+        message(STATUS "HDF5 libraries: ${HDF5_CXX_LIBRARIES}")
+    else()
+        message(WARNING "HDF5 not found - HDF5 quantization system will be disabled")
+        message(WARNING "Install via vcpkg: vcpkg install hdf5[cpp]:x64-windows")
+        set(KOOD3PLOT_BUILD_HDF5 OFF)
+    endif()
+
+    # yaml-cpp for configuration files (required for Phase 1)
+    find_package(yaml-cpp CONFIG)
+    if(yaml-cpp_FOUND)
+        message(STATUS "yaml-cpp found")
+    else()
+        message(WARNING "yaml-cpp not found - Configuration file support will be limited")
+        message(WARNING "Install via vcpkg: vcpkg install yaml-cpp:x64-windows")
+    endif()
+
+    # Blosc compression (optional, for enhanced HDF5 compression)
+    find_package(blosc CONFIG)
+    if(blosc_FOUND)
+        message(STATUS "blosc found - Enhanced HDF5 compression enabled")
+    else()
+        message(STATUS "blosc not found - Using standard HDF5 compression")
+        message(STATUS "Optional: Install via vcpkg install blosc:x64-windows")
+    endif()
+endif()
 
 # Find OpenMP
 if(KOOD3PLOT_ENABLE_OPENMP)
@@ -303,6 +411,115 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
     )
 
     message(STATUS "V4 Render System library configured")
+endif()
+
+# ============================================================
+# Phase 1: HDF5 Quantization System Library (Optional)
+# ============================================================
+if(KOOD3PLOT_BUILD_HDF5 AND HDF5_FOUND)
+    message(STATUS "Building Phase 1: HDF5 Quantization System")
+
+    # Phase 1 source files
+    set(KOOD3PLOT_HDF5_SOURCES
+        # HDF5 I/O
+        src/hdf5/HDF5Writer.cpp
+        src/hdf5/HDF5Reader.cpp
+
+        # Quantization engine (Week 2)
+        src/quantization/DisplacementQuantizer.cpp
+        src/quantization/VonMisesQuantizer.cpp
+        src/quantization/QuantizationEngine.cpp
+
+        # Temporal delta compression (Week 3)
+        src/compression/TemporalDelta.cpp
+    )
+
+    # Phase 1 header files
+    set(KOOD3PLOT_HDF5_HEADERS
+        # HDF5 I/O
+        include/kood3plot/hdf5/HDF5Writer.hpp
+        include/kood3plot/hdf5/HDF5Reader.hpp
+
+        # Quantization
+        include/kood3plot/quantization/QuantizationConfig.hpp
+        include/kood3plot/quantization/Quantizers.hpp
+
+        # Temporal delta compression
+        include/kood3plot/compression/TemporalDelta.hpp
+    )
+
+    # Create Phase 1 HDF5 library
+    add_library(kood3plot_hdf5 ${KOOD3PLOT_HDF5_SOURCES} ${KOOD3PLOT_HDF5_HEADERS})
+
+    # Include directories
+    target_include_directories(kood3plot_hdf5
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${HDF5_INCLUDE_DIRS}
+    )
+
+    # Link libraries
+    target_link_libraries(kood3plot_hdf5
+        PUBLIC
+            kood3plot
+            ${HDF5_CXX_LIBRARIES}
+    )
+
+    # Link yaml-cpp if found
+    if(yaml-cpp_FOUND)
+        target_link_libraries(kood3plot_hdf5 PUBLIC yaml-cpp)
+        target_compile_definitions(kood3plot_hdf5 PRIVATE HAS_YAML_CPP)
+    endif()
+
+    # Link blosc if found
+    if(blosc_FOUND)
+        target_link_libraries(kood3plot_hdf5 PUBLIC blosc_shared)
+        target_compile_definitions(kood3plot_hdf5 PRIVATE HAS_BLOSC)
+    endif()
+
+    # Link OpenMP if enabled
+    if(KOOD3PLOT_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
+        target_link_libraries(kood3plot_hdf5 PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+
+    # Install Phase 1 library
+    install(TARGETS kood3plot_hdf5
+        EXPORT KooD3plotTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+
+    # Install Phase 1 headers
+    install(DIRECTORY include/kood3plot/hdf5
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+    install(DIRECTORY include/kood3plot/quantization
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+    install(DIRECTORY include/kood3plot/compression
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+
+    # Install profile YAML files (Week 5)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/profiles)
+        install(DIRECTORY profiles/
+            DESTINATION share/kood3plot/profiles
+            FILES_MATCHING PATTERN "*.yaml"
+        )
+    endif()
+
+    message(STATUS "Phase 1 HDF5 Quantization System library configured")
+else()
+    if(KOOD3PLOT_BUILD_HDF5)
+        message(WARNING "Phase 1 HDF5 system disabled - HDF5 not found")
+    endif()
 endif()
 
 # ============================================================

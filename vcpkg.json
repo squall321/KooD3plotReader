@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "kood3plotreader",
+  "version": "1.0.0",
+  "description": "High-performance LS-DYNA d3plot file reader with HDF5 quantization",
+  "homepage": "https://github.com/your-repo/KooD3plotReader",
+  "license": "MIT",
+  "supports": "windows | linux | osx",
+  "dependencies": [
+    {
+      "name": "hdf5",
+      "features": ["cpp"],
+      "platform": "!uwp"
+    },
+    "yaml-cpp",
+    {
+      "name": "blosc",
+      "platform": "!uwp"
+    },
+    "gtest"
+  ],
+  "builtin-baseline": "ceaa2404d370c7a40fcfb11d747a71c9fd1df044",
+  "overrides": [],
+  "features": {
+    "hdf5": {
+      "description": "Enable HDF5 quantization system (Phase 1)",
+      "dependencies": [
+        {
+          "name": "hdf5",
+          "features": ["cpp"]
+        },
+        "yaml-cpp",
+        "blosc"
+      ]
+    },
+    "tests": {
+      "description": "Build unit tests",
+      "dependencies": ["gtest"]
+    }
+  }
+}

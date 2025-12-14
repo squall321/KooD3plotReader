@@ -4,6 +4,11 @@ build-*/
 cmake-build-*/
 out/
 
+# Local dependencies (like Python venv)
+# deps/ 폴더는 프로젝트와 함께 배포할 수 있도록 git에 포함할 수 있음
+# 필요시 아래 주석 해제:
+# deps/
+
 # CMake generated files
 CMakeCache.txt
 CMakeFiles/
@@ -42,10 +47,19 @@ Makefile
 # IDE specific
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
 *~
 .DS_Store
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
 
 # Testing
 Testing/
@@ -138,3 +152,13 @@ unified_output/
 
 # Text reports
 *_report.txt
+
+# vcpkg local
+devvcpkg/
+deps/
+
+# Windows temp
+nul
+
+# Claude settings (optional, can include if wanted)
+# .claude/

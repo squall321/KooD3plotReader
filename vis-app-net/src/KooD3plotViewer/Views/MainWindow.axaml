@@ -1,0 +1,161 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:KooD3plotViewer.ViewModels"
+        xmlns:views="using:KooD3plotViewer.Views"
+        x:Class="KooD3plotViewer.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="KooD3plot Viewer"
+        Width="1600" Height="900"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*,120,Auto">
+        <!-- Menu Bar -->
+        <Menu Grid.Row="0">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open HDF5..." Command="{Binding OpenFileCommand}" InputGesture="Ctrl+O"/>
+                <MenuItem Header="Load _Small Test Mesh (125K)" Command="{Binding LoadSmallTestMeshCommand}" InputGesture="Ctrl+T"/>
+                <MenuItem Header="Load Test Mesh (10M)" Command="{Binding LoadTestMeshCommand}"/>
+                <Separator/>
+                <MenuItem Header="_Exit" Command="{Binding ExitCommand}" InputGesture="Alt+F4"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Reset Camera" Command="{Binding ResetCameraCommand}" InputGesture="Home"/>
+                <MenuItem Header="_Fit to Window" Command="{Binding FitToWindowCommand}" InputGesture="F"/>
+                <Separator/>
+                <MenuItem Header="Show _Wireframe" IsChecked="{Binding ShowWireframe}" />
+                <MenuItem Header="Show _Nodes" IsChecked="{Binding ShowNodes}" />
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About" Command="{Binding AboutCommand}"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1" ColumnDefinitions="250,*,250">
+            <!-- Left Panel: Model Tree -->
+            <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" Text="Model Tree" Margin="10,8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
+                    <TreeView Grid.Row="1" ItemsSource="{Binding ModelTreeItems}" Margin="5">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <TextBlock Text="{Binding Name}" />
+                                    <TextBlock Text="{Binding Count, StringFormat='({0})'}" Foreground="#888888"/>
+                                </StackPanel>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </Grid>
+            </Border>
+
+            <!-- Center: 3D Viewport -->
+            <Border Grid.Column="1" Background="#252526">
+                <Grid>
+                    <!-- Veldrid rendering surface will be hosted here -->
+                    <views:VeldridView x:Name="ViewportHost" />
+
+                    <!-- Overlay info -->
+                    <StackPanel Margin="10" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{Binding StatusText}" Foreground="#AAAAAA" FontSize="11"/>
+                        <TextBlock Text="{Binding FpsText}" Foreground="#888888" FontSize="10"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Right Panel: Properties -->
+            <Border Grid.Column="2" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="1,0,0,0">
+                <Grid RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" Text="Properties" Margin="10,8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
+                    <ScrollViewer Grid.Row="1" Margin="5">
+                        <StackPanel Spacing="10">
+                            <!-- Color Scale -->
+                            <Expander Header="Color Scale" IsExpanded="True">
+                                <StackPanel Spacing="5" Margin="5">
+                                    <ComboBox ItemsSource="{Binding ColorScaleOptions}"
+                                              SelectedItem="{Binding SelectedColorScale}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="Min:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Text="{Binding ColorScaleMin}" Width="80"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="Max:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Text="{Binding ColorScaleMax}" Width="80"/>
+                                    </Grid>
+                                    <CheckBox Content="Auto Range" IsChecked="{Binding AutoColorRange}"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <!-- Displacement Scale -->
+                            <Expander Header="Displacement" IsExpanded="True">
+                                <StackPanel Spacing="5" Margin="5">
+                                    <TextBlock Text="{Binding DisplacementScale, StringFormat='Scale: {0:F1}x'}"/>
+                                    <Slider Minimum="0" Maximum="100" Value="{Binding DisplacementScale}"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <!-- Selection Info -->
+                            <Expander Header="Selection" IsExpanded="False">
+                                <StackPanel Spacing="3" Margin="5">
+                                    <TextBlock Text="{Binding SelectedNodeInfo}" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Log Panel -->
+        <Border Grid.Row="2" Background="#0D0D0D" BorderBrush="#3F3F46" BorderThickness="0,1,0,0">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0" Text="Debug Log" Margin="10,5" FontWeight="SemiBold" Foreground="#CCCCCC" FontSize="11"/>
+                <TextBox Grid.Row="1" x:Name="LogTextBox"
+                         Text="{Binding LogText}"
+                         FontFamily="Consolas"
+                         FontSize="10"
+                         Foreground="#AAFFAA"
+                         Background="#0D0D0D"
+                         BorderThickness="0"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         Margin="10,0,10,5"/>
+            </Grid>
+        </Border>
+
+        <!-- Bottom: Timeline -->
+        <Border Grid.Row="3" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="10">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Playback Controls -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                    <Button Content="⏮" Command="{Binding FirstFrameCommand}" Width="30"/>
+                    <Button Content="⏪" Command="{Binding PrevFrameCommand}" Width="30"/>
+                    <Button Content="{Binding PlayPauseIcon}" Command="{Binding PlayPauseCommand}" Width="40"/>
+                    <Button Content="⏩" Command="{Binding NextFrameCommand}" Width="30"/>
+                    <Button Content="⏭" Command="{Binding LastFrameCommand}" Width="30"/>
+                </StackPanel>
+
+                <!-- Timeline Slider -->
+                <Grid Grid.Column="1" Margin="15,0">
+                    <Slider Minimum="0" Maximum="{Binding MaxTimestep}"
+                            Value="{Binding CurrentTimestep}"
+                            TickFrequency="1" IsSnapToTickEnabled="True"/>
+                </Grid>
+
+                <!-- Time Display -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding CurrentTime, StringFormat='Time: {0:F4} s'}"
+                               FontFamily="Consolas" Foreground="#AAAAAA"/>
+                    <TextBlock Text="{Binding CurrentTimestep, StringFormat='Frame: {0}'}"
+                               FontFamily="Consolas" Foreground="#888888"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
