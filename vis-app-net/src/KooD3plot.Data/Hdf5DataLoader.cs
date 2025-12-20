@@ -61,6 +61,9 @@ public class Hdf5DataLoader : IDisposable
 
     public Hdf5DataLoader(string filePath)
     {
+        // Initialize cross-platform HDF5 library loading
+        Hdf5NativeLoader.Initialize();
+
         _filePath = filePath;
         Open();
     }

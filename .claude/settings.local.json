@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"dir /s /b c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\build\\*.h5 2>nul\")",
+      "Bash(taskkill:*)",
+      "Bash(dotnet build:*)",
+      "Bash(cmd /c \"cd /d c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\vis-app-net\\src\\KooD3plotViewer && dotnet build 2>&1\")",
+      "Bash(powershell -Command \"cd 'c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\vis-app-net\\src\\KooD3plotViewer'; dotnet build 2>&1\":*)",
+      "Bash(powershell -Command \"Start-Process ''c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\vis-app-net\\src\\KooD3plotViewer\\bin\\Debug\\net8.0\\KooD3plotViewer.exe''\")",
+      "Bash(powershell -Command \"Get-Process KooD3plotViewer -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500; cd ''c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\vis-app-net\\src\\KooD3plotViewer''; dotnet build -v q 2>&1 | Select-String -Pattern ''error|warning :|Build''; Start-Process ''bin\\Debug\\net8.0\\KooD3plotViewer.exe''\")",
+      "Bash(powershell -Command \"Get-Process KooD3plotViewer -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500; cd ''c:\\Users\\squal\\Documents\\Projects\\KooD3plotReader\\vis-app-net\\src\\KooD3plotViewer''; Start-Process ''bin\\Debug\\net8.0\\KooD3plotViewer.exe''\")",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(powershell -Command:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

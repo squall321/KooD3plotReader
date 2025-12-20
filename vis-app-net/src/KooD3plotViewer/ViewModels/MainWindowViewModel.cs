@@ -29,6 +29,18 @@ public class MainWindowViewModel : ReactiveObject
     private string _selectedNodeInfo = "No selection";
     private string _logText = "";
 
+    // Clip plane settings
+    private bool _clipXEnabled;
+    private bool _clipYEnabled;
+    private bool _clipZEnabled;
+    private double _clipXValue = 0.5;
+    private double _clipYValue = 0.5;
+    private double _clipZValue = 0.5;
+    private bool _clipXInvert;
+    private bool _clipYInvert;
+    private bool _clipZInvert;
+    private bool _showClipCap = true;
+
     private Hdf5DataLoader? _dataLoader;
 
     public MainWindowViewModel()
@@ -52,14 +64,16 @@ public class MainWindowViewModel : ReactiveObject
         ModelTreeItems = new ObservableCollection<TreeItemViewModel>();
         ColorScaleOptions = new ObservableCollection<string>
         {
-            "Von Mises Stress",
-            "Displacement Magnitude",
-            "X Displacement",
-            "Y Displacement",
-            "Z Displacement",
-            "Velocity Magnitude",
-            "Plastic Strain"
+            "None (Solid Color)",
+            "Jet (Classic)",
+            "Viridis",
+            "Plasma",
+            "Turbo",
+            "Rainbow",
+            "Cool",
+            "Hot"
         };
+        SelectedColorScale = ColorScaleOptions[1]; // Default to Jet
     }
 
     // Commands
@@ -169,6 +183,67 @@ public class MainWindowViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _logText, value);
     }
 
+    // Clip plane properties
+    public bool ClipXEnabled
+    {
+        get => _clipXEnabled;
+        set => this.RaiseAndSetIfChanged(ref _clipXEnabled, value);
+    }
+
+    public bool ClipYEnabled
+    {
+        get => _clipYEnabled;
+        set => this.RaiseAndSetIfChanged(ref _clipYEnabled, value);
+    }
+
+    public bool ClipZEnabled
+    {
+        get => _clipZEnabled;
+        set => this.RaiseAndSetIfChanged(ref _clipZEnabled, value);
+    }
+
+    public double ClipXValue
+    {
+        get => _clipXValue;
+        set => this.RaiseAndSetIfChanged(ref _clipXValue, value);
+    }
+
+    public double ClipYValue
+    {
+        get => _clipYValue;
+        set => this.RaiseAndSetIfChanged(ref _clipYValue, value);
+    }
+
+    public double ClipZValue
+    {
+        get => _clipZValue;
+        set => this.RaiseAndSetIfChanged(ref _clipZValue, value);
+    }
+
+    public bool ClipXInvert
+    {
+        get => _clipXInvert;
+        set => this.RaiseAndSetIfChanged(ref _clipXInvert, value);
+    }
+
+    public bool ClipYInvert
+    {
+        get => _clipYInvert;
+        set => this.RaiseAndSetIfChanged(ref _clipYInvert, value);
+    }
+
+    public bool ClipZInvert
+    {
+        get => _clipZInvert;
+        set => this.RaiseAndSetIfChanged(ref _clipZInvert, value);
+    }
+
+    public bool ShowClipCap
+    {
+        get => _showClipCap;
+        set => this.RaiseAndSetIfChanged(ref _showClipCap, value);
+    }
+
     public string PlayPauseIcon => _isPlaying ? "⏸" : "▶";
 
     public void AppendLog(string message)
@@ -193,6 +268,9 @@ public class MainWindowViewModel : ReactiveObject
 
     // Event for notifying views about mesh updates
     public event Action<MeshData, StateData?>? MeshDataLoaded;
+
+    // Event for fast state updates (animation) without full mesh reload
+    public event Action<StateData>? StateDataUpdated;
 
     // Command implementations
     private async Task OpenFileAsync()
@@ -373,7 +451,57 @@ public class MainWindowViewModel : ReactiveObject
 
         StatusText = $"Loaded test mesh: {numNodes:N0} nodes, {numElements:N0} elements";
 
-        MeshDataLoaded?.Invoke(mesh, null);
+        // Store mesh for animation and clear HDF5 loader
+        _currentTestMesh = mesh;
+        _dataLoader?.Dispose();
+        _dataLoader = null;
+        _meshLoaded = false; // Reset flag for new mesh
+
+        // Create animated displacement for testing timeline
+        MaxTimestep = 50; // 50 frames
+        CurrentTimestep = 0;
+
+        // Generate test displacement for initial frame (large mesh uses center at 215/2)
+        var state = GenerateTestDisplacementLarge(mesh, 0, 215);
+        MeshDataLoaded?.Invoke(mesh, state);
+        _meshLoaded = true; // Mark as loaded after initial load
+    }
+
+    private StateData GenerateTestDisplacementLarge(MeshData mesh, int timestep, int gridSize)
+    {
+        int numNodes = mesh.NodePositions.Length / 3;
+        var state = new StateData
+        {
+            Time = timestep * 0.01,
+            Displacements = new float[numNodes * 3]
+        };
+
+        float t = timestep / 50.0f; // 0 to 1 over 50 frames
+        float phase = t * MathF.PI * 2; // One full cycle
+        float center = gridSize / 2.0f;
+
+        for (int i = 0; i < numNodes; i++)
+        {
+            float x = mesh.NodePositions[i * 3 + 0];
+            float y = mesh.NodePositions[i * 3 + 1];
+            float z = mesh.NodePositions[i * 3 + 2];
+
+            float dx = x - center;
+            float dy = y - center;
+            float dz = z - center;
+            float dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+
+            // Wave pattern
+            float amplitude = 10.0f * MathF.Sin(phase - dist * 0.1f);
+
+            // Radial displacement
+            float scale = dist > 0.01f ? amplitude / dist : 0;
+            state.Displacements[i * 3 + 0] = dx * scale;
+            state.Displacements[i * 3 + 1] = dy * scale;
+            state.Displacements[i * 3 + 2] = dz * scale;
+        }
+
+        return state;
     }
 
     private void LoadSmallTestMesh()
@@ -456,7 +584,58 @@ public class MainWindowViewModel : ReactiveObject
 
         StatusText = $"Loaded test mesh: {numNodes:N0} nodes, {numElements:N0} elements";
 
-        MeshDataLoaded?.Invoke(mesh, null);
+        // Store mesh for animation and clear HDF5 loader
+        _currentTestMesh = mesh;
+        _dataLoader?.Dispose();
+        _dataLoader = null;
+        _meshLoaded = false; // Reset flag for new mesh
+
+        // Create animated displacement for testing timeline
+        MaxTimestep = 50; // 50 frames
+        CurrentTimestep = 0;
+
+        // Generate test displacement for initial frame
+        var state = GenerateTestDisplacement(mesh, 0);
+        MeshDataLoaded?.Invoke(mesh, state);
+        _meshLoaded = true; // Mark as loaded after initial load
+    }
+
+    private StateData GenerateTestDisplacement(MeshData mesh, int timestep)
+    {
+        int numNodes = mesh.NodePositions.Length / 3;
+        var state = new StateData
+        {
+            Time = timestep * 0.01,
+            Displacements = new float[numNodes * 3]
+        };
+
+        float t = timestep / 50.0f; // 0 to 1 over 50 frames
+        float phase = t * MathF.PI * 2; // One full cycle
+
+        for (int i = 0; i < numNodes; i++)
+        {
+            float x = mesh.NodePositions[i * 3 + 0];
+            float y = mesh.NodePositions[i * 3 + 1];
+            float z = mesh.NodePositions[i * 3 + 2];
+
+            // Center point
+            float cx = 25f, cy = 25f, cz = 25f; // Center of 50x50x50 mesh
+            float dx = x - cx;
+            float dy = y - cy;
+            float dz = z - cz;
+            float dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+
+            // Wave pattern: amplitude varies with time and distance from center
+            float amplitude = 5.0f * MathF.Sin(phase - dist * 0.2f);
+
+            // Radial displacement
+            float scale = dist > 0.01f ? amplitude / dist : 0;
+            state.Displacements[i * 3 + 0] = dx * scale;
+            state.Displacements[i * 3 + 1] = dy * scale;
+            state.Displacements[i * 3 + 2] = dz * scale;
+        }
+
+        return state;
     }
 
     private void TogglePlayPause()
@@ -481,11 +660,55 @@ public class MainWindowViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(PlayPauseIcon));
     }
 
+    private MeshData? _currentTestMesh; // Store test mesh for animation
+    private bool _meshLoaded = false; // Track if mesh has been loaded already
+
     private void OnTimestepChanged()
     {
         if (_dataLoader != null)
         {
             CurrentTime = _dataLoader.GetTimestepTime(CurrentTimestep);
+
+            // Load and update state data for the current timestep
+            try
+            {
+                var stateData = _dataLoader.GetStateData(CurrentTimestep);
+
+                // Use fast update path if mesh already loaded
+                if (_meshLoaded)
+                {
+                    StateDataUpdated?.Invoke(stateData);
+                }
+                else
+                {
+                    // First load: full mesh rebuild
+                    var meshData = _dataLoader.GetMeshData();
+                    MeshDataLoaded?.Invoke(meshData, stateData);
+                    _meshLoaded = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error loading timestep {CurrentTimestep}: {ex.Message}");
+            }
+        }
+        else if (_currentTestMesh != null)
+        {
+            // Test mesh animation
+            CurrentTime = CurrentTimestep * 0.01;
+            var state = GenerateTestDisplacement(_currentTestMesh, CurrentTimestep);
+
+            // Use fast update path if mesh already loaded
+            if (_meshLoaded)
+            {
+                StateDataUpdated?.Invoke(state);
+            }
+            else
+            {
+                // First load: full mesh rebuild
+                MeshDataLoaded?.Invoke(_currentTestMesh, state);
+                _meshLoaded = true;
+            }
         }
     }
 
@@ -497,6 +720,9 @@ public class MainWindowViewModel : ReactiveObject
 
             _dataLoader = new Hdf5DataLoader(filePath);
             var info = _dataLoader.GetFileInfo();
+
+            _currentTestMesh = null; // Clear test mesh
+            _meshLoaded = false; // Reset flag for new file
 
             MaxTimestep = info.NumTimesteps - 1;
             CurrentTimestep = 0;

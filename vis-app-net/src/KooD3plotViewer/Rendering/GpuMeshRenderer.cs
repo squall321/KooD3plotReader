@@ -40,7 +40,41 @@ public class GpuMeshRenderer : IDisposable
         public Vector4 LightDir2;
         public Vector4 LightDir3;
         public Vector4 AmbientColor;
+        // Clip planes: xyz = plane normal direction, w = clip position (0-1 normalized)
+        public Vector4 ClipPlaneX;  // (enabled, invert, min, max) encoded as (sign, value, 0, 0)
+        public Vector4 ClipPlaneY;
+        public Vector4 ClipPlaneZ;
+        public Vector4 ModelBoundsMin;  // For denormalizing clip values
+        public Vector4 ModelBoundsMax;
+        // Color mapping: x=useColorMap, y=colorMapType(0-6), z=scaleMin, w=scaleMax
+        public Vector4 ColorMapSettings;
     }
+
+    // Clip plane settings (set from outside)
+    public bool ClipXEnabled { get; set; }
+    public bool ClipYEnabled { get; set; }
+    public bool ClipZEnabled { get; set; }
+    public float ClipXValue { get; set; } = 0.5f;
+    public float ClipYValue { get; set; } = 0.5f;
+    public float ClipZValue { get; set; } = 0.5f;
+    public bool ClipXInvert { get; set; }
+    public bool ClipYInvert { get; set; }
+    public bool ClipZInvert { get; set; }
+    public bool ShowClipCap { get; set; } = true;
+    public Vector3 ModelBoundsMin { get; set; }
+    public Vector3 ModelBoundsMax { get; set; }
+
+    // Color mapping settings
+    public bool UseColorMap { get; set; } = false;
+    public ColorMap.ColorMapType ColorMapType { get; set; } = ColorMap.ColorMapType.Jet;
+    public float ColorScaleMin { get; set; } = 0f;
+    public float ColorScaleMax { get; set; } = 1000f;
+
+    // Section cap rendering
+    private DeviceBuffer? _capVertexBuffer;
+    private DeviceBuffer? _capIndexBuffer;
+    private uint _capIndexCount;
+    private Pipeline? _capPipeline;
 
     // Vertex structure
     [StructLayout(LayoutKind.Sequential)]
@@ -151,6 +185,7 @@ layout(location = 2) in vec4 Color;
 
 layout(location = 0) out vec3 fsin_Normal;
 layout(location = 1) out vec4 fsin_Color;
+layout(location = 2) out vec3 fsin_WorldPos;
 
 layout(set = 0, binding = 0) uniform UniformBlock
 {
@@ -159,6 +194,12 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir2;
     vec4 LightDir3;
     vec4 AmbientColor;
+    vec4 ClipPlaneX;
+    vec4 ClipPlaneY;
+    vec4 ClipPlaneZ;
+    vec4 ModelBoundsMin;
+    vec4 ModelBoundsMax;
+    vec4 ColorMapSettings;
 };
 
 void main()
@@ -166,6 +207,7 @@ void main()
     gl_Position = WorldViewProjection * vec4(Position, 1.0);
     fsin_Normal = Normal;
     fsin_Color = Color;
+    fsin_WorldPos = Position;
 }
 ";
 
@@ -175,6 +217,7 @@ void main()
 
 layout(location = 0) in vec3 fsin_Normal;
 layout(location = 1) in vec4 fsin_Color;
+layout(location = 2) in vec3 fsin_WorldPos;
 
 layout(location = 0) out vec4 fsout_Color;
 
@@ -185,13 +228,119 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir2;
     vec4 LightDir3;
     vec4 AmbientColor;
+    vec4 ClipPlaneX;  // x=enabled, y=invert, z=value, w=unused
+    vec4 ClipPlaneY;
+    vec4 ClipPlaneZ;
+    vec4 ModelBoundsMin;
+    vec4 ModelBoundsMax;
+    vec4 ColorMapSettings;  // x=useColorMap, y=colorMapType, z=scaleMin, w=scaleMax
 };
+
+// Colormap functions
+vec3 jet(float t) {
+    float r = clamp(1.5 - abs(4.0 * t - 3.0), 0.0, 1.0);
+    float g = clamp(1.5 - abs(4.0 * t - 2.0), 0.0, 1.0);
+    float b = clamp(1.5 - abs(4.0 * t - 1.0), 0.0, 1.0);
+    return vec3(r, g, b);
+}
+
+vec3 viridis(float t) {
+    vec3 c0 = vec3(0.267, 0.005, 0.329);
+    vec3 c1 = vec3(0.127, 0.566, 0.550);
+    vec3 c2 = vec3(0.993, 0.906, 0.144);
+    return (t < 0.5) ? mix(c0, c1, t * 2.0) : mix(c1, c2, (t - 0.5) * 2.0);
+}
+
+vec3 plasma(float t) {
+    vec3 c0 = vec3(0.050, 0.030, 0.529);
+    vec3 c1 = vec3(0.785, 0.225, 0.497);
+    vec3 c2 = vec3(0.940, 0.975, 0.131);
+    return (t < 0.5) ? mix(c0, c1, t * 2.0) : mix(c1, c2, (t - 0.5) * 2.0);
+}
+
+vec3 turbo(float t) {
+    const float r0 = 0.13572138, r1 = 4.61539260, r2 = -42.66032258;
+    const float g0 = 0.09140261, g1 = 2.19418839, g2 = 4.84296658;
+    const float b0 = 0.10667330, b1 = 12.64194608, b2 = -60.58204836;
+    float r = r0 + t * (r1 + t * r2);
+    float g = g0 + t * (g1 + t * g2);
+    float b = b0 + t * (b1 + t * b2);
+    return clamp(vec3(r, g, b), 0.0, 1.0);
+}
+
+vec3 rainbow(float t) {
+    float h = t * 300.0; // 0 to 300 degrees
+    float s = 1.0, v = 1.0;
+    float c = v * s;
+    float x = c * (1.0 - abs(mod(h / 60.0, 2.0) - 1.0));
+    vec3 rgb = (h < 60.0) ? vec3(c, x, 0.0) :
+               (h < 120.0) ? vec3(x, c, 0.0) :
+               (h < 180.0) ? vec3(0.0, c, x) :
+               (h < 240.0) ? vec3(0.0, x, c) : vec3(x, 0.0, c);
+    return rgb + (v - c);
+}
+
+vec3 cool(float t) {
+    return vec3(t, 1.0 - t, 1.0);
+}
+
+vec3 hot(float t) {
+    return vec3(clamp(t * 3.0, 0.0, 1.0),
+                clamp(t * 3.0 - 1.0, 0.0, 1.0),
+                clamp(t * 3.0 - 2.0, 0.0, 1.0));
+}
+
+vec3 applyColorMap(float value, int colorMapType) {
+    if (colorMapType == 0) return jet(value);
+    if (colorMapType == 1) return viridis(value);
+    if (colorMapType == 2) return plasma(value);
+    if (colorMapType == 3) return turbo(value);
+    if (colorMapType == 4) return rainbow(value);
+    if (colorMapType == 5) return cool(value);
+    if (colorMapType == 6) return hot(value);
+    return jet(value);
+}
 
 void main()
 {
-    vec3 normal = normalize(fsin_Normal);
+    // Clip plane tests
+    vec3 boundsSize = ModelBoundsMax.xyz - ModelBoundsMin.xyz;
 
-    // Multi-directional lighting
+    // X clip plane
+    if (ClipPlaneX.x > 0.5) {
+        float clipPosX = ModelBoundsMin.x + ClipPlaneX.z * boundsSize.x;
+        bool shouldClip = (ClipPlaneX.y > 0.5) ? (fsin_WorldPos.x > clipPosX) : (fsin_WorldPos.x < clipPosX);
+        if (shouldClip) discard;
+    }
+
+    // Y clip plane
+    if (ClipPlaneY.x > 0.5) {
+        float clipPosY = ModelBoundsMin.y + ClipPlaneY.z * boundsSize.y;
+        bool shouldClip = (ClipPlaneY.y > 0.5) ? (fsin_WorldPos.y > clipPosY) : (fsin_WorldPos.y < clipPosY);
+        if (shouldClip) discard;
+    }
+
+    // Z clip plane
+    if (ClipPlaneZ.x > 0.5) {
+        float clipPosZ = ModelBoundsMin.z + ClipPlaneZ.z * boundsSize.z;
+        bool shouldClip = (ClipPlaneZ.y > 0.5) ? (fsin_WorldPos.z > clipPosZ) : (fsin_WorldPos.z < clipPosZ);
+        if (shouldClip) discard;
+    }
+
+    // Determine final color
+    vec3 baseColor;
+    if (ColorMapSettings.x > 0.5) {
+        // Use colormap: vertex color's alpha channel stores the scalar value (0-1 normalized)
+        float scalarValue = fsin_Color.a;
+        int colorMapType = int(ColorMapSettings.y);
+        baseColor = applyColorMap(scalarValue, colorMapType);
+    } else {
+        // Use vertex color
+        baseColor = fsin_Color.rgb;
+    }
+
+    // Apply lighting
+    vec3 normal = normalize(fsin_Normal);
     float diffuse1 = max(0.0, dot(normal, LightDir1.xyz));
     float diffuse2 = max(0.0, dot(normal, LightDir2.xyz));
     float diffuse3 = abs(dot(normal, LightDir3.xyz));
@@ -199,8 +348,8 @@ void main()
     float lighting = AmbientColor.w + diffuse1 * 0.5 + diffuse2 * 0.2 + diffuse3 * 0.15;
     lighting = clamp(lighting, 0.1, 1.0);
 
-    vec3 litColor = fsin_Color.rgb * lighting;
-    fsout_Color = vec4(litColor, fsin_Color.a);
+    vec3 litColor = baseColor * lighting;
+    fsout_Color = vec4(litColor, 1.0);
 }
 ";
 
@@ -277,7 +426,7 @@ void main()
         // Create vertex buffer
         _vertexBuffer = factory.CreateBuffer(new BufferDescription(
             (uint)(vertices.Length * VertexPositionNormalColor.SizeInBytes),
-            BufferUsage.VertexBuffer));
+            BufferUsage.VertexBuffer | BufferUsage.Dynamic));
         _graphicsDevice.UpdateBuffer(_vertexBuffer, 0, vertices);
 
         // Create index buffer
@@ -289,6 +438,59 @@ void main()
         _indexCount = (uint)indices.Length;
 
         Log($"GPU mesh uploaded: {vertices.Length} verts, {indices.Length / 3} tris");
+    }
+
+    /// <summary>
+    /// Fast update of existing vertex buffer without recreating it (for animation)
+    /// </summary>
+    public void UpdateVertexData(VertexPositionNormalColor[] vertices)
+    {
+        if (_graphicsDevice == null || _vertexBuffer == null) return;
+
+        // Only update if vertex count matches existing buffer
+        if (vertices.Length * VertexPositionNormalColor.SizeInBytes != _vertexBuffer.SizeInBytes)
+        {
+            Log($"WARNING: UpdateVertexData size mismatch - falling back to full upload");
+            return;
+        }
+
+        _graphicsDevice.UpdateBuffer(_vertexBuffer, 0, vertices);
+    }
+
+    /// <summary>
+    /// Upload section cap mesh for clip plane visualization
+    /// </summary>
+    public void UploadSectionCap(VertexPositionNormalColor[] vertices, uint[] indices)
+    {
+        if (_graphicsDevice == null || !ShowClipCap) return;
+
+        var factory = _graphicsDevice.ResourceFactory;
+
+        // Dispose old cap buffers
+        _capVertexBuffer?.Dispose();
+        _capIndexBuffer?.Dispose();
+
+        if (vertices.Length == 0 || indices.Length == 0)
+        {
+            _capIndexCount = 0;
+            return;
+        }
+
+        // Create cap vertex buffer
+        _capVertexBuffer = factory.CreateBuffer(new BufferDescription(
+            (uint)(vertices.Length * VertexPositionNormalColor.SizeInBytes),
+            BufferUsage.VertexBuffer));
+        _graphicsDevice.UpdateBuffer(_capVertexBuffer, 0, vertices);
+
+        // Create cap index buffer
+        _capIndexBuffer = factory.CreateBuffer(new BufferDescription(
+            (uint)(indices.Length * sizeof(uint)),
+            BufferUsage.IndexBuffer));
+        _graphicsDevice.UpdateBuffer(_capIndexBuffer, 0, indices);
+
+        _capIndexCount = (uint)indices.Length;
+
+        Log($"Section cap uploaded: {vertices.Length} verts, {indices.Length / 3} tris");
     }
 
     public void Render(Matrix4x4 worldViewProjection, uint[] outputPixels)
@@ -305,7 +507,15 @@ void main()
             LightDir1 = new Vector4(Vector3.Normalize(new Vector3(0.5f, 1.0f, 0.8f)), 0),
             LightDir2 = new Vector4(Vector3.Normalize(new Vector3(-0.5f, -0.3f, -0.8f)), 0),
             LightDir3 = new Vector4(Vector3.Normalize(new Vector3(0.0f, 0.0f, 1.0f)), 0),
-            AmbientColor = new Vector4(0.15f, 0.15f, 0.15f, 0.15f)  // w = ambient intensity
+            AmbientColor = new Vector4(0.15f, 0.15f, 0.15f, 0.15f),  // w = ambient intensity
+            // Clip planes: x=enabled, y=invert, z=value (0-1), w=unused
+            ClipPlaneX = new Vector4(ClipXEnabled ? 1f : 0f, ClipXInvert ? 1f : 0f, ClipXValue, 0),
+            ClipPlaneY = new Vector4(ClipYEnabled ? 1f : 0f, ClipYInvert ? 1f : 0f, ClipYValue, 0),
+            ClipPlaneZ = new Vector4(ClipZEnabled ? 1f : 0f, ClipZInvert ? 1f : 0f, ClipZValue, 0),
+            ModelBoundsMin = new Vector4(ModelBoundsMin, 0),
+            ModelBoundsMax = new Vector4(ModelBoundsMax, 0),
+            // Color mapping: x=useColorMap, y=colorMapType(0-6), z=scaleMin, w=scaleMax
+            ColorMapSettings = new Vector4(UseColorMap ? 1f : 0f, (float)ColorMapType, ColorScaleMin, ColorScaleMax)
         };
 
         _graphicsDevice.UpdateBuffer(_uniformBuffer, 0, uniforms);
@@ -324,8 +534,18 @@ void main()
         _commandList.SetIndexBuffer(_indexBuffer, IndexFormat.UInt32);
         _commandList.SetGraphicsResourceSet(0, _resourceSet);
 
-        // Draw
+        // Draw main mesh
         _commandList.DrawIndexed(_indexCount, 1, 0, 0, 0);
+
+        // Draw clip plane caps (if enabled and caps are available)
+        if (ShowClipCap && _capPipeline != null && _capVertexBuffer != null && _capIndexBuffer != null && _capIndexCount > 0)
+        {
+            _commandList.SetPipeline(_capPipeline);
+            _commandList.SetVertexBuffer(0, _capVertexBuffer);
+            _commandList.SetIndexBuffer(_capIndexBuffer, IndexFormat.UInt32);
+            _commandList.SetGraphicsResourceSet(0, _resourceSet);
+            _commandList.DrawIndexed(_capIndexCount, 1, 0, 0, 0);
+        }
 
         // Copy to staging texture for readback
         if (_offscreenColor != null && _stagingTexture != null)
@@ -396,14 +616,223 @@ void main()
         }
     }
 
+    /// <summary>
+    /// Update clip cap geometry based on current clip plane settings.
+    /// Creates quad planes at the clip positions to show the cross-section.
+    /// </summary>
+    public void UpdateClipCaps()
+    {
+        if (_graphicsDevice == null || !_isInitialized) return;
+
+        var vertices = new System.Collections.Generic.List<VertexPositionNormalColor>();
+        var indices = new System.Collections.Generic.List<uint>();
+
+        var boundsSize = ModelBoundsMax - ModelBoundsMin;
+        var capColor = new Vector4(0.8f, 0.5f, 0.3f, 1.0f); // Orange-ish color for caps
+
+        // X clip plane cap
+        if (ClipXEnabled && boundsSize.X > 0.001f)
+        {
+            float x = ModelBoundsMin.X + ClipXValue * boundsSize.X;
+            var normal = ClipXInvert ? new Vector3(1, 0, 0) : new Vector3(-1, 0, 0);
+            uint baseIndex = (uint)vertices.Count;
+
+            // Quad vertices (slightly expanded to avoid z-fighting)
+            float expand = 0.001f;
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(x, ModelBoundsMin.Y - expand, ModelBoundsMin.Z - expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(x, ModelBoundsMax.Y + expand, ModelBoundsMin.Z - expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(x, ModelBoundsMax.Y + expand, ModelBoundsMax.Z + expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(x, ModelBoundsMin.Y - expand, ModelBoundsMax.Z + expand), Normal = normal, Color = capColor });
+
+            // Two triangles for quad
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 1); indices.Add(baseIndex + 2);
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 2); indices.Add(baseIndex + 3);
+        }
+
+        // Y clip plane cap
+        if (ClipYEnabled && boundsSize.Y > 0.001f)
+        {
+            float y = ModelBoundsMin.Y + ClipYValue * boundsSize.Y;
+            var normal = ClipYInvert ? new Vector3(0, 1, 0) : new Vector3(0, -1, 0);
+            uint baseIndex = (uint)vertices.Count;
+
+            float expand = 0.001f;
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMin.X - expand, y, ModelBoundsMin.Z - expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMax.X + expand, y, ModelBoundsMin.Z - expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMax.X + expand, y, ModelBoundsMax.Z + expand), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMin.X - expand, y, ModelBoundsMax.Z + expand), Normal = normal, Color = capColor });
+
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 1); indices.Add(baseIndex + 2);
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 2); indices.Add(baseIndex + 3);
+        }
+
+        // Z clip plane cap
+        if (ClipZEnabled && boundsSize.Z > 0.001f)
+        {
+            float z = ModelBoundsMin.Z + ClipZValue * boundsSize.Z;
+            var normal = ClipZInvert ? new Vector3(0, 0, 1) : new Vector3(0, 0, -1);
+            uint baseIndex = (uint)vertices.Count;
+
+            float expand = 0.001f;
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMin.X - expand, ModelBoundsMin.Y - expand, z), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMax.X + expand, ModelBoundsMin.Y - expand, z), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMax.X + expand, ModelBoundsMax.Y + expand, z), Normal = normal, Color = capColor });
+            vertices.Add(new VertexPositionNormalColor { Position = new Vector3(ModelBoundsMin.X - expand, ModelBoundsMax.Y + expand, z), Normal = normal, Color = capColor });
+
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 1); indices.Add(baseIndex + 2);
+            indices.Add(baseIndex + 0); indices.Add(baseIndex + 2); indices.Add(baseIndex + 3);
+        }
+
+        if (vertices.Count == 0)
+        {
+            _capIndexCount = 0;
+            return;
+        }
+
+        var factory = _graphicsDevice.ResourceFactory;
+
+        // Dispose old buffers
+        _capVertexBuffer?.Dispose();
+        _capIndexBuffer?.Dispose();
+
+        // Create new buffers
+        _capVertexBuffer = factory.CreateBuffer(new BufferDescription(
+            (uint)(vertices.Count * VertexPositionNormalColor.SizeInBytes),
+            BufferUsage.VertexBuffer));
+        _graphicsDevice.UpdateBuffer(_capVertexBuffer, 0, vertices.ToArray());
+
+        _capIndexBuffer = factory.CreateBuffer(new BufferDescription(
+            (uint)(indices.Count * sizeof(uint)),
+            BufferUsage.IndexBuffer));
+        _graphicsDevice.UpdateBuffer(_capIndexBuffer, 0, indices.ToArray());
+
+        _capIndexCount = (uint)indices.Count;
+
+        // Create cap pipeline if not exists (uses same shaders but with different culling)
+        if (_capPipeline == null && _resourceLayout != null)
+        {
+            CreateCapPipeline();
+        }
+    }
+
+    private void CreateCapPipeline()
+    {
+        if (_graphicsDevice == null || _resourceLayout == null || _framebuffer == null) return;
+
+        var factory = _graphicsDevice.ResourceFactory;
+
+        // Cap shader - simple flat color with lighting, no clipping (shows the cap itself)
+        string capVertexCode = @"
+#version 450
+
+layout(location = 0) in vec3 Position;
+layout(location = 1) in vec3 Normal;
+layout(location = 2) in vec4 Color;
+
+layout(location = 0) out vec3 fsin_Normal;
+layout(location = 1) out vec4 fsin_Color;
+
+layout(set = 0, binding = 0) uniform UniformBlock
+{
+    mat4 WorldViewProjection;
+    vec4 LightDir1;
+    vec4 LightDir2;
+    vec4 LightDir3;
+    vec4 AmbientColor;
+    vec4 ClipPlaneX;
+    vec4 ClipPlaneY;
+    vec4 ClipPlaneZ;
+    vec4 ModelBoundsMin;
+    vec4 ModelBoundsMax;
+};
+
+void main()
+{
+    gl_Position = WorldViewProjection * vec4(Position, 1.0);
+    fsin_Normal = Normal;
+    fsin_Color = Color;
+}
+";
+
+        string capFragmentCode = @"
+#version 450
+
+layout(location = 0) in vec3 fsin_Normal;
+layout(location = 1) in vec4 fsin_Color;
+
+layout(location = 0) out vec4 fsout_Color;
+
+layout(set = 0, binding = 0) uniform UniformBlock
+{
+    mat4 WorldViewProjection;
+    vec4 LightDir1;
+    vec4 LightDir2;
+    vec4 LightDir3;
+    vec4 AmbientColor;
+    vec4 ClipPlaneX;
+    vec4 ClipPlaneY;
+    vec4 ClipPlaneZ;
+    vec4 ModelBoundsMin;
+    vec4 ModelBoundsMax;
+};
+
+void main()
+{
+    vec3 normal = normalize(fsin_Normal);
+    float lighting = AmbientColor.w + abs(dot(normal, LightDir1.xyz)) * 0.6;
+    lighting = clamp(lighting, 0.3, 1.0);
+
+    vec3 litColor = fsin_Color.rgb * lighting;
+    fsout_Color = vec4(litColor, fsin_Color.a);
+}
+";
+
+        var vertexShaderDesc = new ShaderDescription(ShaderStages.Vertex,
+            System.Text.Encoding.UTF8.GetBytes(capVertexCode), "main");
+        var fragmentShaderDesc = new ShaderDescription(ShaderStages.Fragment,
+            System.Text.Encoding.UTF8.GetBytes(capFragmentCode), "main");
+
+        var shaders = factory.CreateFromSpirv(vertexShaderDesc, fragmentShaderDesc);
+
+        var pipelineDesc = new GraphicsPipelineDescription
+        {
+            BlendState = BlendStateDescription.SingleOverrideBlend,
+            DepthStencilState = new DepthStencilStateDescription(
+                depthTestEnabled: true,
+                depthWriteEnabled: true,
+                comparisonKind: ComparisonKind.LessEqual),
+            RasterizerState = new RasterizerStateDescription(
+                cullMode: FaceCullMode.None,  // Show both sides of cap
+                fillMode: PolygonFillMode.Solid,
+                frontFace: FrontFace.CounterClockwise,
+                depthClipEnabled: true,
+                scissorTestEnabled: false),
+            PrimitiveTopology = PrimitiveTopology.TriangleList,
+            ResourceLayouts = new[] { _resourceLayout },
+            ShaderSet = new ShaderSetDescription(
+                vertexLayouts: new[] { new VertexLayoutDescription(
+                    new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                    new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3),
+                    new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float4))
+                },
+                shaders: shaders),
+            Outputs = _framebuffer.OutputDescription
+        };
+
+        _capPipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+    }
+
     public void Dispose()
     {
         _pipeline?.Dispose();
+        _capPipeline?.Dispose();
         _resourceSet?.Dispose();
         _resourceLayout?.Dispose();
         _uniformBuffer?.Dispose();
         _vertexBuffer?.Dispose();
         _indexBuffer?.Dispose();
+        _capVertexBuffer?.Dispose();
+        _capIndexBuffer?.Dispose();
         _framebuffer?.Dispose();
         _offscreenColor?.Dispose();
         _offscreenDepth?.Dispose();

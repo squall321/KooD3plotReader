@@ -1,4 +1,6 @@
-# KooD3plotReader - Windows 빌드 및 실행 가이드
+# KooD3plotReader - 빌드 및 실행 가이드
+
+> **크로스플랫폼 지원**: Windows, Linux, macOS
 
 ## 빠른 시작
 
@@ -28,11 +30,39 @@ cd c:\Users\squal\Documents\Projects\KooD3plotReader
 
 ### 필수 요구사항
 
+#### Windows
+
 | 컴포넌트 | 버전 | 설치 방법 |
 |---------|------|----------|
 | .NET SDK | 8.0+ | https://dotnet.microsoft.com/download |
 | Visual Studio | 2019+ | https://visualstudio.microsoft.com |
 | vcpkg | latest | `git clone https://github.com/microsoft/vcpkg.git` |
+
+#### Linux (Ubuntu/Debian)
+
+| 컴포넌트 | 버전 | 설치 방법 |
+|---------|------|----------|
+| .NET SDK | 8.0+ | `sudo apt install dotnet-sdk-8.0` |
+| HDF5 | 1.10+ | `sudo apt install libhdf5-dev` |
+| Vulkan | latest | `sudo apt install libvulkan1 mesa-vulkan-drivers` |
+
+```bash
+# Ubuntu/Debian 전체 설치
+sudo apt update
+sudo apt install dotnet-sdk-8.0 libhdf5-dev libvulkan1 mesa-vulkan-drivers
+```
+
+#### macOS
+
+| 컴포넌트 | 버전 | 설치 방법 |
+|---------|------|----------|
+| .NET SDK | 8.0+ | `brew install dotnet-sdk` |
+| HDF5 | 1.10+ | `brew install hdf5` |
+
+```bash
+# Homebrew로 설치
+brew install dotnet-sdk hdf5
+```
 
 ### .NET 앱 의존성 (자동 복원)
 
@@ -47,7 +77,7 @@ Veldrid.SPIRV 1.0.15
 
 ## 빌드 옵션
 
-### Option A: .NET 시각화 앱만 빌드
+### Option A: .NET 시각화 앱 빌드 (Windows)
 
 ```powershell
 # 프로젝트 폴더로 이동
@@ -65,19 +95,51 @@ dotnet build -c Release
 .\bin\Release\net8.0\KooD3plotViewer.exe
 ```
 
-### Option B: 전체 솔루션 빌드
+### Option B: .NET 시각화 앱 빌드 (Linux)
 
-```powershell
-cd c:\Users\squal\Documents\Projects\KooD3plotReader\vis-app-net
+```bash
+# 프로젝트 폴더로 이동
+cd ~/KooD3plotReader/vis-app-net/src/KooD3plotViewer
+
+# 의존성 복원 + 빌드
+dotnet restore
+dotnet build
+
+# 실행
+dotnet run
+
+# 또는 Release 빌드
+dotnet build -c Release
+./bin/Release/net8.0/KooD3plotViewer
+```
+
+### Option C: .NET 시각화 앱 빌드 (macOS)
+
+```bash
+# 프로젝트 폴더로 이동
+cd ~/KooD3plotReader/vis-app-net/src/KooD3plotViewer
+
+# 의존성 복원 + 빌드
+dotnet restore
+dotnet build
+
+# 실행
+dotnet run
+```
+
+### Option D: 전체 솔루션 빌드 (모든 플랫폼)
+
+```bash
+cd vis-app-net
 
 # 전체 솔루션 빌드
 dotnet build KooD3plotViewer.sln
 
 # 실행
-dotnet run --project src\KooD3plotViewer
+dotnet run --project src/KooD3plotViewer
 ```
 
-### Option C: C++ 라이브러리 빌드 (vcpkg 필요)
+### Option E: C++ 라이브러리 빌드 (Windows, vcpkg 필요)
 
 ```powershell
 cd c:\Users\squal\Documents\Projects\KooD3plotReader
@@ -88,6 +150,18 @@ cd c:\Users\squal\Documents\Projects\KooD3plotReader
 
 # 빌드
 .\build.bat
+```
+
+### Option F: C++ 라이브러리 빌드 (Linux)
+
+```bash
+# 의존성 설치
+sudo apt install cmake g++ libhdf5-dev libyaml-cpp-dev
+
+# 빌드
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 ```
 
 ---
@@ -118,10 +192,10 @@ dotnet run
 
 ## 문제 해결
 
-### 빌드 에러
+### 공통 에러
 
 **"SDK not found"**
-```powershell
+```bash
 # .NET SDK 설치 확인
 dotnet --version
 # 8.0 이상이어야 함
@@ -135,11 +209,63 @@ dotnet --version
 - HDF5 파일 형식 확인 (KooD3plot 형식이어야 함)
 - 로그 패널에서 에러 메시지 확인
 
+### Windows 관련
+
+**"HDF5 DLL not found"**
+- NuGet 패키지가 자동으로 HDF5 DLL을 포함함
+- `dotnet restore` 재실행
+
+### Linux 관련
+
+**"libhdf5.so not found"**
+```bash
+# HDF5 라이브러리 설치
+sudo apt install libhdf5-dev
+
+# 라이브러리 경로 확인
+ldconfig -p | grep hdf5
+```
+
+**"Vulkan not available"**
+```bash
+# Vulkan 드라이버 설치
+sudo apt install libvulkan1 mesa-vulkan-drivers
+
+# NVIDIA의 경우
+sudo apt install nvidia-driver-xxx  # xxx = 버전 번호
+```
+
+**"DISPLAY not set" (SSH 환경)**
+```bash
+# X11 포워딩 사용
+ssh -X user@host
+
+# 또는 DISPLAY 설정
+export DISPLAY=:0
+```
+
+### macOS 관련
+
+**"libhdf5.dylib not found"**
+```bash
+# Homebrew로 HDF5 설치
+brew install hdf5
+
+# 라이브러리 경로 확인
+brew --prefix hdf5
+```
+
 ### 성능 문제
 
 **느린 렌더링**
 - GPU 렌더링이 활성화되었는지 로그 확인
 - "GPU: Vulkan initialized" 또는 "GPU: D3D11 initialized" 메시지 확인
+
+**Linux에서 GPU 백엔드 확인**
+```bash
+# Vulkan 지원 확인
+vulkaninfo | head -20
+```
 
 ---
 

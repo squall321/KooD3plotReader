@@ -1,14 +1,24 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:KooD3plotViewer.Controls"
              x:Class="KooD3plotViewer.Views.VeldridView"
              Background="#252526"
              Focusable="True">
-    <!-- Placeholder for 3D viewport - will use software rendering initially -->
-    <Border x:Name="RenderTarget">
-        <TextBlock Text="3D Viewport (Initializing...)"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Foreground="#666666"
-                   x:Name="StatusText"/>
-    </Border>
+    <Grid>
+        <!-- 3D Viewport -->
+        <Border x:Name="RenderTarget">
+            <TextBlock Text="3D Viewport (Initializing...)"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Foreground="#666666"
+                       x:Name="StatusText"/>
+        </Border>
+
+        <!-- Colormap Legend Overlay -->
+        <controls:ColorMapLegendControl x:Name="ColorMapLegend"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="0,20,20,0"
+                                        IsVisible="False"/>
+    </Grid>
 </UserControl>

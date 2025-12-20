@@ -5,13 +5,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PublishAot>true</PublishAot>
-    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot>false</PublishAot>
     <RootNamespace>KooD3plot.Data</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Cross-platform HDF5 support -->
+    <!-- HDF.PInvoke.NETStandard includes native binaries for Windows -->
     <PackageReference Include="HDF.PInvoke.NETStandard" Version="1.10.502" />
   </ItemGroup>
+
+  <!-- Linux: requires system libhdf5 (apt install libhdf5-dev) -->
+  <!-- The native library loader will search system paths on Linux -->
 
 </Project>

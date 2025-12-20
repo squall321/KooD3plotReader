@@ -36,6 +36,7 @@ public partial class VeldridView : UserControl
 
     // Render data
     private MeshRenderData? _meshData;
+    private MeshData? _originalMesh; // Store for section cap generation
     private float[] _zBuffer = Array.Empty<float>();
     private Vector3 _modelCenter = Vector3.Zero;
     private float _modelScale = 1.0f;
@@ -59,6 +60,166 @@ public partial class VeldridView : UserControl
     public bool ShowWireframe { get; set; } = false;
     public bool ShowSolid { get; set; } = true;
     public float DisplacementScale { get; set; } = 1.0f;
+
+    // Color mapping settings
+    private string _selectedColorMap = "Jet (Classic)";
+    public string SelectedColorMap
+    {
+        get => _selectedColorMap;
+        set
+        {
+            _selectedColorMap = value;
+            UpdateColorMap();
+        }
+    }
+
+    private void UpdateColorMap()
+    {
+        if (_gpuRenderer == null) return;
+
+        // Map colormap name to enum
+        var colorMapType = _selectedColorMap switch
+        {
+            "None (Solid Color)" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Jet,
+            "Jet (Classic)" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Jet,
+            "Viridis" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Viridis,
+            "Plasma" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Plasma,
+            "Turbo" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Turbo,
+            "Rainbow" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Rainbow,
+            "Cool" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Cool,
+            "Hot" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Hot,
+            _ => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Jet
+        };
+
+        _gpuRenderer.UseColorMap = _selectedColorMap != "None (Solid Color)";
+        _gpuRenderer.ColorMapType = colorMapType;
+
+        // Update legend
+        UpdateLegend();
+    }
+
+    private void UpdateLegend()
+    {
+        var legend = this.FindControl<Controls.ColorMapLegendControl>("ColorMapLegend");
+        if (legend == null) return;
+
+        bool showLegend = _selectedColorMap != "None (Solid Color)";
+        legend.IsVisible = showLegend;
+
+        if (showLegend && _gpuRenderer != null)
+        {
+            var colorMapType = _selectedColorMap switch
+            {
+                "Jet (Classic)" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Jet,
+                "Viridis" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Viridis,
+                "Plasma" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Plasma,
+                "Turbo" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Turbo,
+                "Rainbow" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Rainbow,
+                "Cool" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Cool,
+                "Hot" => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Hot,
+                _ => KooD3plotViewer.Rendering.ColorMap.ColorMapType.Jet
+            };
+
+            legend.SetColorMap(
+                colorMapType,
+                _gpuRenderer.ColorScaleMin,
+                _gpuRenderer.ColorScaleMax,
+                "Stress (MPa)"
+            );
+        }
+    }
+
+    // Clip plane settings
+    private bool _clipXEnabled;
+    private bool _clipYEnabled;
+    private bool _clipZEnabled;
+    private float _clipXValue = 0.5f;
+    private float _clipYValue = 0.5f;
+    private float _clipZValue = 0.5f;
+    private bool _clipXInvert;
+    private bool _clipYInvert;
+    private bool _clipZInvert;
+
+    public bool ClipXEnabled
+    {
+        get => _clipXEnabled;
+        set { _clipXEnabled = value; UpdateClipPlanes(); }
+    }
+
+    public bool ClipYEnabled
+    {
+        get => _clipYEnabled;
+        set { _clipYEnabled = value; UpdateClipPlanes(); }
+    }
+
+    public bool ClipZEnabled
+    {
+        get => _clipZEnabled;
+        set { _clipZEnabled = value; UpdateClipPlanes(); }
+    }
+
+    public float ClipXValue
+    {
+        get => _clipXValue;
+        set { _clipXValue = value; UpdateClipPlanes(); }
+    }
+
+    public float ClipYValue
+    {
+        get => _clipYValue;
+        set { _clipYValue = value; UpdateClipPlanes(); }
+    }
+
+    public float ClipZValue
+    {
+        get => _clipZValue;
+        set { _clipZValue = value; UpdateClipPlanes(); }
+    }
+
+    public bool ClipXInvert
+    {
+        get => _clipXInvert;
+        set { _clipXInvert = value; UpdateClipPlanes(); }
+    }
+
+    public bool ClipYInvert
+    {
+        get => _clipYInvert;
+        set { _clipYInvert = value; UpdateClipPlanes(); }
+    }
+
+    public bool ClipZInvert
+    {
+        get => _clipZInvert;
+        set { _clipZInvert = value; UpdateClipPlanes(); }
+    }
+
+    private bool _showClipCap = true;
+    public bool ShowClipCap
+    {
+        get => _showClipCap;
+        set { _showClipCap = value; UpdateClipPlanes(); }
+    }
+
+    private void UpdateClipPlanes()
+    {
+        if (_gpuRenderer != null)
+        {
+            _gpuRenderer.ClipXEnabled = _clipXEnabled;
+            _gpuRenderer.ClipYEnabled = _clipYEnabled;
+            _gpuRenderer.ClipZEnabled = _clipZEnabled;
+            _gpuRenderer.ClipXValue = _clipXValue;
+            _gpuRenderer.ClipYValue = _clipYValue;
+            _gpuRenderer.ClipZValue = _clipZValue;
+            _gpuRenderer.ClipXInvert = _clipXInvert;
+            _gpuRenderer.ClipYInvert = _clipYInvert;
+            _gpuRenderer.ClipZInvert = _clipZInvert;
+            _gpuRenderer.ShowClipCap = _showClipCap;
+
+            // Update clip cap geometry when clip planes change
+            _gpuRenderer.UpdateClipCaps();
+        }
+    }
 
     // Log callback
     public Action<string>? LogCallback { get; set; }
@@ -299,6 +460,7 @@ public partial class VeldridView : UserControl
                     if (ct.IsCancellationRequested) return;
 
                     _meshData = renderData;
+                    _originalMesh = mesh; // Store for section cap generation
                     Log($"RenderData: verts={_meshData.VertexCount}, tris={_meshData.TriangleCount} ({sw.ElapsedMilliseconds}ms)");
 
                     // Compute model center and scale for proper viewing
@@ -316,6 +478,13 @@ public partial class VeldridView : UserControl
 
                         Log($"Bounds: min={_meshData.BoundsMin}, max={_meshData.BoundsMax}");
                         Log($"Center={_modelCenter}, Scale={_modelScale:F4}, MaxDim={maxDim:F1}");
+
+                        // Update GPU renderer with model bounds for clip planes
+                        if (_gpuRenderer != null)
+                        {
+                            _gpuRenderer.ModelBoundsMin = _meshData.BoundsMin;
+                            _gpuRenderer.ModelBoundsMax = _meshData.BoundsMax;
+                        }
 
                         // Reset view
                         _zoom = 1.0f;
@@ -436,6 +605,9 @@ public partial class VeldridView : UserControl
                         _gpuMeshUploaded = true;
                         _loadingStatus = "";
                         Log($"GPU upload: {numIndices / 3} tris (prep:{prepTime}ms, upload:{uploadSw.ElapsedMilliseconds}ms)");
+
+                        // Generate section cap mesh if clip planes are enabled
+                        UploadSectionCaps();
                     }
                     catch (Exception ex)
                     {
@@ -455,6 +627,151 @@ public partial class VeldridView : UserControl
                 });
             }
         }, ct);
+    }
+
+    /// <summary>
+    /// Fast update of state data (displacement/scalars) without rebuilding mesh topology
+    /// </summary>
+    public void UpdateStateData(StateData state)
+    {
+        if (_meshData == null || _gpuRenderer == null || !_gpuMeshUploaded)
+        {
+            Log("UpdateStateData: Mesh not loaded, skipping fast update");
+            return;
+        }
+
+        _loadingStatus = "Updating...";
+
+        // Process on background thread
+        Task.Run(() =>
+        {
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+
+                // Update positions with displacement
+                int nodeCount = _meshData.BasePositions.Length / 3;
+                var newPositions = new float[_meshData.BasePositions.Length];
+
+                if (state.Displacements != null && state.Displacements.Length == _meshData.BasePositions.Length)
+                {
+                    for (int i = 0; i < _meshData.BasePositions.Length; i++)
+                    {
+                        newPositions[i] = _meshData.BasePositions[i] + state.Displacements[i] * DisplacementScale;
+                    }
+                }
+                else
+                {
+                    Array.Copy(_meshData.BasePositions, newPositions, _meshData.BasePositions.Length);
+                }
+
+                // Update scalar values (displacement magnitude for colormap)
+                var newScalarValues = new float[nodeCount];
+                if (state.Displacements != null)
+                {
+                    for (int i = 0; i < nodeCount; i++)
+                    {
+                        float dx = state.Displacements[i * 3 + 0];
+                        float dy = state.Displacements[i * 3 + 1];
+                        float dz = state.Displacements[i * 3 + 2];
+                        newScalarValues[i] = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+                    }
+                }
+
+                // Compute min/max for color mapping
+                float scalarMin = float.MaxValue;
+                float scalarMax = float.MinValue;
+                foreach (var val in newScalarValues)
+                {
+                    if (val < scalarMin) scalarMin = val;
+                    if (val > scalarMax) scalarMax = val;
+                }
+
+                // Update mesh data
+                _meshData.CurrentPositions = newPositions;
+                _meshData.ScalarValues = newScalarValues;
+                _meshData.ScalarMin = scalarMin;
+                _meshData.ScalarMax = scalarMax;
+
+                // Rebuild vertex buffer with new positions/colors
+                int numIndices = _meshData.Indices.Length;
+                var vertices = new GpuMeshRenderer.VertexPositionNormalColor[numIndices];
+
+                // Parallel processing
+                int chunkSize = Math.Max(3000, numIndices / Environment.ProcessorCount);
+                System.Threading.Tasks.Parallel.For(0, (numIndices + chunkSize - 1) / chunkSize, chunkIdx =>
+                {
+                    int start = chunkIdx * chunkSize;
+                    int end = Math.Min(start + chunkSize, numIndices);
+                    start = (start / 3) * 3;
+                    end = Math.Min(((end + 2) / 3) * 3, numIndices);
+
+                    for (int i = start; i < end; i += 3)
+                    {
+                        uint i0 = _meshData.Indices[i + 0];
+                        uint i1 = _meshData.Indices[i + 1];
+                        uint i2 = _meshData.Indices[i + 2];
+
+                        Vector3 p0 = new Vector3(
+                            newPositions[i0 * 3 + 0],
+                            newPositions[i0 * 3 + 1],
+                            newPositions[i0 * 3 + 2]);
+                        Vector3 p1 = new Vector3(
+                            newPositions[i1 * 3 + 0],
+                            newPositions[i1 * 3 + 1],
+                            newPositions[i1 * 3 + 2]);
+                        Vector3 p2 = new Vector3(
+                            newPositions[i2 * 3 + 0],
+                            newPositions[i2 * 3 + 1],
+                            newPositions[i2 * 3 + 2]);
+
+                        Vector3 edge1 = p1 - p0;
+                        Vector3 edge2 = p2 - p0;
+                        Vector3 normal = Vector3.Normalize(Vector3.Cross(edge1, edge2));
+                        if (float.IsNaN(normal.X)) normal = Vector3.UnitZ;
+
+                        Vector4 c0 = GetJetColorVecFromData(_meshData, (int)i0);
+                        Vector4 c1 = GetJetColorVecFromData(_meshData, (int)i1);
+                        Vector4 c2 = GetJetColorVecFromData(_meshData, (int)i2);
+
+                        vertices[i + 0] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p0, Normal = normal, Color = c0 };
+                        vertices[i + 1] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p1, Normal = normal, Color = c1 };
+                        vertices[i + 2] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p2, Normal = normal, Color = c2 };
+                    }
+                });
+
+                sw.Stop();
+
+                // Update GPU on UI thread
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        _gpuRenderer!.UpdateVertexData(vertices);
+                        _gpuRenderer.ColorScaleMin = scalarMin;
+                        _gpuRenderer.ColorScaleMax = scalarMax;
+
+                        UpdateLegend();
+
+                        _loadingStatus = "";
+                        Log($"Fast state update: {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"GPU update error: {ex.Message}");
+                        _loadingStatus = "";
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    Log($"State update error: {ex.Message}");
+                    _loadingStatus = "";
+                });
+            }
+        });
     }
 
     private static Vector4 GetJetColorVecFromData(MeshRenderData meshData, int vertexIndex)
@@ -696,6 +1013,175 @@ public partial class VeldridView : UserControl
         renderData.ComputeBounds();
 
         return renderData;
+    }
+
+    /// <summary>
+    /// Create section cap mesh at clip plane intersections
+    /// </summary>
+    private (List<Vector3> capVertices, List<float> capScalars, List<uint> capIndices) CreateSectionCapMesh(
+        MeshData mesh, MeshRenderData renderData, char axis, float clipValue, bool invert)
+    {
+        var capVertices = new List<Vector3>();
+        var capScalars = new List<float>();
+        var capIndices = new List<uint>();
+
+        if (mesh.SolidConnectivity.Length == 0)
+            return (capVertices, capScalars, capIndices);
+
+        int numElements = mesh.SolidConnectivity.Length / 8;
+        Vector3 boundsMin = renderData.BoundsMin;
+        Vector3 boundsMax = renderData.BoundsMax;
+
+        // Calculate absolute clip position
+        float clipPos = axis switch
+        {
+            'X' => boundsMin.X + clipValue * (boundsMax.X - boundsMin.X),
+            'Y' => boundsMin.Y + clipValue * (boundsMax.Y - boundsMin.Y),
+            'Z' => boundsMin.Z + clipValue * (boundsMax.Z - boundsMin.Z),
+            _ => 0f
+        };
+
+        // Hex edge definitions (12 edges connecting 8 nodes)
+        int[,] hexEdges = new int[12, 2]
+        {
+            {0,1}, {1,2}, {2,3}, {3,0}, // bottom
+            {4,5}, {5,6}, {6,7}, {7,4}, // top
+            {0,4}, {1,5}, {2,6}, {3,7}  // verticals
+        };
+
+        // Process each hex element
+        for (int e = 0; e < numElements; e++)
+        {
+            // Get element nodes
+            int[] nodeIndices = new int[8];
+            Vector3[] nodePositions = new Vector3[8];
+            float[] nodeScalars = new float[8];
+
+            for (int i = 0; i < 8; i++)
+            {
+                int nodeIdx = mesh.SolidConnectivity[e * 8 + i];
+                if (nodeIdx < 0 || nodeIdx >= renderData.VertexCount) continue;
+
+                nodeIndices[i] = nodeIdx;
+                nodePositions[i] = new Vector3(
+                    renderData.CurrentPositions[nodeIdx * 3 + 0],
+                    renderData.CurrentPositions[nodeIdx * 3 + 1],
+                    renderData.CurrentPositions[nodeIdx * 3 + 2]
+                );
+                nodeScalars[i] = renderData.ScalarValues.Length > nodeIdx ?
+                    renderData.ScalarValues[nodeIdx] : 0f;
+            }
+
+            // Find intersection points on edges
+            var intersectionPoints = new List<(Vector3 pos, float scalar)>();
+
+            for (int edge = 0; edge < 12; edge++)
+            {
+                Vector3 p0 = nodePositions[hexEdges[edge, 0]];
+                Vector3 p1 = nodePositions[hexEdges[edge, 1]];
+                float s0 = nodeScalars[hexEdges[edge, 0]];
+                float s1 = nodeScalars[hexEdges[edge, 1]];
+
+                // Get coordinate along clip axis
+                float v0 = axis switch { 'X' => p0.X, 'Y' => p0.Y, 'Z' => p0.Z, _ => 0f };
+                float v1 = axis switch { 'X' => p1.X, 'Y' => p1.Y, 'Z' => p1.Z, _ => 0f };
+
+                // Check if edge crosses clip plane
+                if ((v0 <= clipPos && v1 >= clipPos) || (v0 >= clipPos && v1 <= clipPos))
+                {
+                    // Linear interpolation parameter
+                    float t = Math.Abs(v1 - v0) > 1e-6f ? (clipPos - v0) / (v1 - v0) : 0.5f;
+                    t = Math.Clamp(t, 0f, 1f);
+
+                    // Interpolate position and scalar
+                    Vector3 intersectPos = p0 + t * (p1 - p0);
+                    float intersectScalar = s0 + t * (s1 - s0);
+
+                    intersectionPoints.Add((intersectPos, intersectScalar));
+                }
+            }
+
+            // Need at least 3 points to form a polygon
+            if (intersectionPoints.Count >= 3)
+            {
+                // Compute polygon center for triangulation
+                Vector3 center = Vector3.Zero;
+                float centerScalar = 0f;
+                foreach (var (pos, scalar) in intersectionPoints)
+                {
+                    center += pos;
+                    centerScalar += scalar;
+                }
+                center /= intersectionPoints.Count;
+                centerScalar /= intersectionPoints.Count;
+
+                // Sort points by angle around center (for proper triangulation)
+                // Project to 2D plane perpendicular to clip axis
+                var sortedPoints = SortPolygonPoints(intersectionPoints, center, axis);
+
+                // Add center vertex
+                uint centerIdx = (uint)capVertices.Count;
+                capVertices.Add(center);
+                capScalars.Add(centerScalar);
+
+                // Create triangles from center to each edge
+                for (int i = 0; i < sortedPoints.Count; i++)
+                {
+                    uint idx0 = (uint)capVertices.Count;
+                    uint idx1 = (uint)(capVertices.Count + 1);
+
+                    capVertices.Add(sortedPoints[i].pos);
+                    capScalars.Add(sortedPoints[i].scalar);
+
+                    int nextI = (i + 1) % sortedPoints.Count;
+                    capVertices.Add(sortedPoints[nextI].pos);
+                    capScalars.Add(sortedPoints[nextI].scalar);
+
+                    // Add triangle (winding order depends on invert)
+                    if (!invert)
+                    {
+                        capIndices.Add(centerIdx);
+                        capIndices.Add(idx0);
+                        capIndices.Add(idx1);
+                    }
+                    else
+                    {
+                        capIndices.Add(centerIdx);
+                        capIndices.Add(idx1);
+                        capIndices.Add(idx0);
+                    }
+                }
+            }
+        }
+
+        return (capVertices, capScalars, capIndices);
+    }
+
+    /// <summary>
+    /// Sort polygon points by angle around center (for triangulation)
+    /// </summary>
+    private List<(Vector3 pos, float scalar)> SortPolygonPoints(
+        List<(Vector3 pos, float scalar)> points, Vector3 center, char axis)
+    {
+        // Choose two axes perpendicular to the clip axis
+        int axis1, axis2;
+        switch (axis)
+        {
+            case 'X': axis1 = 1; axis2 = 2; break; // Y-Z plane
+            case 'Y': axis1 = 0; axis2 = 2; break; // X-Z plane
+            case 'Z': default: axis1 = 0; axis2 = 1; break; // X-Y plane
+        }
+
+        // Compute angles and sort
+        var pointsWithAngle = points.Select(p =>
+        {
+            Vector3 dir = p.pos - center;
+            float[] dirArray = { dir.X, dir.Y, dir.Z };
+            float angle = MathF.Atan2(dirArray[axis2], dirArray[axis1]);
+            return (p.pos, p.scalar, angle);
+        }).OrderBy(p => p.angle).ToList();
+
+        return pointsWithAngle.Select(p => (p.pos, p.scalar)).ToList();
     }
 
     private void DrawMesh(uint[] pixels)
@@ -1258,33 +1744,6 @@ public partial class VeldridView : UserControl
         }
     }
 
-    public void UpdateStateData(StateData state)
-    {
-        if (_meshData != null && state.Displacements.Length > 0)
-        {
-            _meshData.ApplyDisplacement(state.Displacements, DisplacementScale);
-            _meshData.ComputeNormals();
-
-            // Update scalar values
-            _meshData.ScalarValues = new float[_meshData.VertexCount];
-            float minVal = float.MaxValue, maxVal = float.MinValue;
-
-            for (int i = 0; i < _meshData.VertexCount; i++)
-            {
-                float dx = state.Displacements[i * 3 + 0];
-                float dy = state.Displacements[i * 3 + 1];
-                float dz = state.Displacements[i * 3 + 2];
-                float mag = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
-                _meshData.ScalarValues[i] = mag;
-                minVal = Math.Min(minVal, mag);
-                maxVal = Math.Max(maxVal, mag);
-            }
-
-            _meshData.ScalarMin = minVal;
-            _meshData.ScalarMax = maxVal;
-        }
-    }
-
     public void UpdateTimestep(int timestep)
     {
         // This will be called from ViewModel when timestep changes
@@ -1296,5 +1755,140 @@ public partial class VeldridView : UserControl
         _rotationY = 0;
         _zoom = 1.0f;
         _panOffset = Vector3.Zero;
+    }
+
+    /// <summary>
+    /// Generate and upload section cap meshes for active clip planes
+    /// </summary>
+    private void UploadSectionCaps()
+    {
+        if (_gpuRenderer == null || _meshData == null || _originalMesh == null) return;
+
+        // Call the actual section cap builder
+        BuildAndUploadSectionCaps(_originalMesh, _meshData);
+    }
+
+    /// <summary>
+    /// Helper to build and upload section cap for all enabled clip planes
+    /// </summary>
+    private void BuildAndUploadSectionCaps(MeshData mesh, MeshRenderData renderData)
+    {
+        if (_gpuRenderer == null) return;
+
+        var allCapVertices = new List<GpuMeshRenderer.VertexPositionNormalColor>();
+        var allCapIndices = new List<uint>();
+        uint indexOffset = 0;
+
+        // Generate caps for each enabled clip plane
+        if (_gpuRenderer.ClipXEnabled)
+        {
+            var (verts, scalars, indices) = CreateSectionCapMesh(
+                mesh, renderData, 'X', _gpuRenderer.ClipXValue, _gpuRenderer.ClipXInvert);
+
+            AddCapMeshToBuffers(verts, scalars, indices, allCapVertices, allCapIndices, ref indexOffset);
+        }
+
+        if (_gpuRenderer.ClipYEnabled)
+        {
+            var (verts, scalars, indices) = CreateSectionCapMesh(
+                mesh, renderData, 'Y', _gpuRenderer.ClipYValue, _gpuRenderer.ClipYInvert);
+
+            AddCapMeshToBuffers(verts, scalars, indices, allCapVertices, allCapIndices, ref indexOffset);
+        }
+
+        if (_gpuRenderer.ClipZEnabled)
+        {
+            var (verts, scalars, indices) = CreateSectionCapMesh(
+                mesh, renderData, 'Z', _gpuRenderer.ClipZValue, _gpuRenderer.ClipZInvert);
+
+            AddCapMeshToBuffers(verts, scalars, indices, allCapVertices, allCapIndices, ref indexOffset);
+        }
+
+        // Upload to GPU
+        if (allCapVertices.Count > 0)
+        {
+            _gpuRenderer.UploadSectionCap(allCapVertices.ToArray(), allCapIndices.ToArray());
+            Log($"Section caps: {allCapVertices.Count} verts, {allCapIndices.Count / 3} tris");
+        }
+    }
+
+    /// <summary>
+    /// Convert cap mesh data to GPU vertex format and add to buffers
+    /// </summary>
+    private void AddCapMeshToBuffers(
+        List<Vector3> vertices, List<float> scalars, List<uint> indices,
+        List<GpuMeshRenderer.VertexPositionNormalColor> allVertices,
+        List<uint> allIndices, ref uint indexOffset)
+    {
+        for (int i = 0; i < indices.Count; i += 3)
+        {
+            uint i0 = indices[i + 0];
+            uint i1 = indices[i + 1];
+            uint i2 = indices[i + 2];
+
+            Vector3 p0 = vertices[(int)i0];
+            Vector3 p1 = vertices[(int)i1];
+            Vector3 p2 = vertices[(int)i2];
+
+            // Compute face normal
+            Vector3 edge1 = p1 - p0;
+            Vector3 edge2 = p2 - p0;
+            Vector3 normal = Vector3.Normalize(Vector3.Cross(edge1, edge2));
+            if (float.IsNaN(normal.X)) normal = Vector3.UnitZ;
+
+            // Get colors from scalars
+            float s0 = scalars[(int)i0];
+            float s1 = scalars[(int)i1];
+            float s2 = scalars[(int)i2];
+
+            // Normalize scalar values to 0-1 for colormap
+            float range = _meshData!.ScalarMax - _meshData.ScalarMin;
+            float t0 = range > 0 ? (s0 - _meshData.ScalarMin) / range : 0.5f;
+            float t1 = range > 0 ? (s1 - _meshData.ScalarMin) / range : 0.5f;
+            float t2 = range > 0 ? (s2 - _meshData.ScalarMin) / range : 0.5f;
+
+            Vector4 c0 = GetJetColorVecFromNormalizedScalar(t0);
+            Vector4 c1 = GetJetColorVecFromNormalizedScalar(t1);
+            Vector4 c2 = GetJetColorVecFromNormalizedScalar(t2);
+
+            allVertices.Add(new GpuMeshRenderer.VertexPositionNormalColor
+            {
+                Position = p0,
+                Normal = normal,
+                Color = c0
+            });
+            allVertices.Add(new GpuMeshRenderer.VertexPositionNormalColor
+            {
+                Position = p1,
+                Normal = normal,
+                Color = c1
+            });
+            allVertices.Add(new GpuMeshRenderer.VertexPositionNormalColor
+            {
+                Position = p2,
+                Normal = normal,
+                Color = c2
+            });
+
+            allIndices.Add(indexOffset++);
+            allIndices.Add(indexOffset++);
+            allIndices.Add(indexOffset++);
+        }
+    }
+
+    /// <summary>
+    /// Get Jet colormap color from normalized scalar (0-1)
+    /// </summary>
+    private static Vector4 GetJetColorVecFromNormalizedScalar(float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+
+        float r, g, b;
+        if (t < 0.25f) { float s = t / 0.25f; r = 0; g = s; b = 1; }
+        else if (t < 0.5f) { float s = (t - 0.25f) / 0.25f; r = 0; g = 1; b = 1 - s; }
+        else if (t < 0.75f) { float s = (t - 0.5f) / 0.25f; r = s; g = 1; b = 0; }
+        else { float s = (t - 0.75f) / 0.25f; r = 1; g = 1 - s; b = 0; }
+
+        return new Vector4(r, g, b, 1.0f);
     }
 }

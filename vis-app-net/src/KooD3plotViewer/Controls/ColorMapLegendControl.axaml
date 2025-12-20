@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="KooD3plotViewer.Controls.ColorMapLegendControl"
+             Width="100" Height="340">
+    <Border Background="#CC000000" BorderBrush="#666666" BorderThickness="1" CornerRadius="4" Padding="10">
+        <Grid RowDefinitions="Auto,*">
+            <!-- Title -->
+            <TextBlock Grid.Row="0" x:Name="TitleText" Text="Stress (MPa)"
+                       FontSize="11" FontWeight="SemiBold" Foreground="#CCCCCC"
+                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+
+            <!-- Legend with labels -->
+            <Grid Grid.Row="1" ColumnDefinitions="50,*,Auto">
+                <!-- Labels (left) -->
+                <StackPanel Grid.Column="0" x:Name="LabelsPanel"
+                            VerticalAlignment="Stretch" HorizontalAlignment="Right">
+                    <!-- Tick labels will be added dynamically -->
+                </StackPanel>
+
+                <!-- Color bar (center) -->
+                <Border Grid.Column="1" BorderBrush="#666666" BorderThickness="1" Margin="5,0">
+                    <Image x:Name="ColorBarImage" Stretch="Fill"/>
+                </Border>
+
+                <!-- Tick marks (right) -->
+                <Canvas Grid.Column="2" x:Name="TickMarksCanvas" Width="5"/>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

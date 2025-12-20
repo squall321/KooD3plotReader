@@ -99,6 +99,78 @@
                                 </StackPanel>
                             </Expander>
 
+                            <!-- Clip Planes -->
+                            <Expander Header="Clip Planes" IsExpanded="True">
+                                <StackPanel Spacing="10" Margin="5">
+                                    <!-- X Clip -->
+                                    <Border BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="3" Padding="8">
+                                        <StackPanel Spacing="5">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <CheckBox Grid.Column="0" Content="X Plane" IsChecked="{Binding ClipXEnabled}"
+                                                          FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                <CheckBox Grid.Column="1" Content="Invert" IsChecked="{Binding ClipXInvert}"
+                                                          IsEnabled="{Binding ClipXEnabled}" HorizontalAlignment="Right"/>
+                                            </Grid>
+                                            <Slider Minimum="0" Maximum="1" Value="{Binding ClipXValue}"
+                                                    IsEnabled="{Binding ClipXEnabled}"/>
+                                            <Grid ColumnDefinitions="*,70">
+                                                <TextBlock Grid.Column="0" Text="{Binding ClipXValue, StringFormat='{}{0:P0}'}"
+                                                           FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                                <NumericUpDown Grid.Column="1" Value="{Binding ClipXValue}"
+                                                               Minimum="0" Maximum="1" Increment="0.01" FormatString="F2"
+                                                               IsEnabled="{Binding ClipXEnabled}" FontSize="11"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Y Clip -->
+                                    <Border BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="3" Padding="8">
+                                        <StackPanel Spacing="5">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <CheckBox Grid.Column="0" Content="Y Plane" IsChecked="{Binding ClipYEnabled}"
+                                                          FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                <CheckBox Grid.Column="1" Content="Invert" IsChecked="{Binding ClipYInvert}"
+                                                          IsEnabled="{Binding ClipYEnabled}" HorizontalAlignment="Right"/>
+                                            </Grid>
+                                            <Slider Minimum="0" Maximum="1" Value="{Binding ClipYValue}"
+                                                    IsEnabled="{Binding ClipYEnabled}"/>
+                                            <Grid ColumnDefinitions="*,70">
+                                                <TextBlock Grid.Column="0" Text="{Binding ClipYValue, StringFormat='{}{0:P0}'}"
+                                                           FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                                <NumericUpDown Grid.Column="1" Value="{Binding ClipYValue}"
+                                                               Minimum="0" Maximum="1" Increment="0.01" FormatString="F2"
+                                                               IsEnabled="{Binding ClipYEnabled}" FontSize="11"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Z Clip -->
+                                    <Border BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="3" Padding="8">
+                                        <StackPanel Spacing="5">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <CheckBox Grid.Column="0" Content="Z Plane" IsChecked="{Binding ClipZEnabled}"
+                                                          FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                <CheckBox Grid.Column="1" Content="Invert" IsChecked="{Binding ClipZInvert}"
+                                                          IsEnabled="{Binding ClipZEnabled}" HorizontalAlignment="Right"/>
+                                            </Grid>
+                                            <Slider Minimum="0" Maximum="1" Value="{Binding ClipZValue}"
+                                                    IsEnabled="{Binding ClipZEnabled}"/>
+                                            <Grid ColumnDefinitions="*,70">
+                                                <TextBlock Grid.Column="0" Text="{Binding ClipZValue, StringFormat='{}{0:P0}'}"
+                                                           FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                                <NumericUpDown Grid.Column="1" Value="{Binding ClipZValue}"
+                                                               Minimum="0" Maximum="1" Increment="0.01" FormatString="F2"
+                                                               IsEnabled="{Binding ClipZEnabled}" FontSize="11"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Clip Cap Option -->
+                                    <CheckBox Content="Show Section Cap" IsChecked="{Binding ShowClipCap}"
+                                              ToolTip.Tip="Show colored surface at clip plane intersection"/>
+                                </StackPanel>
+                            </Expander>
+
                             <!-- Selection Info -->
                             <Expander Header="Selection" IsExpanded="False">
                                 <StackPanel Spacing="3" Margin="5">
