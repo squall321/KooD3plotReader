@@ -39,6 +39,9 @@ public class GpuMeshRenderer : IDisposable
         public Vector4 LightDir1;
         public Vector4 LightDir2;
         public Vector4 LightDir3;
+        public Vector4 LightDir4;
+        public Vector4 LightDir5;
+        public Vector4 LightDir6;
         public Vector4 AmbientColor;
         // Clip planes: xyz = plane normal direction, w = clip position (0-1 normalized)
         public Vector4 ClipPlaneX;  // (enabled, invert, min, max) encoded as (sign, value, 0, 0)
@@ -76,6 +79,9 @@ public class GpuMeshRenderer : IDisposable
     private uint _capIndexCount;
     private Pipeline? _capPipeline;
 
+    // Debug logging flags
+    private bool _loggedClipPlanes = false;
+
     // Vertex structure
     [StructLayout(LayoutKind.Sequential)]
     public struct VertexPositionNormalColor
@@ -106,16 +112,24 @@ public class GpuMeshRenderer : IDisposable
                 Debug = false
             };
 
-            // Try Vulkan first, then D3D11
+            // Try D3D11 first (more stable on Windows), then Vulkan
             try
-            {
-                _graphicsDevice = GraphicsDevice.CreateVulkan(options);
-                Log($"GPU: Vulkan initialized - {_graphicsDevice.DeviceName}");
-            }
-            catch
             {
                 _graphicsDevice = GraphicsDevice.CreateD3D11(options);
                 Log($"GPU: D3D11 initialized - {_graphicsDevice.DeviceName}");
+            }
+            catch
+            {
+                try
+                {
+                    _graphicsDevice = GraphicsDevice.CreateVulkan(options);
+                    Log($"GPU: Vulkan initialized - {_graphicsDevice.DeviceName}");
+                }
+                catch (Exception ex)
+                {
+                    Log($"GPU: Both D3D11 and Vulkan failed - {ex.Message}");
+                    throw;
+                }
             }
 
             _commandList = _graphicsDevice.ResourceFactory.CreateCommandList();
@@ -171,9 +185,17 @@ public class GpuMeshRenderer : IDisposable
 
     private void CreatePipeline()
     {
-        if (_graphicsDevice == null) return;
+        if (_graphicsDevice == null)
+        {
+            Log("[GPU] CreatePipeline: graphicsDevice is null");
+            return;
+        }
 
-        var factory = _graphicsDevice.ResourceFactory;
+        Log("[GPU] Creating main pipeline...");
+
+        try
+        {
+            var factory = _graphicsDevice.ResourceFactory;
 
         // Vertex shader
         string vertexCode = @"
@@ -193,6 +215,9 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir1;
     vec4 LightDir2;
     vec4 LightDir3;
+    vec4 LightDir4;
+    vec4 LightDir5;
+    vec4 LightDir6;
     vec4 AmbientColor;
     vec4 ClipPlaneX;
     vec4 ClipPlaneY;
@@ -227,6 +252,9 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir1;
     vec4 LightDir2;
     vec4 LightDir3;
+    vec4 LightDir4;
+    vec4 LightDir5;
+    vec4 LightDir6;
     vec4 AmbientColor;
     vec4 ClipPlaneX;  // x=enabled, y=invert, z=value, w=unused
     vec4 ClipPlaneY;
@@ -339,14 +367,18 @@ void main()
         baseColor = fsin_Color.rgb;
     }
 
-    // Apply lighting
+    // Apply lighting - 6-directional cube lighting for even illumination
     vec3 normal = normalize(fsin_Normal);
-    float diffuse1 = max(0.0, dot(normal, LightDir1.xyz));
-    float diffuse2 = max(0.0, dot(normal, LightDir2.xyz));
-    float diffuse3 = abs(dot(normal, LightDir3.xyz));
+    float diffuse1 = max(0.0, dot(normal, LightDir1.xyz));  // +X
+    float diffuse2 = max(0.0, dot(normal, LightDir2.xyz));  // -X
+    float diffuse3 = max(0.0, dot(normal, LightDir3.xyz));  // +Y
+    float diffuse4 = max(0.0, dot(normal, LightDir4.xyz));  // -Y
+    float diffuse5 = max(0.0, dot(normal, LightDir5.xyz));  // +Z
+    float diffuse6 = max(0.0, dot(normal, LightDir6.xyz));  // -Z
 
-    float lighting = AmbientColor.w + diffuse1 * 0.5 + diffuse2 * 0.2 + diffuse3 * 0.15;
-    lighting = clamp(lighting, 0.1, 1.0);
+    // Equal contribution from all 6 directions
+    float lighting = AmbientColor.w + (diffuse1 + diffuse2 + diffuse3 + diffuse4 + diffuse5 + diffuse6) * 0.15;
+    lighting = clamp(lighting, 0.4, 1.0);
 
     vec3 litColor = baseColor * lighting;
     fsout_Color = vec4(litColor, 1.0);
@@ -393,10 +425,19 @@ void main()
             Outputs = _framebuffer!.OutputDescription
         };
 
-        _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+            _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
 
-        foreach (var shader in shaders)
-            shader.Dispose();
+            foreach (var shader in shaders)
+                shader.Dispose();
+
+            Log("[GPU] Main pipeline created successfully");
+        }
+        catch (Exception ex)
+        {
+            Log($"[GPU] Failed to create main pipeline: {ex.Message}");
+            Log($"[GPU] Stack trace: {ex.StackTrace}");
+            _pipeline = null;
+        }
     }
 
     private void CreateUniformBuffer()
@@ -504,10 +545,14 @@ void main()
         var uniforms = new UniformData
         {
             WorldViewProjection = worldViewProjection,
-            LightDir1 = new Vector4(Vector3.Normalize(new Vector3(0.5f, 1.0f, 0.8f)), 0),
-            LightDir2 = new Vector4(Vector3.Normalize(new Vector3(-0.5f, -0.3f, -0.8f)), 0),
-            LightDir3 = new Vector4(Vector3.Normalize(new Vector3(0.0f, 0.0f, 1.0f)), 0),
-            AmbientColor = new Vector4(0.15f, 0.15f, 0.15f, 0.15f),  // w = ambient intensity
+            // 6-directional cube lighting (each face of the cube)
+            LightDir1 = new Vector4(1.0f, 0.0f, 0.0f, 0),   // +X (right)
+            LightDir2 = new Vector4(-1.0f, 0.0f, 0.0f, 0),  // -X (left)
+            LightDir3 = new Vector4(0.0f, 1.0f, 0.0f, 0),   // +Y (top)
+            LightDir4 = new Vector4(0.0f, -1.0f, 0.0f, 0),  // -Y (bottom)
+            LightDir5 = new Vector4(0.0f, 0.0f, 1.0f, 0),   // +Z (front)
+            LightDir6 = new Vector4(0.0f, 0.0f, -1.0f, 0),  // -Z (back)
+            AmbientColor = new Vector4(0.3f, 0.3f, 0.3f, 0.3f),  // w = ambient intensity (reduced since we have 6 lights)
             // Clip planes: x=enabled, y=invert, z=value (0-1), w=unused
             ClipPlaneX = new Vector4(ClipXEnabled ? 1f : 0f, ClipXInvert ? 1f : 0f, ClipXValue, 0),
             ClipPlaneY = new Vector4(ClipYEnabled ? 1f : 0f, ClipYInvert ? 1f : 0f, ClipYValue, 0),
@@ -518,6 +563,16 @@ void main()
             ColorMapSettings = new Vector4(UseColorMap ? 1f : 0f, (float)ColorMapType, ColorScaleMin, ColorScaleMax)
         };
 
+        // Debug log clip planes (only once)
+        if (!_loggedClipPlanes && (ClipXEnabled || ClipYEnabled || ClipZEnabled))
+        {
+            Log($"[CLIP] X: enabled={ClipXEnabled}, val={ClipXValue:F2}, inv={ClipXInvert}");
+            Log($"[CLIP] Y: enabled={ClipYEnabled}, val={ClipYValue:F2}, inv={ClipYInvert}");
+            Log($"[CLIP] Z: enabled={ClipZEnabled}, val={ClipZValue:F2}, inv={ClipZInvert}");
+            Log($"[CLIP] Bounds: min={ModelBoundsMin}, max={ModelBoundsMax}");
+            _loggedClipPlanes = true;
+        }
+
         _graphicsDevice.UpdateBuffer(_uniformBuffer, 0, uniforms);
 
         // Begin command list
@@ -525,7 +580,7 @@ void main()
 
         // Set framebuffer and clear
         _commandList.SetFramebuffer(_framebuffer);
-        _commandList.ClearColorTarget(0, new RgbaFloat(0.145f, 0.145f, 0.149f, 1.0f)); // Background color
+        _commandList.ClearColorTarget(0, new RgbaFloat(0.145f, 0.145f, 0.149f, 1.0f));
         _commandList.ClearDepthStencil(1.0f);
 
         // Set pipeline and resources
@@ -547,27 +602,26 @@ void main()
             _commandList.DrawIndexed(_capIndexCount, 1, 0, 0, 0);
         }
 
-        // Copy to staging texture for readback
-        if (_offscreenColor != null && _stagingTexture != null)
-        {
-            _commandList.CopyTexture(_offscreenColor, _stagingTexture);
-        }
-
         _commandList.End();
         _graphicsDevice.SubmitCommands(_commandList);
         _graphicsDevice.WaitForIdle();
-
-        // Read back pixels
-        ReadBackPixels(outputPixels);
     }
 
     private void ReadBackPixels(uint[] outputPixels)
     {
         if (_graphicsDevice == null || _stagingTexture == null) return;
 
-        var map = _graphicsDevice.Map(_stagingTexture, MapMode.Read);
         try
         {
+            var map = _graphicsDevice.Map(_stagingTexture, MapMode.Read);
+
+            if (map.Data == IntPtr.Zero)
+            {
+                Log("[GPU] Map.Data is null!");
+                _graphicsDevice.Unmap(_stagingTexture);
+                return;
+            }
+
             int pixelCount = Math.Min(outputPixels.Length, _width * _height);
             uint rowPitch = (uint)map.RowPitch;
             int rowPitchInPixels = (int)(rowPitch / 4);
@@ -586,10 +640,13 @@ void main()
                     }
                 }
             }
-        }
-        finally
-        {
+
             _graphicsDevice.Unmap(_stagingTexture);
+        }
+        catch (Exception ex)
+        {
+            Log($"[GPU] ReadBackPixels error: {ex.Message}");
+            try { _graphicsDevice.Unmap(_stagingTexture); } catch { }
         }
     }
 
@@ -717,9 +774,17 @@ void main()
 
     private void CreateCapPipeline()
     {
-        if (_graphicsDevice == null || _resourceLayout == null || _framebuffer == null) return;
+        if (_graphicsDevice == null || _resourceLayout == null || _framebuffer == null)
+        {
+            Log("[GPU] CreateCapPipeline: missing dependencies");
+            return;
+        }
 
-        var factory = _graphicsDevice.ResourceFactory;
+        Log("[GPU] Creating cap pipeline...");
+
+        try
+        {
+            var factory = _graphicsDevice.ResourceFactory;
 
         // Cap shader - simple flat color with lighting, no clipping (shows the cap itself)
         string capVertexCode = @"
@@ -738,12 +803,16 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir1;
     vec4 LightDir2;
     vec4 LightDir3;
+    vec4 LightDir4;
+    vec4 LightDir5;
+    vec4 LightDir6;
     vec4 AmbientColor;
     vec4 ClipPlaneX;
     vec4 ClipPlaneY;
     vec4 ClipPlaneZ;
     vec4 ModelBoundsMin;
     vec4 ModelBoundsMax;
+    vec4 ColorMapSettings;
 };
 
 void main()
@@ -768,19 +837,31 @@ layout(set = 0, binding = 0) uniform UniformBlock
     vec4 LightDir1;
     vec4 LightDir2;
     vec4 LightDir3;
+    vec4 LightDir4;
+    vec4 LightDir5;
+    vec4 LightDir6;
     vec4 AmbientColor;
     vec4 ClipPlaneX;
     vec4 ClipPlaneY;
     vec4 ClipPlaneZ;
     vec4 ModelBoundsMin;
     vec4 ModelBoundsMax;
+    vec4 ColorMapSettings;
 };
 
 void main()
 {
     vec3 normal = normalize(fsin_Normal);
-    float lighting = AmbientColor.w + abs(dot(normal, LightDir1.xyz)) * 0.6;
-    lighting = clamp(lighting, 0.3, 1.0);
+    // 6-directional lighting for section caps
+    float diffuse1 = max(0.0, dot(normal, LightDir1.xyz));
+    float diffuse2 = max(0.0, dot(normal, LightDir2.xyz));
+    float diffuse3 = max(0.0, dot(normal, LightDir3.xyz));
+    float diffuse4 = max(0.0, dot(normal, LightDir4.xyz));
+    float diffuse5 = max(0.0, dot(normal, LightDir5.xyz));
+    float diffuse6 = max(0.0, dot(normal, LightDir6.xyz));
+
+    float lighting = AmbientColor.w + (diffuse1 + diffuse2 + diffuse3 + diffuse4 + diffuse5 + diffuse6) * 0.15;
+    lighting = clamp(lighting, 0.5, 1.0);
 
     vec3 litColor = fsin_Color.rgb * lighting;
     fsout_Color = vec4(litColor, fsin_Color.a);
@@ -819,7 +900,15 @@ void main()
             Outputs = _framebuffer.OutputDescription
         };
 
-        _capPipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+            _capPipeline = factory.CreateGraphicsPipeline(pipelineDesc);
+            Log("[GPU] Cap pipeline created successfully");
+        }
+        catch (Exception ex)
+        {
+            Log($"[GPU] Failed to create cap pipeline: {ex.Message}");
+            Log($"[GPU] Stack trace: {ex.StackTrace}");
+            _capPipeline = null;
+        }
     }
 
     public void Dispose()

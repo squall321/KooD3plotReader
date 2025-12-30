@@ -8,6 +8,7 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using KooD3plot.Data;
+using System.IO;
 
 namespace KooD3plotViewer.ViewModels;
 
@@ -28,6 +29,7 @@ public class MainWindowViewModel : ReactiveObject
     private bool _autoColorRange = true;
     private string _selectedNodeInfo = "No selection";
     private string _logText = "";
+    private StreamWriter? _logFile;
 
     // Clip plane settings
     private bool _clipXEnabled;
@@ -45,14 +47,23 @@ public class MainWindowViewModel : ReactiveObject
 
     public MainWindowViewModel()
     {
+        // Initialize log file
+        try
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "KooD3plotViewer.log");
+            _logFile = new StreamWriter(logPath, false) { AutoFlush = true };
+            _logFile.WriteLine($"=== KooD3plotViewer Log Started at {DateTime.Now} ===");
+        }
+        catch { /* Ignore log file errors */ }
+
         // Initialize commands
         OpenFileCommand = ReactiveCommand.CreateFromTask(OpenFileAsync);
         ExitCommand = ReactiveCommand.Create(Exit);
         ResetCameraCommand = ReactiveCommand.Create(ResetCamera);
         FitToWindowCommand = ReactiveCommand.Create(FitToWindow);
         AboutCommand = ReactiveCommand.Create(ShowAbout);
-        LoadTestMeshCommand = ReactiveCommand.Create(LoadTestMesh);
-        LoadSmallTestMeshCommand = ReactiveCommand.Create(LoadSmallTestMesh);
+        LoadTestMeshCommand = ReactiveCommand.CreateFromTask(LoadTestMeshAsync);
+        LoadSmallTestMeshCommand = ReactiveCommand.CreateFromTask(LoadSmallTestMeshAsync);
 
         PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause);
         FirstFrameCommand = ReactiveCommand.Create(() => { CurrentTimestep = 0; });
@@ -253,7 +264,14 @@ public class MainWindowViewModel : ReactiveObject
             var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             var newLine = $"[{timestamp}] {message}";
 
-            // Keep last 100 lines
+            // Write to file
+            try
+            {
+                _logFile?.WriteLine(newLine);
+            }
+            catch { /* Ignore file write errors */ }
+
+            // Keep last 100 lines in UI
             var lines = LogText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             if (lines.Length > 100)
             {
@@ -371,7 +389,7 @@ public class MainWindowViewModel : ReactiveObject
         // TODO: Show about dialog
     }
 
-    private void LoadTestMesh()
+    private async Task LoadTestMeshAsync()
     {
         // Create a cube mesh with ~10M elements (215^3 = 9,938,375)
         const int nx = 215, ny = 215, nz = 215;
@@ -379,69 +397,9 @@ public class MainWindowViewModel : ReactiveObject
 
         StatusText = $"Generating test mesh ({nx}x{ny}x{nz})...";
 
-        var mesh = new MeshData();
-        int numNodes = (nx + 1) * (ny + 1) * (nz + 1);  // ~10M nodes
-        int numElements = nx * ny * nz;  // ~10M elements
-
-        Console.WriteLine($"[TestMesh] Creating {numNodes:N0} nodes, {numElements:N0} elements...");
-
-        // Create nodes
-        mesh.NodePositions = new float[numNodes * 3];
-        mesh.NodeIds = new int[numNodes];
-
-        int nodeIndex = 0;
-        for (int k = 0; k <= nz; k++)
-        {
-            for (int j = 0; j <= ny; j++)
-            {
-                for (int i = 0; i <= nx; i++)
-                {
-                    mesh.NodePositions[nodeIndex * 3 + 0] = i * spacing;
-                    mesh.NodePositions[nodeIndex * 3 + 1] = j * spacing;
-                    mesh.NodePositions[nodeIndex * 3 + 2] = k * spacing;
-                    mesh.NodeIds[nodeIndex] = nodeIndex;
-                    nodeIndex++;
-                }
-            }
-        }
-
-        // Create hex elements
-        mesh.SolidConnectivity = new int[numElements * 8];
-
-        int elemIndex = 0;
-        for (int k = 0; k < nz; k++)
-        {
-            for (int j = 0; j < ny; j++)
-            {
-                for (int i = 0; i < nx; i++)
-                {
-                    int n0 = k * (ny + 1) * (nx + 1) + j * (nx + 1) + i;
-                    int n1 = n0 + 1;
-                    int n2 = n0 + (nx + 1) + 1;
-                    int n3 = n0 + (nx + 1);
-                    int n4 = n0 + (ny + 1) * (nx + 1);
-                    int n5 = n4 + 1;
-                    int n6 = n4 + (nx + 1) + 1;
-                    int n7 = n4 + (nx + 1);
-
-                    mesh.SolidConnectivity[elemIndex * 8 + 0] = n0;
-                    mesh.SolidConnectivity[elemIndex * 8 + 1] = n1;
-                    mesh.SolidConnectivity[elemIndex * 8 + 2] = n2;
-                    mesh.SolidConnectivity[elemIndex * 8 + 3] = n3;
-                    mesh.SolidConnectivity[elemIndex * 8 + 4] = n4;
-                    mesh.SolidConnectivity[elemIndex * 8 + 5] = n5;
-                    mesh.SolidConnectivity[elemIndex * 8 + 6] = n6;
-                    mesh.SolidConnectivity[elemIndex * 8 + 7] = n7;
-
-                    elemIndex++;
-                }
-            }
-        }
-
-        mesh.ShellConnectivity = Array.Empty<int>();
-        mesh.BeamConnectivity = Array.Empty<int>();
-        mesh.SolidPartIds = Array.Empty<int>();
-        mesh.ShellPartIds = Array.Empty<int>();
+        var mesh = await Task.Run(() => CreateTestMesh(nx, ny, nz, spacing));
+        int numNodes = (nx + 1) * (ny + 1) * (nz + 1);
+        int numElements = nx * ny * nz;
 
         // Update model tree
         ModelTreeItems.Clear();
@@ -455,63 +413,20 @@ public class MainWindowViewModel : ReactiveObject
         _currentTestMesh = mesh;
         _dataLoader?.Dispose();
         _dataLoader = null;
-        _meshLoaded = false; // Reset flag for new mesh
+        _meshLoaded = false;
 
         // Create animated displacement for testing timeline
-        MaxTimestep = 50; // 50 frames
+        MaxTimestep = 50;
         CurrentTimestep = 0;
 
         // Generate test displacement for initial frame (large mesh uses center at 215/2)
         var state = GenerateTestDisplacementLarge(mesh, 0, 215);
         MeshDataLoaded?.Invoke(mesh, state);
-        _meshLoaded = true; // Mark as loaded after initial load
+        _meshLoaded = true;
     }
 
-    private StateData GenerateTestDisplacementLarge(MeshData mesh, int timestep, int gridSize)
+    private MeshData CreateTestMesh(int nx, int ny, int nz, float spacing)
     {
-        int numNodes = mesh.NodePositions.Length / 3;
-        var state = new StateData
-        {
-            Time = timestep * 0.01,
-            Displacements = new float[numNodes * 3]
-        };
-
-        float t = timestep / 50.0f; // 0 to 1 over 50 frames
-        float phase = t * MathF.PI * 2; // One full cycle
-        float center = gridSize / 2.0f;
-
-        for (int i = 0; i < numNodes; i++)
-        {
-            float x = mesh.NodePositions[i * 3 + 0];
-            float y = mesh.NodePositions[i * 3 + 1];
-            float z = mesh.NodePositions[i * 3 + 2];
-
-            float dx = x - center;
-            float dy = y - center;
-            float dz = z - center;
-            float dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
-
-            // Wave pattern
-            float amplitude = 10.0f * MathF.Sin(phase - dist * 0.1f);
-
-            // Radial displacement
-            float scale = dist > 0.01f ? amplitude / dist : 0;
-            state.Displacements[i * 3 + 0] = dx * scale;
-            state.Displacements[i * 3 + 1] = dy * scale;
-            state.Displacements[i * 3 + 2] = dz * scale;
-        }
-
-        return state;
-    }
-
-    private void LoadSmallTestMesh()
-    {
-        // Create a small cube mesh with 125,000 elements (50^3)
-        const int nx = 50, ny = 50, nz = 50;
-        const float spacing = 1.0f;
-
-        StatusText = $"Generating small test mesh ({nx}x{ny}x{nz})...";
-
         var mesh = new MeshData();
         int numNodes = (nx + 1) * (ny + 1) * (nz + 1);
         int numElements = nx * ny * nz;
@@ -576,6 +491,58 @@ public class MainWindowViewModel : ReactiveObject
         mesh.SolidPartIds = Array.Empty<int>();
         mesh.ShellPartIds = Array.Empty<int>();
 
+        return mesh;
+    }
+
+    private StateData GenerateTestDisplacementLarge(MeshData mesh, int timestep, int gridSize)
+    {
+        int numNodes = mesh.NodePositions.Length / 3;
+        var state = new StateData
+        {
+            Time = timestep * 0.01,
+            Displacements = new float[numNodes * 3]
+        };
+
+        float t = timestep / 50.0f; // 0 to 1 over 50 frames
+        float phase = t * MathF.PI * 2; // One full cycle
+        float center = gridSize / 2.0f;
+
+        for (int i = 0; i < numNodes; i++)
+        {
+            float x = mesh.NodePositions[i * 3 + 0];
+            float y = mesh.NodePositions[i * 3 + 1];
+            float z = mesh.NodePositions[i * 3 + 2];
+
+            float dx = x - center;
+            float dy = y - center;
+            float dz = z - center;
+            float dist = MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+
+            // Wave pattern
+            float amplitude = 10.0f * MathF.Sin(phase - dist * 0.1f);
+
+            // Radial displacement
+            float scale = dist > 0.01f ? amplitude / dist : 0;
+            state.Displacements[i * 3 + 0] = dx * scale;
+            state.Displacements[i * 3 + 1] = dy * scale;
+            state.Displacements[i * 3 + 2] = dz * scale;
+        }
+
+        return state;
+    }
+
+    private async Task LoadSmallTestMeshAsync()
+    {
+        // Create a small cube mesh with 125,000 elements (50^3)
+        const int nx = 50, ny = 50, nz = 50;
+        const float spacing = 1.0f;
+
+        StatusText = $"Generating small test mesh ({nx}x{ny}x{nz})...";
+
+        var mesh = await Task.Run(() => CreateTestMesh(nx, ny, nz, spacing));
+        int numNodes = (nx + 1) * (ny + 1) * (nz + 1);
+        int numElements = nx * ny * nz;
+
         // Update model tree
         ModelTreeItems.Clear();
         ModelTreeItems.Add(new TreeItemViewModel("Nodes", numNodes));
@@ -588,16 +555,16 @@ public class MainWindowViewModel : ReactiveObject
         _currentTestMesh = mesh;
         _dataLoader?.Dispose();
         _dataLoader = null;
-        _meshLoaded = false; // Reset flag for new mesh
+        _meshLoaded = false;
 
         // Create animated displacement for testing timeline
-        MaxTimestep = 50; // 50 frames
+        MaxTimestep = 50;
         CurrentTimestep = 0;
 
         // Generate test displacement for initial frame
         var state = GenerateTestDisplacement(mesh, 0);
         MeshDataLoaded?.Invoke(mesh, state);
-        _meshLoaded = true; // Mark as loaded after initial load
+        _meshLoaded = true;
     }
 
     private StateData GenerateTestDisplacement(MeshData mesh, int timestep)

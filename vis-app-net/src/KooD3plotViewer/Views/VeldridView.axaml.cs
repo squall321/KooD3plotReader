@@ -53,6 +53,7 @@ public partial class VeldridView : UserControl
 
     // Log flags (to avoid spamming)
     private bool _logFirstTriOnce = false;
+    private bool _logClipDebug = false;
     private bool _logTriCountOnce = false;
     private bool _logFillTriOnce = false;
 
@@ -203,22 +204,44 @@ public partial class VeldridView : UserControl
 
     private void UpdateClipPlanes()
     {
-        if (_gpuRenderer != null)
+        // Only use GPU renderer if it exists AND GPU is still working
+        if (_gpuRenderer != null && _useGpuRendering)
         {
-            _gpuRenderer.ClipXEnabled = _clipXEnabled;
-            _gpuRenderer.ClipYEnabled = _clipYEnabled;
-            _gpuRenderer.ClipZEnabled = _clipZEnabled;
-            _gpuRenderer.ClipXValue = _clipXValue;
-            _gpuRenderer.ClipYValue = _clipYValue;
-            _gpuRenderer.ClipZValue = _clipZValue;
-            _gpuRenderer.ClipXInvert = _clipXInvert;
-            _gpuRenderer.ClipYInvert = _clipYInvert;
-            _gpuRenderer.ClipZInvert = _clipZInvert;
-            _gpuRenderer.ShowClipCap = _showClipCap;
+            try
+            {
+                _gpuRenderer.ClipXEnabled = _clipXEnabled;
+                _gpuRenderer.ClipYEnabled = _clipYEnabled;
+                _gpuRenderer.ClipZEnabled = _clipZEnabled;
+                _gpuRenderer.ClipXValue = _clipXValue;
+                _gpuRenderer.ClipYValue = _clipYValue;
+                _gpuRenderer.ClipZValue = _clipZValue;
+                _gpuRenderer.ClipXInvert = _clipXInvert;
+                _gpuRenderer.ClipYInvert = _clipYInvert;
+                _gpuRenderer.ClipZInvert = _clipZInvert;
+                _gpuRenderer.ShowClipCap = _showClipCap;
 
-            // Update clip cap geometry when clip planes change
-            _gpuRenderer.UpdateClipCaps();
+                // Only update clip cap geometry when at least one clip plane is enabled
+                bool anyClipEnabled = _clipXEnabled || _clipYEnabled || _clipZEnabled;
+                if (anyClipEnabled)
+                {
+                    _gpuRenderer.UpdateClipCaps();
+
+                    // Also update VeldridView section caps if mesh is loaded
+                    if (_meshData != null && _originalMesh != null)
+                    {
+                        UploadSectionCaps();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"[CLIP-UPDATE] GPU error, falling back to software: {ex.Message}");
+                _useGpuRendering = false;
+            }
         }
+
+        // Always trigger re-render (for both GPU and software rendering)
+        InvalidateVisual();
     }
 
     // Log callback
@@ -326,13 +349,25 @@ public partial class VeldridView : UserControl
         {
             var pixels = new uint[_width * _height];
 
-            // Try GPU rendering first if mesh is uploaded
-            if (_useGpuRendering && _gpuRenderer != null && _gpuMeshUploaded && _meshData != null)
+            // Try GPU rendering first, fall back to software if it fails
+            bool usingGpu = _useGpuRendering && _gpuRenderer != null && _gpuMeshUploaded && _meshData != null;
+
+            if (usingGpu)
             {
+                if (_logFirstTriOnce)
+                {
+                    Log("Using GPU rendering");
+                    _logFirstTriOnce = false;
+                }
                 RenderWithGpu(pixels);
             }
             else
             {
+                if (_logFirstTriOnce && _gpuMeshUploaded)
+                {
+                    Log($"Using SOFTWARE rendering (useGpu={_useGpuRendering}, renderer={_gpuRenderer != null}, uploaded={_gpuMeshUploaded})");
+                    _logFirstTriOnce = false;
+                }
                 // Software rendering fallback
                 // Clear buffers
                 uint clearColor = 0xFF252526;
@@ -416,7 +451,20 @@ public partial class VeldridView : UserControl
         var wvp = world * projection;
 
         // Render
-        _gpuRenderer.Render(wvp, pixels);
+        try
+        {
+            _gpuRenderer.Render(wvp, pixels);
+        }
+        catch (Exception ex)
+        {
+            Log($"GPU render error: {ex.GetType().Name}: {ex.Message}");
+            Log($"Stack trace: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Log($"Inner exception: {ex.InnerException.Message}");
+            }
+            _useGpuRendering = false; // Fallback to software
+        }
     }
 
     public void LoadMeshData(MeshData mesh, StateData? state)
@@ -484,6 +532,7 @@ public partial class VeldridView : UserControl
                         {
                             _gpuRenderer.ModelBoundsMin = _meshData.BoundsMin;
                             _gpuRenderer.ModelBoundsMax = _meshData.BoundsMax;
+                            Log($"[CLIP-SETUP] ModelBounds set: min={_meshData.BoundsMin}, max={_meshData.BoundsMax}");
                         }
 
                         // Reset view
@@ -495,6 +544,8 @@ public partial class VeldridView : UserControl
 
                     _isLoading = false;
                     _loadingStatus = "";
+
+                    Log("Mesh processed, uploading to GPU...");
 
                     // Start GPU upload asynchronously
                     UploadMeshToGpuAsync(ct);
@@ -520,7 +571,6 @@ public partial class VeldridView : UserControl
             return;
         }
 
-        _loadingStatus = "Uploading to GPU...";
         var meshData = _meshData; // Capture for closure
 
         Task.Run(() =>
@@ -605,9 +655,10 @@ public partial class VeldridView : UserControl
                         _gpuMeshUploaded = true;
                         _loadingStatus = "";
                         Log($"GPU upload: {numIndices / 3} tris (prep:{prepTime}ms, upload:{uploadSw.ElapsedMilliseconds}ms)");
+                        Log("Mesh ready for rendering!");
 
-                        // Generate section cap mesh if clip planes are enabled
-                        UploadSectionCaps();
+                        // Trigger initial render
+                        InvalidateVisual();
                     }
                     catch (Exception ex)
                     {
@@ -640,8 +691,7 @@ public partial class VeldridView : UserControl
             return;
         }
 
-        _loadingStatus = "Updating...";
-
+        // Don't show loading indicator for fast state updates during animation
         // Process on background thread
         Task.Run(() =>
         {
@@ -1252,6 +1302,12 @@ public partial class VeldridView : UserControl
             DrawSolidTriangles(pixels, projectedX, projectedY, projectedZ);
         }
 
+        // Draw section caps (cut surfaces)
+        if (_showClipCap && (_clipXEnabled || _clipYEnabled || _clipZEnabled))
+        {
+            DrawSectionCaps(pixels, projectedX, projectedY, projectedZ);
+        }
+
         // Draw wireframe
         if (ShowWireframe && _meshData.WireframeIndices.Length > 0)
         {
@@ -1288,6 +1344,15 @@ public partial class VeldridView : UserControl
             int i2 = (int)_meshData.Indices[t + 2];
 
             if (i0 >= px.Length || i1 >= px.Length || i2 >= px.Length)
+                continue;
+
+            // Clipping test - check if all vertices are clipped
+            bool v0Clipped = IsVertexClipped(i0);
+            bool v1Clipped = IsVertexClipped(i1);
+            bool v2Clipped = IsVertexClipped(i2);
+
+            // If all vertices are clipped, skip this triangle
+            if (v0Clipped && v1Clipped && v2Clipped)
                 continue;
 
             // Screen coordinates
@@ -1890,5 +1955,503 @@ public partial class VeldridView : UserControl
         else { float s = (t - 0.75f) / 0.25f; r = 1; g = 1 - s; b = 0; }
 
         return new Vector4(r, g, b, 1.0f);
+    }
+
+    private void DrawSectionCaps(uint[] pixels, float[] px, float[] py, float[] pz)
+    {
+        if (_meshData == null) return;
+
+        // Collect all intersection segments with scalar values
+        List<(Vector3 pos1, float scalar1, Vector3 pos2, float scalar2)> segments = new List<(Vector3, float, Vector3, float)>();
+
+        // Process all triangles to find intersection segments
+        for (int t = 0; t < _meshData.Indices.Length; t += 3)
+        {
+            int i0 = (int)_meshData.Indices[t + 0];
+            int i1 = (int)_meshData.Indices[t + 1];
+            int i2 = (int)_meshData.Indices[t + 2];
+
+            if (i0 >= _meshData.CurrentPositions.Length / 3 ||
+                i1 >= _meshData.CurrentPositions.Length / 3 ||
+                i2 >= _meshData.CurrentPositions.Length / 3)
+                continue;
+
+            // Get world positions
+            Vector3 p0 = new Vector3(
+                _meshData.CurrentPositions[i0 * 3 + 0],
+                _meshData.CurrentPositions[i0 * 3 + 1],
+                _meshData.CurrentPositions[i0 * 3 + 2]);
+            Vector3 p1 = new Vector3(
+                _meshData.CurrentPositions[i1 * 3 + 0],
+                _meshData.CurrentPositions[i1 * 3 + 1],
+                _meshData.CurrentPositions[i1 * 3 + 2]);
+            Vector3 p2 = new Vector3(
+                _meshData.CurrentPositions[i2 * 3 + 0],
+                _meshData.CurrentPositions[i2 * 3 + 1],
+                _meshData.CurrentPositions[i2 * 3 + 2]);
+
+            // Get scalar values for color mapping
+            float s0 = _meshData.ScalarValues[i0];
+            float s1 = _meshData.ScalarValues[i1];
+            float s2 = _meshData.ScalarValues[i2];
+
+            // Check which vertices are clipped
+            bool v0Clipped = IsVertexClipped(i0);
+            bool v1Clipped = IsVertexClipped(i1);
+            bool v2Clipped = IsVertexClipped(i2);
+
+            // Count clipped vertices
+            int clippedCount = (v0Clipped ? 1 : 0) + (v1Clipped ? 1 : 0) + (v2Clipped ? 1 : 0);
+
+            // We only care about partially clipped triangles (1 or 2 vertices clipped)
+            if (clippedCount == 0 || clippedCount == 3)
+                continue;
+
+            // Find the two intersection points on the clip plane with interpolated scalars
+            List<(Vector3 pos, float scalar)> intersections = new List<(Vector3, float)>();
+
+            // Check edge p0-p1
+            var int01 = GetClipPlaneIntersectionWithScalar(p0, s0, p1, s1);
+            if (int01.HasValue) intersections.Add(int01.Value);
+
+            // Check edge p1-p2
+            var int12 = GetClipPlaneIntersectionWithScalar(p1, s1, p2, s2);
+            if (int12.HasValue) intersections.Add(int12.Value);
+
+            // Check edge p2-p0
+            var int20 = GetClipPlaneIntersectionWithScalar(p2, s2, p0, s0);
+            if (int20.HasValue) intersections.Add(int20.Value);
+
+            // If we found exactly 2 intersections, add this segment
+            if (intersections.Count == 2)
+            {
+                segments.Add((intersections[0].pos, intersections[0].scalar,
+                             intersections[1].pos, intersections[1].scalar));
+            }
+        }
+
+        // Now draw all the collected segments as filled polygons with color mapping
+        if (segments.Count > 0)
+        {
+            // Try to fill the interior by creating triangles from segment center
+            if (segments.Count >= 3)
+            {
+                // Calculate center point and average scalar value
+                Vector3 centerPos = Vector3.Zero;
+                float centerScalar = 0;
+                int pointCount = 0;
+                foreach (var seg in segments)
+                {
+                    centerPos += seg.pos1;
+                    centerPos += seg.pos2;
+                    centerScalar += seg.scalar1;
+                    centerScalar += seg.scalar2;
+                    pointCount += 2;
+                }
+                centerPos /= pointCount;
+                centerScalar /= pointCount;
+
+                // Draw triangles from center to each segment with interpolated colors
+                foreach (var seg in segments)
+                {
+                    var s1 = ProjectPoint(seg.pos1, px, py, pz);
+                    var s2 = ProjectPoint(seg.pos2, px, py, pz);
+                    var sc = ProjectPoint(centerPos, px, py, pz);
+
+                    // Get colors from scalar values
+                    uint c1 = GetJetColorFromScalar(seg.scalar1);
+                    uint c2 = GetJetColorFromScalar(seg.scalar2);
+                    uint cc = GetJetColorFromScalar(centerScalar);
+
+                    // Fill triangle with per-vertex colors
+                    FillTriangleWithColors(pixels, s1.X, s1.Y, s1.Z, c1,
+                                                    s2.X, s2.Y, s2.Z, c2,
+                                                    sc.X, sc.Y, sc.Z, cc);
+                }
+            }
+        }
+    }
+
+    private Vector3? GetClipPlaneIntersection(Vector3 p0, Vector3 p1)
+    {
+        if (_meshData == null) return null;
+
+        var boundsMin = _gpuRenderer?.ModelBoundsMin ?? Vector3.Zero;
+        var boundsMax = _gpuRenderer?.ModelBoundsMax ?? new Vector3(1, 1, 1);
+        var boundsSize = boundsMax - boundsMin;
+
+        // Check X clip plane
+        if (_clipXEnabled)
+        {
+            float clipPosX = boundsMin.X + _clipXValue * boundsSize.X;
+
+            // Check if edge crosses the clip plane
+            bool p0Side = _clipXInvert ? (p0.X > clipPosX) : (p0.X < clipPosX);
+            bool p1Side = _clipXInvert ? (p1.X > clipPosX) : (p1.X < clipPosX);
+
+            // If points are on opposite sides, find intersection
+            if (p0Side != p1Side)
+            {
+                float denom = p1.X - p0.X;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosX - p0.X) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        return p0 + t * (p1 - p0);
+                    }
+                }
+            }
+        }
+
+        // Check Y clip plane
+        if (_clipYEnabled)
+        {
+            float clipPosY = boundsMin.Y + _clipYValue * boundsSize.Y;
+
+            bool p0Side = _clipYInvert ? (p0.Y > clipPosY) : (p0.Y < clipPosY);
+            bool p1Side = _clipYInvert ? (p1.Y > clipPosY) : (p1.Y < clipPosY);
+
+            if (p0Side != p1Side)
+            {
+                float denom = p1.Y - p0.Y;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosY - p0.Y) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        return p0 + t * (p1 - p0);
+                    }
+                }
+            }
+        }
+
+        // Check Z clip plane
+        if (_clipZEnabled)
+        {
+            float clipPosZ = boundsMin.Z + _clipZValue * boundsSize.Z;
+
+            bool p0Side = _clipZInvert ? (p0.Z > clipPosZ) : (p0.Z < clipPosZ);
+            bool p1Side = _clipZInvert ? (p1.Z > clipPosZ) : (p1.Z < clipPosZ);
+
+            if (p0Side != p1Side)
+            {
+                float denom = p1.Z - p0.Z;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosZ - p0.Z) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        return p0 + t * (p1 - p0);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private (Vector3 pos, float scalar)? GetClipPlaneIntersectionWithScalar(Vector3 p0, float s0, Vector3 p1, float s1)
+    {
+        if (_meshData == null) return null;
+
+        var boundsMin = _gpuRenderer?.ModelBoundsMin ?? Vector3.Zero;
+        var boundsMax = _gpuRenderer?.ModelBoundsMax ?? new Vector3(1, 1, 1);
+        var boundsSize = boundsMax - boundsMin;
+
+        // Check X clip plane
+        if (_clipXEnabled)
+        {
+            float clipPosX = boundsMin.X + _clipXValue * boundsSize.X;
+
+            // Check if edge crosses the clip plane
+            bool p0Side = _clipXInvert ? (p0.X > clipPosX) : (p0.X < clipPosX);
+            bool p1Side = _clipXInvert ? (p1.X > clipPosX) : (p1.X < clipPosX);
+
+            // If points are on opposite sides, find intersection
+            if (p0Side != p1Side)
+            {
+                float denom = p1.X - p0.X;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosX - p0.X) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        Vector3 pos = p0 + t * (p1 - p0);
+                        float scalar = s0 + t * (s1 - s0); // Interpolate scalar
+                        return (pos, scalar);
+                    }
+                }
+            }
+        }
+
+        // Check Y clip plane
+        if (_clipYEnabled)
+        {
+            float clipPosY = boundsMin.Y + _clipYValue * boundsSize.Y;
+
+            bool p0Side = _clipYInvert ? (p0.Y > clipPosY) : (p0.Y < clipPosY);
+            bool p1Side = _clipYInvert ? (p1.Y > clipPosY) : (p1.Y < clipPosY);
+
+            if (p0Side != p1Side)
+            {
+                float denom = p1.Y - p0.Y;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosY - p0.Y) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        Vector3 pos = p0 + t * (p1 - p0);
+                        float scalar = s0 + t * (s1 - s0);
+                        return (pos, scalar);
+                    }
+                }
+            }
+        }
+
+        // Check Z clip plane
+        if (_clipZEnabled)
+        {
+            float clipPosZ = boundsMin.Z + _clipZValue * boundsSize.Z;
+
+            bool p0Side = _clipZInvert ? (p0.Z > clipPosZ) : (p0.Z < clipPosZ);
+            bool p1Side = _clipZInvert ? (p1.Z > clipPosZ) : (p1.Z < clipPosZ);
+
+            if (p0Side != p1Side)
+            {
+                float denom = p1.Z - p0.Z;
+                if (MathF.Abs(denom) > 0.0001f)
+                {
+                    float t = (clipPosZ - p0.Z) / denom;
+                    if (t >= 0 && t <= 1)
+                    {
+                        Vector3 pos = p0 + t * (p1 - p0);
+                        float scalar = s0 + t * (s1 - s0);
+                        return (pos, scalar);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private uint GetJetColorFromScalar(float scalarValue)
+    {
+        if (_meshData == null || _meshData.ScalarValues.Length == 0)
+            return 0xFF8090A0; // Default gray-blue
+
+        // Normalize scalar to 0-1 range
+        float range = _meshData.ScalarMax - _meshData.ScalarMin;
+        if (range < 0.0001f) return 0xFF0000FF; // Blue if no range
+
+        float t = (scalarValue - _meshData.ScalarMin) / range;
+        t = Math.Clamp(t, 0, 1);
+
+        // Jet colormap
+        float r, g, b;
+        if (t < 0.25f)
+        {
+            r = 0;
+            g = 4 * t;
+            b = 1;
+        }
+        else if (t < 0.5f)
+        {
+            r = 0;
+            g = 1;
+            b = 1 - 4 * (t - 0.25f);
+        }
+        else if (t < 0.75f)
+        {
+            r = 4 * (t - 0.5f);
+            g = 1;
+            b = 0;
+        }
+        else
+        {
+            r = 1;
+            g = 1 - 4 * (t - 0.75f);
+            b = 0;
+        }
+
+        // Note: Color format is BGRA (same as GetJetColor)
+        return (uint)(0xFF000000 | ((uint)(b * 255) << 16) | ((uint)(g * 255) << 8) | (uint)(r * 255));
+    }
+
+    private void FillTriangleWithColors(uint[] pixels,
+                                         float x0, float y0, float z0, uint c0,
+                                         float x1, float y1, float z1, uint c1,
+                                         float x2, float y2, float z2, uint c2)
+    {
+        // Bounding box
+        int minX = Math.Max(0, (int)MathF.Floor(Math.Min(x0, Math.Min(x1, x2))));
+        int maxX = Math.Min(_width - 1, (int)MathF.Ceiling(Math.Max(x0, Math.Max(x1, x2))));
+        int minY = Math.Max(0, (int)MathF.Floor(Math.Min(y0, Math.Min(y1, y2))));
+        int maxY = Math.Min(_height - 1, (int)MathF.Ceiling(Math.Max(y0, Math.Max(y1, y2))));
+
+        if (minX > maxX || minY > maxY) return;
+
+        // Compute twice the signed area
+        float area2 = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
+        if (MathF.Abs(area2) < 0.001f) return;
+
+        float invArea2 = 1.0f / area2;
+
+        // Extract color components (BGRA format)
+        float b0 = ((c0 >> 16) & 0xFF) / 255f;
+        float g0 = ((c0 >> 8) & 0xFF) / 255f;
+        float r0 = (c0 & 0xFF) / 255f;
+
+        float b1 = ((c1 >> 16) & 0xFF) / 255f;
+        float g1 = ((c1 >> 8) & 0xFF) / 255f;
+        float r1 = (c1 & 0xFF) / 255f;
+
+        float b2 = ((c2 >> 16) & 0xFF) / 255f;
+        float g2 = ((c2 >> 8) & 0xFF) / 255f;
+        float r2 = (c2 & 0xFF) / 255f;
+
+        for (int py = minY; py <= maxY; py++)
+        {
+            for (int px = minX; px <= maxX; px++)
+            {
+                float cx = px + 0.5f;
+                float cy = py + 0.5f;
+
+                // Barycentric coordinates
+                float w0 = ((x1 - cx) * (y2 - cy) - (y1 - cy) * (x2 - cx)) * invArea2;
+                float w1 = ((x2 - cx) * (y0 - cy) - (y2 - cy) * (x0 - cx)) * invArea2;
+                float w2 = 1.0f - w0 - w1;
+
+                const float eps = -0.001f;
+                if (w0 >= eps && w1 >= eps && w2 >= eps)
+                {
+                    // Interpolate Z
+                    float z = w0 * z0 + w1 * z1 + w2 * z2;
+
+                    int idx = py * _width + px;
+                    if (z < _zBuffer[idx])
+                    {
+                        _zBuffer[idx] = z;
+
+                        // Interpolate color
+                        float r = w0 * r0 + w1 * r1 + w2 * r2;
+                        float g = w0 * g0 + w1 * g1 + w2 * g2;
+                        float b = w0 * b0 + w1 * b1 + w2 * b2;
+
+                        byte rb = (byte)(Math.Clamp(r, 0, 1) * 255);
+                        byte gb = (byte)(Math.Clamp(g, 0, 1) * 255);
+                        byte bb = (byte)(Math.Clamp(b, 0, 1) * 255);
+
+                        // Output in BGRA format
+                        pixels[idx] = (uint)(0xFF000000 | (bb << 16) | (gb << 8) | rb);
+                    }
+                }
+            }
+        }
+    }
+
+    private Vector3 ProjectPoint(Vector3 worldPos, float[] px, float[] py, float[] pz)
+    {
+        float cx = _width / 2f;
+        float cy = _height / 2f;
+
+        // Apply same transformations as in DrawMesh
+        float x = worldPos.X - _modelCenter.X;
+        float y = worldPos.Y - _modelCenter.Y;
+        float z = worldPos.Z - _modelCenter.Z;
+
+        x *= _modelScale;
+        y *= _modelScale;
+        z *= _modelScale;
+
+        // Apply rotation
+        float cosX = MathF.Cos(_rotationX);
+        float sinX = MathF.Sin(_rotationX);
+        float cosY = MathF.Cos(_rotationY);
+        float sinY = MathF.Sin(_rotationY);
+
+        float rx = x * cosY - z * sinY;
+        float rz = x * sinY + z * cosY;
+        x = rx; z = rz;
+
+        float ry = y * cosX - z * sinX;
+        rz = y * sinX + z * cosX;
+        y = ry; z = rz;
+
+        // Scale to screen
+        float viewScale = Math.Min(_width, _height) * 0.4f * _zoom;
+        x *= viewScale;
+        y *= viewScale;
+        z *= viewScale;
+
+        // Apply pan
+        x += _panOffset.X;
+        y += _panOffset.Y;
+
+        return new Vector3(cx + x, cy - y, z);
+    }
+
+    private void DrawThickLine(uint[] pixels, int x0, int y0, int x1, int y1, uint color, int thickness)
+    {
+        // Draw multiple parallel lines for thickness
+        for (int dy = -thickness; dy <= thickness; dy++)
+        {
+            for (int dx = -thickness; dx <= thickness; dx++)
+            {
+                if (dx * dx + dy * dy <= thickness * thickness)
+                {
+                    DrawLine(pixels, x0 + dx, y0 + dy, x1 + dx, y1 + dy, color);
+                }
+            }
+        }
+    }
+
+    private bool IsVertexClipped(int vertexIndex)
+    {
+        if (_meshData == null) return false;
+
+        float x = _meshData.CurrentPositions[vertexIndex * 3 + 0];
+        float y = _meshData.CurrentPositions[vertexIndex * 3 + 1];
+        float z = _meshData.CurrentPositions[vertexIndex * 3 + 2];
+
+        // Get model bounds from GPU renderer
+        var boundsMin = _gpuRenderer?.ModelBoundsMin ?? Vector3.Zero;
+        var boundsMax = _gpuRenderer?.ModelBoundsMax ?? new Vector3(1, 1, 1);
+        var boundsSize = boundsMax - boundsMin;
+
+        // Debug log first call (for testing)
+        if (vertexIndex == 0 && _clipXEnabled && !_logClipDebug)
+        {
+            float clipPosX = boundsMin.X + _clipXValue * boundsSize.X;
+            Log($"[CLIP-DEBUG] ClipX: value={_clipXValue:F2}, pos={clipPosX:F2}, invert={_clipXInvert}, bounds=[{boundsMin.X:F2}, {boundsMax.X:F2}]");
+            _logClipDebug = true;
+        }
+
+        // X clip plane
+        if (_clipXEnabled)
+        {
+            float clipPosX = boundsMin.X + _clipXValue * boundsSize.X;
+            bool shouldClip = _clipXInvert ? (x > clipPosX) : (x < clipPosX);
+            if (shouldClip) return true;
+        }
+
+        // Y clip plane
+        if (_clipYEnabled)
+        {
+            float clipPosY = boundsMin.Y + _clipYValue * boundsSize.Y;
+            bool shouldClip = _clipYInvert ? (y > clipPosY) : (y < clipPosY);
+            if (shouldClip) return true;
+        }
+
+        // Z clip plane
+        if (_clipZEnabled)
+        {
+            float clipPosZ = boundsMin.Z + _clipZValue * boundsSize.Z;
+            bool shouldClip = _clipZInvert ? (z > clipPosZ) : (z < clipPosZ);
+            if (shouldClip) return true;
+        }
+
+        return false;
     }
 }
