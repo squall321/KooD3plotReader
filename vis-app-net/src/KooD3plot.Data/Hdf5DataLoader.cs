@@ -9,6 +9,7 @@ using HDF.PInvoke;
 
 namespace KooD3plot.Data;
 
+// Legacy type alias for backward compatibility
 public record Hdf5FileInfo(
     string FormatVersion,
     int NumNodes,
@@ -18,34 +19,65 @@ public record Hdf5FileInfo(
     int NumTimesteps,
     long FileSizeBytes,
     double CompressionRatio
-);
+)
+{
+    public DataFileInfo ToDataFileInfo() => new DataFileInfo(
+        "HDF5", FormatVersion, NumNodes, NumSolids, NumShells, NumBeams, 0,
+        NumTimesteps, FileSizeBytes, CompressionRatio, ""
+    );
+}
 
+/// <summary>
+/// State data for a single timestep
+/// </summary>
 public class StateData
 {
     public double Time { get; set; }
     public float[] Displacements { get; set; } = Array.Empty<float>();
     public float[] Velocities { get; set; } = Array.Empty<float>();
+    public float[] Accelerations { get; set; } = Array.Empty<float>();
     public float[] StressData { get; set; } = Array.Empty<float>();
+    public float[] StrainData { get; set; } = Array.Empty<float>();
 }
 
+/// <summary>
+/// Mesh geometry data (nodes and element connectivity)
+/// </summary>
 public class MeshData
 {
-    public float[] NodePositions { get; set; } = Array.Empty<float>();
-    public int[] NodeIds { get; set; } = Array.Empty<int>();
-    public int[] SolidConnectivity { get; set; } = Array.Empty<int>();
+    public float[] NodePositions { get; set; } = Array.Empty<float>();  // [N*3] x,y,z per node
+    public int[] NodeIds { get; set; } = Array.Empty<int>();            // Real node IDs
+    public int[] SolidConnectivity { get; set; } = Array.Empty<int>();  // [N*8] 8 nodes per solid
     public int[] SolidPartIds { get; set; } = Array.Empty<int>();
-    public int[] ShellConnectivity { get; set; } = Array.Empty<int>();
+    public int[] ShellConnectivity { get; set; } = Array.Empty<int>();  // [N*4] 4 nodes per shell
     public int[] ShellPartIds { get; set; } = Array.Empty<int>();
-    public int[] BeamConnectivity { get; set; } = Array.Empty<int>();
+    public int[] BeamConnectivity { get; set; } = Array.Empty<int>();   // [N*2] 2 nodes per beam
+    public int[] BeamPartIds { get; set; } = Array.Empty<int>();
+    public int[] ThickShellConnectivity { get; set; } = Array.Empty<int>(); // [N*8] thick shells
+    public int[] ThickShellPartIds { get; set; } = Array.Empty<int>();
+
+    public int NumNodes => NodePositions.Length / 3;
+    public int NumSolids => SolidConnectivity.Length / 8;
+    public int NumShells => ShellConnectivity.Length / 4;
+    public int NumBeams => BeamConnectivity.Length / 2;
+    public int NumThickShells => ThickShellConnectivity.Length / 8;
 }
 
-public class Hdf5DataLoader : IDisposable
+/// <summary>
+/// HDF5 file data loader implementing IDataLoader interface
+/// </summary>
+public class Hdf5DataLoader : IDataLoader
 {
     private readonly string _filePath;
     private long _fileId = -1;
     private bool _isOpen;
     private Hdf5FileInfo? _fileInfo;
+    private DataFileInfo? _dataFileInfo;
     private MeshData? _meshData;
+
+    // IDataLoader properties
+    public bool IsOpen => _isOpen;
+    public string FilePath => _filePath;
 
     // Quantization metadata
     private bool _useQuantization;
@@ -167,7 +199,22 @@ public class Hdf5DataLoader : IDisposable
         }
     }
 
-    public Hdf5FileInfo GetFileInfo() => _fileInfo ?? throw new InvalidOperationException("File not open");
+    /// <summary>
+    /// Get legacy HDF5 file info (for backward compatibility)
+    /// </summary>
+    public Hdf5FileInfo GetHdf5FileInfo() => _fileInfo ?? throw new InvalidOperationException("File not open");
+
+    /// <summary>
+    /// IDataLoader implementation - Get common file info
+    /// </summary>
+    public DataFileInfo GetFileInfo()
+    {
+        if (_dataFileInfo != null) return _dataFileInfo;
+        if (_fileInfo == null) throw new InvalidOperationException("File not open");
+
+        _dataFileInfo = _fileInfo.ToDataFileInfo();
+        return _dataFileInfo;
+    }
 
     public List<int> GetTimestepList()
     {

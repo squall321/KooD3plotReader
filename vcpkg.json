@@ -9,7 +9,9 @@
   "dependencies": [
     {
       "name": "hdf5",
-      "features": ["cpp"],
+      "features": [
+        "cpp"
+      ],
       "platform": "!uwp"
     },
     "yaml-cpp",
@@ -19,7 +21,7 @@
     },
     "gtest"
   ],
-  "builtin-baseline": "ceaa2404d370c7a40fcfb11d747a71c9fd1df044",
+  "builtin-baseline": "2a3138723698306f4261632c92dc782f586167e3",
   "overrides": [],
   "features": {
     "hdf5": {
@@ -27,7 +29,9 @@
       "dependencies": [
         {
           "name": "hdf5",
-          "features": ["cpp"]
+          "features": [
+            "cpp"
+          ]
         },
         "yaml-cpp",
         "blosc"
@@ -35,7 +39,9 @@
     },
     "tests": {
       "description": "Build unit tests",
-      "dependencies": ["gtest"]
+      "dependencies": [
+        "gtest"
+      ]
     }
   }
 }

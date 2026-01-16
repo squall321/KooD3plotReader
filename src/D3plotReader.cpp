@@ -459,9 +459,11 @@ data::StateData D3plotReader::read_state(size_t state_index) {
 }
 
 size_t D3plotReader::get_num_states() const {
-    // This would require reading all states
-    // For Phase 6, we'll implement a simpler version
-    return 0;  // TODO: Implement state counting without full read
+    // Read all states to count them
+    // Note: This is not optimal but works for now
+    auto& self = const_cast<D3plotReader&>(*this);
+    auto states = self.read_all_states();
+    return states.size();
 }
 
 std::vector<double> D3plotReader::get_time_values() {

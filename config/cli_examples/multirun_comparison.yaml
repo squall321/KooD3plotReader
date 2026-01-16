@@ -1,0 +1,49 @@
+# KooD3plot CLI - MultiRun Mode Configuration
+# ============================================
+# 사용법: kood3plot_cli --mode multirun --config multirun_comparison.yaml \
+#                       --run-config run1.yaml --run-config run2.yaml \
+#                       --threads 4 --comparison-output results/
+#
+# 이 설정은 여러 시뮬레이션 결과를 병렬로 처리하고 비교합니다.
+
+# 공통 설정 (각 run에서 오버라이드 가능)
+analysis:
+  output_path: "./multirun_results"
+
+  lsprepost:
+    executable: "lsprepost"
+    timeout: 600
+
+# 병렬 처리 설정
+parallel:
+  threads: 4                  # 동시 실행 스레드 수
+  verbose: true
+
+# 공통 Fringe 설정
+fringe:
+  type: von_mises
+  auto_range: true
+
+# 공통 출력 설정
+output:
+  movie: true
+  width: 1920
+  height: 1080
+  fps: 30
+
+# 공통 단면 설정
+sections:
+  - auto_mode: single
+    auto_params:
+      orientation: Z
+      position: center
+
+view:
+  orientation: isometric
+  auto_fit: true
+
+# 비교 보고서 설정
+comparison:
+  generate_report: true       # 텍스트 보고서 생성
+  generate_csv: true          # CSV 결과 생성
+  output_dir: "./comparison"

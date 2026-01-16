@@ -1,0 +1,34 @@
+# KooD3plot CLI - Export Mode Configuration
+# ==========================================
+# 사용법: kood3plot_cli --mode export --config export_deformed.yaml
+#
+# 이 설정은 d3plot 결과를 LS-DYNA keyword 파일(.k)로 내보냅니다.
+
+# 입력 파일 경로
+d3plot: "path/to/d3plot"
+
+# 출력 파일 경로
+output: "output/deformed_nodes.k"
+
+# 내보내기 형식
+# deformed       : 변형된 노드 좌표 (*NODE)
+# displacement   : 노드 변위 (*NODE_DISPLACEMENT)
+# velocity       : 초기 속도 (*INITIAL_VELOCITY)
+# stress         : 솔리드 초기 응력 (*INITIAL_STRESS_SOLID)
+# stress_csv     : 요소 응력 CSV 파일
+export_format: deformed
+
+# State 선택
+time:
+  first: -1       # -1 = 마지막 state
+  last: -1
+  step: 1
+
+# 다중 State 내보내기 옵션
+export:
+  all_states: false           # true: 모든 state 내보내기
+  combined: false             # true: 단일 파일로 결합
+
+# 성능 설정
+performance:
+  verbose: true

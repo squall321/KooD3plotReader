@@ -72,8 +72,22 @@ if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxi
     goto :vs_found
 )
 
+REM Check VS 2019 BuildTools
+if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" (
+    set "VCVARSALL=C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"
+    set "VS_VERSION=2019 BuildTools"
+    goto :vs_found
+)
+
+REM Check VS 2017 WDExpress
+if exist "C:\Program Files (x86)\Microsoft Visual Studio\2017\WDExpress\VC\Auxiliary\Build\vcvarsall.bat" (
+    set "VCVARSALL=C:\Program Files (x86)\Microsoft Visual Studio\2017\WDExpress\VC\Auxiliary\Build\vcvarsall.bat"
+    set "VS_VERSION=2017 WDExpress"
+    goto :vs_found
+)
+
 REM VS not found
-echo [ERROR] Visual Studio 2019 or 2022 not found!
+echo [ERROR] Visual Studio 2017, 2019, or 2022 not found!
 echo Please install Visual Studio with C++ development tools.
 exit /b 1
 
@@ -187,7 +201,7 @@ echo   Shared library build completed.
 echo.
 
 REM =========================================
-REM Copy CLI tool
+REM Copy CLI tool and config files
 REM =========================================
 echo   Copying CLI tool...
 if not exist "%INSTALL_DIR%\bin" mkdir "%INSTALL_DIR%\bin"
@@ -197,6 +211,16 @@ if exist "%BUILD_DIR%\kood3plot_cli.exe" (
     echo   [OK] kood3plot_cli.exe copied
 ) else (
     echo   [WARN] kood3plot_cli.exe not built
+)
+
+REM Copy CLI config examples
+echo   Copying CLI config examples...
+if not exist "%INSTALL_DIR%\bin\config" mkdir "%INSTALL_DIR%\bin\config"
+if exist "%PROJECT_ROOT%\config\cli_examples" (
+    xcopy /s /e /q /y "%PROJECT_ROOT%\config\cli_examples\*" "%INSTALL_DIR%\bin\config\" >nul
+    echo   [OK] CLI config examples copied
+) else (
+    echo   [WARN] CLI config examples not found
 )
 echo.
 
@@ -456,11 +480,25 @@ echo   2. %INSTALL_DIR%\source\   - Source code
 echo.
 echo CLI Tool:
 echo   %INSTALL_DIR%\bin\kood3plot_cli.exe
-echo   Usage: kood3plot_cli.exe --mode ^<query^|render^|batch^|autosection^|multirun^> ...
+echo   Usage: kood3plot_cli.exe --mode ^<query^|render^|batch^|autosection^|multirun^|export^> ...
+echo.
+echo   3. %INSTALL_DIR%\bin\config\ - CLI config examples
+echo      - query_basic.yaml      (데이터 추출)
+echo      - render_basic.yaml     (렌더링)
+echo      - batch_render.yaml     (배치 렌더링)
+echo      - multisection.yaml     (다중 단면)
+echo      - autosection.yaml      (자동 단면)
+echo      - multirun_*.yaml       (다중 실행 비교)
+echo      - export_*.yaml         (LS-DYNA 내보내기)
+echo.
+echo Quick Start:
+echo   kood3plot_cli.exe --help
+echo   kood3plot_cli.exe --mode query --config bin\config\query_basic.yaml
 echo.
 echo For detailed usage:
 echo   type %INSTALL_DIR%\README_WINDOWS.md
 echo   type %INSTALL_DIR%\docs\USAGE.md
+echo   type %INSTALL_DIR%\bin\config\README.md
 echo.
 
 endlocal

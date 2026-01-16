@@ -1,0 +1,29 @@
+# KooD3plot CLI - Single Run Configuration (for MultiRun mode)
+# ==============================================================
+# 사용법: --run-config 옵션에 전달
+#   kood3plot_cli --mode multirun --run-config run1.yaml --run-config run2.yaml ...
+#
+# 이 파일은 multirun 모드에서 개별 실행 설정을 정의합니다.
+
+# 이 실행의 d3plot 경로
+analysis:
+  data_path: "path/to/simulation1/d3plot"
+  output_path: "./run1_output"
+
+# 이 실행에 대한 Fringe 설정 (오버라이드)
+fringe:
+  type: von_mises
+  auto_range: true
+
+# 이 실행에 대한 단면 설정
+sections:
+  - auto_mode: single
+    auto_params:
+      orientation: Z
+      position: center
+
+# 출력 설정
+output:
+  movie: true
+  width: 1920
+  height: 1080

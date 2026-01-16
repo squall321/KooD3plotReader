@@ -43,7 +43,7 @@ public class MainWindowViewModel : ReactiveObject
     private bool _clipZInvert;
     private bool _showClipCap = true;
 
-    private Hdf5DataLoader? _dataLoader;
+    private IDataLoader? _dataLoader;
 
     public MainWindowViewModel()
     {
@@ -58,6 +58,7 @@ public class MainWindowViewModel : ReactiveObject
 
         // Initialize commands
         OpenFileCommand = ReactiveCommand.CreateFromTask(OpenFileAsync);
+        OpenD3plotCommand = ReactiveCommand.CreateFromTask(OpenD3plotAsync);
         ExitCommand = ReactiveCommand.Create(Exit);
         ResetCameraCommand = ReactiveCommand.Create(ResetCamera);
         FitToWindowCommand = ReactiveCommand.Create(FitToWindow);
@@ -89,6 +90,7 @@ public class MainWindowViewModel : ReactiveObject
 
     // Commands
     public ReactiveCommand<Unit, Unit> OpenFileCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenD3plotCommand { get; }
     public ReactiveCommand<Unit, Unit> ExitCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetCameraCommand { get; }
     public ReactiveCommand<Unit, Unit> FitToWindowCommand { get; }
@@ -303,11 +305,12 @@ public class MainWindowViewModel : ReactiveObject
 
             var files = await topLevel.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
             {
-                Title = "Open HDF5 File",
+                Title = "Open Data File",
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
                     new Avalonia.Platform.Storage.FilePickerFileType("HDF5 Files") { Patterns = new[] { "*.h5", "*.hdf5" } },
+                    new Avalonia.Platform.Storage.FilePickerFileType("D3plot Files") { Patterns = new[] { "d3plot*" } },
                     new Avalonia.Platform.Storage.FilePickerFileType("All Files") { Patterns = new[] { "*.*" } }
                 }
             });
@@ -315,7 +318,7 @@ public class MainWindowViewModel : ReactiveObject
             if (files.Count > 0)
             {
                 var filePath = files[0].Path.LocalPath;
-                await Task.Run(() => LoadHdf5File(filePath));
+                await Task.Run(() => LoadDataFile(filePath));
             }
         }
         catch (Exception ex)
@@ -324,17 +327,78 @@ public class MainWindowViewModel : ReactiveObject
         }
     }
 
-    private void LoadHdf5File(string filePath)
+    private async Task OpenD3plotAsync()
     {
         try
         {
-            StatusText = $"Loading {System.IO.Path.GetFileName(filePath)}...";
+            var topLevel = Avalonia.Application.Current?.ApplicationLifetime is
+                Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                ? desktop.MainWindow : null;
+
+            if (topLevel == null) return;
+
+            // Check if D3plot is supported
+            if (!DataLoaderFactory.IsD3plotSupported())
+            {
+                StatusText = "D3plot native library not available";
+                AppendLog("Error: kood3plot_net library not found. Please build the C++ library first.");
+                return;
+            }
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                Title = "Open D3plot File",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new Avalonia.Platform.Storage.FilePickerFileType("D3plot Files") { Patterns = new[] { "d3plot*", "D3PLOT*" } },
+                    new Avalonia.Platform.Storage.FilePickerFileType("All Files") { Patterns = new[] { "*.*" } }
+                }
+            });
+
+            if (files.Count > 0)
+            {
+                var filePath = files[0].Path.LocalPath;
+                await Task.Run(() => LoadDataFile(filePath, forceD3plot: true));
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+            AppendLog($"D3plot open error: {ex.Message}");
+        }
+    }
+
+    private void LoadDataFile(string filePath, bool forceD3plot = false)
+    {
+        try
+        {
+            var fileName = System.IO.Path.GetFileName(filePath);
+            StatusText = $"Loading {fileName}...";
+            AppendLog($"Loading file: {filePath}");
 
             _dataLoader?.Dispose();
-            _dataLoader = new Hdf5DataLoader(filePath);
+            _currentTestMesh = null;
+            _meshLoaded = false;
+
+            // Create appropriate loader
+            if (forceD3plot)
+            {
+                _dataLoader = new D3plotDataLoader(filePath);
+            }
+            else
+            {
+                _dataLoader = DataLoaderFactory.Create(filePath);
+            }
 
             var info = _dataLoader.GetFileInfo();
             var timesteps = _dataLoader.GetTimestepList();
+
+            AppendLog($"Loaded {info.FormatType} file: {info.NumNodes:N0} nodes, {info.NumTimesteps} timesteps");
+            if (!string.IsNullOrEmpty(info.Title))
+            {
+                AppendLog($"Title: {info.Title}");
+            }
 
             // Update UI on main thread
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -348,14 +412,19 @@ public class MainWindowViewModel : ReactiveObject
                 ModelTreeItems.Add(new TreeItemViewModel("Solids", info.NumSolids));
                 ModelTreeItems.Add(new TreeItemViewModel("Shells", info.NumShells));
                 ModelTreeItems.Add(new TreeItemViewModel("Beams", info.NumBeams));
+                if (info.NumThickShells > 0)
+                {
+                    ModelTreeItems.Add(new TreeItemViewModel("Thick Shells", info.NumThickShells));
+                }
 
-                StatusText = $"Loaded: {info.NumNodes:N0} nodes, {info.NumTimesteps} timesteps";
+                StatusText = $"[{info.FormatType}] {info.NumNodes:N0} nodes, {info.NumTimesteps} timesteps";
 
                 // Load mesh and first state
                 var meshData = _dataLoader.GetMeshData();
                 var stateData = timesteps.Count > 0 ? _dataLoader.GetStateData(0) : null;
 
                 MeshDataLoaded?.Invoke(meshData, stateData);
+                _meshLoaded = true;
             });
         }
         catch (Exception ex)
@@ -363,6 +432,7 @@ public class MainWindowViewModel : ReactiveObject
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 StatusText = $"Error loading file: {ex.Message}";
+                AppendLog($"Error: {ex.Message}");
             });
         }
     }
@@ -685,13 +755,15 @@ public class MainWindowViewModel : ReactiveObject
         {
             StatusText = $"Loading {System.IO.Path.GetFileName(filePath)}...";
 
-            _dataLoader = new Hdf5DataLoader(filePath);
+            _dataLoader?.Dispose();
+            _currentTestMesh = null;
+            _meshLoaded = false;
+
+            // Use factory to auto-detect file type
+            _dataLoader = DataLoaderFactory.Create(filePath);
             var info = _dataLoader.GetFileInfo();
 
-            _currentTestMesh = null; // Clear test mesh
-            _meshLoaded = false; // Reset flag for new file
-
-            MaxTimestep = info.NumTimesteps - 1;
+            MaxTimestep = info.NumTimesteps > 0 ? info.NumTimesteps - 1 : 0;
             CurrentTimestep = 0;
 
             // Build model tree
@@ -700,12 +772,23 @@ public class MainWindowViewModel : ReactiveObject
             ModelTreeItems.Add(new TreeItemViewModel("Solids", info.NumSolids));
             ModelTreeItems.Add(new TreeItemViewModel("Shells", info.NumShells));
             ModelTreeItems.Add(new TreeItemViewModel("Beams", info.NumBeams));
+            if (info.NumThickShells > 0)
+            {
+                ModelTreeItems.Add(new TreeItemViewModel("Thick Shells", info.NumThickShells));
+            }
 
-            StatusText = $"Loaded: {info.NumNodes:N0} nodes, {info.NumTimesteps} timesteps";
+            StatusText = $"[{info.FormatType}] {info.NumNodes:N0} nodes, {info.NumTimesteps} timesteps";
+
+            // Trigger mesh loading
+            var meshData = _dataLoader.GetMeshData();
+            var stateData = _dataLoader.GetTimestepList().Count > 0 ? _dataLoader.GetStateData(0) : null;
+            MeshDataLoaded?.Invoke(meshData, stateData);
+            _meshLoaded = true;
         }
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
+            AppendLog($"LoadFile error: {ex.Message}");
         }
     }
 }

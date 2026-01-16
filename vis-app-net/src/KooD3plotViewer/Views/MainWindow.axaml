@@ -16,7 +16,9 @@
         <!-- Menu Bar -->
         <Menu Grid.Row="0">
             <MenuItem Header="_File">
-                <MenuItem Header="_Open HDF5..." Command="{Binding OpenFileCommand}" InputGesture="Ctrl+O"/>
+                <MenuItem Header="_Open..." Command="{Binding OpenFileCommand}" InputGesture="Ctrl+O"/>
+                <MenuItem Header="Open _D3plot..." Command="{Binding OpenD3plotCommand}" InputGesture="Ctrl+D"/>
+                <Separator/>
                 <MenuItem Header="Load _Small Test Mesh (125K)" Command="{Binding LoadSmallTestMeshCommand}" InputGesture="Ctrl+T"/>
                 <MenuItem Header="Load Test Mesh (10M)" Command="{Binding LoadTestMeshCommand}"/>
                 <Separator/>

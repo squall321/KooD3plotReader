@@ -30,6 +30,9 @@ public class GpuMeshRenderer : IDisposable
     private bool _isInitialized;
 
     private Action<string>? _logCallback;
+    private bool _deviceLost = false;
+    private int _deviceRecreateAttempts = 0;
+    private const int MaxRecreateAttempts = 3;
 
     // Uniform data
     [StructLayout(LayoutKind.Sequential)]
@@ -95,6 +98,21 @@ public class GpuMeshRenderer : IDisposable
 
     public void SetLogCallback(Action<string> callback) => _logCallback = callback;
     private void Log(string message) => _logCallback?.Invoke(message);
+
+    /// <summary>
+    /// Check if GPU device is available and not in lost state
+    /// </summary>
+    public bool IsDeviceAvailable => _isInitialized && !_deviceLost && _graphicsDevice != null;
+
+    /// <summary>
+    /// Returns true if device was lost and cannot be recovered
+    /// </summary>
+    public bool IsDeviceLost => _deviceLost;
+
+    /// <summary>
+    /// Returns true if device was recreated and mesh needs to be re-uploaded
+    /// </summary>
+    public bool NeedsMeshReupload { get; private set; }
 
     public bool Initialize(int width, int height)
     {
@@ -477,6 +495,7 @@ void main()
         _graphicsDevice.UpdateBuffer(_indexBuffer, 0, indices);
 
         _indexCount = (uint)indices.Length;
+        NeedsMeshReupload = false;  // Mesh has been uploaded
 
         Log($"GPU mesh uploaded: {vertices.Length} verts, {indices.Length / 3} tris");
     }
@@ -536,11 +555,116 @@ void main()
 
     public void Render(Matrix4x4 worldViewProjection, uint[] outputPixels)
     {
+        if (_deviceLost)
+        {
+            Log("[GPU] Device lost - cannot render");
+            return;
+        }
+
         if (!_isInitialized || _graphicsDevice == null || _commandList == null ||
             _framebuffer == null || _vertexBuffer == null || _indexBuffer == null ||
             _pipeline == null || _resourceSet == null || _uniformBuffer == null)
             return;
 
+        try
+        {
+            RenderInternal(worldViewProjection, outputPixels);
+        }
+        catch (SharpGen.Runtime.SharpGenException ex) when (ex.HResult == unchecked((int)0x887A0005) || // DXGI_ERROR_DEVICE_REMOVED
+                                                            ex.HResult == unchecked((int)0x887A0007))   // DXGI_ERROR_DEVICE_RESET
+        {
+            HandleDeviceLost(ex);
+        }
+        catch (Exception ex)
+        {
+            Log($"[GPU] Render error: {ex.Message}");
+            if (ex.Message.Contains("DEVICE_REMOVED") || ex.Message.Contains("DEVICE_RESET"))
+            {
+                HandleDeviceLost(ex);
+            }
+        }
+    }
+
+    private void HandleDeviceLost(Exception ex)
+    {
+        Log($"[GPU] Device lost detected: {ex.Message}");
+        _deviceRecreateAttempts++;
+
+        if (_deviceRecreateAttempts > MaxRecreateAttempts)
+        {
+            Log($"[GPU] Max recreate attempts ({MaxRecreateAttempts}) exceeded - falling back to software rendering");
+            _deviceLost = true;
+            return;
+        }
+
+        Log($"[GPU] Attempting device recreation (attempt {_deviceRecreateAttempts}/{MaxRecreateAttempts})...");
+
+        try
+        {
+            // Cleanup old resources
+            CleanupGpuResources();
+
+            // Try to reinitialize
+            if (Initialize(_width, _height))
+            {
+                Log("[GPU] Device recreated successfully");
+                NeedsMeshReupload = true;  // Signal that mesh needs to be re-uploaded
+            }
+            else
+            {
+                Log("[GPU] Device recreation failed");
+                _deviceLost = true;
+            }
+        }
+        catch (Exception recreateEx)
+        {
+            Log($"[GPU] Device recreation exception: {recreateEx.Message}");
+            _deviceLost = true;
+        }
+    }
+
+    private void CleanupGpuResources()
+    {
+        try
+        {
+            _pipeline?.Dispose();
+            _capPipeline?.Dispose();
+            _resourceSet?.Dispose();
+            _resourceLayout?.Dispose();
+            _uniformBuffer?.Dispose();
+            _vertexBuffer?.Dispose();
+            _indexBuffer?.Dispose();
+            _capVertexBuffer?.Dispose();
+            _capIndexBuffer?.Dispose();
+            _framebuffer?.Dispose();
+            _offscreenColor?.Dispose();
+            _offscreenDepth?.Dispose();
+            _stagingTexture?.Dispose();
+            _commandList?.Dispose();
+            _graphicsDevice?.Dispose();
+        }
+        catch { }
+
+        _pipeline = null;
+        _capPipeline = null;
+        _resourceSet = null;
+        _resourceLayout = null;
+        _uniformBuffer = null;
+        _vertexBuffer = null;
+        _indexBuffer = null;
+        _capVertexBuffer = null;
+        _capIndexBuffer = null;
+        _framebuffer = null;
+        _offscreenColor = null;
+        _offscreenDepth = null;
+        _stagingTexture = null;
+        _commandList = null;
+        _graphicsDevice = null;
+        _isInitialized = false;
+    }
+
+    private void RenderInternal(Matrix4x4 worldViewProjection, uint[] outputPixels)
+    {
         // Update uniforms
         var uniforms = new UniformData
         {
@@ -573,10 +697,10 @@ void main()
             _loggedClipPlanes = true;
         }
 
-        _graphicsDevice.UpdateBuffer(_uniformBuffer, 0, uniforms);
+        _graphicsDevice!.UpdateBuffer(_uniformBuffer, 0, uniforms);
 
         // Begin command list
-        _commandList.Begin();
+        _commandList!.Begin();
 
         // Set framebuffer and clear
         _commandList.SetFramebuffer(_framebuffer);

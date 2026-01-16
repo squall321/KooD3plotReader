@@ -1,0 +1,62 @@
+# KooD3plot CLI - MultiSection Mode Configuration
+# ================================================
+# 사용법: kood3plot_cli --mode multisection --config multisection.yaml d3plot -o output.png
+#
+# 이 설정은 여러 단면을 한 번에 렌더링합니다.
+
+analysis:
+  data_path: "path/to/d3plot"
+  output_path: "./multisection_output"
+
+  lsprepost:
+    executable: "lsprepost"
+    timeout: 300
+
+# Fringe 설정
+fringe:
+  type: von_mises
+  auto_range: true
+
+# 출력 설정
+output:
+  movie: true                 # 애니메이션 생성
+  images: true                # 정지 이미지도 생성
+  width: 1920
+  height: 1080
+  fps: 30
+
+# 다중 단면 정의
+sections:
+  # Z 방향 여러 단면 (10mm 간격)
+  - name: "Z_slice_0"
+    planes:
+      - point: [0, 0, 0]
+        normal: [0, 0, 1]
+
+  - name: "Z_slice_50"
+    planes:
+      - point: [0, 0, 50]
+        normal: [0, 0, 1]
+
+  - name: "Z_slice_100"
+    planes:
+      - point: [0, 0, 100]
+        normal: [0, 0, 1]
+
+  # X 방향 단면
+  - name: "X_center"
+    planes:
+      - point: [0, 0, 0]
+        normal: [1, 0, 0]
+
+  # Y 방향 단면
+  - name: "Y_center"
+    planes:
+      - point: [0, 0, 0]
+        normal: [0, 1, 0]
+
+# 뷰 설정
+view:
+  orientation: isometric
+  zoom_factor: 1.2
+  auto_fit: true

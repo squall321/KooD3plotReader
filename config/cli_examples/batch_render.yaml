@@ -1,0 +1,60 @@
+# KooD3plot CLI - Batch Mode Configuration
+# =========================================
+# 사용법: kood3plot_cli --mode batch --config batch_render.yaml d3plot -o output.png
+#
+# 이 설정은 여러 렌더링 작업을 일괄 처리합니다.
+
+analysis:
+  data_path: "path/to/d3plot"
+  output_path: "./batch_output"
+
+  lsprepost:
+    executable: "lsprepost"   # PATH에 있으면 이름만, 아니면 전체 경로
+    timeout: 600
+
+# 공통 Fringe 설정
+fringe:
+  type: von_mises
+  auto_range: true
+
+# 공통 출력 설정
+output:
+  movie: true                 # 각 섹션별 애니메이션 생성
+  width: 1920
+  height: 1080
+  fps: 30
+  format: MP4
+
+# 여러 섹션/뷰 정의
+sections:
+  # 섹션 1: X축 단면
+  - name: "X_section_center"
+    auto_mode: single
+    auto_params:
+      orientation: X          # X, Y, Z
+      position: center        # center, min, max, 또는 수치
+
+  # 섹션 2: Y축 단면
+  - name: "Y_section_center"
+    auto_mode: single
+    auto_params:
+      orientation: Y
+      position: center
+
+  # 섹션 3: Z축 단면
+  - name: "Z_section_center"
+    auto_mode: single
+    auto_params:
+      orientation: Z
+      position: center
+
+  # 섹션 4: 수동 정의 단면
+  - name: "custom_section"
+    planes:
+      - point: [100, 0, 50]
+        normal: [1, 0, 0]
+
+# 뷰 설정
+view:
+  orientation: isometric
+  auto_fit: true

@@ -523,6 +523,100 @@ else()
 endif()
 
 # ============================================================
+# C API Shared Library for .NET P/Invoke
+# ============================================================
+option(KOOD3PLOT_BUILD_CAPI "Build C API shared library for .NET" ON)
+
+if(KOOD3PLOT_BUILD_CAPI)
+    message(STATUS "Building C API shared library for .NET")
+
+    # C API source files
+    set(KOOD3PLOT_CAPI_SOURCES
+        src/capi/kood3plot_capi.cpp
+    )
+
+    # C API header files
+    set(KOOD3PLOT_CAPI_HEADERS
+        src/capi/kood3plot_capi.h
+    )
+
+    # Create shared library (DLL on Windows, .so on Linux)
+    add_library(kood3plot_net SHARED ${KOOD3PLOT_CAPI_SOURCES} ${KOOD3PLOT_CAPI_HEADERS})
+
+    # Define export macro for DLL
+    target_compile_definitions(kood3plot_net PRIVATE KOOD3PLOT_EXPORTS)
+
+    # Set include directories
+    target_include_directories(kood3plot_net
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/capi>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    # Link with main kood3plot library
+    target_link_libraries(kood3plot_net PRIVATE kood3plot)
+
+    # Set output name and properties
+    set_target_properties(kood3plot_net PROPERTIES
+        OUTPUT_NAME "kood3plot_net"
+        VERSION ${PROJECT_VERSION}
+        SOVERSION 1
+        # Windows-specific: export all symbols
+        WINDOWS_EXPORT_ALL_SYMBOLS OFF
+    )
+
+    # Platform-specific settings
+    if(WIN32)
+        # Copy DLL to common location for .NET projects
+        add_custom_command(TARGET kood3plot_net POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:kood3plot_net>
+                ${CMAKE_CURRENT_SOURCE_DIR}/vis-app-net/native/win-x64/
+            COMMENT "Copying kood3plot_net.dll to vis-app-net/native/win-x64/"
+        )
+        # Also copy the import library for debugging
+        add_custom_command(TARGET kood3plot_net POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_LINKER_FILE:kood3plot_net>
+                ${CMAKE_CURRENT_SOURCE_DIR}/vis-app-net/native/win-x64/
+            COMMENT "Copying kood3plot_net.lib to vis-app-net/native/win-x64/"
+        )
+    elseif(APPLE)
+        add_custom_command(TARGET kood3plot_net POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:kood3plot_net>
+                ${CMAKE_CURRENT_SOURCE_DIR}/vis-app-net/native/osx-x64/
+            COMMENT "Copying libkood3plot_net.dylib to vis-app-net/native/osx-x64/"
+        )
+    else()
+        add_custom_command(TARGET kood3plot_net POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:kood3plot_net>
+                ${CMAKE_CURRENT_SOURCE_DIR}/vis-app-net/native/linux-x64/
+            COMMENT "Copying libkood3plot_net.so to vis-app-net/native/linux-x64/"
+        )
+    endif()
+
+    # Install C API library
+    install(TARGETS kood3plot_net
+        EXPORT KooD3plotTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+
+    # Install C API header
+    install(FILES src/capi/kood3plot_capi.h
+        DESTINATION include/kood3plot
+    )
+
+    message(STATUS "C API shared library configured")
+endif()
+
+# ============================================================
 # CLI Tool (requires V3 Query System)
 # ============================================================
 if(KOOD3PLOT_BUILD_V3_QUERY)
@@ -618,3 +712,25 @@ install(DIRECTORY config/
     DESTINATION share/kood3plot/config
     FILES_MATCHING PATTERN "*.yaml"
 )
+
+# Install CLI example configs to bin directory for easy access
+install(DIRECTORY config/cli_examples/
+    DESTINATION bin/config
+    FILES_MATCHING
+        PATTERN "*.yaml"
+        PATTERN "*.json"
+        PATTERN "*.md"
+)
+
+# Copy config files to build output for development
+if(KOOD3PLOT_BUILD_V3_QUERY)
+    # Copy config examples next to CLI executable during build
+    add_custom_command(TARGET kood3plot_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:kood3plot_cli>/config
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/config/cli_examples
+            $<TARGET_FILE_DIR:kood3plot_cli>/config
+        COMMENT "Copying CLI config examples to build output"
+    )
+endif()

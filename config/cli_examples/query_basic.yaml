@@ -1,0 +1,41 @@
+# KooD3plot CLI - Query Mode Configuration
+# ==========================================
+# 사용법: kood3plot_cli --mode query --config query_basic.yaml
+#
+# 이 설정은 d3plot 파일에서 응력/변위 데이터를 추출합니다.
+
+# 입력 파일 경로 (필수)
+d3plot: "path/to/d3plot"
+
+# 출력 파일 경로
+output: "output/stress_data.csv"
+
+# 출력 형식: csv, json, hdf5
+format: csv
+
+# 추출할 파트 (비어있으면 전체)
+parts:
+  - Hood
+  - Bumper
+  - Frame
+
+# 추출할 물리량
+# von_mises, displacement, stress, strain, effective_strain, velocity, acceleration
+quantities:
+  - von_mises
+  - displacement
+
+# 시간/상태 선택
+time:
+  first: 0        # 시작 state (0-based)
+  last: -1        # 마지막 state (-1 = 끝까지)
+  step: 1         # state 간격
+
+# 값 필터링 (선택사항)
+filter:
+  min: 0          # 최소값 (이하 제외)
+  max: 1000       # 최대값 (이상 제외)
+
+# 성능 설정
+performance:
+  verbose: true   # 상세 로그 출력

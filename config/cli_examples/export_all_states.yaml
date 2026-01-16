@@ -1,0 +1,29 @@
+# KooD3plot CLI - Export All States Configuration
+# ================================================
+# 사용법: kood3plot_cli --mode export --config export_all_states.yaml
+#
+# 이 설정은 모든 state를 개별 파일로 내보냅니다.
+
+# 입력 파일 경로
+d3plot: "path/to/d3plot"
+
+# 출력 파일 경로 (base name)
+# 실제 출력: output/state_0001.k, output/state_0002.k, ...
+output: "output/state.k"
+
+# 내보내기 형식
+export_format: deformed
+
+# State 선택 (10 step 간격으로 내보내기)
+time:
+  first: 0
+  last: -1        # 끝까지
+  step: 10        # 10개 간격
+
+# 다중 State 내보내기
+export:
+  all_states: true            # 선택된 모든 state 내보내기
+  combined: false             # false: 개별 파일로 저장
+
+performance:
+  verbose: true

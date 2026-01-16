@@ -158,9 +158,9 @@ int main(int argc, char** argv) {
         std::cout << "--------------------------------------------------" << std::endl;
 
         if (query1.validate()) {
-            std::cout << "Query 1: VALID ✓" << std::endl;
+            std::cout << "Query 1: VALID [OK]" << std::endl;
         } else {
-            std::cout << "Query 1: INVALID ✗" << std::endl;
+            std::cout << "Query 1: INVALID [ERROR]" << std::endl;
             std::cout << "Errors:" << std::endl;
             for (const auto& error : query1.getValidationErrors()) {
                 std::cout << "  - " << error << std::endl;

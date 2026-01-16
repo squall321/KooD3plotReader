@@ -1,0 +1,42 @@
+# KooD3plot CLI - AutoSection Mode Configuration
+# ===============================================
+# 사용법: kood3plot_cli --mode autosection --config autosection.yaml d3plot -o output.png
+#
+# 이 설정은 X, Y, Z 축의 중심 단면을 자동으로 생성합니다.
+
+analysis:
+  data_path: "path/to/d3plot"
+  output_path: "./autosection_output"
+
+  lsprepost:
+    executable: "lsprepost"
+    timeout: 300
+
+# Fringe 설정
+fringe:
+  type: von_mises
+  # type: displacement
+  # type: effective_strain
+  auto_range: true
+
+# 출력 설정
+output:
+  movie: true                 # 애니메이션 생성 (false면 이미지)
+  width: 1920
+  height: 1080
+  fps: 30
+  format: MP4                 # MP4, AVI, WMV
+
+# 자동 단면 설정
+# autosection 모드는 자동으로 X, Y, Z 중심 단면을 생성합니다.
+# 아래 설정으로 커스터마이즈 가능
+auto_sections:
+  x_axis: true                # X축 중심 단면 생성
+  y_axis: true                # Y축 중심 단면 생성
+  z_axis: true                # Z축 중심 단면 생성
+  position: center            # center, min, max
+
+# 뷰 설정
+view:
+  orientation: isometric
+  auto_fit: true

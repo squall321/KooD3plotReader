@@ -1,0 +1,46 @@
+# KooD3plot CLI - Render Mode Configuration
+# ==========================================
+# 사용법: kood3plot_cli --mode render --config render_basic.yaml
+#
+# 이 설정은 d3plot 파일을 이미지/애니메이션으로 렌더링합니다.
+
+# 입력 파일 경로
+analysis:
+  data_path: "path/to/d3plot"
+
+  # LSPrePost 설정 (Windows)
+  lsprepost:
+    executable: "C:/Program Files/LSTC/LSPrePost/lsprepost.exe"
+    # Linux: /usr/local/bin/lsprepost
+    # 또는 installed/lsprepost/lspp412_mesa
+    timeout: 300  # 초
+
+# 출력 설정
+output:
+  path: "output/render.png"   # 이미지: .png, .jpg, .bmp
+  # path: "output/animation.mp4"  # 애니메이션: .mp4, .avi
+  movie: false                # true면 애니메이션 생성
+  width: 1920
+  height: 1080
+  fps: 30                     # 애니메이션 프레임레이트
+
+# Fringe (컬러맵) 설정
+fringe:
+  # 타입: von_mises, displacement, stress_xx, stress_yy, stress_zz,
+  #       stress_xy, stress_yz, stress_xz, effective_strain
+  type: von_mises
+  min: 0                      # 최소값 (auto_range=false일 때)
+  max: 500                    # 최대값 (auto_range=false일 때)
+  auto_range: true            # 자동 범위 설정
+
+# 뷰 설정
+view:
+  # orientation: front, back, left, right, top, bottom, isometric
+  orientation: isometric
+  zoom_factor: 1.0
+  auto_fit: true
+
+# 단면 설정 (선택사항)
+# section:
+#   point: [0, 0, 0]          # 단면 통과점
+#   normal: [0, 0, 1]         # 단면 법선벡터 (Z 방향)

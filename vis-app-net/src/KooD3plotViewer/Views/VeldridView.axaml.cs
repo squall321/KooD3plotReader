@@ -350,7 +350,22 @@ public partial class VeldridView : UserControl
             var pixels = new uint[_width * _height];
 
             // Try GPU rendering first, fall back to software if it fails
-            bool usingGpu = _useGpuRendering && _gpuRenderer != null && _gpuMeshUploaded && _meshData != null;
+            // Also check if GPU device was lost - if so, permanently fall back to software
+            if (_gpuRenderer != null && _gpuRenderer.IsDeviceLost)
+            {
+                Log("[RENDER] GPU device permanently lost - using software rendering");
+                _useGpuRendering = false;
+            }
+
+            // Check if GPU device was recreated and needs mesh re-upload
+            if (_gpuRenderer != null && _gpuRenderer.NeedsMeshReupload && _meshData != null && _originalMesh != null)
+            {
+                Log("[RENDER] GPU device recreated - re-uploading mesh...");
+                _gpuMeshUploaded = false;
+                ReuploadMeshToGpu();
+            }
+
+            bool usingGpu = _useGpuRendering && _gpuRenderer != null && _gpuRenderer.IsDeviceAvailable && _gpuMeshUploaded && _meshData != null;
 
             if (usingGpu)
             {
@@ -678,6 +693,81 @@ public partial class VeldridView : UserControl
                 });
             }
         }, ct);
+    }
+
+    /// <summary>
+    /// Re-upload mesh to GPU after device recreation (synchronous, called from render loop)
+    /// </summary>
+    private void ReuploadMeshToGpu()
+    {
+        if (_gpuRenderer == null || _meshData == null || _meshData.Indices.Length == 0)
+        {
+            _gpuMeshUploaded = false;
+            return;
+        }
+
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            // Build GPU vertex buffer
+            int numIndices = _meshData.Indices.Length;
+            var vertices = new GpuMeshRenderer.VertexPositionNormalColor[numIndices];
+
+            for (int i = 0; i < numIndices; i += 3)
+            {
+                uint i0 = _meshData.Indices[i + 0];
+                uint i1 = _meshData.Indices[i + 1];
+                uint i2 = _meshData.Indices[i + 2];
+
+                Vector3 p0 = new Vector3(
+                    _meshData.CurrentPositions[i0 * 3 + 0],
+                    _meshData.CurrentPositions[i0 * 3 + 1],
+                    _meshData.CurrentPositions[i0 * 3 + 2]);
+                Vector3 p1 = new Vector3(
+                    _meshData.CurrentPositions[i1 * 3 + 0],
+                    _meshData.CurrentPositions[i1 * 3 + 1],
+                    _meshData.CurrentPositions[i1 * 3 + 2]);
+                Vector3 p2 = new Vector3(
+                    _meshData.CurrentPositions[i2 * 3 + 0],
+                    _meshData.CurrentPositions[i2 * 3 + 1],
+                    _meshData.CurrentPositions[i2 * 3 + 2]);
+
+                Vector3 edge1 = p1 - p0;
+                Vector3 edge2 = p2 - p0;
+                Vector3 normal = Vector3.Normalize(Vector3.Cross(edge1, edge2));
+                if (float.IsNaN(normal.X)) normal = Vector3.UnitZ;
+
+                Vector4 c0 = GetJetColorVecFromData(_meshData, (int)i0);
+                Vector4 c1 = GetJetColorVecFromData(_meshData, (int)i1);
+                Vector4 c2 = GetJetColorVecFromData(_meshData, (int)i2);
+
+                vertices[i + 0] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p0, Normal = normal, Color = c0 };
+                vertices[i + 1] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p1, Normal = normal, Color = c1 };
+                vertices[i + 2] = new GpuMeshRenderer.VertexPositionNormalColor { Position = p2, Normal = normal, Color = c2 };
+            }
+
+            // Build sequential indices
+            var indices = new uint[numIndices];
+            for (uint i = 0; i < numIndices; i++)
+                indices[i] = i;
+
+            sw.Stop();
+            long prepTime = sw.ElapsedMilliseconds;
+
+            var uploadSw = System.Diagnostics.Stopwatch.StartNew();
+            _gpuRenderer.UploadMesh(vertices, indices);
+            uploadSw.Stop();
+
+            _gpuMeshUploaded = true;
+            Log($"GPU re-upload: {numIndices / 3} tris (prep:{prepTime}ms, upload:{uploadSw.ElapsedMilliseconds}ms)");
+        }
+        catch (Exception ex)
+        {
+            Log($"GPU re-upload failed: {ex.Message}");
+            _gpuMeshUploaded = false;
+            _useGpuRendering = false;  // Fall back to software rendering
+        }
     }
 
     /// <summary>
