@@ -414,6 +414,122 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
 endif()
 
 # ============================================================
+# V2 Writer System Library (D3plot Writer)
+# ============================================================
+option(KOOD3PLOT_BUILD_V2_WRITER "Build V2 D3plot Writer System" ON)
+
+if(KOOD3PLOT_BUILD_V2_WRITER)
+    message(STATUS "Building V2 Writer System")
+
+    # V2 Writer System source files
+    set(KOOD3PLOT_WRITER_SOURCES
+        src/writer/BinaryWriter.cpp
+        src/writer/D3plotWriter.cpp
+    )
+
+    # V2 Writer System header files
+    set(KOOD3PLOT_WRITER_HEADERS
+        include/kood3plot/writer/BinaryWriter.h
+        include/kood3plot/writer/D3plotWriter.h
+    )
+
+    # Create V2 Writer System library
+    add_library(kood3plot_writer ${KOOD3PLOT_WRITER_SOURCES} ${KOOD3PLOT_WRITER_HEADERS})
+
+    # Set include directories for V2 Writer
+    target_include_directories(kood3plot_writer
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    # Link with main kood3plot library
+    target_link_libraries(kood3plot_writer PUBLIC kood3plot)
+
+    # Install V2 Writer System library
+    install(TARGETS kood3plot_writer
+        EXPORT KooD3plotTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+
+    # Install V2 Writer System headers
+    install(DIRECTORY include/kood3plot/writer
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.h"
+    )
+
+    message(STATUS "V2 Writer System library configured")
+endif()
+
+# ============================================================
+# V2 Converter System Library (VTK to D3plot)
+# ============================================================
+option(KOOD3PLOT_BUILD_V2_CONVERTER "Build V2 VTK to D3plot Converter" ON)
+
+if(KOOD3PLOT_BUILD_V2_CONVERTER AND KOOD3PLOT_BUILD_V2_WRITER)
+    message(STATUS "Building V2 Converter System (VTK to D3plot)")
+
+    # V2 Converter System source files
+    set(KOOD3PLOT_CONVERTER_SOURCES
+        src/converter/VtkReader.cpp
+        src/converter/VtkWriter.cpp
+        src/converter/VtkToD3plotConverter.cpp
+        src/converter/D3plotToVtkConverter.cpp
+        src/converter/RadiossReader.cpp
+        src/converter/RadiossWriter.cpp
+        src/converter/RadiossToVtkConverter.cpp
+        src/converter/VtkToRadiossConverter.cpp
+    )
+
+    # V2 Converter System header files
+    set(KOOD3PLOT_CONVERTER_HEADERS
+        include/kood3plot/converter/VtkReader.h
+        include/kood3plot/converter/VtkWriter.h
+        include/kood3plot/converter/VtkToD3plotConverter.h
+        include/kood3plot/converter/D3plotToVtkConverter.h
+        include/kood3plot/converter/RadiossReader.h
+        include/kood3plot/converter/RadiossWriter.h
+        include/kood3plot/converter/RadiossToVtkConverter.h
+        include/kood3plot/converter/VtkToRadiossConverter.h
+    )
+
+    # Create V2 Converter System library
+    add_library(kood3plot_converter ${KOOD3PLOT_CONVERTER_SOURCES} ${KOOD3PLOT_CONVERTER_HEADERS})
+
+    # Set include directories for V2 Converter
+    target_include_directories(kood3plot_converter
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    # Link with kood3plot_writer and main kood3plot library
+    target_link_libraries(kood3plot_converter PUBLIC kood3plot_writer kood3plot)
+
+    # Install V2 Converter System library
+    install(TARGETS kood3plot_converter
+        EXPORT KooD3plotTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+
+    # Install V2 Converter System headers
+    install(DIRECTORY include/kood3plot/converter
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.h"
+    )
+
+    message(STATUS "V2 Converter System library configured")
+endif()
+
+# ============================================================
 # Phase 1: HDF5 Quantization System Library (Optional)
 # ============================================================
 if(KOOD3PLOT_BUILD_HDF5 AND HDF5_FOUND)

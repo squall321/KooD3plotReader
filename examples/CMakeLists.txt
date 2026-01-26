@@ -223,3 +223,63 @@ endif()
 if(KOOD3PLOT_BUILD_V4_RENDER)
     add_subdirectory(v4_render)
 endif()
+
+# ============================================================
+# V2 Writer System Examples
+# ============================================================
+if(KOOD3PLOT_BUILD_V2_WRITER)
+    message(STATUS "Building V2 Writer System examples")
+
+    # Roundtrip test - read d3plot, write, read back, compare
+    add_executable(writer_roundtrip_test writer/01_roundtrip_test.cpp)
+    target_link_libraries(writer_roundtrip_test PRIVATE kood3plot_writer kood3plot)
+
+    # Basic write example - create d3plot from scratch
+    add_executable(writer_basic_write writer/02_basic_write.cpp)
+    target_link_libraries(writer_basic_write PRIVATE kood3plot_writer kood3plot)
+
+    # Install V2 Writer examples
+    install(TARGETS writer_roundtrip_test writer_basic_write
+        RUNTIME DESTINATION bin/examples
+    )
+
+    message(STATUS "V2 Writer examples configured")
+endif()
+
+# ============================================================
+# V2 Converter System Examples (VTK to D3plot)
+# ============================================================
+if(KOOD3PLOT_BUILD_V2_CONVERTER AND KOOD3PLOT_BUILD_V2_WRITER)
+    message(STATUS "Building V2 Converter System examples")
+
+    # Basic VTK to D3plot conversion example
+    add_executable(converter_basic_test converter/01_basic_conversion.cpp)
+    target_link_libraries(converter_basic_test PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # Roundtrip conversion test (VTK → D3plot → VTK)
+    add_executable(converter_roundtrip_test converter/02_roundtrip_test.cpp)
+    target_link_libraries(converter_roundtrip_test PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # Real d3plot to VTK time series conversion
+    add_executable(converter_real_d3plot converter/03_real_d3plot_to_vtk.cpp)
+    target_link_libraries(converter_real_d3plot PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # Real d3plot roundtrip test (D3plot → VTK → D3plot)
+    add_executable(converter_d3plot_roundtrip converter/04_d3plot_roundtrip.cpp)
+    target_link_libraries(converter_d3plot_roundtrip PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # OpenRadioss to VTK conversion
+    add_executable(converter_radioss_to_vtk converter/05_radioss_to_vtk.cpp)
+    target_link_libraries(converter_radioss_to_vtk PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # Full roundtrip test (D3plot → VTK → Radioss → VTK → D3plot)
+    add_executable(converter_full_roundtrip converter/06_full_roundtrip.cpp)
+    target_link_libraries(converter_full_roundtrip PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
+    # Install V2 Converter examples
+    install(TARGETS converter_basic_test converter_roundtrip_test converter_real_d3plot converter_d3plot_roundtrip converter_radioss_to_vtk converter_full_roundtrip
+        RUNTIME DESTINATION bin/examples
+    )
+
+    message(STATUS "V2 Converter examples configured")
+endif()
