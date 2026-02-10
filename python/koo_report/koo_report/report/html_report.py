@@ -347,6 +347,102 @@ const I18N = {
   angles: { en: 'angles', ko: '개 방향' },
   face: { en: 'face', ko: '면(face)' }, edge: { en: 'edge', ko: '모서리(edge)' }, corner: { en: 'corner', ko: '꼭짓점(corner)' },
   lateral: { en: 'lateral', ko: '횡방향' }, vertical: { en: 'vertical', ko: '수직방향' }, longitudinal: { en: 'longitudinal', ko: '종방향' },
+  // Tab 10: Advanced Analysis
+  tgAdvanced: {
+    en: 'Seven advanced analysis modules: impact pulse characterization (half-sine equivalent), critical element tracking (hot-spot frequency), energy absorption (deformation work), rebound quantification (decay rate), cross-quantity correlation matrix, and crack arrest susceptibility (CAI index based on stress duration, loading rate, concentration, and energy dissipation).',
+    ko: '7개 고급 분석 모듈: 충격 펄스 특성화(반파사인 등가), 크리티컬 요소 추적(핫스팟 빈도), 에너지 흡수(변형 일), 리바운드 정량화(감쇠율), 물리량 간 상관관계 매트릭스, 균열 정지 감수성(CAI — 응력 지속비, 하중속도, 응력 집중, 에너지 소산 기반)을 제공합니다.'
+  },
+  advTitle: { en: 'Advanced Analysis', ko: '고급 분석' },
+  advSelectPart: { en: 'Analysis Part:', ko: '분석 부품:' },
+  // Impact Pulse
+  ipTitle: { en: 'Impact Pulse Characterization', ko: '충격 펄스 특성화' },
+  ipDesc: {
+    en: 'Extracts pulse width, peak acceleration, impulse area, and half-sine equivalent parameters from each impact direction. These are key parameters for shock specification (e.g., MIL-STD-810G Method 516.7, IEC 60068-2-27).',
+    ko: '각 충격 방향에서 펄스폭, 최대 가속도, 임펄스 면적, 반파사인 등가 파라미터를 추출합니다. MIL-STD-810G Method 516.7, IEC 60068-2-27 등 충격 시험 규격의 핵심 파라미터입니다.'
+  },
+  ipGuide: {
+    en: '<b>Pulse Width</b> — Duration of the primary impact pulse (10% threshold crossing). Shorter pulses excite higher-frequency modes. MIL-STD-810G typical: 0.5–3 ms for functional shock, 6–20 ms for transit drop.<br><b>Peak Acc</b> — Maximum deceleration in MG (10⁶×g). Determines whether components survive the shock. Compare with component shock ratings (e.g., HDD: 250G@2ms, SSD: 1500G@0.5ms).<br><b>Impulse</b> — Area under the |acceleration|×time curve (MG·ms). Represents total momentum transfer. Same peak with longer pulse = more damage potential.<br><b>Half-Sine Equivalent</b> — Industry-standard representation: a half-sine pulse with matching impulse. Used in shock test specifications to define equivalent test parameters. Duration & peak define the equivalent SRS (Shock Response Spectrum).',
+    ko: '<b>펄스폭 (Pulse Width)</b> — 1차 충격 펄스의 지속 시간(10% 임계값 기준). 짧은 펄스는 고주파 모드를 여기시킵니다. MIL-STD-810G 참고: 기능 충격 0.5–3 ms, 수송 낙하 6–20 ms.<br><b>최대 가속도 (Peak Acc)</b> — MG 단위(10⁶×g) 최대 감속도. 부품의 내충격 사양과 비교하여 생존 여부를 판단합니다. 참고: HDD 250G@2ms, SSD 1500G@0.5ms.<br><b>임펄스 (Impulse)</b> — |가속도|×시간 곡선 아래 면적(MG·ms). 총 운동량 전달량을 나타냅니다. 동일 피크라도 펄스가 길면 손상 가능성이 높아집니다.<br><b>반파사인 등가 (Half-Sine Equiv.)</b> — 동일 임펄스를 갖는 반파사인 펄스로 변환한 산업 표준 표현. 충격 시험 규격에서 SRS(충격응답스펙트럼) 정의에 사용됩니다. 지속시간과 피크가 등가 시험 조건을 결정합니다.'
+  },
+  ipPulseWidth: { en: 'Pulse Width (ms)', ko: '펄스폭 (ms)' },
+  ipPeakAcc: { en: 'Peak Acc (MG)', ko: '최대 가속도 (MG)' },
+  ipImpulse: { en: 'Impulse (MG·ms)', ko: '임펄스 (MG·ms)' },
+  ipHalfSine: { en: 'Half-Sine Equiv.', ko: '반파사인 등가' },
+  ipHsDuration: { en: 'Duration (ms)', ko: '지속시간 (ms)' },
+  ipHsPeak: { en: 'Peak (MG)', ko: '피크 (MG)' },
+  ipEnvelope: { en: 'Shock Pulse Envelope', ko: '충격 펄스 엔벨로프' },
+  // Critical Element
+  ceTitle: { en: 'Critical Element Tracking', ko: '크리티컬 요소 추적' },
+  ceDesc: {
+    en: 'Identifies elements that are repeatedly most-stressed across multiple impact directions. High-frequency elements are fatigue/failure hot-spots requiring design attention.',
+    ko: '여러 충격 방향에서 반복적으로 최대 응력을 받는 요소를 식별합니다. 빈도가 높은 요소는 피로/파손 핫스팟으로 설계 개선이 필요합니다.'
+  },
+  ceGuide: {
+    en: '<b>Frequency</b> — How many impact directions produce peak stress at this element. An element appearing in >70% of directions is a <em>geometry-driven</em> stress concentration (fillet, notch, contact edge) — it will fail first regardless of impact angle.<br><b># Angles</b> — Number of distinct impact directions where this element is the most-stressed. High count = direction-independent vulnerability = geometric hot-spot.<br><b>Max vs Avg Stress</b> — If max >> avg, the element experiences occasional extreme loads (direction-dependent). If max ≈ avg, it is consistently highly stressed (geometry-driven).<br><b>Design implication</b> — Frequent hot-spot elements typically indicate: (1) insufficient fillet radius, (2) abrupt thickness transition, (3) stress-concentrating features (holes, notches), or (4) inadequate contact/bonding area. Consider local reinforcement, fillet enlargement, or material upgrade at these locations.',
+    ko: '<b>빈도 (Frequency)</b> — 해당 요소가 최대 응력점으로 나타나는 충격 방향 수. 70% 이상의 방향에서 나타나면 <em>형상 기인</em> 응력 집중(필렛, 노치, 접촉 엣지)으로, 충격 방향에 관계없이 가장 먼저 파손됩니다.<br><b>방향 수 (# Angles)</b> — 해당 요소가 최대 응력을 받는 서로 다른 충격 방향의 수. 높으면 방향 독립적 취약점 = 기하학적 핫스팟.<br><b>최대 vs 평균 응력</b> — max >> avg이면 특정 방향에서만 극단적 하중(방향 의존적), max ≈ avg이면 일관되게 높은 응력(형상 기인).<br><b>설계 개선 지침</b> — 빈출 핫스팟 요소의 전형적 원인: (1) 부족한 필렛 반경, (2) 급격한 두께 변화, (3) 응력 집중 형상(구멍, 노치), (4) 불충분한 접촉/접합 면적. 해당 위치의 국부 보강, 필렛 확대, 재료 업그레이드를 고려하세요.'
+  },
+  ceElemId: { en: 'Element ID', ko: '요소 ID' },
+  ceFrequency: { en: 'Frequency', ko: '빈도' },
+  ceAngles: { en: '# Angles', ko: '방향 수' },
+  cePeakStress: { en: 'Max Stress (MPa)', ko: '최대 응력 (MPa)' },
+  // Energy Absorption
+  eaTitle: { en: 'Energy Absorption Analysis', ko: '에너지 흡수 분석' },
+  eaDesc: {
+    en: 'Estimates deformation energy (stress × strain integration) per part per direction. Parts absorbing the most energy are primary shock absorbers or damage sites.',
+    ko: '부품별/방향별 변형 에너지(응력 × 변형률 적분)를 추정합니다. 에너지 흡수가 큰 부품은 주요 충격 흡수 역할을 하거나 손상이 집중되는 부위입니다.'
+  },
+  eaGuide: {
+    en: '<b>Deformation Energy (W = ∫σ·dε)</b> — The work done by stress through plastic strain increment. This is the physical energy absorbed as permanent deformation. Units are relative (MPa, energy density proxy without volume).<br><b>Interpretation</b> — High energy absorption can mean two things: (1) <em>Intended energy absorber</em>: design feature that protects other parts by absorbing impact (e.g., bumper, foam liner) — this is desirable. (2) <em>Damage indicator</em>: unintended plastic deformation concentrating energy in a critical part — this is dangerous.<br><b>Part Energy Share</b> — Fraction of total deformation energy absorbed by each part in the worst-case direction. A single part absorbing >50% indicates either (a) effective shock isolation or (b) a severe damage concentration. Compare with intended load path design.<br><b>Direction dependence</b> — Large variation across angles means the energy flow path changes with impact direction. Uniform distribution suggests robust energy management.',
+    ko: '<b>변형 에너지 (W = ∫σ·dε)</b> — 소성 변형률 증분에 대한 응력의 일(work). 영구 변형으로 흡수된 물리적 에너지입니다. 단위는 상대값(MPa, 부피 미포함 에너지 밀도 프록시).<br><b>해석 방법</b> — 높은 에너지 흡수는 두 가지 의미: (1) <em>의도된 에너지 흡수체</em>: 범퍼, 폼 라이너 등 다른 부품 보호 목적의 설계 — 바람직함. (2) <em>손상 지표</em>: 의도하지 않은 소성 변형이 중요 부품에 집중 — 위험.<br><b>부품별 에너지 비율</b> — 최악 방향에서 각 부품이 흡수한 총 변형 에너지의 비율. 단일 부품이 50% 이상이면 (a) 효과적 충격 흡수 또는 (b) 심각한 손상 집중을 의미. 의도된 하중 경로 설계와 비교하세요.<br><b>방향 의존성</b> — 각도별 편차가 크면 에너지 흐름 경로가 충격 방향에 따라 변화. 균일하면 견고한 에너지 관리 설계.'
+  },
+  eaDeformEnergy: { en: 'Deformation Energy (Relative)', ko: '변형 에너지 (상대값)' },
+  eaPartShare: { en: 'Part Energy Share', ko: '부품별 에너지 비율' },
+  // Rebound
+  rbTitle: { en: 'Rebound Quantification', ko: '리바운드 정량화' },
+  rbDesc: {
+    en: 'Measures secondary impacts, energy decay between bounces, and damping characteristics. Multiple rebounds can cause cumulative fatigue damage.',
+    ko: '2차 충격, 바운스 간 에너지 감쇠, 감쇠 특성을 측정합니다. 반복 리바운드는 누적 피로 손상을 야기할 수 있습니다.'
+  },
+  rbGuide: {
+    en: '<b># Bounces</b> — Number of significant acceleration peaks detected per direction. Each bounce is a separate impact event. From peak detection with threshold 15% of max, minimum separation 3 samples.<br><b>2nd/1st Ratio (COR proxy)</b> — Ratio of 2nd peak to 1st peak acceleration, approximating the Coefficient of Restitution (COR). COR = √(h₂/h₁) for free drops. Typical values: steel-on-steel 0.6–0.8, plastic 0.3–0.5, rubber 0.7–0.9. Higher ratio = more elastic = more bounce energy retained.<br><b>Decay Rate</b> — Exponential decay constant λ where peak_n ∝ e^(-λt). Higher values indicate faster energy dissipation (more damping). Relates to system damping ratio ζ ≈ λ/(2πf) where f is the natural bounce frequency.<br><b>Multi-bounce risk</b> — Multiple rebounds cause: (1) cumulative fatigue damage at stress concentrations, (2) repeated shock loading that can exceed static failure even if each individual pulse is below yield, (3) resonance excitation if bounce frequency matches component natural frequency. JEDEC JESD22-B111 (drop test for handheld devices) considers secondary impacts in qualification.',
+    ko: '<b>바운스 횟수 (# Bounces)</b> — 방향별 검출된 유의한 가속도 피크 수. 각 바운스는 별도의 충격 이벤트입니다. 검출 기준: 최대값의 15% 임계값, 최소 3샘플 간격.<br><b>2차/1차 비율 (COR 근사)</b> — 2차 피크 대 1차 피크 가속도 비율로, 반발계수(COR)를 근사합니다. 자유낙하: COR = √(h₂/h₁). 참고값: 강-강 0.6–0.8, 플라스틱 0.3–0.5, 고무 0.7–0.9. 높을수록 탄성적 = 바운스 에너지 유지.<br><b>감쇠율 (Decay Rate)</b> — 지수 감쇠 상수 λ (peak_n ∝ e^(-λt)). 높을수록 빠른 에너지 소산(높은 감쇠). 시스템 감쇠비 ζ ≈ λ/(2πf)와 관련 (f: 고유 바운스 주파수).<br><b>다중 바운스 위험</b> — 반복 리바운드의 위험: (1) 응력 집중부의 누적 피로 손상, (2) 개별 펄스가 항복 이하라도 반복 충격으로 정적 파괴 초과 가능, (3) 바운스 주파수가 부품 고유진동수와 일치 시 공진 여기. JEDEC JESD22-B111(휴대기기 낙하시험)은 2차 충격을 자격 평가에 포함합니다.'
+  },
+  rbDecayRate: { en: 'Decay Rate', ko: '감쇠율' },
+  rbSecondaryRatio: { en: '2nd/1st Ratio', ko: '2차/1차 비율' },
+  rbNumBounces: { en: '# Bounces', ko: '바운스 횟수' },
+  // Correlation Matrix
+  cmTitle: { en: 'Cross-Quantity Correlation Matrix', ko: '물리량 간 상관관계 매트릭스' },
+  cmDesc: {
+    en: 'Pearson correlation between stress, G-force, strain, displacement, and velocity across all angles. Strong correlations reveal coupled failure modes.',
+    ko: '전체 방향에 걸쳐 응력, 가속도, 변형률, 변위, 속도 간 피어슨 상관계수를 계산합니다. 강한 상관관계는 결합된 파손 모드를 나타냅니다.'
+  },
+  cmGuide: {
+    en: '<b>Pearson r</b> — Linear correlation coefficient (-1 to +1). |r| > 0.7: strong, 0.3–0.7: moderate, < 0.3: weak. Computed across all impact directions for the selected part.<br><b>Stress ↔ G-force</b> — Strong positive (r > 0.7) is expected in rigid structures: higher deceleration → higher inertial stress. Weak correlation suggests stress is dominated by local contact/bending rather than global deceleration.<br><b>Stress ↔ Strain</b> — Strong positive means proportional loading (linear hardening). Weak correlation may indicate nonlinear material behavior, buckling, or contact-dominated response.<br><b>G-force ↔ Displacement</b> — Negative correlation is physically expected: stiffer impact (high G) → less displacement. Positive correlation suggests resonant amplification or secondary impacts.<br><b>Velocity ↔ G-force</b> — Strong positive expected: velocity at impact → peak deceleration. Low correlation suggests complex energy transfer paths (multi-body dynamics, wave propagation).<br><b>Practical use</b> — If stress and G-force are uncorrelated, you cannot use G-force alone as a damage proxy — explicit stress analysis is required for each direction.',
+    ko: '<b>피어슨 r</b> — 선형 상관계수 (-1 ~ +1). |r| > 0.7: 강함, 0.3–0.7: 보통, < 0.3: 약함. 선택 부품에 대해 전체 충격 방향에 걸쳐 계산.<br><b>응력 ↔ 가속도</b> — 강한 양의 상관(r > 0.7)은 강체 구조에서 예상됨: 높은 감속 → 높은 관성 응력. 약한 상관은 응력이 전체 감속이 아닌 국부 접촉/굽힘에 지배됨을 의미.<br><b>응력 ↔ 변형률</b> — 강한 양의 상관은 비례 하중(선형 경화). 약한 상관은 비선형 재료 거동, 좌굴, 접촉 지배 응답을 시사.<br><b>가속도 ↔ 변위</b> — 음의 상관이 물리적으로 예상됨: 강성 충격(높은 G) → 적은 변위. 양의 상관은 공진 증폭 또는 2차 충격을 시사.<br><b>속도 ↔ 가속도</b> — 강한 양의 상관 예상: 충격 시 속도 → 최대 감속도. 낮은 상관은 복잡한 에너지 전달 경로(다물체 동역학, 파동 전파)를 시사.<br><b>실무 활용</b> — 응력과 가속도가 비상관이면 가속도만으로 손상을 대리 평가할 수 없으며, 각 방향별 명시적 응력 분석이 필요합니다.'
+  },
+  cmStress: { en: 'Stress', ko: '응력' },
+  cmGforce: { en: 'G-force', ko: '가속도' },
+  cmStrain: { en: 'Strain', ko: '변형률' },
+  cmDisp: { en: 'Disp', ko: '변위' },
+  cmVel: { en: 'Velocity', ko: '속도' },
+  // Crack Arrest
+  caTitle: { en: 'Crack Arrest Susceptibility', ko: '균열 정지 감수성 분석' },
+  caDesc: {
+    en: 'Evaluates crack arrest likelihood using four physically-motivated indicators derived from available time-series data. The Crack Arrest Index (CAI) combines: (1) stress duration ratio — fraction of time stress exceeds a threshold (shorter = more likely to arrest), (2) loading rate — dσ/dt at onset (high rate → brittle response → arrest-unfavorable), (3) stress concentration factor — max/avg stress ratio (high concentration → small plastic zone → arrest-unfavorable), (4) energy dissipation rate — how quickly deformation energy is released after peak (fast dissipation → arrest-favorable). CAI > 0.6: arrest likely, 0.3–0.6: marginal, < 0.3: arrest unlikely.',
+    ko: '시계열 데이터로부터 도출한 4개의 물리적 지표를 활용하여 균열 정지 가능성을 평가합니다. 균열 정지 지수(CAI)는 다음을 조합합니다: (1) 응력 지속비 — 임계값 초과 시간 비율 (짧을수록 정지 유리), (2) 하중속도 — 충격 시작 시 dσ/dt (높으면 취성 거동 → 정지 불리), (3) 응력 집중 계수 — 최대/평균 응력 비 (높으면 소성 영역 작음 → 정지 불리), (4) 에너지 소산율 — 피크 후 변형 에너지 해방 속도 (빠르면 정지 유리). CAI > 0.6: 정지 가능, 0.3–0.6: 한계, < 0.3: 정지 불가.'
+  },
+  caiIndex: { en: 'Crack Arrest Index (CAI)', ko: '균열 정지 지수 (CAI)' },
+  caiDuration: { en: 'Stress Duration Ratio', ko: '응력 지속비' },
+  caiLoadRate: { en: 'Loading Rate Score', ko: '하중속도 점수' },
+  caiSCF: { en: 'Stress Concentration Score', ko: '응력 집중 점수' },
+  caiDissipation: { en: 'Energy Dissipation Score', ko: '에너지 소산 점수' },
+  caiArrestLikely: { en: 'Arrest Likely', ko: '정지 가능' },
+  caiMarginal: { en: 'Marginal', ko: '한계' },
+  caiArrestUnlikely: { en: 'Arrest Unlikely', ko: '정지 불가' },
+  caGuide: {
+    en: '<b>Standard reference</b> — Crack arrest assessment follows concepts from BS 7910 (Guide to methods for assessing the acceptability of flaws in metallic structures), ASTM E1221 (Standard Test Method for K_Ia), and API 579-1/ASME FFS-1 (Fitness-For-Service). These standards define crack arrest toughness K_Ia and arrest criteria based on stress intensity vs. material resistance.<br><b>Stress Duration Ratio (w=30%)</b> — Fraction of event time where stress exceeds threshold. In crack mechanics, sustained tension keeps the crack open (Mode I). Short-duration pulses allow crack closure and arrest via compressive stress waves. Analogous to the concept of "arrest segment" in dynamic fracture mechanics where K_I drops below K_Ia.<br><b>Loading Rate (w=20%)</b> — dσ/dt at onset. Per ASTM E399/E1820, dynamic fracture toughness K_Id can be 30–70% lower than static K_Ic at high loading rates (>10⁶ MPa/s). Lower K_Id means cracks propagate more easily and arrest requires a larger toughness margin.<br><b>Stress Concentration (w=25%)</b> — σ_max/σ_avg ratio. The Irwin plastic zone size r_p ∝ (K/σ_y)². When SCF is high (localized stress), the plastic zone is small relative to the crack, reducing energy absorption and blunting. BS 7910 Annex M addresses stress concentration effects on flaw assessment.<br><b>Energy Dissipation (w=25%)</b> — Rate of post-peak stress decay. In dynamic fracture, the energy release rate G must exceed the material resistance R for crack propagation. Rapid stress decay means G drops quickly below R → arrest condition. Relates to the concept of crack arrest toughness where the running crack decelerates as the driving force diminishes.<br><b>Limitation</b> — CAI is a continuum-mechanics proxy. For rigorous crack arrest assessment per BS 7910 Level 3, explicit fracture mechanics modeling (CTOD, J-integral, K_I vs K_Ia curve) with actual crack geometry is required.',
+    ko: '<b>참조 규격</b> — 균열 정지 평가는 BS 7910 (금속 구조물 결함 평가 지침), ASTM E1221 (K_Ia 시험법), API 579-1/ASME FFS-1 (적합성 평가)의 개념을 따릅니다. 이들 규격은 응력확대계수 대 재료 저항의 균열 정지 인성 K_Ia 및 정지 기준을 정의합니다.<br><b>응력 지속비 (w=30%)</b> — 임계 응력 초과 시간 비율. 균열역학에서 지속적 인장은 균열을 개방 상태로 유지(Mode I). 짧은 펄스는 압축 응력파에 의한 균열 닫힘과 정지를 허용합니다. 동적 파괴역학에서 K_I가 K_Ia 이하로 떨어지는 "정지 구간" 개념과 유사.<br><b>하중속도 (w=20%)</b> — 충격 시작 시 dσ/dt. ASTM E399/E1820에 따르면 동적 파괴인성 K_Id는 높은 하중속도(>10⁶ MPa/s)에서 정적 K_Ic의 30–70% 수준으로 저하. 낮은 K_Id는 균열 전파가 용이하여 정지에 더 큰 인성 여유가 필요.<br><b>응력 집중 (w=25%)</b> — σ_max/σ_avg 비율. Irwin 소성 영역 크기 r_p ∝ (K/σ_y)². SCF가 높으면(국부 응력) 균열 대비 소성 영역이 작아 에너지 흡수와 둔화 효과가 감소. BS 7910 부속서 M은 응력 집중이 결함 평가에 미치는 영향을 다룹니다.<br><b>에너지 소산 (w=25%)</b> — 피크 후 응력 감쇠 속도. 동적 파괴에서 에너지 해방률 G가 재료 저항 R을 초과해야 균열이 전파. 빠른 응력 감쇠는 G가 R 이하로 급감 → 정지 조건 성립. 구동력 감소에 따른 주행 균열 감속 개념과 관련.<br><b>한계</b> — CAI는 연속체 역학 프록시입니다. BS 7910 Level 3 수준의 엄밀한 평가에는 실제 균열 형상을 반영한 명시적 파괴역학 모델링(CTOD, J-적분, K_I vs K_Ia 곡선)이 필요합니다.'
+  },
 };
 function L(key) { return (I18N[key] && I18N[key][reportLang]) || (I18N[key] && I18N[key]['en']) || key; }
 
@@ -354,7 +450,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -394,6 +490,7 @@ function renderTab(i) {
     case 7: renderStatistics(); break;
     case 8: renderImpactAnalysis(); break;
     case 9: renderPartDeepDive(); break;
+    case 10: renderAdvancedAnalysis(); break;
   }
 }
 
@@ -502,7 +599,8 @@ function renderOverview() {
         <b style="color:var(--cyan)">Failure Prediction</b> — ${L('tgFailure')}<br>
         <b style="color:var(--cyan)">Statistics</b> — ${L('tgStats')}<br>
         <b style="color:var(--cyan)">Impact Analysis</b> — ${L('tgImpact')}<br>
-        <b style="color:var(--cyan)">Part Analysis</b> — ${L('tgPartAnalysis')}
+        <b style="color:var(--cyan)">Part Analysis</b> — ${L('tgPartAnalysis')}<br>
+        <b style="color:var(--cyan)">Advanced</b> — ${L('tgAdvanced')}
       </div>
     </div>`;
 }
@@ -511,10 +609,21 @@ function renderOverview() {
 function mollweideProject(lonDeg, latDeg) {
   const lon = lonDeg * Math.PI / 180;
   const lat = latDeg * Math.PI / 180;
+  // Poles: theta = ±π/2 exactly
+  if (Math.abs(lat) > Math.PI/2 - 1e-10) {
+    return [0, lat > 0 ? Math.SQRT2 : -Math.SQRT2];
+  }
+  // Solve 2θ + sin(2θ) = π·sin(φ) via damped Newton-Raphson
+  const target = Math.PI * Math.sin(lat);
   let theta = lat;
-  for (let i = 0; i < 20; i++) {
-    const dt = -(2*theta + Math.sin(2*theta) - Math.PI*Math.sin(lat)) / (2 + 2*Math.cos(2*theta));
+  for (let i = 0; i < 100; i++) {
+    const f = 2*theta + Math.sin(2*theta) - target;
+    const fp = 2 + 2*Math.cos(2*theta);
+    if (Math.abs(fp) < 1e-12) { theta += (lat > 0 ? -0.1 : 0.1); continue; }
+    let dt = f / fp;
+    if (Math.abs(dt) > 0.3) dt = dt > 0 ? 0.3 : -0.3;
     theta -= dt;
+    theta = Math.max(-Math.PI/2 + 1e-10, Math.min(Math.PI/2 - 1e-10, theta));
     if (Math.abs(dt) < 1e-7) break;
   }
   const x = (2*Math.SQRT2/Math.PI) * lon * Math.cos(theta);
@@ -643,15 +752,16 @@ function updateGlobeData() {
   let vmin = Infinity, vmax = -Infinity;
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri], pd = r.parts[pid];
-    const v = pd ? (pd[qty] || 0) : 0;
+    const v = getQtyValue(pd, qty);
     if (v < vmin) vmin = v; if (v > vmax) vmax = v;
     const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
     pts.push({ lon, lat, v, ri });
   }
   const vrange = vmax - vmin || 1;
+  const invertColor = qty === 'safety_factor';
   globeState.dataPoints = pts.map(p => ({
     lon: p.lon, lat: p.lat, ri: p.ri,
-    rgb: valueToColorRGB((p.v - vmin) / vrange)
+    rgb: valueToColorRGB(invertColor ? 1 - (p.v - vmin) / vrange : (p.v - vmin) / vrange)
   }));
 }
 
@@ -756,6 +866,7 @@ function renderMollweide() {
       <option value="peak_g"${mollweideState.quantity==='peak_g'?' selected':''}>Peak G-Force (MG)</option>
       <option value="peak_disp"${mollweideState.quantity==='peak_disp'?' selected':''}>Max Displacement (mm)</option>
       <option value="peak_vel"${mollweideState.quantity==='peak_vel'?' selected':''}>Peak Velocity (mm/s)</option>
+      <option value="safety_factor"${mollweideState.quantity==='safety_factor'?' selected':''}>Safety Factor</option>
     </select>
     <label>Part:</label>
     <select id="moll-part" onchange="mollweideState.partId=parseInt(this.value);drawMollweideAll()">`;
@@ -865,7 +976,7 @@ function drawMollweideContour() {
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri];
     const pd = r.parts[pid];
-    const v = pd ? (pd[qty] || 0) : 0;
+    const v = getQtyValue(pd, qty);
     vmin = Math.min(vmin, v);
     vmax = Math.max(vmax, v);
     const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
@@ -873,6 +984,7 @@ function drawMollweideContour() {
     dataPoints.push({ mx, my, lon, lat, v, ri });
   }
   const vrange = vmax - vmin || 1;
+  const invertContour = qty === 'safety_factor';
   _contourDataPoints = dataPoints;
 
   // Step 1: Compute IDW on coarse grid using spherical distance
@@ -922,7 +1034,8 @@ function drawMollweideContour() {
       const fx = gxf - gx0, fy = gyf - gy0;
       const norm = gridVals[gy0*gW+gx0]*(1-fx)*(1-fy) + gridVals[gy0*gW+gx1]*fx*(1-fy) +
                    gridVals[gy1*gW+gx0]*(1-fx)*fy + gridVals[gy1*gW+gx1]*fx*fy;
-      const c = valueToColorRGB(Math.max(0, Math.min(1, norm)));
+      const finalNorm = invertContour ? 1 - Math.max(0, Math.min(1, norm)) : Math.max(0, Math.min(1, norm));
+      const c = valueToColorRGB(finalNorm);
       imgData.data[idx] = c[0]; imgData.data[idx+1] = c[1];
       imgData.data[idx+2] = c[2]; imgData.data[idx+3] = 255;
     }
@@ -1027,7 +1140,7 @@ function drawMollweidePoints() {
   const vals = [];
   for (const r of DATA.results) {
     const pd = r.parts[pid];
-    if (pd) vals.push(pd[qty] || 0);
+    if (pd) vals.push(getQtyValue(pd, qty));
   }
   const vmin = Math.min(...vals);
   const vmax = Math.max(...vals);
@@ -1062,7 +1175,7 @@ function drawMollweidePoints() {
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri];
     const pd = r.parts[pid];
-    const v = pd ? (pd[qty] || 0) : 0;
+    const v = getQtyValue(pd, qty);
     const norm = (v - vmin) / vrange;
     const color = valueToColor(norm);
     const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
@@ -1099,14 +1212,14 @@ function drawRiskTable() {
 
   const qty = mollweideState.quantity;
   const pid = String(mollweideState.partId);
-  const qtyLabel = qty === 'peak_stress' ? 'Stress (MPa)' : qty === 'peak_strain' ? 'Strain' : qty === 'peak_g' ? 'G-Force (MG)' : qty === 'peak_vel' ? 'Velocity (mm/s)' : 'Disp (mm)';
+  const qtyLabel = qty === 'peak_stress' ? 'Stress (MPa)' : qty === 'peak_strain' ? 'Strain' : qty === 'peak_g' ? 'G-Force (MG)' : qty === 'peak_vel' ? 'Velocity (mm/s)' : qty === 'safety_factor' ? 'Safety Factor' : 'Disp (mm)';
 
   // Build sorted list
   const rows = [];
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri];
     const pd = r.parts[pid];
-    const v = pd ? (pd[qty] || 0) : 0;
+    const v = getQtyValue(pd, qty);
     rows.push({ ri, name: r.angle.name, roll: r.angle.roll, pitch: r.angle.pitch, yaw: r.angle.yaw, category: r.angle.category, value: v });
   }
   rows.sort((a, b) => b.value - a.value);
@@ -1165,12 +1278,22 @@ function valueToColorRGB(norm) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
+function getQtyValue(pd, qty) {
+  if (!pd) return 0;
+  if (qty === 'safety_factor') {
+    const ys = DATA.yield_stress || 0;
+    return (ys > 0 && pd.peak_stress > 0) ? ys / pd.peak_stress : 0;
+  }
+  return pd[qty] || 0;
+}
+
 function formatValue(v, qty) {
   if (qty === 'peak_stress') return v.toFixed(1) + ' MPa';
   if (qty === 'peak_strain') return v.toFixed(4);
   if (qty === 'peak_g') return (v/1e6).toFixed(2) + ' MG';
   if (qty === 'peak_disp') return v.toFixed(2) + ' mm';
   if (qty === 'peak_vel') return v.toFixed(1) + ' mm/s';
+  if (qty === 'safety_factor') return v > 0 ? v.toFixed(2) : 'N/A';
   return v.toFixed(2);
 }
 
@@ -1699,7 +1822,7 @@ function renderGForce() {
     const row = [];
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
-      const v = pd ? (pd[qty] || 0) : 0;
+      const v = getQtyValue(pd, qty);
       row.push(v);
       if (v < vmin) vmin = v;
       if (v > vmax) vmax = v;
@@ -1738,7 +1861,7 @@ function renderGForce() {
   for (const pid of pids) {
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
-      if (pd) allVals.push({ pid, v: pd[qty] || 0, angle: r.angle.name, part: DATA.parts[String(pid)]?.name || '' });
+      if (pd) allVals.push({ pid, v: getQtyValue(pd, qty), angle: r.angle.name, part: DATA.parts[String(pid)]?.name || '' });
     }
   }
   allVals.sort((a,b) => b.v - a.v);
@@ -2042,21 +2165,33 @@ function detectPeaks(values, threshold, minSep) {
   return peaks;
 }
 
+let impactState = { partId: 0 };
+
 function renderImpactAnalysis() {
   const container = document.getElementById('impact-content');
-  if (!container || container.dataset.done) return;
-  container.dataset.done = '1';
+  if (!container) return;
+  const ko = reportLang === 'ko';
 
   const pids = getAllPartIds();
-  const firstPid = String(pids[0] || 0);
+  if (impactState.partId === 0 && pids.length > 0) impactState.partId = pids[0];
+  const selPid = String(impactState.partId);
 
-  // ---- Impact Phase Timing (Step 5) ----
-  let phaseRows = '';
-  const phaseScatter = []; // {timeToPeak, peakStress, category, name}
+  // Part selector
+  let html = `<div class="controls"><label>${ko?'분석 부품:':'Analysis Part:'}</label>
+    <select id="impact-part" onchange="impactState.partId=parseInt(this.value);document.getElementById('impact-content').dataset.done='';renderImpactAnalysis()">`;
+  for (const pid of pids) {
+    const p = DATA.parts[String(pid)];
+    html += `<option value="${pid}"${pid===impactState.partId?' selected':''}>${p?p.name:''} (ID:${pid})</option>`;
+  }
+  html += '</select></div>';
+
+  // ---- Impact Phase Timing ----
   const catColors = { face: '#f7768e', edge: '#e0af68', corner: '#9ece6a', fibonacci: '#7dcfff', other: '#bb9af7' };
+  let phaseRows = '';
+  const phaseScatter = [];
 
   for (const r of DATA.results) {
-    const pd = r.parts[firstPid];
+    const pd = r.parts[selPid];
     if (!pd || !pd.g_ts || !pd.g_ts.g) continue;
     const gvals = pd.g_ts.g;
     const times = pd.g_ts.t;
@@ -2074,81 +2209,169 @@ function renderImpactAnalysis() {
     phaseScatter.push({ t: timeToPeak*1000, s: pd.peak_stress, cat, name: r.angle.name });
   }
 
+  html += `<div class="panel"><h2>${ko?'충격 위상 타이밍':'Impact Phase Timing'}</h2>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${ko
+      ?'각 충격 방향에서 최대 가속도(G)가 발생하는 시점과 가속도 피크 수를 분석합니다. 최대 G 도달 시간이 빠를수록 충격이 급격하며, 피크 수가 많을수록 리바운드가 빈번합니다. 피크 검출: 최대값의 30% 임계값, 최소 5샘플 간격.'
+      :'Analyzes when peak deceleration (G) occurs and how many acceleration peaks exist per direction. Faster time-to-peak means sharper impact; more peaks indicate frequent rebounds. Peak detection: 30% threshold, min 5-sample separation.'}
+    </div>`;
+
+  if (phaseRows) {
+    html += `<div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+      <table><tr><th>${ko?'방향':'Direction'}</th><th>${ko?'카테고리':'Category'}</th><th>${ko?'최대G 도달시간':'Time to Peak'}</th><th>${ko?'1차 피크 시간':'1st Peak Time'}</th><th>${ko?'피크 수':'# Peaks'}</th><th>${ko?'최대 G':'Peak G'}</th></tr>${phaseRows}</table></div>`;
+  } else {
+    html += `<div style="color:var(--dim);padding:20px;text-align:center">${ko?'가속도 시계열 데이터가 없습니다.':'No acceleration time-series data available.'}</div>`;
+  }
+  html += '</div>';
+
   // Time-to-Peak vs Peak Stress scatter
-  let phaseSvg = '';
   if (phaseScatter.length > 0) {
     const PSW = 550, PSH = 380, pml = 60, pmr = 80, pmt = 20, pmb = 40;
     const ppw = PSW - pml - pmr, pph = PSH - pmt - pmb;
     const tmax = Math.max(...phaseScatter.map(d=>d.t), 0.001);
     const smax = Math.max(...phaseScatter.map(d=>d.s), 1);
-    phaseSvg = `<svg width="${PSW}" height="${PSH}" viewBox="0 0 ${PSW} ${PSH}">`;
+    let phaseSvg = `<svg width="100%" viewBox="0 0 ${PSW} ${PSH}" style="max-width:${PSW}px">`;
     phaseSvg += `<rect x="${pml}" y="${pmt}" width="${ppw}" height="${pph}" fill="var(--bg3)" rx="2"/>`;
+    // Grid
+    for (let i = 0; i <= 4; i++) {
+      const y = pmt + pph * i / 4;
+      phaseSvg += `<line x1="${pml}" y1="${y}" x2="${pml+ppw}" y2="${y}" stroke="rgba(255,255,255,0.06)"/>`;
+      phaseSvg += `<text x="${pml-4}" y="${y+4}" text-anchor="end" fill="#7982a9" font-size="9">${(smax*(4-i)/4).toFixed(0)}</text>`;
+    }
+    for (let i = 0; i <= 4; i++) {
+      const x = pml + ppw * i / 4;
+      phaseSvg += `<line x1="${x}" y1="${pmt}" x2="${x}" y2="${pmt+pph}" stroke="rgba(255,255,255,0.06)"/>`;
+      phaseSvg += `<text x="${x}" y="${pmt+pph+14}" text-anchor="middle" fill="#7982a9" font-size="9">${(tmax*i/4).toFixed(2)}</text>`;
+    }
     for (const d of phaseScatter) {
       const x = pml + (d.t / tmax) * ppw;
       const y = pmt + pph - (d.s / smax) * pph;
       const col = catColors[d.cat] || catColors.other;
-      phaseSvg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${col}" opacity="0.7"><title>${d.name} (${d.cat}): ${d.t.toFixed(3)} ms, ${d.s.toFixed(1)} MPa</title></circle>`;
+      phaseSvg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="${col}" opacity="0.7" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"><title>${d.name} (${d.cat}): ${d.t.toFixed(3)} ms, ${d.s.toFixed(1)} MPa</title></circle>`;
     }
-    phaseSvg += `<text x="${pml+ppw/2}" y="${PSH-4}" text-anchor="middle" fill="#7982a9" font-size="10">Time to Peak (ms)</text>`;
-    phaseSvg += `<text x="12" y="${pmt+pph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,12,${pmt+pph/2})">Peak Stress (MPa)</text>`;
-    // Legend
+    phaseSvg += `<text x="${pml+ppw/2}" y="${PSH-4}" text-anchor="middle" fill="#7982a9" font-size="10">${ko?'최대G 도달시간 (ms)':'Time to Peak (ms)'}</text>`;
+    phaseSvg += `<text x="12" y="${pmt+pph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,12,${pmt+pph/2})">${ko?'최대 응력 (MPa)':'Peak Stress (MPa)'}</text>`;
     let ly = pmt;
     for (const [cat, col] of Object.entries(catColors)) {
       phaseSvg += `<rect x="${PSW-pmr+8}" y="${ly}" width="10" height="10" fill="${col}"/><text x="${PSW-pmr+22}" y="${ly+9}" fill="var(--fg2)" font-size="9">${cat}</text>`;
       ly += 16;
     }
     phaseSvg += '</svg>';
+    html += `<div class="panel"><h2>${ko?'최대G 도달시간 vs 최대응력 산점도':'Time-to-Peak vs Peak Stress'}</h2>
+      <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${ko
+        ?'최대 가속도 도달 시간(X축)과 해당 방향의 최대 응력(Y축)의 상관 관계입니다. 좌측 상단(빠른 도달 + 높은 응력)이 가장 가혹한 조건이며, 카테고리별 색상으로 면/모서리/꼭짓점 방향의 분포 패턴을 확인할 수 있습니다.'
+        :'Correlation between time-to-peak-G (X) and peak stress (Y) per direction. Upper-left (fast arrival + high stress) represents the most severe conditions. Category colors show face/edge/corner distribution patterns.'}
+      </div>
+      <div style="overflow-x:auto">${phaseSvg}</div></div>`;
   }
 
-  // ---- Hot-Spot Element Tracking (Step 6) ----
-  const elemFreq = {}; // elemId -> { count, angles: Set }
+  // ---- Hot-Spot Element Tracking (Cross-Part) ----
+  const elemFreq = {}; // eid -> { count, angles, maxStress, partId, partName }
+  const allPids = getAllPartIds();
   for (const r of DATA.results) {
-    for (const [pid, pd] of Object.entries(r.parts)) {
-      if (!pd.stress_ts || !pd.stress_ts.elem) continue;
-      // Find element at peak stress time
-      const svals = pd.stress_ts.s;
+    // Track global peak element across ALL parts for this angle
+    let globalMaxStress = 0, globalMaxEid = 0, globalMaxPid = 0;
+    for (const pid of allPids) {
+      const pd = r.parts[String(pid)];
+      if (!pd || !pd.stress_ts || !pd.stress_ts.elem || !pd.stress_ts.max) continue;
+      const svals = pd.stress_ts.max;
       const elems = pd.stress_ts.elem;
       if (svals.length === 0 || elems.length === 0) continue;
       let maxIdx = 0;
-      for (let i = 1; i < svals.length; i++) {
-        if (svals[i] > svals[maxIdx]) maxIdx = i;
-      }
-      const eid = elems[Math.min(maxIdx, elems.length-1)];
+      for (let i = 1; i < svals.length; i++) { if (svals[i] > svals[maxIdx]) maxIdx = i; }
+      const eid = elems[Math.min(maxIdx, elems.length - 1)];
       if (eid === 0) continue;
-      if (!elemFreq[eid]) elemFreq[eid] = { count: 0, angles: new Set(), pid };
-      elemFreq[eid].count++;
-      elemFreq[eid].angles.add(r.angle.name);
+      if (svals[maxIdx] > globalMaxStress) {
+        globalMaxStress = svals[maxIdx]; globalMaxEid = eid; globalMaxPid = pid;
+      }
+      // Also track per-element across all parts
+      const key = eid;
+      if (!elemFreq[key]) elemFreq[key] = { count: 0, angles: new Set(), maxStress: 0, partId: pid, partName: '' };
+      elemFreq[key].count++;
+      elemFreq[key].angles.add(r.angle.name);
+      if (svals[maxIdx] > elemFreq[key].maxStress) {
+        elemFreq[key].maxStress = svals[maxIdx];
+        elemFreq[key].partId = pid;
+      }
     }
   }
-  const hotspots = Object.entries(elemFreq)
-    .map(([eid, d]) => ({ eid, count: d.count, nAngles: d.angles.size, angles: [...d.angles].slice(0, 5), pid: d.pid }))
-    .sort((a,b) => b.count - a.count)
-    .slice(0, 10);
-
-  const maxCount = hotspots.length > 0 ? hotspots[0].count : 1;
-  let hotspotRows = '';
-  for (const h of hotspots) {
-    const pct = h.count / maxCount;
-    const badge = pct > 0.7 ? 'hotspot-badge' : pct > 0.4 ? 'hotspot-badge warn' : 'hotspot-badge ok';
-    hotspotRows += `<tr>
-      <td><span class="${badge}">${h.eid}</span></td>
-      <td>Part ${h.pid}</td>
-      <td style="text-align:right">${h.count}</td>
-      <td style="text-align:right">${h.nAngles}</td>
-      <td style="color:var(--dim);font-size:11px">${h.angles.join(', ')}${h.nAngles > 5 ? '...' : ''}</td></tr>`;
+  // Resolve part names
+  for (const d of Object.values(elemFreq)) {
+    const pi = DATA.parts[String(d.partId)];
+    d.partName = pi ? pi.name : `Part ${d.partId}`;
   }
+  const hotspots = Object.entries(elemFreq)
+    .map(([eid, d]) => ({ eid, count: d.count, nAngles: d.angles.size, angles: [...d.angles].slice(0, 5), maxStress: d.maxStress, partId: d.partId, partName: d.partName }))
+    .sort((a,b) => b.count - a.count)
+    .slice(0, 15);
 
-  container.innerHTML = `
-    <div class="panel"><h2>Impact Phase Timing (Part ${firstPid})</h2>
-      <div style="margin-bottom:8px;color:var(--fg2);font-size:12px">Peak detection: threshold 30% of max, min separation 5 samples</div>
-      <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
-      <table><tr><th>Direction</th><th>Category</th><th>Time to Peak</th><th>1st Peak Time</th><th># Peaks</th><th>Peak G</th></tr>${phaseRows}</table></div>
-    </div>
-    ${phaseSvg ? `<div class="panel"><h2>Time-to-Peak vs Peak Stress</h2>
-      <div style="overflow-x:auto">${phaseSvg}</div></div>` : ''}
-    ${hotspotRows ? `<div class="panel"><h2>Hot-Spot Elements (Top 10 Most Frequently Stressed)</h2>
-      <div style="margin-bottom:8px;color:var(--fg2);font-size:12px">Elements that appear at peak stress most often across angles — potential fatigue/failure sites</div>
-      <table><tr><th>Element ID</th><th>Part</th><th>Peak Count</th><th># Angles</th><th>Top Angles</th></tr>${hotspotRows}</table></div>` : ''}`;
+  html += `<div class="panel"><h2>${ko?'핫스팟 요소 추적 — 전체 파트 (상위 15개)':'Hot-Spot Elements — All Parts (Top 15)'}</h2>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${ko
+      ?'모든 부품을 교차 탐색하여, 여러 충격 방향에서 반복적으로 최대 응력점이 되는 요소를 식별합니다. 각 요소가 속한 부품을 함께 표시하여 어떤 부품의 어떤 위치가 구조적 취약점인지 한눈에 파악할 수 있습니다. 빈도가 높은 요소는 형상 기인 응력 집중점(필렛, 코너, 접합부 등)이며, 충격 방향과 무관하게 파손 위험이 높아 설계 개선 우선 대상입니다.'
+      :'Scans across ALL parts to identify elements that repeatedly become peak-stress locations across multiple impact directions. Each element is shown with its parent part, making it easy to pinpoint which component and location constitutes a structural weak point. High-frequency elements are geometry-driven stress concentrations (fillets, corners, joints) that are failure-prone regardless of impact direction—prioritize these for design improvement.'}
+    </div>`;
+
+  if (hotspots.length > 0) {
+    const maxCount = hotspots[0].count;
+    // Mini histogram
+    const BW = 500, BH = 160, bml = 45, bmr = 5, bmt = 5, bmb = 55;
+    const bpw = BW - bml - bmr, bph = BH - bmt - bmb;
+    const barW = Math.max(8, Math.min(24, bpw / hotspots.length - 3));
+    let hsSvg = `<svg width="100%" viewBox="0 0 ${BW} ${BH}" style="max-width:${BW}px">
+      <rect x="${bml}" y="${bmt}" width="${bpw}" height="${bph}" fill="var(--bg3)" rx="2"/>`;
+    hotspots.forEach((d, i) => {
+      const x = bml + (i + 0.5) * bpw / hotspots.length - barW / 2;
+      const h = (d.count / maxCount) * bph;
+      const pct = d.count / maxCount;
+      const col = pct > 0.7 ? '#f7768e' : pct > 0.4 ? '#e0af68' : '#9ece6a';
+      hsSvg += `<rect x="${x.toFixed(1)}" y="${(bmt+bph-h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${col}" rx="2"><title>Elem ${d.eid} (${d.partName}): ${d.count}x, ${d.maxStress.toFixed(1)} MPa</title></rect>`;
+      hsSvg += `<text x="${(x+barW/2).toFixed(1)}" y="${BH-bmb+12}" text-anchor="middle" fill="var(--fg2)" font-size="7" transform="rotate(-55,${(x+barW/2).toFixed(1)},${BH-bmb+12})">${d.eid}</text>`;
+    });
+    hsSvg += '</svg>';
+    html += `<div style="overflow-x:auto;margin-bottom:8px">${hsSvg}</div>`;
+
+    let hotspotRows = '';
+    for (const h of hotspots) {
+      const pct = h.count / maxCount;
+      const badge = pct > 0.7 ? 'hotspot-badge' : pct > 0.4 ? 'hotspot-badge warn' : 'hotspot-badge ok';
+      hotspotRows += `<tr>
+        <td><span class="${badge}">${h.eid}</span></td>
+        <td style="color:var(--cyan)">${h.partName} <span style="color:var(--dim);font-size:10px">(${h.partId})</span></td>
+        <td style="text-align:right">${h.count}</td>
+        <td style="text-align:right">${h.nAngles}</td>
+        <td style="text-align:right">${h.maxStress.toFixed(1)}</td>
+        <td style="color:var(--dim);font-size:11px">${h.angles.join(', ')}${h.nAngles > 5 ? '...' : ''}</td></tr>`;
+    }
+    html += `<table><tr><th>${ko?'요소 ID':'Element ID'}</th><th>${ko?'소속 부품':'Part'}</th><th>${ko?'빈도':'Count'}</th><th>${ko?'방향 수':'# Angles'}</th><th>${ko?'최대 응력':'Max Stress'} (MPa)</th><th>${ko?'출현 방향':'Angles'}</th></tr>${hotspotRows}</table>`;
+
+    // Part-aggregated summary
+    const partAgg = {};
+    for (const h of hotspots) {
+      if (!partAgg[h.partId]) partAgg[h.partId] = { name: h.partName, totalCount: 0, nElems: 0, maxStress: 0 };
+      partAgg[h.partId].totalCount += h.count;
+      partAgg[h.partId].nElems++;
+      if (h.maxStress > partAgg[h.partId].maxStress) partAgg[h.partId].maxStress = h.maxStress;
+    }
+    const partSorted = Object.entries(partAgg).sort((a,b) => b[1].totalCount - a[1].totalCount);
+    if (partSorted.length > 1) {
+      html += `<div style="margin-top:10px;padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid var(--cyan)">
+        <div style="font-size:11px;font-weight:bold;color:var(--cyan);margin-bottom:4px">${ko?'부품별 핫스팟 집중도':'Hotspot Concentration by Part'}</div>`;
+      for (const [pid, pa] of partSorted) {
+        const barPct = (pa.totalCount / partSorted[0][1].totalCount * 100).toFixed(0);
+        html += `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:11px">
+          <span style="min-width:120px;color:var(--fg)">${pa.name} <span style="color:var(--dim)">(${pa.nElems}${ko?'개 요소':' elems'})</span></span>
+          <div style="flex:1;height:12px;background:var(--bg2);border-radius:3px;overflow:hidden">
+            <div style="width:${barPct}%;height:100%;background:var(--cyan);border-radius:3px"></div>
+          </div>
+          <span style="color:var(--fg2);min-width:70px;text-align:right">${pa.maxStress.toFixed(1)} MPa</span></div>`;
+      }
+      html += '</div>';
+    }
+  } else {
+    html += `<div style="color:var(--dim);padding:20px;text-align:center">${ko?'요소별 응력 데이터(stress_ts.elem)가 없습니다. unified_analyzer에서 요소 ID 출력을 활성화하세요.':'No element-level stress data (stress_ts.elem) available. Enable element ID output in unified_analyzer.'}</div>`;
+  }
+  html += '</div>';
+
+  container.innerHTML = html;
 }
 
 // ============ Tab 9: Part Analysis (Deep Dive) ============
@@ -2612,6 +2835,873 @@ function renderPartDeepDive() {
   html += `<div class="panel">${buildTimeDomainAnalysis(m)}</div>`;
   container.innerHTML = html;
 }
+
+// ============ Tab 10: Advanced Analysis ============
+let advState = { partId: 0 };
+
+function computePulseMetrics(gvals, times) {
+  // Find primary pulse: region above 10% of peak
+  const absMax = Math.max(...gvals.map(Math.abs));
+  if (absMax === 0) return null;
+  const thresh = absMax * 0.1;
+  let startIdx = -1, endIdx = -1, peakIdx = 0;
+  for (let i = 0; i < gvals.length; i++) {
+    if (Math.abs(gvals[i]) >= thresh && startIdx < 0) startIdx = i;
+    if (Math.abs(gvals[i]) >= thresh) endIdx = i;
+    if (Math.abs(gvals[i]) > Math.abs(gvals[peakIdx])) peakIdx = i;
+  }
+  if (startIdx < 0) return null;
+  const pulseStart = times[startIdx], pulseEnd = times[endIdx];
+  const pulseWidth = (pulseEnd - pulseStart) * 1000; // ms
+  const peakAcc = absMax / 1e6; // MG
+  // Impulse: trapezoidal integration of |g(t)| in the pulse window (MG·ms)
+  let impulse = 0;
+  for (let i = startIdx; i < endIdx && i+1 < times.length; i++) {
+    const dt = (times[i+1] - times[i]) * 1000;
+    impulse += (Math.abs(gvals[i]) + Math.abs(gvals[i+1])) / 2 / 1e6 * dt;
+  }
+  // Half-sine equivalent: same impulse => A_hs * T_hs * 2/pi = impulse
+  // For same peak: T_hs = pi * impulse / (2 * peakAcc)
+  const hsDuration = peakAcc > 0 ? Math.PI * impulse / (2 * peakAcc) : 0;
+  const hsPeak = hsDuration > 0 ? Math.PI * impulse / (2 * hsDuration) : 0;
+  return { pulseWidth, peakAcc, impulse, hsDuration, hsPeak, startIdx, endIdx, peakIdx, times, gvals };
+}
+
+function buildImpactPulseSection(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  const pulseData = [];
+  for (const r of DATA.results) {
+    const pd = r.parts[pidStr];
+    if (!pd || !pd.g_ts || !pd.g_ts.g) continue;
+    const m = computePulseMetrics(pd.g_ts.g, pd.g_ts.t);
+    if (m) pulseData.push({ name: r.angle.name, cat: r.angle.category || 'other', ...m });
+  }
+  if (pulseData.length === 0) return '';
+  pulseData.sort((a,b) => b.peakAcc - a.peakAcc);
+  // Summary stats
+  const avgPW = pulseData.reduce((s,d) => s+d.pulseWidth, 0) / pulseData.length;
+  const avgPeak = pulseData.reduce((s,d) => s+d.peakAcc, 0) / pulseData.length;
+  const avgImp = pulseData.reduce((s,d) => s+d.impulse, 0) / pulseData.length;
+  const maxPW = Math.max(...pulseData.map(d => d.pulseWidth));
+  const maxPeak = Math.max(...pulseData.map(d => d.peakAcc));
+  const maxImp = Math.max(...pulseData.map(d => d.impulse));
+
+  // KPI cards
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('ipTitle')} <sup style="color:var(--cyan);font-size:9px">[1][2]</sup></div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${L('ipDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 각 지표의 물리적 의미 및 평가 기준':'▸ Physical meaning & evaluation criteria'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('ipGuide')}</div></details>
+    <div class="stat-grid" style="margin-bottom:12px">
+      <div class="stat-card"><div class="value">${avgPW.toFixed(3)}</div><div class="label">${ko?'평균 펄스폭':'Avg Pulse Width'} (ms)</div></div>
+      <div class="stat-card"><div class="value">${avgPeak.toFixed(3)}</div><div class="label">${ko?'평균 피크':'Avg Peak'} (MG)</div></div>
+      <div class="stat-card"><div class="value">${avgImp.toFixed(3)}</div><div class="label">${ko?'평균 임펄스':'Avg Impulse'} (MG·ms)</div></div>
+      <div class="stat-card"><div class="value">${maxPeak.toFixed(3)}</div><div class="label">${ko?'최대 피크':'Max Peak'} (MG)</div></div>
+    </div>`;
+  // Auto-interpretation
+  const ipNarr = [];
+  if (ko) {
+    ipNarr.push(`평균 펄스폭 <b>${avgPW.toFixed(3)} ms</b>${avgPW < 1 ? ' — 고주파 충격으로, 작고 단단한 부품에 가혹합니다' : avgPW < 5 ? ' — 일반적인 낙하 충격 범위입니다' : ' — 저주파 충격으로, 구조 전체에 하중이 전달됩니다'}.`);
+    ipNarr.push(`최대 피크 가속도 <b>${maxPeak.toFixed(3)} MG</b> (방향: ${pulseData[0].name}). ${maxPeak > 1 ? '소형 전자부품의 일반적 내충격 사양을 초과할 수 있습니다.' : '대부분의 부품 내충격 사양 이내입니다.'}`);
+    const pwRange = Math.max(...pulseData.map(d=>d.pulseWidth)) / Math.min(...pulseData.map(d=>d.pulseWidth).filter(v=>v>0));
+    if (pwRange > 3) ipNarr.push(`펄스폭이 방향에 따라 <b>${pwRange.toFixed(1)}배</b> 차이나므로, 충격 주파수 성분이 방향 의존적입니다. SRS 분석 시 방향별 별도 평가가 필요합니다.`);
+  } else {
+    ipNarr.push(`Average pulse width <b>${avgPW.toFixed(3)} ms</b>${avgPW < 1 ? ' — high-frequency shock, harsh on small rigid components' : avgPW < 5 ? ' — typical drop impact range' : ' — low-frequency shock, load transfers through entire structure'}.`);
+    ipNarr.push(`Max peak acceleration <b>${maxPeak.toFixed(3)} MG</b> (direction: ${pulseData[0].name}). ${maxPeak > 1 ? 'May exceed typical shock ratings for small electronic components.' : 'Within typical component shock specifications.'}`);
+    const pwRange = Math.max(...pulseData.map(d=>d.pulseWidth)) / Math.min(...pulseData.map(d=>d.pulseWidth).filter(v=>v>0));
+    if (pwRange > 3) ipNarr.push(`Pulse width varies <b>${pwRange.toFixed(1)}×</b> across directions — frequency content is direction-dependent. SRS analysis should be performed per direction.`);
+  }
+  html += `<div style="padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid #e0af68;margin-bottom:12px;font-size:11px;line-height:1.6;color:var(--fg)">${ipNarr.join('<br>')}</div>`;
+
+  // SVG: Pulse envelope — top 10 worst directions superimposed
+  const worst = pulseData.slice(0, 10);
+  const SW = 600, SH = 260, ml = 55, mr = 120, mt = 20, mb = 35;
+  const pw = SW - ml - mr, ph = SH - mt - mb;
+  let tmin = Infinity, tmax = 0, gmax = 0;
+  for (const d of worst) {
+    if (d.times[d.startIdx] < tmin) tmin = d.times[d.startIdx];
+    if (d.times[d.endIdx] > tmax) tmax = d.times[d.endIdx];
+    if (d.peakAcc > gmax) gmax = d.peakAcc;
+  }
+  if (tmax <= tmin) tmax = tmin + 0.001;
+  gmax *= 1.1;
+  const tRange = tmax - tmin;
+  const colors = ['#f7768e','#e0af68','#9ece6a','#7dcfff','#bb9af7','#ff9e64','#73daca','#7aa2f7','#c0caf5','#a9b1d6'];
+  let svg = `<svg width="100%" viewBox="0 0 ${SW} ${SH}" style="max-width:${SW}px">
+    <rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="var(--bg3)" rx="2"/>`;
+  // Grid
+  for (let i = 0; i <= 4; i++) {
+    const y = mt + ph * i / 4, v = (gmax * (4-i) / 4).toFixed(3);
+    svg += `<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="rgba(255,255,255,0.08)"/>`;
+    svg += `<text x="${ml-4}" y="${y+4}" text-anchor="end" fill="#7982a9" font-size="9">${v}</text>`;
+  }
+  for (const d of worst) {
+    const ci = worst.indexOf(d);
+    let path = '';
+    for (let i = d.startIdx; i <= d.endIdx && i < d.times.length; i++) {
+      const x = ml + ((d.times[i] - tmin) / tRange) * pw;
+      const y = mt + ph - (Math.abs(d.gvals[i]) / 1e6 / gmax) * ph;
+      path += (i === d.startIdx ? 'M' : 'L') + `${x.toFixed(1)},${y.toFixed(1)}`;
+    }
+    svg += `<path d="${path}" fill="none" stroke="${colors[ci%colors.length]}" stroke-width="1.5" opacity="0.7"/>`;
+  }
+  // Legend
+  let ly = mt;
+  for (let i = 0; i < worst.length; i++) {
+    svg += `<rect x="${ml+pw+8}" y="${ly}" width="10" height="10" fill="${colors[i%colors.length]}"/>`;
+    svg += `<text x="${ml+pw+22}" y="${ly+9}" fill="var(--fg2)" font-size="8">${worst[i].name}</text>`;
+    ly += 14;
+  }
+  svg += `<text x="${ml+pw/2}" y="${SH-2}" text-anchor="middle" fill="#7982a9" font-size="10">${ko?'시간 (s)':'Time (s)'}</text>`;
+  svg += `<text x="10" y="${mt+ph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,10,${mt+ph/2})">${ko?'가속도 (MG)':'Acceleration (MG)'}</text>`;
+  svg += '</svg>';
+  html += `<div style="margin-bottom:12px;overflow-x:auto"><div style="font-size:11px;color:var(--fg2);margin-bottom:4px">${L('ipEnvelope')} — ${ko?'상위':'Top'} ${worst.length}${ko?'개 방향':' directions'}</div>${svg}</div>`;
+
+  // Table
+  let rows = '';
+  for (const d of pulseData.slice(0, 20)) {
+    rows += `<tr><td style="color:var(--cyan)">${d.name}</td><td>${d.cat}</td>
+      <td style="text-align:right">${d.pulseWidth.toFixed(3)}</td>
+      <td style="text-align:right">${d.peakAcc.toFixed(3)}</td>
+      <td style="text-align:right">${d.impulse.toFixed(4)}</td>
+      <td style="text-align:right">${d.hsDuration.toFixed(3)}</td>
+      <td style="text-align:right">${d.hsPeak.toFixed(3)}</td></tr>`;
+  }
+  html += `<div class="table-wrap" style="max-height:350px;overflow-y:auto">
+    <table><tr><th>${L('direction')}</th><th>${L('category')}</th><th>${L('ipPulseWidth')}</th><th>${L('ipPeakAcc')}</th><th>${L('ipImpulse')}</th><th>${L('ipHsDuration')}</th><th>${L('ipHsPeak')}</th></tr>${rows}</table></div></div>`;
+  return html;
+}
+
+function buildCriticalElementSection(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  // Track which elements appear at peak stress most often — cross-part scan
+  const elemData = {}; // elemId -> { count, angles, maxStress, stresses, partId }
+  const allPids = getAllPartIds();
+  for (const r of DATA.results) {
+    for (const cpid of allPids) {
+      const pd = r.parts[String(cpid)];
+      if (!pd || !pd.stress_ts || !pd.stress_ts.elem || !pd.stress_ts.max) continue;
+      const svals = pd.stress_ts.max;
+      const elems = pd.stress_ts.elem;
+      if (svals.length === 0 || elems.length === 0) continue;
+      let maxIdx = 0;
+      for (let i = 1; i < svals.length; i++) { if (svals[i] > svals[maxIdx]) maxIdx = i; }
+      const eid = elems[Math.min(maxIdx, elems.length-1)];
+      if (eid === 0) continue;
+      if (!elemData[eid]) elemData[eid] = { count: 0, angles: [], maxStress: 0, stresses: [], partId: cpid };
+      elemData[eid].count++;
+      elemData[eid].angles.push(r.angle.name);
+      elemData[eid].stresses.push(svals[maxIdx]);
+      if (svals[maxIdx] > elemData[eid].maxStress) {
+        elemData[eid].maxStress = svals[maxIdx];
+        elemData[eid].partId = cpid;
+      }
+    }
+  }
+  // Resolve part names
+  for (const d of Object.values(elemData)) {
+    const pi = DATA.parts[String(d.partId)];
+    d.partName = pi ? pi.name : `Part ${d.partId}`;
+  }
+  const sorted = Object.entries(elemData)
+    .map(([eid, d]) => ({ eid: Number(eid), ...d, avgStress: d.stresses.reduce((a,b)=>a+b,0)/d.stresses.length }))
+    .sort((a,b) => b.count - a.count).slice(0, 15);
+  if (sorted.length === 0) return '';
+  const maxCount = sorted[0].count;
+
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('ceTitle')}</div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${L('ceDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 각 지표의 물리적 의미 및 설계 지침':'▸ Physical meaning & design guidelines'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('ceGuide')}</div></details>`;
+
+  // Histogram SVG
+  const BW = 550, BH = 200, bml = 55, bmr = 10, bmt = 10, bmb = 50;
+  const bpw = BW - bml - bmr, bph = BH - bmt - bmb;
+  const barW = Math.max(8, Math.min(30, bpw / sorted.length - 4));
+  let svg = `<svg width="100%" viewBox="0 0 ${BW} ${BH}" style="max-width:${BW}px">
+    <rect x="${bml}" y="${bmt}" width="${bpw}" height="${bph}" fill="var(--bg3)" rx="2"/>`;
+  for (let i = 0; i <= 4; i++) {
+    const y = bmt + bph * i / 4, v = Math.round(maxCount * (4-i) / 4);
+    svg += `<line x1="${bml}" y1="${y}" x2="${bml+bpw}" y2="${y}" stroke="rgba(255,255,255,0.08)"/>`;
+    svg += `<text x="${bml-4}" y="${y+4}" text-anchor="end" fill="#7982a9" font-size="9">${v}</text>`;
+  }
+  sorted.forEach((d, i) => {
+    const x = bml + (i + 0.5) * bpw / sorted.length - barW / 2;
+    const h = (d.count / maxCount) * bph;
+    const pct = d.count / maxCount;
+    const col = pct > 0.7 ? '#f7768e' : pct > 0.4 ? '#e0af68' : '#9ece6a';
+    svg += `<rect x="${x.toFixed(1)}" y="${(bmt+bph-h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${col}" rx="2"><title>Elem ${d.eid} (${d.partName}): ${d.count}x, max ${d.maxStress.toFixed(1)} MPa</title></rect>`;
+    svg += `<text x="${(x+barW/2).toFixed(1)}" y="${BH-bmb+12}" text-anchor="middle" fill="var(--fg2)" font-size="8" transform="rotate(-45,${(x+barW/2).toFixed(1)},${BH-bmb+12})">${d.eid}</text>`;
+  });
+  svg += `<text x="${bml+bpw/2}" y="${BH-2}" text-anchor="middle" fill="#7982a9" font-size="10">${L('ceElemId')}</text>`;
+  svg += `<text x="10" y="${bmt+bph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,10,${bmt+bph/2})">${L('ceFrequency')}</text>`;
+  svg += '</svg>';
+  html += `<div style="overflow-x:auto;margin-bottom:12px">${svg}</div>`;
+
+  // Table — with Part column
+  let rows = '';
+  for (const d of sorted) {
+    const pct = d.count / maxCount;
+    const badge = pct > 0.7 ? 'hotspot-badge' : pct > 0.4 ? 'hotspot-badge warn' : 'hotspot-badge ok';
+    rows += `<tr><td><span class="${badge}">${d.eid}</span></td>
+      <td style="color:var(--cyan)">${d.partName} <span style="color:var(--dim);font-size:10px">(${d.partId})</span></td>
+      <td style="text-align:right">${d.count}</td>
+      <td style="text-align:right">${d.angles.length}</td>
+      <td style="text-align:right">${d.maxStress.toFixed(1)}</td>
+      <td style="text-align:right">${d.avgStress.toFixed(1)}</td>
+      <td style="color:var(--dim);font-size:11px">${d.angles.slice(0,5).join(', ')}${d.angles.length>5?'...':''}</td></tr>`;
+  }
+  html += `<div class="table-wrap" style="max-height:300px;overflow-y:auto">
+    <table><tr><th>${L('ceElemId')}</th><th>${ko?'소속 부품':'Part'}</th><th>${L('ceFrequency')}</th><th>${L('ceAngles')}</th><th>${L('cePeakStress')}</th><th>${ko?'평균 응력':'Avg Stress'} (MPa)</th><th>${ko?'출현 방향':'Angles'}</th></tr>${rows}</table></div>`;
+  // Auto-interpretation
+  const ceNarr = [];
+  const topElem = sorted[0];
+  const topPct = (topElem.count / DATA.results.length * 100).toFixed(0);
+  const nGeometric = sorted.filter(d => d.count / DATA.results.length > 0.5).length;
+  // Count unique parts in top hotspots
+  const hotspotParts = new Set(sorted.map(d => d.partId));
+  if (ko) {
+    ceNarr.push(`요소 <b>${topElem.eid}</b> (${topElem.partName})가 전체 ${DATA.results.length}개 방향 중 <b>${topElem.count}개(${topPct}%)</b>에서 최대 응력점으로 출현합니다.`);
+    if (hotspotParts.size > 1) ceNarr.push(`상위 ${sorted.length}개 핫스팟 요소가 <b>${hotspotParts.size}개 부품</b>에 분산되어 있습니다 — 구조적 취약점이 여러 부품에 걸쳐 있습니다.`);
+    else ceNarr.push(`상위 핫스팟 요소가 모두 <b>${topElem.partName}</b>에 집중되어 있어, 이 부품이 구조적 핵심 취약 부품입니다.`);
+    if (nGeometric > 0) ceNarr.push(`<span style="color:#f7768e"><b>${nGeometric}개 요소</b></span>가 50% 이상의 방향에서 출현하여 <b>형상 기인 응력 집중</b>으로 판단됩니다. 방향과 무관하게 이 위치가 가장 먼저 파손될 가능성이 높습니다.`);
+    else ceNarr.push('50% 이상의 방향에서 반복 출현하는 요소가 없어, 응력 집중이 <b>방향 의존적</b>입니다. 특정 충격 방향에서만 취약한 국부적 현상입니다.');
+    if (topElem.maxStress / topElem.avgStress > 1.5) ceNarr.push(`요소 ${topElem.eid}의 최대/평균 응력비: <b>${(topElem.maxStress/topElem.avgStress).toFixed(1)}배</b> — 특정 방향에서 극단적 응력이 발생합니다.`);
+  } else {
+    ceNarr.push(`Element <b>${topElem.eid}</b> (${topElem.partName}) appears as peak-stress location in <b>${topElem.count}/${DATA.results.length} directions (${topPct}%)</b>.`);
+    if (hotspotParts.size > 1) ceNarr.push(`Top ${sorted.length} hotspot elements span across <b>${hotspotParts.size} parts</b> — structural vulnerabilities are distributed across multiple components.`);
+    else ceNarr.push(`All top hotspot elements are concentrated in <b>${topElem.partName}</b> — this is the critical structurally vulnerable component.`);
+    if (nGeometric > 0) ceNarr.push(`<span style="color:#f7768e"><b>${nGeometric} element(s)</b></span> appear in >50% of directions — classified as <b>geometry-driven stress concentrations</b>. These locations are most likely to fail first regardless of impact direction.`);
+    else ceNarr.push('No elements appear in >50% of directions — stress concentration is <b>direction-dependent</b>. Vulnerability is localized to specific impact orientations.');
+    if (topElem.maxStress / topElem.avgStress > 1.5) ceNarr.push(`Element ${topElem.eid} max/avg stress ratio: <b>${(topElem.maxStress/topElem.avgStress).toFixed(1)}×</b> — extreme stress occurs only in specific directions.`);
+  }
+  html += `<div style="padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid #e0af68;margin-top:8px;font-size:11px;line-height:1.6;color:var(--fg)">${ceNarr.join('<br>')}</div></div>`;
+  return html;
+}
+
+function buildEnergyAbsorptionSection(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  // Estimate deformation energy: integrate stress * strain_rate dt ≈ Σ (stress_avg * Δstrain) over time
+  // Simplified: use peak_stress * peak_strain as proxy for each angle
+  const energyPerAngle = [];
+  let totalEnergy = 0;
+  for (const r of DATA.results) {
+    const pd = r.parts[pidStr];
+    if (!pd) continue;
+    // Better estimate: if we have stress_ts and strain_ts, integrate
+    let energy = 0;
+    if (pd.stress_ts && pd.strain_ts && pd.stress_ts.avg && pd.strain_ts.max) {
+      const st = pd.stress_ts, sn = pd.strain_ts;
+      const n = Math.min(st.avg.length, sn.max.length);
+      for (let i = 1; i < n; i++) {
+        const ds = Math.max(0, sn.max[i] - sn.max[i-1]); // strain increment
+        const avgS = (st.avg[i] + st.avg[i-1]) / 2;
+        energy += avgS * ds; // MPa * unitless = MPa (energy density proxy)
+      }
+    } else {
+      energy = pd.peak_stress * pd.peak_strain; // fallback proxy
+    }
+    energyPerAngle.push({ name: r.angle.name, cat: r.angle.category || 'other', energy });
+    totalEnergy += energy;
+  }
+  if (energyPerAngle.length === 0 || totalEnergy === 0) return '';
+  energyPerAngle.sort((a,b) => b.energy - a.energy);
+  const maxE = energyPerAngle[0].energy;
+
+  // Also compute per-part energy share (across all parts) for the worst angle
+  const worstAngle = energyPerAngle[0];
+  const partShares = [];
+  let worstResult = null;
+  for (const r of DATA.results) { if (r.angle.name === worstAngle.name) { worstResult = r; break; } }
+  if (worstResult) {
+    let totalPartEnergy = 0;
+    for (const [p, pd] of Object.entries(worstResult.parts)) {
+      let e = 0;
+      if (pd.stress_ts && pd.strain_ts && pd.stress_ts.avg && pd.strain_ts.max) {
+        const n = Math.min(pd.stress_ts.avg.length, pd.strain_ts.max.length);
+        for (let i = 1; i < n; i++) {
+          const ds = Math.max(0, pd.strain_ts.max[i] - pd.strain_ts.max[i-1]);
+          e += (pd.stress_ts.avg[i] + pd.stress_ts.avg[i-1]) / 2 * ds;
+        }
+      } else { e = pd.peak_stress * pd.peak_strain; }
+      if (e > 0) { partShares.push({ pid: p, name: (DATA.parts[p]||{}).name || 'Part '+p, energy: e }); totalPartEnergy += e; }
+    }
+    partShares.sort((a,b) => b.energy - a.energy);
+    partShares.forEach(p => p.share = totalPartEnergy > 0 ? p.energy / totalPartEnergy : 0);
+  }
+
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('eaTitle')}</div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${L('eaDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 에너지 해석 방법 및 설계 관점':'▸ Energy analysis method & design perspective'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('eaGuide')}</div></details>`;
+
+  // Energy bar chart: per angle
+  const BW = 600, BH = 200, bml = 55, bmr = 10, bmt = 10, bmb = 50;
+  const bpw = BW - bml - bmr, bph = BH - bmt - bmb;
+  const top20 = energyPerAngle.slice(0, 20);
+  const barW = Math.max(6, Math.min(25, bpw / top20.length - 3));
+  const catCol = { face: '#f7768e', edge: '#e0af68', corner: '#9ece6a', fibonacci: '#7dcfff', other: '#bb9af7' };
+  let svg = `<svg width="100%" viewBox="0 0 ${BW} ${BH}" style="max-width:${BW}px">
+    <rect x="${bml}" y="${bmt}" width="${bpw}" height="${bph}" fill="var(--bg3)" rx="2"/>`;
+  top20.forEach((d, i) => {
+    const x = bml + (i + 0.5) * bpw / top20.length - barW / 2;
+    const h = (d.energy / maxE) * bph;
+    svg += `<rect x="${x.toFixed(1)}" y="${(bmt+bph-h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${catCol[d.cat]||catCol.other}" rx="1" opacity="0.8"><title>${d.name}: ${d.energy.toFixed(2)}</title></rect>`;
+    svg += `<text x="${(x+barW/2).toFixed(1)}" y="${BH-bmb+12}" text-anchor="middle" fill="var(--fg2)" font-size="7" transform="rotate(-55,${(x+barW/2).toFixed(1)},${BH-bmb+12})">${d.name.substring(0,12)}</text>`;
+  });
+  svg += `<text x="${bml+bpw/2}" y="${BH-2}" text-anchor="middle" fill="#7982a9" font-size="10">${L('direction')}</text>`;
+  svg += `<text x="10" y="${bmt+bph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,10,${bmt+bph/2})">${L('eaDeformEnergy')}</text>`;
+  svg += '</svg>';
+  html += `<div style="overflow-x:auto;margin-bottom:12px"><div style="font-size:11px;color:var(--fg2);margin-bottom:4px">${L('eaDeformEnergy')} — ${ko?'상위':'Top'} ${top20.length}${ko?'개 방향':' directions'}</div>${svg}</div>`;
+
+  // Part share pie-like horizontal bar
+  if (partShares.length > 0) {
+    html += `<div style="font-size:11px;color:var(--fg2);margin-bottom:4px">${L('eaPartShare')} (${ko?'최악 방향':'Worst direction'}: ${worstAngle.name})</div>`;
+    html += '<div style="margin-bottom:12px">';
+    for (const p of partShares.slice(0, 10)) {
+      const w = Math.max(2, p.share * 100);
+      const isSelf = p.pid === pidStr;
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+        <span style="width:100px;font-size:11px;color:${isSelf?'var(--cyan)':'var(--fg2)'};text-align:right;flex-shrink:0">${p.name.substring(0,15)}</span>
+        <div style="flex:1;height:14px;background:var(--bg);border-radius:3px;position:relative">
+          <div style="width:${w.toFixed(1)}%;height:100%;background:${isSelf?'var(--cyan)':'#7aa2f7'};border-radius:3px;opacity:0.7"></div>
+        </div>
+        <span style="font-size:10px;color:var(--dim);width:40px">${(p.share*100).toFixed(1)}%</span></div>`;
+    }
+    html += '</div>';
+  }
+  // Auto-interpretation
+  const eaNarr = [];
+  const eaCoV = energyPerAngle.length > 1 ? Math.sqrt(energyPerAngle.map(d => (d.energy - totalEnergy/energyPerAngle.length)**2).reduce((a,b)=>a+b,0)/energyPerAngle.length) / (totalEnergy/energyPerAngle.length) : 0;
+  if (ko) {
+    eaNarr.push(`에너지 흡수가 가장 큰 방향: <b>${energyPerAngle[0].name}</b> (${energyPerAngle[0].cat}). 이 방향에서 가장 많은 소성 변형이 발생합니다.`);
+    if (eaCoV > 0.5) eaNarr.push(`방향 간 에너지 흡수 변동계수(CoV) <b>${(eaCoV*100).toFixed(0)}%</b> — 에너지 흐름 경로가 충격 방향에 <b>강하게 의존</b>합니다. 특정 방향에서 손상이 집중될 수 있습니다.`);
+    else eaNarr.push(`방향 간 에너지 흡수 변동계수(CoV) <b>${(eaCoV*100).toFixed(0)}%</b> — 에너지 흡수가 비교적 <b>균일</b>하여 방향 독립적인 에너지 관리가 이루어지고 있습니다.`);
+    if (partShares.length > 0 && partShares[0].share > 0.5) eaNarr.push(`최악 방향에서 <b>${partShares[0].name}</b>이 전체 변형 에너지의 <b>${(partShares[0].share*100).toFixed(0)}%</b>를 흡수합니다. 이 부품이 주요 충격 흡수체 또는 손상 집중 부위입니다.`);
+  } else {
+    eaNarr.push(`Highest energy absorption direction: <b>${energyPerAngle[0].name}</b> (${energyPerAngle[0].cat}). Maximum plastic deformation occurs from this direction.`);
+    if (eaCoV > 0.5) eaNarr.push(`Energy absorption CoV across directions: <b>${(eaCoV*100).toFixed(0)}%</b> — energy flow path is <b>strongly direction-dependent</b>. Damage may concentrate in specific orientations.`);
+    else eaNarr.push(`Energy absorption CoV across directions: <b>${(eaCoV*100).toFixed(0)}%</b> — energy absorption is relatively <b>uniform</b>, indicating direction-independent energy management.`);
+    if (partShares.length > 0 && partShares[0].share > 0.5) eaNarr.push(`In worst direction, <b>${partShares[0].name}</b> absorbs <b>${(partShares[0].share*100).toFixed(0)}%</b> of total deformation energy — primary shock absorber or damage concentration site.`);
+  }
+  html += `<div style="padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid #e0af68;font-size:11px;line-height:1.6;color:var(--fg)">${eaNarr.join('<br>')}</div>`;
+  html += '</div>';
+  return html;
+}
+
+function buildReboundSection(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  const rbData = [];
+  for (const r of DATA.results) {
+    const pd = r.parts[pidStr];
+    if (!pd || !pd.g_ts || !pd.g_ts.g) continue;
+    const gvals = pd.g_ts.g, times = pd.g_ts.t;
+    const peaks = detectPeaks(gvals, 0.15, 3);
+    if (peaks.length === 0) continue;
+    const p1 = Math.abs(peaks[0].val);
+    const p2 = peaks.length > 1 ? Math.abs(peaks[1].val) : 0;
+    const ratio21 = p1 > 0 ? p2 / p1 : 0;
+    // Decay rate: exponential fit over peaks
+    let decayRate = 0;
+    if (peaks.length >= 2) {
+      const t1 = times[peaks[0].idx], tn = times[peaks[peaks.length-1].idx];
+      const dt = tn - t1;
+      if (dt > 0 && p1 > 0) {
+        const pLast = Math.abs(peaks[peaks.length-1].val);
+        decayRate = pLast > 0 ? -Math.log(pLast / p1) / (dt * 1000) : 0; // per ms
+      }
+    }
+    rbData.push({
+      name: r.angle.name, cat: r.angle.category || 'other',
+      nBounces: peaks.length, ratio21, decayRate,
+      p1: p1/1e6, p2: p2/1e6,
+      peakTimes: peaks.map(p => times[p.idx] * 1000)
+    });
+  }
+  if (rbData.length === 0) return '';
+  rbData.sort((a,b) => b.nBounces - a.nBounces);
+
+  const avgBounces = rbData.reduce((s,d) => s+d.nBounces, 0) / rbData.length;
+  const avgRatio = rbData.filter(d=>d.ratio21>0).reduce((s,d) => s+d.ratio21, 0) / (rbData.filter(d=>d.ratio21>0).length || 1);
+  const avgDecay = rbData.filter(d=>d.decayRate>0).reduce((s,d) => s+d.decayRate, 0) / (rbData.filter(d=>d.decayRate>0).length || 1);
+  const multiBouncePct = rbData.filter(d => d.nBounces >= 2).length / rbData.length * 100;
+
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('rbTitle')} <sup style="color:var(--cyan);font-size:9px">[3]</sup></div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${L('rbDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 리바운드 물리학 및 평가 기준':'▸ Rebound physics & evaluation criteria'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('rbGuide')}</div></details>
+    <div class="stat-grid" style="margin-bottom:12px">
+      <div class="stat-card"><div class="value">${avgBounces.toFixed(1)}</div><div class="label">${L('rbNumBounces')} (${ko?'평균':'avg'})</div></div>
+      <div class="stat-card"><div class="value">${(avgRatio*100).toFixed(1)}%</div><div class="label">${L('rbSecondaryRatio')} (${ko?'평균':'avg'})</div></div>
+      <div class="stat-card"><div class="value">${avgDecay.toFixed(2)}</div><div class="label">${L('rbDecayRate')} (/ms)</div></div>
+      <div class="stat-card"><div class="value">${multiBouncePct.toFixed(0)}%</div><div class="label">${ko?'다중 바운스 비율':'Multi-bounce %'}</div></div>
+    </div>`;
+
+  // Table
+  let rows = '';
+  for (const d of rbData.slice(0, 20)) {
+    const badge = d.nBounces >= 4 ? 'hotspot-badge' : d.nBounces >= 2 ? 'hotspot-badge warn' : 'hotspot-badge ok';
+    rows += `<tr><td style="color:var(--cyan)">${d.name}</td><td>${d.cat}</td>
+      <td style="text-align:center"><span class="${badge}">${d.nBounces}</span></td>
+      <td style="text-align:right">${d.p1.toFixed(3)}</td>
+      <td style="text-align:right">${d.p2.toFixed(3)}</td>
+      <td style="text-align:right">${(d.ratio21*100).toFixed(1)}%</td>
+      <td style="text-align:right">${d.decayRate.toFixed(3)}</td>
+      <td style="color:var(--dim);font-size:10px">${d.peakTimes.map(t=>t.toFixed(2)).join(', ')}</td></tr>`;
+  }
+  html += `<div class="table-wrap" style="max-height:350px;overflow-y:auto">
+    <table><tr><th>${L('direction')}</th><th>${L('category')}</th><th>${L('rbNumBounces')}</th>
+      <th>${ko?'1차 피크':'1st Peak'} (MG)</th><th>${ko?'2차 피크':'2nd Peak'} (MG)</th>
+      <th>${L('rbSecondaryRatio')}</th><th>${L('rbDecayRate')}</th>
+      <th>${ko?'피크 시간 (ms)':'Peak Times (ms)'}</th></tr>${rows}</table></div>`;
+  // Auto-interpretation
+  const rbNarr = [];
+  if (ko) {
+    rbNarr.push(`평균 바운스 횟수: <b>${avgBounces.toFixed(1)}</b>회. ${avgBounces >= 3 ? '다중 리바운드가 빈번하여 누적 피로 위험이 있습니다.' : avgBounces >= 2 ? '대부분 1~2회 리바운드로, 일반적인 낙하 충격 패턴입니다.' : '단일 충격이 지배적으로, 리바운드 누적 효과는 미미합니다.'}`);
+    rbNarr.push(`평균 2차/1차 비율: <b>${(avgRatio*100).toFixed(1)}%</b>. ${avgRatio > 0.5 ? '높은 탄성 반발(COR 높음)로 2차 충격이 1차의 절반 이상입니다. 2차 충격 후에도 부품 내구성을 확인해야 합니다.' : avgRatio > 0.2 ? '보통 수준의 에너지 감쇠로, 2차 충격이 존재하지만 1차 대비 크게 감소합니다.' : '빠른 에너지 소산으로 2차 충격이 미미합니다.'}`);
+    if (multiBouncePct > 70) rbNarr.push(`<span style="color:#f7768e">전체 방향의 <b>${multiBouncePct.toFixed(0)}%</b>에서 다중 바운스가 발생합니다. JEDEC JESD22-B111 기준에 따라 2차 충격을 내구성 평가에 포함해야 합니다.</span>`);
+  } else {
+    rbNarr.push(`Average bounces: <b>${avgBounces.toFixed(1)}</b>. ${avgBounces >= 3 ? 'Frequent multi-bounce — cumulative fatigue risk.' : avgBounces >= 2 ? 'Typical 1–2 bounces — normal drop impact pattern.' : 'Single impact dominant — minimal rebound accumulation.'}`);
+    rbNarr.push(`Average 2nd/1st ratio: <b>${(avgRatio*100).toFixed(1)}%</b>. ${avgRatio > 0.5 ? 'High elastic rebound (high COR) — 2nd impact exceeds half of 1st. Verify component survivability after secondary impacts.' : avgRatio > 0.2 ? 'Moderate energy decay — secondary impact present but significantly reduced.' : 'Rapid energy dissipation — secondary impacts negligible.'}`);
+    if (multiBouncePct > 70) rbNarr.push(`<span style="color:#f7768e"><b>${multiBouncePct.toFixed(0)}%</b> of directions show multi-bounce. Per JEDEC JESD22-B111, secondary impacts should be included in durability assessment.</span>`);
+  }
+  html += `<div style="padding:8px;background:var(--bg3);border-radius:4px;border-left:3px solid #e0af68;margin-top:8px;font-size:11px;line-height:1.6;color:var(--fg)">${rbNarr.join('<br>')}</div></div>`;
+  return html;
+}
+
+function buildCorrelationMatrix(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  // Collect data vectors across all angles
+  const stress=[], gforce=[], strain=[], disp=[], vel=[];
+  for (const r of DATA.results) {
+    const pd = r.parts[pidStr];
+    if (!pd) continue;
+    stress.push(pd.peak_stress || 0);
+    gforce.push(pd.peak_g || 0);
+    strain.push(pd.peak_strain || 0);
+    disp.push(pd.peak_disp || 0);
+    vel.push(pd.peak_vel || 0);
+  }
+  const n = stress.length;
+  if (n < 3) return '';
+
+  function pearson(a, b) {
+    const ma = a.reduce((s,v)=>s+v,0)/n, mb = b.reduce((s,v)=>s+v,0)/n;
+    let num = 0, da = 0, db = 0;
+    for (let i = 0; i < n; i++) {
+      const ai = a[i]-ma, bi = b[i]-mb;
+      num += ai*bi; da += ai*ai; db += bi*bi;
+    }
+    return (da > 0 && db > 0) ? num / Math.sqrt(da*db) : 0;
+  }
+
+  const labels = [L('cmStress'), L('cmGforce'), L('cmStrain'), L('cmDisp'), L('cmVel')];
+  const vecs = [stress, gforce, strain, disp, vel];
+  const matrix = [];
+  for (let i = 0; i < 5; i++) {
+    matrix[i] = [];
+    for (let j = 0; j < 5; j++) {
+      matrix[i][j] = i === j ? 1.0 : pearson(vecs[i], vecs[j]);
+    }
+  }
+
+  // SVG heatmap
+  const CS = 60, pad = 80, padTop = 20;
+  const SW = pad + 5*CS + 10, SH = padTop + 5*CS + pad;
+  let svg = `<svg width="100%" viewBox="0 0 ${SW} ${SH}" style="max-width:${SW}px">`;
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+      const r = matrix[i][j];
+      const x = pad + j*CS, y = padTop + i*CS;
+      // Color: positive = blue (cyan), negative = red, zero = dark
+      let cr, cg, cb;
+      if (r >= 0) { cr = Math.round(30*(1-r)); cg = Math.round(80+175*r); cb = Math.round(80+175*r); }
+      else { cr = Math.round(80+175*Math.abs(r)); cg = Math.round(30*(1-Math.abs(r))); cb = Math.round(30*(1-Math.abs(r))); }
+      svg += `<rect x="${x}" y="${y}" width="${CS}" height="${CS}" fill="rgb(${cr},${cg},${cb})" stroke="var(--bg)" stroke-width="1"/>`;
+      svg += `<text x="${x+CS/2}" y="${y+CS/2+4}" text-anchor="middle" fill="${Math.abs(r)>0.5?'#fff':'#a9b1d6'}" font-size="12" font-weight="${Math.abs(r)>0.7?'bold':'normal'}">${r.toFixed(2)}</text>`;
+    }
+    // Row label
+    svg += `<text x="${pad-4}" y="${padTop+i*CS+CS/2+4}" text-anchor="end" fill="var(--fg2)" font-size="11">${labels[i]}</text>`;
+    // Col label
+    svg += `<text x="${pad+i*CS+CS/2}" y="${padTop+5*CS+16}" text-anchor="middle" fill="var(--fg2)" font-size="11">${labels[i]}</text>`;
+  }
+  svg += '</svg>';
+
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('cmTitle')}</div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px">${L('cmDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 상관계수 해석 방법 및 물리적 의미':'▸ Correlation interpretation & physical meaning'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('cmGuide')}</div></details>
+    <div style="overflow-x:auto">${svg}</div>`;
+
+  // Key insights
+  const insights = [];
+  for (let i = 0; i < 5; i++) {
+    for (let j = i+1; j < 5; j++) {
+      const r = matrix[i][j];
+      if (Math.abs(r) > 0.7) {
+        const strength = Math.abs(r) > 0.9 ? (ko?'매우 강한':'Very strong') : (ko?'강한':'Strong');
+        const dir = r > 0 ? (ko?'양의':'positive') : (ko?'음의':'negative');
+        insights.push(`${strength} ${dir} ${ko?'상관':'correlation'}: ${labels[i]} ↔ ${labels[j]} (r=${r.toFixed(2)})`);
+      }
+    }
+  }
+  if (insights.length > 0) {
+    html += `<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan)">`;
+    for (const ins of insights) {
+      html += `<div style="font-size:11px;color:var(--fg2);margin-bottom:2px">${ins}</div>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function buildCrackArrestSection(pid) {
+  const pidStr = String(pid);
+  const ko = reportLang === 'ko';
+  const ys = DATA.yield_stress || 0;
+  const results = [];
+
+  for (const r of DATA.results) {
+    const pd = r.parts[pidStr];
+    if (!pd) continue;
+    const hasSts = pd.stress_ts && pd.stress_ts.max && pd.stress_ts.t;
+    const hasSn = pd.strain_ts && pd.strain_ts.max && pd.strain_ts.t;
+    if (!hasSts) continue;
+
+    const sMax = pd.stress_ts.max;
+    const sAvg = pd.stress_ts.avg || sMax;
+    const times = pd.stress_ts.t;
+    const n = sMax.length;
+    if (n < 3) continue;
+    const totalDuration = times[n-1] - times[0];
+    if (totalDuration <= 0) continue;
+
+    const peakStress = Math.max(...sMax);
+    if (peakStress <= 0) continue;
+
+    // --- Indicator 1: Stress Duration Ratio (SDR) ---
+    // Fraction of time that stress exceeds threshold (yield or 70% peak)
+    const threshold = ys > 0 ? Math.min(ys, peakStress * 0.7) : peakStress * 0.7;
+    let aboveTime = 0;
+    for (let i = 1; i < n; i++) {
+      if (sMax[i] >= threshold || sMax[i-1] >= threshold) {
+        aboveTime += times[i] - times[i-1];
+      }
+    }
+    const sdr = aboveTime / totalDuration; // 0~1, lower = arrest-favorable
+    const sdrScore = 1 - sdr; // Invert: higher = more favorable for arrest
+
+    // --- Indicator 2: Loading Rate Score ---
+    // dσ/dt at onset: find steepest rising slope before peak
+    const peakIdx = sMax.indexOf(peakStress);
+    let maxRate = 0;
+    for (let i = 1; i <= peakIdx && i < n; i++) {
+      const dt = times[i] - times[i-1];
+      if (dt > 0) {
+        const rate = (sMax[i] - sMax[i-1]) / dt; // MPa/s
+        if (rate > maxRate) maxRate = rate;
+      }
+    }
+    // Normalize: typical drop test range 1e6~1e10 MPa/s
+    // Higher rate → more brittle → arrest-unfavorable
+    // Use log scale: score = 1 - clamp((log10(rate) - 6) / 4, 0, 1)
+    const logRate = maxRate > 0 ? Math.log10(maxRate) : 0;
+    const loadRateScore = Math.max(0, Math.min(1, 1 - (logRate - 6) / 4));
+
+    // --- Indicator 3: Stress Concentration Factor Score ---
+    // max/avg at peak time: high ratio = localized stress = small plastic zone
+    const avgAtPeak = sAvg[Math.min(peakIdx, sAvg.length-1)] || 1;
+    const scf = avgAtPeak > 0 ? peakStress / avgAtPeak : 1;
+    // SCF ~1 = uniform (good for arrest), SCF > 3 = highly concentrated (bad)
+    const scfScore = Math.max(0, Math.min(1, 1 - (scf - 1) / 3));
+
+    // --- Indicator 4: Energy Dissipation Rate ---
+    // How quickly stress drops after peak: compare area under curve after peak
+    // to hypothetical sustained-peak scenario
+    let postPeakArea = 0, sustainedArea = 0;
+    for (let i = peakIdx + 1; i < n; i++) {
+      const dt = times[i] - times[i-1];
+      postPeakArea += sMax[i] * dt;
+      sustainedArea += peakStress * dt;
+    }
+    // Ratio of actual vs sustained: lower = faster dissipation = arrest-favorable
+    const dissRatio = sustainedArea > 0 ? postPeakArea / sustainedArea : 1;
+    const dissScore = Math.max(0, Math.min(1, 1 - dissRatio));
+
+    // --- Composite: Crack Arrest Index (CAI) ---
+    // Weighted combination: SDR 30%, LoadRate 20%, SCF 25%, Dissipation 25%
+    const cai = sdrScore * 0.30 + loadRateScore * 0.20 + scfScore * 0.25 + dissScore * 0.25;
+
+    results.push({
+      name: r.angle.name, cat: r.angle.category || 'other',
+      cai, sdrScore, loadRateScore, scfScore, dissScore,
+      sdr, maxRate, scf, dissRatio,
+      peakStress, threshold
+    });
+  }
+
+  if (results.length === 0) return '';
+  results.sort((a,b) => a.cai - b.cai); // Worst first (lowest CAI)
+
+  const avgCAI = results.reduce((s,d) => s+d.cai, 0) / results.length;
+  const minCAI = results[0].cai;
+  const maxCAI = results[results.length-1].cai;
+  const nUnlikely = results.filter(d => d.cai < 0.3).length;
+  const nMarginal = results.filter(d => d.cai >= 0.3 && d.cai < 0.6).length;
+  const nLikely = results.filter(d => d.cai >= 0.6).length;
+
+  // CAI rating color/label
+  function caiLabel(v) {
+    if (v >= 0.6) return `<span style="color:#9ece6a;font-weight:bold">${L('caiArrestLikely')}</span>`;
+    if (v >= 0.3) return `<span style="color:#e0af68;font-weight:bold">${L('caiMarginal')}</span>`;
+    return `<span style="color:#f7768e;font-weight:bold">${L('caiArrestUnlikely')}</span>`;
+  }
+  function caiColor(v) { return v >= 0.6 ? '#9ece6a' : v >= 0.3 ? '#e0af68' : '#f7768e'; }
+
+  let html = `<div class="dd-section"><div class="dd-section-title">${L('caTitle')} <sup style="color:var(--cyan);font-size:9px">[4][5][6][7]</sup></div>
+    <div style="color:var(--fg2);font-size:12px;margin-bottom:8px;line-height:1.6">${L('caDesc')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--cyan);font-size:11px;font-weight:bold">${ko?'▸ 규격 기반 근거 및 각 지표의 파괴역학적 의미':'▸ Standards-based rationale & fracture mechanics meaning'}</summary>
+      <div style="padding:8px 12px;margin-top:4px;background:var(--bg);border-radius:4px;border-left:3px solid var(--cyan);font-size:11px;color:var(--fg2);line-height:1.7">${L('caGuide')}</div></details>`;
+
+  // KPI cards
+  html += `<div class="stat-grid" style="margin-bottom:12px">
+    <div class="stat-card"><div class="value" style="color:${caiColor(avgCAI)}">${avgCAI.toFixed(3)}</div><div class="label">${ko?'평균 CAI':'Avg CAI'}</div><div style="font-size:10px;color:var(--dim)">${caiLabel(avgCAI)}</div></div>
+    <div class="stat-card"><div class="value" style="color:${caiColor(minCAI)}">${minCAI.toFixed(3)}</div><div class="label">${ko?'최악 CAI (정지 가장 불리)':'Worst CAI'}</div><div style="font-size:10px;color:var(--dim)">${results[0].name}</div></div>
+    <div class="stat-card"><div class="value" style="color:#f7768e">${nUnlikely}</div><div class="label">${L('caiArrestUnlikely')} (<0.3)</div></div>
+    <div class="stat-card"><div class="value" style="color:#e0af68">${nMarginal}</div><div class="label">${L('caiMarginal')} (0.3–0.6)</div></div>
+    <div class="stat-card"><div class="value" style="color:#9ece6a">${nLikely}</div><div class="label">${L('caiArrestLikely')} (>0.6)</div></div>
+  </div>`;
+
+  // SVG: CAI strip chart — all directions sorted by CAI
+  const SW = 600, SH = 180, ml = 55, mr = 10, mt = 15, mb = 50;
+  const spw = SW - ml - mr, sph = SH - mt - mb;
+  const barW = Math.max(3, Math.min(20, spw / results.length - 1));
+  let svg = `<svg width="100%" viewBox="0 0 ${SW} ${SH}" style="max-width:${SW}px">
+    <rect x="${ml}" y="${mt}" width="${spw}" height="${sph}" fill="var(--bg3)" rx="2"/>`;
+  // Zone bands
+  svg += `<rect x="${ml}" y="${mt}" width="${spw}" height="${(sph*0.4).toFixed(1)}" fill="rgba(158,206,106,0.06)"/>`;
+  svg += `<rect x="${ml}" y="${(mt+sph*0.4).toFixed(1)}" width="${spw}" height="${(sph*0.3).toFixed(1)}" fill="rgba(224,175,104,0.06)"/>`;
+  svg += `<rect x="${ml}" y="${(mt+sph*0.7).toFixed(1)}" width="${spw}" height="${(sph*0.3).toFixed(1)}" fill="rgba(247,118,142,0.06)"/>`;
+  // Zone labels
+  svg += `<text x="${ml+spw+2}" y="${mt+12}" fill="#9ece6a" font-size="8" opacity="0.6">${L('caiArrestLikely')}</text>`;
+  svg += `<text x="${ml+spw+2}" y="${(mt+sph*0.5).toFixed(0)}" fill="#e0af68" font-size="8" opacity="0.6">${L('caiMarginal')}</text>`;
+  svg += `<text x="${ml+spw+2}" y="${(mt+sph*0.85).toFixed(0)}" fill="#f7768e" font-size="8" opacity="0.6">${L('caiArrestUnlikely')}</text>`;
+  // Threshold lines
+  svg += `<line x1="${ml}" y1="${(mt+sph*0.4).toFixed(1)}" x2="${ml+spw}" y2="${(mt+sph*0.4).toFixed(1)}" stroke="#9ece6a" stroke-dasharray="3,3" opacity="0.3"/>`;
+  svg += `<line x1="${ml}" y1="${(mt+sph*0.7).toFixed(1)}" x2="${ml+spw}" y2="${(mt+sph*0.7).toFixed(1)}" stroke="#f7768e" stroke-dasharray="3,3" opacity="0.3"/>`;
+  // Y-axis labels
+  for (let v = 0; v <= 1; v += 0.2) {
+    const y = mt + sph - v * sph;
+    svg += `<text x="${ml-4}" y="${y+3}" text-anchor="end" fill="#7982a9" font-size="9">${v.toFixed(1)}</text>`;
+  }
+  // Bars
+  const sorted = [...results].sort((a,b) => a.cai - b.cai);
+  sorted.forEach((d, i) => {
+    const x = ml + (i + 0.5) * spw / sorted.length - barW / 2;
+    const h = Math.max(1, d.cai * sph);
+    const y = mt + sph - h;
+    svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${caiColor(d.cai)}" rx="1" opacity="0.8"><title>${d.name}: CAI=${d.cai.toFixed(3)}</title></rect>`;
+  });
+  svg += `<text x="${ml+spw/2}" y="${SH-2}" text-anchor="middle" fill="#7982a9" font-size="10">${ko?'방향 (CAI 오름차순 정렬)':'Directions (sorted by CAI ascending)'}</text>`;
+  svg += `<text x="10" y="${mt+sph/2}" text-anchor="middle" fill="#7982a9" font-size="10" transform="rotate(-90,10,${mt+sph/2})">CAI</text>`;
+  svg += '</svg>';
+  html += `<div style="overflow-x:auto;margin-bottom:16px">${svg}</div>`;
+
+  // Radar chart for sub-indicators (average across all directions)
+  const avgSDR = results.reduce((s,d)=>s+d.sdrScore,0)/results.length;
+  const avgLR = results.reduce((s,d)=>s+d.loadRateScore,0)/results.length;
+  const avgSCF = results.reduce((s,d)=>s+d.scfScore,0)/results.length;
+  const avgDiss = results.reduce((s,d)=>s+d.dissScore,0)/results.length;
+  const radarLabels = [L('caiDuration'), L('caiLoadRate'), L('caiSCF'), L('caiDissipation')];
+  const radarVals = [avgSDR, avgLR, avgSCF, avgDiss];
+  const radarWeights = [0.30, 0.20, 0.25, 0.25];
+  const RW = 320, RH = 320, rcx = RW/2, rcy = RH/2, rr = 110;
+  let rsvg = `<svg width="100%" viewBox="0 0 ${RW} ${RH}" style="max-width:${RW}px">`;
+  // Background rings
+  for (let ring = 0.2; ring <= 1.0; ring += 0.2) {
+    let ringPath = '';
+    for (let a = 0; a < 4; a++) {
+      const angle = -Math.PI/2 + a * Math.PI/2;
+      const x = rcx + Math.cos(angle) * rr * ring, y = rcy + Math.sin(angle) * rr * ring;
+      ringPath += (a===0?'M':'L') + `${x.toFixed(1)},${y.toFixed(1)}`;
+    }
+    rsvg += `<path d="${ringPath}Z" fill="none" stroke="rgba(255,255,255,0.08)"/>`;
+    // Ring value label
+    const ry = rcy - rr * ring;
+    rsvg += `<text x="${rcx+3}" y="${ry+3}" fill="#7982a9" font-size="8">${ring.toFixed(1)}</text>`;
+  }
+  // Axes
+  for (let a = 0; a < 4; a++) {
+    const angle = -Math.PI/2 + a * Math.PI/2;
+    const x2 = rcx + Math.cos(angle) * rr, y2 = rcy + Math.sin(angle) * rr;
+    rsvg += `<line x1="${rcx}" y1="${rcy}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="rgba(255,255,255,0.12)"/>`;
+    const lx = rcx + Math.cos(angle) * (rr + 30), ly = rcy + Math.sin(angle) * (rr + 15);
+    const anchor = a===1?'start':a===3?'end':'middle';
+    rsvg += `<text x="${lx.toFixed(0)}" y="${ly.toFixed(0)}" text-anchor="${anchor}" fill="var(--fg2)" font-size="9">${radarLabels[a]}</text>`;
+    rsvg += `<text x="${lx.toFixed(0)}" y="${(ly+11).toFixed(0)}" text-anchor="${anchor}" fill="var(--dim)" font-size="8">(w=${(radarWeights[a]*100).toFixed(0)}%) ${radarVals[a].toFixed(2)}</text>`;
+  }
+  // Data polygon
+  let dataPath = '';
+  for (let a = 0; a < 4; a++) {
+    const angle = -Math.PI/2 + a * Math.PI/2;
+    const v = radarVals[a];
+    const x = rcx + Math.cos(angle) * rr * v, y = rcy + Math.sin(angle) * rr * v;
+    dataPath += (a===0?'M':'L') + `${x.toFixed(1)},${y.toFixed(1)}`;
+  }
+  rsvg += `<path d="${dataPath}Z" fill="rgba(125,207,250,0.15)" stroke="var(--cyan)" stroke-width="2"/>`;
+  // Data dots
+  for (let a = 0; a < 4; a++) {
+    const angle = -Math.PI/2 + a * Math.PI/2;
+    const v = radarVals[a];
+    const x = rcx + Math.cos(angle) * rr * v, y = rcy + Math.sin(angle) * rr * v;
+    rsvg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="var(--cyan)"/>`;
+  }
+  // Center CAI value
+  rsvg += `<text x="${rcx}" y="${rcy-5}" text-anchor="middle" fill="${caiColor(avgCAI)}" font-size="20" font-weight="bold">${avgCAI.toFixed(2)}</text>`;
+  rsvg += `<text x="${rcx}" y="${rcy+12}" text-anchor="middle" fill="var(--fg2)" font-size="10">CAI</text>`;
+  rsvg += '</svg>';
+
+  html += `<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;margin-bottom:16px">`;
+  html += `<div style="flex:0 0 auto">${rsvg}</div>`;
+
+  // Interpretation narrative
+  html += `<div style="flex:1;min-width:250px">`;
+  html += `<div class="dd-narrative" style="border-left:3px solid ${caiColor(avgCAI)};padding:12px;background:var(--bg3);border-radius:4px">`;
+  html += `<div class="dd-heading" style="font-size:13px;font-weight:bold;margin-bottom:8px;color:${caiColor(avgCAI)}">${ko?'종합 평가':'Overall Assessment'}: ${caiLabel(avgCAI)}</div>`;
+
+  // Generate narrative based on sub-scores
+  const sentences = [];
+  if (avgSDR > 0.7) sentences.push(ko
+    ? `응력 지속비가 낮아(SDR score ${avgSDR.toFixed(2)}) 임계 응력 초과 시간이 짧습니다. 동적 하중이 빠르게 해제되어 균열 구동력이 단시간 내 소멸합니다.`
+    : `Low stress duration ratio (SDR score ${avgSDR.toFixed(2)}): stress exceeds threshold only briefly. Dynamic load releases quickly, removing crack driving force.`);
+  else if (avgSDR > 0.4) sentences.push(ko
+    ? `응력 지속비가 중간 수준(SDR score ${avgSDR.toFixed(2)})으로, 임계 응력 초과 시간이 비교적 길어 균열 전파 구간이 존재합니다.`
+    : `Moderate stress duration ratio (SDR score ${avgSDR.toFixed(2)}): stress exceeds threshold for a notable fraction of the event. Some crack propagation window exists.`);
+  else sentences.push(ko
+    ? `응력 지속비가 높아(SDR score ${avgSDR.toFixed(2)}) 임계 응력 초과 상태가 오래 유지됩니다. 지속적 하중으로 인해 균열 정지 없이 전파가 계속될 가능성이 높습니다.`
+    : `High stress duration ratio (SDR score ${avgSDR.toFixed(2)}): stress exceeds threshold for most of the event. Sustained loading makes arrest unlikely — crack may propagate continuously.`);
+
+  if (avgLR > 0.6) sentences.push(ko
+    ? `하중속도가 상대적으로 낮아(LR score ${avgLR.toFixed(2)}) 재료가 연성 거동을 보일 가능성이 높습니다. 균열 선단의 소성 둔화(blunting)가 정지에 기여합니다.`
+    : `Moderate loading rate (LR score ${avgLR.toFixed(2)}): material likely exhibits ductile behavior. Crack tip blunting contributes to arrest.`);
+  else if (avgLR < 0.3) sentences.push(ko
+    ? `하중속도가 매우 높아(LR score ${avgLR.toFixed(2)}) 재료가 취성 거동을 보일 수 있습니다. 동적 파괴인성(K_ID)이 정적 값보다 낮아져 균열 정지가 어려워집니다.`
+    : `Very high loading rate (LR score ${avgLR.toFixed(2)}): material may exhibit brittle behavior. Dynamic fracture toughness (K_ID) drops below static value, making arrest difficult.`);
+
+  if (avgSCF > 0.7) sentences.push(ko
+    ? `응력 분포가 비교적 균일합니다(SCF score ${avgSCF.toFixed(2)}). 넓은 소성 영역이 형성되어 균열 선단 에너지를 흡수하고 정지를 촉진합니다.`
+    : `Stress distribution is relatively uniform (SCF score ${avgSCF.toFixed(2)}). Wide plastic zone forms ahead of crack tip, absorbing energy and promoting arrest.`);
+  else if (avgSCF < 0.3) sentences.push(ko
+    ? `응력이 국부적으로 집중되어 있습니다(SCF score ${avgSCF.toFixed(2)}). 소성 영역이 작아 균열 선단 둔화(blunting)가 충분하지 않으며, 균열이 빠르게 전파될 수 있습니다.`
+    : `Stress is highly localized (SCF score ${avgSCF.toFixed(2)}). Small plastic zone means insufficient crack tip blunting — crack may propagate rapidly.`);
+
+  if (avgDiss > 0.6) sentences.push(ko
+    ? `피크 후 응력이 빠르게 감소합니다(Diss score ${avgDiss.toFixed(2)}). 변형 에너지가 빠르게 소산되어 균열 구동 에너지가 급격히 감소하므로 정지 조건이 유리합니다.`
+    : `Stress drops rapidly after peak (Diss score ${avgDiss.toFixed(2)}). Deformation energy dissipates quickly — crack driving energy decreases sharply, favoring arrest.`);
+  else if (avgDiss < 0.3) sentences.push(ko
+    ? `피크 후 응력이 천천히 감소합니다(Diss score ${avgDiss.toFixed(2)}). 잔류 에너지가 오래 유지되어 균열 전파가 지속될 수 있습니다.`
+    : `Stress decays slowly after peak (Diss score ${avgDiss.toFixed(2)}). Residual energy persists, potentially sustaining crack propagation.`);
+
+  // Worst direction warning
+  if (minCAI < 0.3) {
+    const worst5 = sorted.slice(0, Math.min(5, sorted.length)).map(d => d.name).join(', ');
+    sentences.push(ko
+      ? `<span style="color:#f7768e">⚠ 최악 방향 주의:</span> ${worst5} — 이 방향에서 균열이 시작되면 정지 없이 전파될 가능성이 높습니다. 설계 검토가 필요합니다.`
+      : `<span style="color:#f7768e">⚠ Critical directions:</span> ${worst5} — if a crack initiates from these directions, arrest is unlikely. Design review recommended.`);
+  }
+
+  for (const s of sentences) {
+    html += `<div style="font-size:12px;color:var(--fg);margin-bottom:6px;line-height:1.5">${s}</div>`;
+  }
+  html += '</div></div></div>';
+
+  // Detailed table
+  let rows = '';
+  for (const d of results.slice(0, 25)) {
+    rows += `<tr>
+      <td style="color:var(--cyan)">${d.name}</td><td>${d.cat}</td>
+      <td style="text-align:center"><span style="color:${caiColor(d.cai)};font-weight:bold">${d.cai.toFixed(3)}</span></td>
+      <td style="text-align:right">${d.sdrScore.toFixed(2)}</td>
+      <td style="text-align:right">${d.loadRateScore.toFixed(2)}</td>
+      <td style="text-align:right">${d.scfScore.toFixed(2)}</td>
+      <td style="text-align:right">${d.dissScore.toFixed(2)}</td>
+      <td style="text-align:right">${d.peakStress.toFixed(1)}</td>
+      <td style="text-align:right;color:var(--dim)">${d.sdr.toFixed(3)}</td>
+      <td style="text-align:right;color:var(--dim)">${d.scf.toFixed(2)}</td></tr>`;
+  }
+  html += `<div class="table-wrap" style="max-height:400px;overflow-y:auto">
+    <table><tr>
+      <th>${L('direction')}</th><th>${L('category')}</th><th>CAI</th>
+      <th>${L('caiDuration')}</th><th>${L('caiLoadRate')}</th><th>${L('caiSCF')}</th><th>${L('caiDissipation')}</th>
+      <th>${ko?'피크 응력':'Peak σ'} (MPa)</th>
+      <th>${ko?'지속비 (원시)':'SDR (raw)'}</th><th>SCF</th>
+    </tr>${rows}</table></div>`;
+
+  // Methodology note
+  html += `<div style="margin-top:12px;padding:8px;background:var(--bg);border-radius:4px;border-left:3px solid var(--dim)">
+    <div style="font-size:10px;color:var(--dim);line-height:1.5">
+      ${ko
+        ? '<b>방법론 참고:</b> CAI는 연속체 역학 시계열 데이터로부터 도출한 <em>간접 지표</em>입니다. 명시적 균열 모델링(XFEM, cohesive zone) 없이는 실제 K<sub>IC</sub>/J-integral 기반 평가를 대체할 수 없습니다. SDR: 임계응력 = min(σ<sub>y</sub>, 0.7σ<sub>peak</sub>). Loading rate: log₁₀(dσ/dt) 정규화(6~10 범위). SCF: σ<sub>max</sub>/σ<sub>avg</sub>(시간 평균 아닌 피크 시점). Dissipation: 피크 후 실제 면적 대 유지 면적 비.'
+        : '<b>Methodology note:</b> CAI is an <em>indirect proxy</em> derived from continuum mechanics time-series data. It cannot replace explicit K<sub>IC</sub>/J-integral assessment without crack modeling (XFEM, cohesive zone). SDR: threshold = min(σ<sub>y</sub>, 0.7σ<sub>peak</sub>). Loading rate: log₁₀(dσ/dt) normalized over 6–10 range. SCF: σ<sub>max</sub>/σ<sub>avg</sub> at peak time. Dissipation: actual post-peak area vs. sustained-peak area.'}
+    </div></div>`;
+
+  html += '</div>';
+  return html;
+}
+
+function renderAdvancedAnalysis() {
+  const container = document.getElementById('advanced-content');
+  if (!container) return;
+  const parts = getAllPartIds();
+  if (advState.partId === 0 && parts.length > 0) advState.partId = parts[0];
+  const ko = reportLang === 'ko';
+
+  let html = `<div class="controls"><label>${L('advSelectPart')}</label>
+    <select id="adv-part" onchange="advState.partId=parseInt(this.value);document.getElementById('advanced-content').dataset.done='';renderAdvancedAnalysis()">`;
+  for (const pid of parts) {
+    const p = DATA.parts[String(pid)];
+    html += `<option value="${pid}"${pid===advState.partId?' selected':''}>${p?p.name:''} (ID:${pid})</option>`;
+  }
+  html += '</select></div>';
+
+  const pid = advState.partId;
+  html += `<div class="panel"><h2>${L('advTitle')} — ${(DATA.parts[String(pid)]||{}).name||'Part '+pid}</h2>`;
+  html += buildImpactPulseSection(pid);
+  html += '</div>';
+  html += `<div class="panel">${buildCriticalElementSection(pid)}</div>`;
+  html += `<div class="panel">${buildEnergyAbsorptionSection(pid)}</div>`;
+  html += `<div class="panel">${buildReboundSection(pid)}</div>`;
+  html += `<div class="panel">${buildCorrelationMatrix(pid)}</div>`;
+  html += `<div class="panel">${buildCrackArrestSection(pid)}</div>`;
+
+  // Reference standards footnote panel
+  html += `<div class="panel" style="border-top:2px solid var(--cyan);margin-top:8px">
+    <h2 style="font-size:13px">${ko?'참조 규격 및 문헌':'Reference Standards & Literature'}</h2>
+    <div style="font-size:11px;color:var(--fg2);line-height:1.8">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:start">
+        <span style="color:var(--cyan);font-weight:bold">[1]</span><span><b>MIL-STD-810G/H, Method 516.7</b> — Shock testing, half-sine pulse specification. ${ko?'충격 시험 표준, 반파사인 펄스 정의. 충격 펄스 특성화 섹션에서 펄스폭, 피크, 임펄스 계산의 기준.':'Basis for pulse width, peak acceleration, and impulse calculations in Impact Pulse Characterization.'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[2]</span><span><b>IEC 60068-2-27</b> — Environmental testing, Part 2-27: Shock. ${ko?'환경 시험 규격, 충격. 반파사인 등가 파라미터의 산업 표준 정의.':'Industry standard for half-sine equivalent parameters and shock response spectrum (SRS).'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[3]</span><span><b>JEDEC JESD22-B111</b> — Board Level Drop Test Method of Components for Handheld Electronic Products. ${ko?'휴대 전자기기 보드 레벨 낙하 시험. 2차 충격 및 리바운드의 내구성 평가 기준.':'Drop test qualification standard that explicitly considers secondary impacts and rebound in durability assessment.'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[4]</span><span><b>BS 7910:2019</b> — Guide to methods for assessing the acceptability of flaws in metallic structures. ${ko?'금속 구조물 결함 허용성 평가. K<sub>I</sub> vs K<sub>Ia</sub> 균열 정지 기준, Level 3 평가에서 소성 영역 및 응력 집중 효과 반영.':'Crack arrest assessment via K<sub>I</sub> vs K<sub>Ia</sub> curves. Level 3 assessment incorporates plastic zone and stress concentration effects.'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[5]</span><span><b>ASTM E1221</b> — Standard Test Method for Determining Plane-Strain Crack-Arrest Fracture Toughness (K<sub>Ia</sub>). ${ko?'평면 변형률 균열 정지 파괴인성 시험. CAI의 물리적 근거인 균열 정지 인성 측정 방법.':'Physical basis for crack arrest toughness measurement, underlying the CAI sub-indicators.'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[6]</span><span><b>ASTM E399 / E1820</b> — Fracture toughness testing (K<sub>Ic</sub>, J-integral). ${ko?'파괴인성 시험. 동적 하중속도에서 K<sub>Id</sub>가 정적 K<sub>Ic</sub>의 30–70%로 저하 — 하중속도 점수의 근거.':'Dynamic fracture toughness K<sub>Id</sub> reduces to 30–70% of static K<sub>Ic</sub> at high loading rates — basis for loading rate score.'}</span>
+        <span style="color:var(--cyan);font-weight:bold">[7]</span><span><b>API 579-1 / ASME FFS-1</b> — Fitness-For-Service. ${ko?'사용 적합성 평가. 균열 포함 구조물의 잔여 수명 평가, 균열 정지 판정에 에너지 해방률(G) 및 재료 저항(R) 비교 적용.':'Remaining life assessment for cracked structures. Crack arrest determination using energy release rate G vs. material resistance R comparison.'}</span>
+      </div>
+      <div style="margin-top:10px;padding:6px 10px;background:var(--bg);border-radius:4px;color:var(--dim);font-size:10px">
+        ${ko
+          ? '⚠ 본 분석의 균열 정지 지수(CAI)는 연속체 역학 시계열로부터 도출한 간접 프록시입니다. 규격 수준의 균열 정지 평가(BS 7910 Level 3)를 위해서는 실제 균열 형상에 대한 명시적 파괴역학 해석(XFEM, cohesive zone, J-integral)이 별도로 수행되어야 합니다.'
+          : '⚠ The Crack Arrest Index (CAI) in this analysis is an indirect proxy derived from continuum mechanics time series. Standards-level crack arrest assessment (BS 7910 Level 3) requires explicit fracture mechanics analysis (XFEM, cohesive zone, J-integral) with actual crack geometry.'}
+      </div>
+    </div>
+  </div>`;
+
+  container.innerHTML = html;
+}
 """
 
 
@@ -2663,6 +3753,7 @@ def generate_html(report: Report, path: str) -> None:
   <div class="tab" data-tab="7">Statistics</div>
   <div class="tab" data-tab="8">Impact Analysis</div>
   <div class="tab" data-tab="9">Part Analysis</div>
+  <div class="tab" data-tab="10">Advanced</div>
 </div>
 
 <div class="content">
@@ -2721,6 +3812,11 @@ def generate_html(report: Report, path: str) -> None:
   <!-- Tab 9: Part Analysis -->
   <div class="tab-content hidden" id="tab-9">
     <div id="deepdive-content"></div>
+  </div>
+
+  <!-- Tab 10: Advanced Analysis -->
+  <div class="tab-content hidden" id="tab-10">
+    <div id="advanced-content"></div>
   </div>
 </div>
 
