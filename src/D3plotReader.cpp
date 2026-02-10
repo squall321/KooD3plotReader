@@ -447,40 +447,98 @@ std::vector<data::StateData> D3plotReader::read_all_states_parallel_DISABLED(siz
 */  // End of DISABLED PARALLEL IMPLEMENTATION comment block
 
 data::StateData D3plotReader::read_state(size_t state_index) {
-    // For now, read all states and return the requested one
-    // TODO: Optimize to read only the specific state
-    auto states = read_all_states();
+    // Ensure state cache is initialized
+    if (!states_cached_) {
+        init_state_cache();
+    }
 
-    if (state_index >= states.size()) {
+    if (state_index >= cached_num_states_) {
         throw std::out_of_range("State index out of range");
     }
 
-    return states[state_index];
+    // Load full cache on first access
+    if (!full_cache_loaded_) {
+        load_full_cache();
+    }
+
+    return cached_states_[state_index];
+}
+
+void D3plotReader::load_full_cache() const {
+    if (full_cache_loaded_) {
+        return;
+    }
+
+    auto& self = const_cast<D3plotReader&>(*this);
+    cached_states_ = self.read_all_states();
+    full_cache_loaded_ = true;
 }
 
 size_t D3plotReader::get_num_states() const {
-    // Read all states to count them
-    // Note: This is not optimal but works for now
-    auto& self = const_cast<D3plotReader&>(*this);
-    auto states = self.read_all_states();
-    return states.size();
+    if (!states_cached_) {
+        init_state_cache();
+    }
+    return cached_num_states_;
 }
 
 std::vector<double> D3plotReader::get_time_values() {
-    auto states = read_all_states();
-    std::vector<double> times;
-    times.reserve(states.size());
-
-    for (const auto& state : states) {
-        times.push_back(state.time);
+    if (!states_cached_) {
+        init_state_cache();
     }
-
-    return times;
+    return cached_time_values_;
 }
 
 void D3plotReader::init_control_data() {
     parsers::ControlDataParser parser(reader_);
     control_data_ = parser.parse();
+}
+
+void D3plotReader::init_state_cache() const {
+    if (states_cached_) {
+        return;
+    }
+
+    // Cast away const for file reading operations
+    auto& self = const_cast<D3plotReader&>(*this);
+
+    cached_time_values_.clear();
+    cached_num_states_ = 0;
+
+    // Scan all files to count states and get time values (lightweight scan)
+    size_t file_count = file_family_->get_file_count();
+
+    for (size_t file_idx = 0; file_idx < file_count; ++file_idx) {
+        std::string file_path = file_family_->get_file_path(file_idx);
+
+        // Create reader for this file
+        std::shared_ptr<core::BinaryReader> family_reader;
+        if (file_idx == 0) {
+            family_reader = self.reader_;
+        } else {
+            family_reader = std::make_shared<core::BinaryReader>(file_path);
+            // Family files need open_family_file with precision/endian from base file
+            if (family_reader->open_family_file(self.reader_->get_precision(),
+                                                 self.reader_->get_endian()) != ErrorCode::SUCCESS) {
+                continue;
+            }
+        }
+
+        // Use StateDataParser to scan states (time values only)
+        // For family files (d3plot01, etc.), set is_family_file=true so parser starts at offset 0
+        bool is_family = (file_idx > 0);
+        parsers::StateDataParser parser(family_reader, self.control_data_, is_family);
+        auto file_states = parser.parse_time_values_only();
+
+        cached_time_values_.insert(cached_time_values_.end(),
+                                   file_states.begin(), file_states.end());
+
+        if (file_idx != 0) {
+            family_reader->close();
+        }
+    }
+
+    cached_num_states_ = cached_time_values_.size();
+    states_cached_ = true;
 }
 
 } // namespace kood3plot

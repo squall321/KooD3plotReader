@@ -88,6 +88,8 @@ docs/xml/
 __pycache__/
 *.pyc
 *.pyo
+venv/
+python/*/dist/
 
 # Coverage reports
 coverage/

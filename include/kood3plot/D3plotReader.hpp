@@ -123,10 +123,28 @@ private:
     FileFormat file_format_;
     bool is_open_;
 
+    // Caching for performance
+    mutable bool states_cached_ = false;
+    mutable size_t cached_num_states_ = 0;
+    mutable std::vector<double> cached_time_values_;
+    mutable std::vector<std::pair<size_t, size_t>> state_file_map_;  // (file_idx, local_state_idx)
+    mutable std::vector<data::StateData> cached_states_;  // Full state data cache
+    mutable bool full_cache_loaded_ = false;
+
     /**
      * @brief Initialize control data
      */
     void init_control_data();
+
+    /**
+     * @brief Initialize state cache (counts states without loading full data)
+     */
+    void init_state_cache() const;
+
+    /**
+     * @brief Load all states into cache
+     */
+    void load_full_cache() const;
 };
 
 } // namespace kood3plot

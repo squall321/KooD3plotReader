@@ -93,6 +93,54 @@ std::vector<data::StateData> StateDataParser::parse_all_legacy() {
     return result;
 }
 
+std::vector<double> StateDataParser::parse_time_values_only() {
+    if (!reader_ || !reader_->is_open()) {
+        throw std::runtime_error("BinaryReader not initialized or file not open");
+    }
+
+    std::vector<double> time_values;
+
+    // Find offset to first state
+    size_t offset = find_state_offset();
+
+    // Calculate state data size per state
+    size_t state_size = 1 + control_data_.NGLBV + control_data_.NND + control_data_.ENN + control_data_.DELNN;
+
+    // Get file size in words for boundary checking
+    size_t file_size_words = reader_->get_file_size_words();
+
+    // Scan states - only read time values, skip the rest
+    bool done = false;
+    while (!done) {
+        if (offset >= file_size_words) {
+            done = true;
+            continue;
+        }
+
+        if (offset + state_size > file_size_words) {
+            done = true;
+            continue;
+        }
+
+        try {
+            double time = reader_->read_double(offset);
+
+            // Check for EOF marker (-999999.0)
+            if (std::abs(time + 999999.0) < 1e-6) {
+                done = true;
+            } else {
+                time_values.push_back(time);
+                // Skip to next state (don't read the actual data)
+                offset += state_size;
+            }
+        } catch (const std::exception&) {
+            done = true;
+        }
+    }
+
+    return time_values;
+}
+
 data::StateData StateDataParser::parse_state_legacy(size_t offset) {
     if (!reader_ || !reader_->is_open()) {
         throw std::runtime_error("BinaryReader not initialized or file not open");

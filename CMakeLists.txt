@@ -242,6 +242,9 @@ set(KOOD3PLOT_HEADERS
     include/kood3plot/analysis/UnifiedAnalyzer.hpp
 )
 
+# Enable position independent code for all targets (needed for shared library linking)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Create library target
 add_library(kood3plot ${KOOD3PLOT_SOURCES} ${KOOD3PLOT_HEADERS})
 
@@ -358,6 +361,9 @@ option(KOOD3PLOT_BUILD_V4_RENDER "Build V4 LSPrePost Renderer" ON)
 
 if(KOOD3PLOT_BUILD_V4_RENDER)
     message(STATUS "Building V4 Render System")
+
+    # Define KOOD3PLOT_HAS_RENDER for conditional compilation
+    add_compile_definitions(KOOD3PLOT_HAS_RENDER)
 
     # V4 Render System source files
     set(KOOD3PLOT_RENDER_SOURCES

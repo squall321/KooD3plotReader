@@ -57,6 +57,13 @@ public:
     // ============ Legacy API (individual word reads) ============
 
     /**
+     * @brief Parse time values only (lightweight scan without loading full data)
+     * @return Vector of time values for each state
+     * @note Much faster than parse_all() for just counting states
+     */
+    std::vector<double> parse_time_values_only();
+
+    /**
      * @brief Parse all states using legacy individual word reads
      * @return Vector of state data
      * @note Slower than parse_all() but useful for debugging

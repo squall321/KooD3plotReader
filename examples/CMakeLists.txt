@@ -163,9 +163,19 @@ install(TARGETS comprehensive_example
 add_executable(unified_analyzer unified_analyzer.cpp)
 target_link_libraries(unified_analyzer PRIVATE kood3plot)
 
-# Install unified analyzer
+# Link with V4 render library if enabled (for render_jobs support)
+if(KOOD3PLOT_BUILD_V4_RENDER)
+    # Add render implementation source and link render library
+    target_sources(unified_analyzer PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/analysis/UnifiedAnalyzerRender.cpp
+    )
+    target_link_libraries(unified_analyzer PRIVATE kood3plot_render)
+    target_compile_definitions(unified_analyzer PRIVATE KOOD3PLOT_HAS_RENDER)
+endif()
+
+# Install unified analyzer to main bin directory (primary analysis tool)
 install(TARGETS unified_analyzer
-    RUNTIME DESTINATION bin/examples
+    RUNTIME DESTINATION bin
 )
 
 # ============================================================

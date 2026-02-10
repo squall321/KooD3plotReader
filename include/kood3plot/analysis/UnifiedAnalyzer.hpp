@@ -143,6 +143,23 @@ private:
         const std::vector<data::StateData>& all_states,
         ExtendedAnalysisResult& result
     );
+
+public:
+    /**
+     * @brief Process render jobs
+     * @param reader D3plot reader
+     * @param config Unified configuration with render_jobs
+     * @param callback Progress callback
+     * @return true if all render jobs succeeded
+     *
+     * Note: This is public because render jobs can be run separately
+     * from analysis jobs, and requires separate reader instance.
+     */
+    bool processRenderJobs(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        UnifiedProgressCallback callback
+    );
 };
 
 } // namespace analysis

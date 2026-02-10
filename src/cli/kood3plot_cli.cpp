@@ -16,6 +16,9 @@
 #include <fstream>
 #include <algorithm>
 #include <set>
+#include <filesystem>
+#include <chrono>
+#include <iomanip>
 
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/query/D3plotQuery.h"
@@ -102,6 +105,12 @@ struct CLIOptions {
     std::string export_format = "deformed";  // deformed, displacement
     bool export_all_states = false;
     bool export_combined = false;
+
+    // Recursive mode options
+    bool recursive = false;
+    std::string recursive_path;      // Root path for recursive search
+    std::string marker_extension = ".kood3post";  // Marker file extension
+    bool force_reprocess = false;    // Ignore marker files and reprocess
 };
 
 // ============================================================
@@ -123,6 +132,7 @@ Modes:
   --mode autosection       Automatic section generation
   --mode multirun          Multi-run parallel processing and comparison
   --mode export            Export displacement to LS-DYNA keyword file (.k)
+  --mode recursive         Recursively process all d3plot files in subdirectories
 
 Input Options:
   <d3plot_file>            Path to d3plot file (required unless --config used)
@@ -172,6 +182,11 @@ Export Options (Export Mode):
   --export-all             Export all states to separate files
   --export-combined        Export all states to a single combined file
 
+Recursive Options (Recursive Mode):
+  --recursive <path>       Root path for recursive d3plot search
+  --marker <ext>           Marker file extension (default: .kood3post)
+  --force                  Force reprocessing (ignore marker files)
+
 Information:
   --info                   Show d3plot file information
   --list-parts             List all parts in file
@@ -206,6 +221,10 @@ Examples:
   kood3plot_cli --mode export --export-all input.d3plot -o states.k
   kood3plot_cli --mode export --export-format displacement input.d3plot -o disp.k
   kood3plot_cli --mode export --first 0 --last 100 --step 10 input.d3plot -o states.k
+
+  # Recursive mode (batch processing of multiple d3plot folders)
+  kood3plot_cli --mode recursive --recursive /data/Tests --config analysis.yaml
+  kood3plot_cli --mode recursive --recursive /data/Tests --config analysis.yaml --force
 
 )";
 }
@@ -288,6 +307,13 @@ CLIOptions parseArgs(int argc, char* argv[]) {
             opts.export_all_states = true;
         } else if (arg == "--export-combined") {
             opts.export_combined = true;
+        } else if (arg == "--recursive" && i + 1 < argc) {
+            opts.recursive = true;
+            opts.recursive_path = argv[++i];
+        } else if (arg == "--marker" && i + 1 < argc) {
+            opts.marker_extension = argv[++i];
+        } else if (arg == "--force") {
+            opts.force_reprocess = true;
         } else if (arg[0] != '-' && opts.d3plot_path.empty()) {
             opts.d3plot_path = arg;
         }
@@ -401,15 +427,15 @@ int executeQuery(const CLIOptions& opts) {
             std::transform(ql.begin(), ql.end(), ql.begin(), ::tolower);
 
             if (ql == "von_mises" || ql == "vonmises") {
-                qty.vonMises();
+                qty.add(QuantityType::STRESS_VON_MISES);
             } else if (ql == "displacement" || ql == "disp") {
-                qty.displacement();
+                qty.add(QuantityType::DISPLACEMENT_MAGNITUDE);
             } else if (ql == "stress") {
-                qty.allStress();
+                qty.addStressAll();
             } else if (ql == "strain") {
-                qty.allStrain();
+                qty.addStrainAll();
             } else if (ql == "effective_strain") {
-                qty.effectiveStrain();
+                qty.add(QuantityType::STRAIN_EFFECTIVE);
             }
         }
         query.selectQuantities(qty);
@@ -419,7 +445,7 @@ int executeQuery(const CLIOptions& opts) {
         }
     } else {
         // Default to von Mises
-        query.selectQuantities(QuantitySelector().vonMises());
+        query.selectQuantities(QuantitySelector::vonMises());
     }
 
     // Time selection
@@ -1137,6 +1163,184 @@ int executeExport(const CLIOptions& opts) {
 }
 
 // ============================================================
+// Execute Recursive Mode
+// ============================================================
+
+namespace fs = std::filesystem;
+
+/**
+ * @brief Find all directories containing d3plot files
+ */
+std::vector<std::pair<fs::path, fs::path>> findD3plotDirectories(
+    const fs::path& root_path,
+    const std::string& marker_ext,
+    bool force_reprocess,
+    bool verbose)
+{
+    std::vector<std::pair<fs::path, fs::path>> results;  // (d3plot_path, directory)
+
+    if (!fs::exists(root_path) || !fs::is_directory(root_path)) {
+        std::cerr << "Error: Invalid root path: " << root_path << "\n";
+        return results;
+    }
+
+    if (verbose) {
+        std::cout << "Scanning directories under: " << root_path << "\n";
+    }
+
+    // Recursively scan directories
+    for (const auto& entry : fs::recursive_directory_iterator(root_path)) {
+        if (entry.is_regular_file()) {
+            std::string filename = entry.path().filename().string();
+
+            // Check if this is a d3plot base file (not d3plot01, d3plot02, etc.)
+            if (filename == "d3plot") {
+                fs::path dir = entry.path().parent_path();
+                fs::path d3plot_path = entry.path();
+                fs::path marker_path = dir / (filename + marker_ext);
+
+                // Check if already processed
+                if (!force_reprocess && fs::exists(marker_path)) {
+                    if (verbose) {
+                        std::cout << "  [SKIP] " << dir << " (already processed)\n";
+                    }
+                    continue;
+                }
+
+                results.emplace_back(d3plot_path, dir);
+                if (verbose) {
+                    std::cout << "  [FOUND] " << dir << "\n";
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+/**
+ * @brief Create marker file to indicate processing completion
+ */
+bool createMarkerFile(const fs::path& dir, const std::string& marker_ext,
+                      const std::string& config_file, double elapsed_seconds)
+{
+    fs::path marker_path = dir / ("d3plot" + marker_ext);
+
+    std::ofstream ofs(marker_path);
+    if (!ofs) {
+        return false;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+
+    ofs << "# KooD3plot Post-processing Marker\n";
+    ofs << "# DO NOT DELETE - indicates analysis has been completed\n";
+    ofs << "#\n";
+    ofs << "processed_at: " << std::ctime(&time_t);
+    ofs << "config_file: " << config_file << "\n";
+    ofs << "elapsed_seconds: " << std::fixed << std::setprecision(2) << elapsed_seconds << "\n";
+    ofs << "kood3plot_version: 1.0.0\n";
+
+    ofs.close();
+    return true;
+}
+
+int executeRecursive(CLIOptions& opts) {
+    std::cout << "\n";
+    std::cout << "=============================================================\n";
+    std::cout << "KooD3plot Recursive Mode\n";
+    std::cout << "=============================================================\n";
+
+    // Validate inputs
+    if (opts.recursive_path.empty()) {
+        std::cerr << "Error: No recursive path specified. Use --recursive <path>\n";
+        return 1;
+    }
+
+    if (opts.config_file.empty()) {
+        std::cerr << "Error: Config file required for recursive mode. Use --config <file>\n";
+        return 1;
+    }
+
+    fs::path root_path = opts.recursive_path;
+    std::cout << "Root path: " << root_path << "\n";
+    std::cout << "Config file: " << opts.config_file << "\n";
+    std::cout << "Marker extension: " << opts.marker_extension << "\n";
+    std::cout << "Force reprocess: " << (opts.force_reprocess ? "YES" : "NO") << "\n";
+    std::cout << "=============================================================\n\n";
+
+    // Find all d3plot directories
+    auto d3plot_dirs = findD3plotDirectories(root_path, opts.marker_extension,
+                                              opts.force_reprocess, opts.verbose);
+
+    if (d3plot_dirs.empty()) {
+        std::cout << "No d3plot files found to process.\n";
+        return 0;
+    }
+
+    std::cout << "\nFound " << d3plot_dirs.size() << " d3plot files to process.\n\n";
+
+    // Process each directory
+    int success_count = 0;
+    int fail_count = 0;
+
+    for (size_t i = 0; i < d3plot_dirs.size(); ++i) {
+        const auto& [d3plot_path, dir] = d3plot_dirs[i];
+
+        std::cout << "[" << (i + 1) << "/" << d3plot_dirs.size() << "] Processing: " << dir << "\n";
+
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Set up options for this directory
+        CLIOptions local_opts = opts;
+        local_opts.d3plot_path = d3plot_path.string();
+
+        // Output file in the same directory as d3plot
+        fs::path output_path = dir / "analysis_output.csv";
+        if (opts.output_format == "json") {
+            output_path = dir / "analysis_output.json";
+        } else if (opts.output_format == "hdf5") {
+            output_path = dir / "analysis_output.h5";
+        }
+        local_opts.output_file = output_path.string();
+
+        // Execute query
+        int result = executeQuery(local_opts);
+
+        auto end_time = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(end_time - start_time).count();
+
+        if (result == 0) {
+            success_count++;
+            std::cout << "  [OK] Completed in " << std::fixed << std::setprecision(1)
+                      << elapsed << "s\n";
+
+            // Create marker file
+            if (createMarkerFile(dir, opts.marker_extension, opts.config_file, elapsed)) {
+                std::cout << "  [OK] Created marker: d3plot" << opts.marker_extension << "\n";
+            }
+        } else {
+            fail_count++;
+            std::cout << "  [FAIL] Error processing\n";
+        }
+
+        std::cout << "\n";
+    }
+
+    // Summary
+    std::cout << "=============================================================\n";
+    std::cout << "Recursive Processing Complete!\n";
+    std::cout << "=============================================================\n";
+    std::cout << "Total: " << d3plot_dirs.size() << " directories\n";
+    std::cout << "Success: " << success_count << "\n";
+    std::cout << "Failed: " << fail_count << "\n";
+    std::cout << "=============================================================\n";
+
+    return (fail_count > 0) ? 1 : 0;
+}
+
+// ============================================================
 // Main
 // ============================================================
 
@@ -1184,7 +1388,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Validate d3plot path
+    // Handle recursive mode early (doesn't need d3plot_path)
+    std::string mode = opts.mode;
+    std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
+
+    if (mode == "recursive") {
+        return executeRecursive(opts);
+    }
+
+    // Validate d3plot path for non-recursive modes
     if (opts.d3plot_path.empty()) {
         std::cerr << "Error: No d3plot file specified\n";
         std::cerr << "Use -h for help\n";
@@ -1209,10 +1421,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Dispatch based on mode
-    std::string mode = opts.mode;
-    std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
-
+    // Dispatch based on mode (already computed above)
     if (mode == "render") {
         return executeRender(opts);
     } else if (mode == "batch") {
@@ -1229,7 +1438,7 @@ int main(int argc, char* argv[]) {
         return executeQuery(opts);
     } else {
         std::cerr << "Error: Unknown mode '" << opts.mode << "'\n";
-        std::cerr << "Valid modes: query, render, batch, multisection, autosection, multirun, export\n";
+        std::cerr << "Valid modes: query, render, batch, multisection, autosection, multirun, export, recursive\n";
         return 1;
     }
 }

@@ -1,74 +1,111 @@
 # KooD3plot Full Analysis Configuration
 # ======================================
-# Comprehensive analysis configuration with all features enabled.
-# Use this as a template for complete d3plot analysis.
+# 모든 파트의 응력/변형률 + 상하면 표면 분석을 포함한 전체 분석 설정
+#
+# 사용법: unified_analyzer --config example_full_analysis.yaml --threads 4
+#
+# 참고: d3plot_path를 실제 파일 경로로 변경하세요
 
-d3plot_path: "path/to/your/d3plot"
-output_directory: "./full_analysis_output"
+version: "2.0"
 
-# Part selection (empty = all parts)
-parts: []
-
-analysis:
-  # Von Mises stress time history (recommended)
-  stress: true
-
-  # Effective plastic strain time history
-  strain: true
-
-  # Acceleration analysis (memory intensive)
-  acceleration: false
-
-# Complete surface analysis for all 6 directions
-surfaces:
-  # Z-direction surfaces
-  - description: "Bottom surface (-Z)"
-    direction: [0, 0, -1]
-    angle_threshold: 45.0
-
-  - description: "Top surface (+Z)"
-    direction: [0, 0, 1]
-    angle_threshold: 45.0
-
-  # X-direction surfaces
-  - description: "Front surface (+X)"
-    direction: [1, 0, 0]
-    angle_threshold: 45.0
-
-  - description: "Back surface (-X)"
-    direction: [-1, 0, 0]
-    angle_threshold: 45.0
-
-  # Y-direction surfaces
-  - description: "Left surface (-Y)"
-    direction: [0, -1, 0]
-    angle_threshold: 45.0
-
-  - description: "Right surface (+Y)"
-    direction: [0, 1, 0]
-    angle_threshold: 45.0
+input:
+  d3plot: "path/to/your/d3plot"
 
 output:
-  # JSON summary with all results
+  directory: "./full_analysis_output"
   json: true
-
-  # CSV files for time series data
   csv: true
 
 performance:
-  # Use all available cores (0 = auto)
-  threads: 0
-
-  # Print progress messages
+  threads: 4        # 4 스레드 권장 (I/O 병목으로 너무 많으면 오히려 느림)
   verbose: true
 
-# Expected output files:
-# ----------------------
+analysis_jobs:
+  # ============================================================
+  # 1. 모든 파트의 Von Mises 응력 분석
+  # ============================================================
+  - name: "All Parts Von Mises Stress"
+    type: von_mises
+    parts: []         # 빈 배열 = 모든 파트
+    output_prefix: "stress"
+
+  # ============================================================
+  # 2. 모든 파트의 유효 소성 변형률 분석
+  # ============================================================
+  - name: "All Parts Effective Plastic Strain"
+    type: eff_plastic_strain
+    parts: []
+    output_prefix: "strain"
+
+  # ============================================================
+  # 3. Bottom Surface 응력 분석 (-Z 방향)
+  # ============================================================
+  - name: "Bottom Surface Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, -1]   # -Z 방향 (아래쪽)
+      angle: 45.0             # 법선 벡터와의 허용 각도
+    output_prefix: "bottom_surface_stress"
+
+  # ============================================================
+  # 4. Top Surface 응력 분석 (+Z 방향)
+  # ============================================================
+  - name: "Top Surface Stress"
+    type: surface_stress
+    parts: []
+    surface:
+      direction: [0, 0, 1]    # +Z 방향 (위쪽)
+      angle: 45.0
+    output_prefix: "top_surface_stress"
+
+  # ============================================================
+  # 5. Bottom Surface 변형률 분석 (-Z 방향)
+  # ============================================================
+  - name: "Bottom Surface Strain"
+    type: surface_strain
+    parts: []
+    surface:
+      direction: [0, 0, -1]
+      angle: 45.0
+    output_prefix: "bottom_surface_strain"
+
+  # ============================================================
+  # 6. Top Surface 변형률 분석 (+Z 방향)
+  # ============================================================
+  - name: "Top Surface Strain"
+    type: surface_strain
+    parts: []
+    surface:
+      direction: [0, 0, 1]
+      angle: 45.0
+    output_prefix: "top_surface_strain"
+
+  # ============================================================
+  # 7. 모든 파트의 운동 분석 (변위, 속도, 가속도)
+  # ============================================================
+  - name: "All Parts Motion"
+    type: part_motion
+    parts: []         # 빈 배열 = 모든 파트
+    quantities:
+      - avg_displacement    # 평균 변위
+      - avg_velocity        # 평균 속도
+      - avg_acceleration    # 평균 가속도
+    output_prefix: "motion"
+
+# ============================================================
+# 출력 파일 구조:
+# ============================================================
 # {output_directory}/
 # ├── stress/
-# │   └── part_N_von_mises.csv (one per part)
+# │   └── part_N_von_mises.csv (파트별 응력 이력)
 # ├── strain/
-# │   └── part_N_eff_plastic_strain.csv (one per part)
+# │   └── part_N_eff_plastic_strain.csv (파트별 변형률 이력)
+# ├── motion/
+# │   └── part_N_motion.csv (파트별 변위/속도/가속도 이력)
 # ├── surface/
-# │   └── {surface_description}.csv (one per surface)
-# └── analysis_result.json (complete summary)
+# │   ├── bottom_surface_stress.csv (하면 응력)
+# │   ├── top_surface_stress.csv (상면 응력)
+# │   ├── bottom_surface_strain.csv (하면 변형률)
+# │   └── top_surface_strain.csv (상면 변형률)
+# └── analysis_result.json (전체 요약)

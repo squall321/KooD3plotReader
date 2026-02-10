@@ -1,0 +1,4085 @@
+{
+  "project_name": "Test_001_Full26_1Step",
+  "doe_strategy": "cuboid_26",
+  "total_runs": 26,
+  "successful_runs": 26,
+  "failed_runs": 0,
+  "angular_spacing_deg": 15.8999341869044,
+  "sphere_coverage": 0.12494010702433565,
+  "simulation_params": {
+    "t_final": 0.001,
+    "dt": 1e-06,
+    "drop_height": 1500,
+    "density": 7850,
+    "youngs_modulus": 200000000000,
+    "poisson_ratio": 0.3
+  },
+  "findings": [
+    {
+      "severity": "INFO",
+      "title": "26/26 simulations analyzed",
+      "detail": "DOE strategy: cuboid_26, Angular spacing: 15.9°, Sphere coverage: 12%",
+      "recommendation": ""
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 4 (PKG\\PKG 1): peak 890425 G",
+      "detail": "Extreme impact acceleration at F3_Right",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 5 (PKG\\PKG 3): peak 382879 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 6 (PKG\\PKG 4): peak 238658 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 7 (PKG\\PKG 5): peak 611206 G",
+      "detail": "Extreme impact acceleration at F2_Front",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 8 (PKG\\PKG 6): peak 405864 G",
+      "detail": "Extreme impact acceleration at E04_Back_Bottom",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 9 (PKG\\PKG 7): peak 347491 G",
+      "detail": "Extreme impact acceleration at E09_Right_Top",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 10 (PKG\\PKG 8): peak 748090 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 11 (PKG\\PKG 9): peak 414094 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 12 (PKG\\PKG 10): peak 308083 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 13 (PKG\\PKG 11): peak 854787 G",
+      "detail": "Extreme impact acceleration at F4_Left",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 14 (PKG\\PKG 2): peak 857481 G",
+      "detail": "Extreme impact acceleration at F3_Right",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 16 (PKG\\SUBPKG): peak 910596 G",
+      "detail": "Extreme impact acceleration at F3_Right",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 17 (PKG\\SUBPKG2): peak 308747 G",
+      "detail": "Extreme impact acceleration at E09_Right_Top",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 18 (PKG\\Motor): peak 209749 G",
+      "detail": "Extreme impact acceleration at F5_Top",
+      "recommendation": "Verify component shock tolerance specification."
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Part 19 (PKG\\SUBPKG3): peak 1582685 G",
+      "detail": "Extreme impact acceleration at F2_Front",
+      "recommendation": "Verify component shock tolerance specification."
+    }
+  ],
+  "parts": {
+    "1": {
+      "part_name": "Front\\Metal",
+      "group": "Front"
+    },
+    "2": {
+      "part_name": "Front\\Wall",
+      "group": "Front"
+    },
+    "3": {
+      "part_name": "PCB\\PCB",
+      "group": "PCB"
+    },
+    "4": {
+      "part_name": "PKG\\PKG 1",
+      "group": "PKG"
+    },
+    "5": {
+      "part_name": "PKG\\PKG 3",
+      "group": "PKG"
+    },
+    "6": {
+      "part_name": "PKG\\PKG 4",
+      "group": "PKG"
+    },
+    "7": {
+      "part_name": "PKG\\PKG 5",
+      "group": "PKG"
+    },
+    "8": {
+      "part_name": "PKG\\PKG 6",
+      "group": "PKG"
+    },
+    "9": {
+      "part_name": "PKG\\PKG 7",
+      "group": "PKG"
+    },
+    "10": {
+      "part_name": "PKG\\PKG 8",
+      "group": "PKG"
+    },
+    "11": {
+      "part_name": "PKG\\PKG 9",
+      "group": "PKG"
+    },
+    "12": {
+      "part_name": "PKG\\PKG 10",
+      "group": "PKG"
+    },
+    "13": {
+      "part_name": "PKG\\PKG 11",
+      "group": "PKG"
+    },
+    "14": {
+      "part_name": "PKG\\PKG 2",
+      "group": "PKG"
+    },
+    "15": {
+      "part_name": "SUBPCB\\SUBPBA",
+      "group": "SUBPCB"
+    },
+    "16": {
+      "part_name": "PKG\\SUBPKG",
+      "group": "PKG"
+    },
+    "17": {
+      "part_name": "PKG\\SUBPKG2",
+      "group": "PKG"
+    },
+    "18": {
+      "part_name": "PKG\\Motor",
+      "group": "PKG"
+    },
+    "19": {
+      "part_name": "PKG\\SUBPKG3",
+      "group": "PKG"
+    },
+    "20": {
+      "part_name": "Bond\\Bond",
+      "group": "Bond"
+    },
+    "21": {
+      "part_name": "Display\\Display",
+      "group": "Display"
+    },
+    "22": {
+      "part_name": "Geom\\솔리드",
+      "group": "Geom"
+    },
+    "23": {
+      "part_name": "",
+      "group": "Other"
+    }
+  },
+  "results_summary": [
+    {
+      "run_folder": "Run_20260207_211809_06e06e",
+      "angle": {
+        "name": "F4_Left",
+        "roll": 0.0,
+        "pitch": 90.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 461.200715,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000785,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 193.179817,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 2.9e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 176.390246,
+          "peak_strain": 53.343182,
+          "peak_g": 614378.8180743254,
+          "peak_disp": 49.468571,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 170.376206,
+          "peak_strain": 56.31554,
+          "peak_g": 382878.72396703326,
+          "peak_disp": 70.140874,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 190.461119,
+          "peak_strain": 54.929699,
+          "peak_g": 238658.49530782946,
+          "peak_disp": 59.266605,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 171.53507,
+          "peak_strain": 56.648232,
+          "peak_g": 308933.6047033322,
+          "peak_disp": 59.31325,
+          "time_of_peak_stress": 2.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 108.269169,
+          "peak_strain": 39.008324,
+          "peak_g": 257341.92459826494,
+          "peak_disp": 53.214091,
+          "time_of_peak_stress": 3.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 174.322328,
+          "peak_strain": 50.613945,
+          "peak_g": 234519.1216259363,
+          "peak_disp": 54.775865,
+          "time_of_peak_stress": 2.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 178.83047,
+          "peak_strain": 39.101063,
+          "peak_g": 748090.1884434306,
+          "peak_disp": 66.720127,
+          "time_of_peak_stress": 2.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 231.927113,
+          "peak_strain": 56.669945,
+          "peak_g": 414094.4509413403,
+          "peak_disp": 66.494057,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 195.911027,
+          "peak_strain": 84.79612,
+          "peak_g": 308083.2766310843,
+          "peak_disp": 70.21754,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 174.430074,
+          "peak_strain": 58.116447,
+          "peak_g": 854787.2056814082,
+          "peak_disp": 54.708678,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 194.13872,
+          "peak_strain": 31.514236,
+          "peak_g": 649944.468494452,
+          "peak_disp": 52.069487,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 205.213157,
+          "peak_strain": 46.340942,
+          "peak_g": 312614.68238595757,
+          "peak_disp": 67.215323,
+          "time_of_peak_stress": 2.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 218.823381,
+          "peak_strain": 62.579445,
+          "peak_g": 128984.50756050082,
+          "peak_disp": 65.788592,
+          "time_of_peak_stress": 3.7e-05,
+          "time_of_peak_g": 9.6e-05
+        },
+        "18": {
+          "peak_stress": 219.279255,
+          "peak_strain": 109.456039,
+          "peak_g": 120042.09873996116,
+          "peak_disp": 65.610977,
+          "time_of_peak_stress": 3.3e-05,
+          "time_of_peak_g": 6.6e-05
+        },
+        "19": {
+          "peak_stress": 135.734618,
+          "peak_strain": 25.165365,
+          "peak_g": 1163916.4925858402,
+          "peak_disp": 62.675771,
+          "time_of_peak_stress": 9.3e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_211809_27e4e2",
+      "angle": {
+        "name": "F1_Back",
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 477.566234,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 167.932422,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 133.215811,
+          "peak_strain": 79.183815,
+          "peak_g": 326937.00110417453,
+          "peak_disp": 49.390932,
+          "time_of_peak_stress": 6.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 145.397095,
+          "peak_strain": 66.958412,
+          "peak_g": 189167.08936369512,
+          "peak_disp": 69.206659,
+          "time_of_peak_stress": 5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 210.447912,
+          "peak_strain": 84.74485,
+          "peak_g": 70097.79981385393,
+          "peak_disp": 59.238836,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 122.019191,
+          "peak_strain": 36.838356,
+          "peak_g": 231957.5462789893,
+          "peak_disp": 58.202479,
+          "time_of_peak_stress": 0.000246,
+          "time_of_peak_g": 0.000216
+        },
+        "8": {
+          "peak_stress": 89.80567,
+          "peak_strain": 21.82235,
+          "peak_g": 296635.52373830794,
+          "peak_disp": 51.981097,
+          "time_of_peak_stress": 0.000105,
+          "time_of_peak_g": 0.000307
+        },
+        "9": {
+          "peak_stress": 120.546012,
+          "peak_strain": 70.309326,
+          "peak_g": 144077.84458455472,
+          "peak_disp": 53.991209,
+          "time_of_peak_stress": 6.4e-05,
+          "time_of_peak_g": 0.000323
+        },
+        "10": {
+          "peak_stress": 115.52718,
+          "peak_strain": 50.096886,
+          "peak_g": 253265.66937501996,
+          "peak_disp": 66.323211,
+          "time_of_peak_stress": 6.7e-05,
+          "time_of_peak_g": 0.000182
+        },
+        "11": {
+          "peak_stress": 208.928168,
+          "peak_strain": 59.361687,
+          "peak_g": 151072.52397944444,
+          "peak_disp": 66.471275,
+          "time_of_peak_stress": 0.00024,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 147.480284,
+          "peak_strain": 71.466843,
+          "peak_g": 213463.1176474431,
+          "peak_disp": 70.142187,
+          "time_of_peak_stress": 0.000244,
+          "time_of_peak_g": 2.1e-05
+        },
+        "13": {
+          "peak_stress": 126.027321,
+          "peak_strain": 49.518227,
+          "peak_g": 450728.5944948877,
+          "peak_disp": 54.615121,
+          "time_of_peak_stress": 0.000244,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 122.198389,
+          "peak_strain": 15.759309,
+          "peak_g": 366976.9216756277,
+          "peak_disp": 51.981762,
+          "time_of_peak_stress": 5.8e-05,
+          "time_of_peak_g": 0.000107
+        },
+        "16": {
+          "peak_stress": 128.179213,
+          "peak_strain": 26.30044,
+          "peak_g": 304058.04260273924,
+          "peak_disp": 66.259929,
+          "time_of_peak_stress": 0.000393,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 139.548951,
+          "peak_strain": 76.15065,
+          "peak_g": 131536.40027159816,
+          "peak_disp": 65.198899,
+          "time_of_peak_stress": 6.4e-05,
+          "time_of_peak_g": 2.1e-05
+        },
+        "18": {
+          "peak_stress": 185.118935,
+          "peak_strain": 67.962578,
+          "peak_g": 91665.25883488348,
+          "peak_disp": 65.659417,
+          "time_of_peak_stress": 0.000445,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 75.653978,
+          "peak_strain": 23.620022,
+          "peak_g": 314277.4505481686,
+          "peak_disp": 61.650302,
+          "time_of_peak_stress": 7.7e-05,
+          "time_of_peak_g": 0.000107
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_211809_6cf7fb",
+      "angle": {
+        "name": "F2_Front",
+        "roll": 180.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 501.244214,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000472,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 197.05805,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 5.9e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 146.493819,
+          "peak_strain": 84.285439,
+          "peak_g": 311789.3468077741,
+          "peak_disp": 49.431127,
+          "time_of_peak_stress": 6.1e-05,
+          "time_of_peak_g": 0.000476
+        },
+        "5": {
+          "peak_stress": 186.798154,
+          "peak_strain": 86.486298,
+          "peak_g": 184141.15841297983,
+          "peak_disp": 69.249798,
+          "time_of_peak_stress": 6.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 281.316047,
+          "peak_strain": 96.132034,
+          "peak_g": 100241.86030337706,
+          "peak_disp": 59.29172,
+          "time_of_peak_stress": 7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 230.357902,
+          "peak_strain": 58.621975,
+          "peak_g": 611206.3931571227,
+          "peak_disp": 58.244359,
+          "time_of_peak_stress": 7.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 118.423001,
+          "peak_strain": 18.769773,
+          "peak_g": 208934.85799141857,
+          "peak_disp": 52.022543,
+          "time_of_peak_stress": 5e-05,
+          "time_of_peak_g": 0.000261
+        },
+        "9": {
+          "peak_stress": 187.736446,
+          "peak_strain": 67.912849,
+          "peak_g": 201709.52209383118,
+          "peak_disp": 54.034121,
+          "time_of_peak_stress": 7.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 144.717769,
+          "peak_strain": 88.522591,
+          "peak_g": 252635.20150106636,
+          "peak_disp": 66.357972,
+          "time_of_peak_stress": 6.5e-05,
+          "time_of_peak_g": 0.000326
+        },
+        "11": {
+          "peak_stress": 257.242936,
+          "peak_strain": 69.038139,
+          "peak_g": 136795.32498844893,
+          "peak_disp": 66.510404,
+          "time_of_peak_stress": 0.000368,
+          "time_of_peak_g": 0.000431
+        },
+        "12": {
+          "peak_stress": 372.872053,
+          "peak_strain": 64.983543,
+          "peak_g": 206854.52545734087,
+          "peak_disp": 70.179267,
+          "time_of_peak_stress": 5.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 134.109553,
+          "peak_strain": 96.666618,
+          "peak_g": 518867.4489135429,
+          "peak_disp": 54.661881,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 286.573126,
+          "peak_strain": 20.859987,
+          "peak_g": 445163.6560669636,
+          "peak_disp": 52.023915,
+          "time_of_peak_stress": 5.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 172.34738,
+          "peak_strain": 28.963512,
+          "peak_g": 590155.763595511,
+          "peak_disp": 66.312982,
+          "time_of_peak_stress": 5.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 141.880301,
+          "peak_strain": 60.070335,
+          "peak_g": 237850.0577294374,
+          "peak_disp": 65.244952,
+          "time_of_peak_stress": 8.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 254.461977,
+          "peak_strain": 60.791241,
+          "peak_g": 137277.91627591793,
+          "peak_disp": 65.660111,
+          "time_of_peak_stress": 4.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 113.2002,
+          "peak_strain": 30.214226,
+          "peak_g": 1582684.9336054297,
+          "peak_disp": 61.710747,
+          "time_of_peak_stress": 4.4e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_211809_8ab7ef",
+      "angle": {
+        "name": "F3_Right",
+        "roll": 0.0,
+        "pitch": -90.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 543.825431,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000165,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 198.87017,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000262,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 178.09809,
+          "peak_strain": 47.848713,
+          "peak_g": 890424.8248238516,
+          "peak_disp": 50.632263,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 187.487083,
+          "peak_strain": 56.21439,
+          "peak_g": 319073.1687208581,
+          "peak_disp": 69.28452,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 191.907746,
+          "peak_strain": 77.309578,
+          "peak_g": 113573.22096976126,
+          "peak_disp": 59.849927,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 4.3e-05
+        },
+        "7": {
+          "peak_stress": 170.643068,
+          "peak_strain": 42.071072,
+          "peak_g": 596086.2303664549,
+          "peak_disp": 58.272559,
+          "time_of_peak_stress": 2.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 109.839932,
+          "peak_strain": 33.590118,
+          "peak_g": 397520.8935700481,
+          "peak_disp": 52.035927,
+          "time_of_peak_stress": 3.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 185.667463,
+          "peak_strain": 52.759449,
+          "peak_g": 273852.4543823675,
+          "peak_disp": 54.027437,
+          "time_of_peak_stress": 2.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 186.240408,
+          "peak_strain": 44.544605,
+          "peak_g": 316209.07001244335,
+          "peak_disp": 66.332607,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 208.764278,
+          "peak_strain": 54.078094,
+          "peak_g": 239332.74099870864,
+          "peak_disp": 66.915936,
+          "time_of_peak_stress": 0.000454,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 189.397234,
+          "peak_strain": 86.89846,
+          "peak_g": 195599.6882832017,
+          "peak_disp": 71.04851,
+          "time_of_peak_stress": 2.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 174.581215,
+          "peak_strain": 54.581306,
+          "peak_g": 401097.31490469014,
+          "peak_disp": 55.766129,
+          "time_of_peak_stress": 2.7e-05,
+          "time_of_peak_g": 0.000387
+        },
+        "14": {
+          "peak_stress": 184.073766,
+          "peak_strain": 41.688126,
+          "peak_g": 857481.37930224,
+          "peak_disp": 53.17349,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 188.61487,
+          "peak_strain": 44.121777,
+          "peak_g": 910596.3115566156,
+          "peak_disp": 66.333196,
+          "time_of_peak_stress": 2.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 189.72596,
+          "peak_strain": 75.575241,
+          "peak_g": 152927.43685597053,
+          "peak_disp": 65.22856,
+          "time_of_peak_stress": 3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 239.45085,
+          "peak_strain": 117.978943,
+          "peak_g": 117891.73609470081,
+          "peak_disp": 66.420807,
+          "time_of_peak_stress": 0.000542,
+          "time_of_peak_g": 4.1e-05
+        },
+        "19": {
+          "peak_stress": 118.544865,
+          "peak_strain": 19.339243,
+          "peak_g": 1105969.549959828,
+          "peak_disp": 61.727734,
+          "time_of_peak_stress": 3.7e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_212423_0d4013",
+      "angle": {
+        "name": "F5_Top",
+        "roll": 90.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 605.501212,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000694,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 177.324858,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 145.318053,
+          "peak_strain": 51.719475,
+          "peak_g": 421249.1789704494,
+          "peak_disp": 52.328458,
+          "time_of_peak_stress": 7.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 170.853385,
+          "peak_strain": 94.326202,
+          "peak_g": 162238.05079980337,
+          "peak_disp": 72.40801,
+          "time_of_peak_stress": 7.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 215.380498,
+          "peak_strain": 100.750381,
+          "peak_g": 100525.66748609858,
+          "peak_disp": 62.561546,
+          "time_of_peak_stress": 8.9e-05,
+          "time_of_peak_g": 6.6e-05
+        },
+        "7": {
+          "peak_stress": 179.094389,
+          "peak_strain": 54.185673,
+          "peak_g": 399709.2096111987,
+          "peak_disp": 61.289503,
+          "time_of_peak_stress": 4.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 115.331374,
+          "peak_strain": 26.720226,
+          "peak_g": 282124.5251671997,
+          "peak_disp": 54.990932,
+          "time_of_peak_stress": 0.000661,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 155.522409,
+          "peak_strain": 82.215202,
+          "peak_g": 343917.0270765415,
+          "peak_disp": 57.238818,
+          "time_of_peak_stress": 0.000481,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 193.193229,
+          "peak_strain": 50.097393,
+          "peak_g": 280333.76150715764,
+          "peak_disp": 69.658552,
+          "time_of_peak_stress": 5.6e-05,
+          "time_of_peak_g": 9e-05
+        },
+        "11": {
+          "peak_stress": 224.584115,
+          "peak_strain": 76.051704,
+          "peak_g": 401438.6464169245,
+          "peak_disp": 69.833126,
+          "time_of_peak_stress": 0.000112,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 198.727795,
+          "peak_strain": 71.226501,
+          "peak_g": 121509.70440089756,
+          "peak_disp": 73.343251,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 4.5e-05
+        },
+        "13": {
+          "peak_stress": 134.282146,
+          "peak_strain": 64.954704,
+          "peak_g": 558222.5689049271,
+          "peak_disp": 57.671561,
+          "time_of_peak_stress": 9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 120.257039,
+          "peak_strain": 17.276154,
+          "peak_g": 530801.2281027122,
+          "peak_disp": 54.974331,
+          "time_of_peak_stress": 9.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 192.8784,
+          "peak_strain": 29.660423,
+          "peak_g": 273221.9531845553,
+          "peak_disp": 66.357066,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 168.366407,
+          "peak_strain": 120.390938,
+          "peak_g": 307728.96837718214,
+          "peak_disp": 65.302197,
+          "time_of_peak_stress": 0.000549,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 224.418844,
+          "peak_strain": 93.576118,
+          "peak_g": 209748.53892331326,
+          "peak_disp": 65.665194,
+          "time_of_peak_stress": 0.000348,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 112.415856,
+          "peak_strain": 26.494478,
+          "peak_g": 468758.4914241826,
+          "peak_disp": 61.746265,
+          "time_of_peak_stress": 5.2e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_212430_5c2c4c",
+      "angle": {
+        "name": "F6_Bottom",
+        "roll": -90.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "face"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 661.604248,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000715,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 242.782367,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 247.295713,
+          "peak_strain": 50.942348,
+          "peak_g": 226154.51354212864,
+          "peak_disp": 49.473926,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 6.2e-05
+        },
+        "5": {
+          "peak_stress": 240.75331,
+          "peak_strain": 67.119461,
+          "peak_g": 233169.15142205678,
+          "peak_disp": 69.321626,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 272.123831,
+          "peak_strain": 72.999084,
+          "peak_g": 120888.20116635729,
+          "peak_disp": 59.371916,
+          "time_of_peak_stress": 4.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 266.491609,
+          "peak_strain": 36.813793,
+          "peak_g": 262813.21287195897,
+          "peak_disp": 58.310861,
+          "time_of_peak_stress": 4.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 157.667393,
+          "peak_strain": 32.550827,
+          "peak_g": 285456.591945954,
+          "peak_disp": 52.079772,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 244.174098,
+          "peak_strain": 66.49678,
+          "peak_g": 311815.16605804575,
+          "peak_disp": 54.111743,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 252.700818,
+          "peak_strain": 42.522213,
+          "peak_g": 272944.2344153668,
+          "peak_disp": 66.461572,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 280.066473,
+          "peak_strain": 66.792328,
+          "peak_g": 273632.5368810523,
+          "peak_disp": 66.611592,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 261.818519,
+          "peak_strain": 70.069939,
+          "peak_g": 118170.44759892212,
+          "peak_disp": 70.257542,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.000366
+        },
+        "13": {
+          "peak_stress": 256.289231,
+          "peak_strain": 58.774662,
+          "peak_g": 502067.664170618,
+          "peak_disp": 54.726548,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 227.631006,
+          "peak_strain": 20.978443,
+          "peak_g": 720160.9268235109,
+          "peak_disp": 52.080731,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 229.168545,
+          "peak_strain": 23.359081,
+          "peak_g": 285933.30089360895,
+          "peak_disp": 69.376235,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.000486
+        },
+        "17": {
+          "peak_stress": 232.751117,
+          "peak_strain": 64.594978,
+          "peak_g": 121153.63547352172,
+          "peak_disp": 68.459819,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 9.2e-05
+        },
+        "18": {
+          "peak_stress": 282.606007,
+          "peak_strain": 91.813179,
+          "peak_g": 141963.55623058675,
+          "peak_disp": 68.70243,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 223.970226,
+          "peak_strain": 19.713015,
+          "peak_g": 413587.2006230101,
+          "peak_disp": 64.721336,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_212447_835331",
+      "angle": {
+        "name": "E02_Back_Left",
+        "roll": 0.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 559.413613,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 130.17438,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 8.5e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 131.23862,
+          "peak_strain": 53.696735,
+          "peak_g": 144413.33098255526,
+          "peak_disp": 50.173915,
+          "time_of_peak_stress": 0.000343,
+          "time_of_peak_g": 0.000674
+        },
+        "5": {
+          "peak_stress": 151.242266,
+          "peak_strain": 87.262337,
+          "peak_g": 100526.96810686922,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 0.000169
+        },
+        "6": {
+          "peak_stress": 184.203379,
+          "peak_strain": 79.761917,
+          "peak_g": 131633.81493349356,
+          "peak_disp": 59.679326,
+          "time_of_peak_stress": 0.000345,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 131.124093,
+          "peak_strain": 38.819496,
+          "peak_g": 325090.46423184074,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 68.097425,
+          "peak_strain": 26.751839,
+          "peak_g": 205615.5327470262,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000564,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 137.665877,
+          "peak_strain": 68.297234,
+          "peak_g": 219264.297550921,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 9.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 119.373174,
+          "peak_strain": 26.607544,
+          "peak_g": 561721.7068925083,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 192.852335,
+          "peak_strain": 64.656921,
+          "peak_g": 126451.6518366217,
+          "peak_disp": 66.807278,
+          "time_of_peak_stress": 0.000103,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 157.943169,
+          "peak_strain": 110.874535,
+          "peak_g": 84988.54354814964,
+          "peak_disp": 70.723576,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 150.437428,
+          "peak_strain": 38.818256,
+          "peak_g": 207162.78778719594,
+          "peak_disp": 55.353701,
+          "time_of_peak_stress": 8.2e-05,
+          "time_of_peak_g": 0.000823
+        },
+        "14": {
+          "peak_stress": 96.994174,
+          "peak_strain": 19.580109,
+          "peak_g": 312789.0391665415,
+          "peak_disp": 52.746047,
+          "time_of_peak_stress": 0.000709,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 132.639447,
+          "peak_strain": 25.139723,
+          "peak_g": 224399.91622335382,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 6.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 152.404565,
+          "peak_strain": 88.520294,
+          "peak_g": 153716.60274091345,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 6.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 185.975983,
+          "peak_strain": 70.875633,
+          "peak_g": 82290.33932938258,
+          "peak_disp": 66.111606,
+          "time_of_peak_stress": 6.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 110.227882,
+          "peak_strain": 19.995419,
+          "peak_g": 243364.71499506666,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_212447_f1e2c8",
+      "angle": {
+        "name": "E01_Back_Right",
+        "roll": 0.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 1046.239866,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 161.930984,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 6.2e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 123.474124,
+          "peak_strain": 40.431767,
+          "peak_g": 492160.0657653819,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 148.248592,
+          "peak_strain": 70.953285,
+          "peak_g": 111004.62999504771,
+          "peak_disp": 69.779944,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.00016
+        },
+        "6": {
+          "peak_stress": 183.198861,
+          "peak_strain": 86.996147,
+          "peak_g": 171044.16545670805,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 7.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 118.613963,
+          "peak_strain": 25.988199,
+          "peak_g": 323572.66470002785,
+          "peak_disp": 58.878809,
+          "time_of_peak_stress": 8.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 66.646075,
+          "peak_strain": 15.608856,
+          "peak_g": 175819.47855440163,
+          "peak_disp": 52.72359,
+          "time_of_peak_stress": 8.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 144.382263,
+          "peak_strain": 72.575157,
+          "peak_g": 203479.36196604985,
+          "peak_disp": 54.514447,
+          "time_of_peak_stress": 6.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 122.951988,
+          "peak_strain": 26.483664,
+          "peak_g": 405293.2988830959,
+          "peak_disp": 66.635422,
+          "time_of_peak_stress": 6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 184.473541,
+          "peak_strain": 55.889404,
+          "peak_g": 249370.15734978378,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000101,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 133.510307,
+          "peak_strain": 81.191841,
+          "peak_g": 223655.74909739746,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.00056,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 113.370056,
+          "peak_strain": 40.41843,
+          "peak_g": 469628.9681334861,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 104.301445,
+          "peak_strain": 20.644646,
+          "peak_g": 356665.02717402973,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 121.425291,
+          "peak_strain": 23.200659,
+          "peak_g": 305364.0971679113,
+          "peak_disp": 66.832854,
+          "time_of_peak_stress": 8.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 122.950711,
+          "peak_strain": 61.887791,
+          "peak_g": 75892.16083508746,
+          "peak_disp": 65.581071,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 9.9e-05
+        },
+        "18": {
+          "peak_stress": 141.35613,
+          "peak_strain": 65.269577,
+          "peak_g": 58759.7005615578,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 0.000571,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 90.083967,
+          "peak_strain": 22.153307,
+          "peak_g": 175191.77683587512,
+          "peak_disp": 62.260952,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 0.000112
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213047_1fcce3",
+      "angle": {
+        "name": "E03_Back_Top",
+        "roll": 45.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 490.933792,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 6.3e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 137.881768,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000329,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 94.975366,
+          "peak_strain": 38.714851,
+          "peak_g": 276915.61118337687,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.000131,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 126.941605,
+          "peak_strain": 52.208694,
+          "peak_g": 110245.83221775871,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000307,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 180.526708,
+          "peak_strain": 80.055923,
+          "peak_g": 56086.88361894852,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.000305,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 155.387388,
+          "peak_strain": 33.092884,
+          "peak_g": 301161.2053633678,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000306,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 99.402547,
+          "peak_strain": 12.418253,
+          "peak_g": 275297.2754484235,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000205,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 131.006477,
+          "peak_strain": 49.729393,
+          "peak_g": 197671.96822159828,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000306,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 76.421247,
+          "peak_strain": 26.454536,
+          "peak_g": 186604.7267105998,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000957,
+          "time_of_peak_g": 0.000283
+        },
+        "11": {
+          "peak_stress": 230.808505,
+          "peak_strain": 48.642086,
+          "peak_g": 116284.8503797475,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000325,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 164.321912,
+          "peak_strain": 53.411449,
+          "peak_g": 241718.29232587473,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.000327,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 124.398417,
+          "peak_strain": 63.39315,
+          "peak_g": 512332.23734310037,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000328,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 87.295601,
+          "peak_strain": 10.495386,
+          "peak_g": 389194.81548580364,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000222,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 90.249948,
+          "peak_strain": 19.072615,
+          "peak_g": 650757.5560251994,
+          "peak_disp": 67.887107,
+          "time_of_peak_stress": 0.000506,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 107.918855,
+          "peak_strain": 65.666374,
+          "peak_g": 237836.19824179797,
+          "peak_disp": 66.93885,
+          "time_of_peak_stress": 0.000154,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 142.558758,
+          "peak_strain": 61.372036,
+          "peak_g": 103443.66654055892,
+          "peak_disp": 67.210824,
+          "time_of_peak_stress": 0.000229,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 82.276634,
+          "peak_strain": 21.200716,
+          "peak_g": 529070.5413521419,
+          "peak_disp": 63.257263,
+          "time_of_peak_stress": 0.000156,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213047_908ec1",
+      "angle": {
+        "name": "E04_Back_Bottom",
+        "roll": -45.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 409.587028,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000875,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 151.794308,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 119.82135,
+          "peak_strain": 33.713612,
+          "peak_g": 311908.72348791827,
+          "peak_disp": 50.919662,
+          "time_of_peak_stress": 2.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 146.22329,
+          "peak_strain": 75.819427,
+          "peak_g": 279309.421861263,
+          "peak_disp": 70.868845,
+          "time_of_peak_stress": 2.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 214.007589,
+          "peak_strain": 92.086876,
+          "peak_g": 102056.6583637734,
+          "peak_disp": 60.969414,
+          "time_of_peak_stress": 2.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 178.105452,
+          "peak_strain": 32.312164,
+          "peak_g": 174601.83941218696,
+          "peak_disp": 59.787703,
+          "time_of_peak_stress": 0.000155,
+          "time_of_peak_g": 0.00016
+        },
+        "8": {
+          "peak_stress": 97.157924,
+          "peak_strain": 16.303989,
+          "peak_g": 405863.91763295047,
+          "peak_disp": 53.527837,
+          "time_of_peak_stress": 0.000562,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 144.052698,
+          "peak_strain": 77.086151,
+          "peak_g": 100764.19546373302,
+          "peak_disp": 55.70241,
+          "time_of_peak_stress": 2.3e-05,
+          "time_of_peak_g": 4.2e-05
+        },
+        "10": {
+          "peak_stress": 174.929451,
+          "peak_strain": 27.93623,
+          "peak_g": 221673.64475057667,
+          "peak_disp": 68.089546,
+          "time_of_peak_stress": 2.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 201.466692,
+          "peak_strain": 68.00119,
+          "peak_g": 122775.86518110654,
+          "peak_disp": 68.227546,
+          "time_of_peak_stress": 0.000562,
+          "time_of_peak_g": 7e-05
+        },
+        "12": {
+          "peak_stress": 199.656319,
+          "peak_strain": 75.200882,
+          "peak_g": 129547.21450411977,
+          "peak_disp": 71.813742,
+          "time_of_peak_stress": 6.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 158.810984,
+          "peak_strain": 62.175671,
+          "peak_g": 244687.17480519574,
+          "peak_disp": 56.21638,
+          "time_of_peak_stress": 6.3e-05,
+          "time_of_peak_g": 0.000361
+        },
+        "14": {
+          "peak_stress": 130.508176,
+          "peak_strain": 9.654582,
+          "peak_g": 281834.94823651033,
+          "peak_disp": 53.553201,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 139.502637,
+          "peak_strain": 16.579697,
+          "peak_g": 128809.37561637585,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 5.1e-05,
+          "time_of_peak_g": 0.000192
+        },
+        "17": {
+          "peak_stress": 151.8708,
+          "peak_strain": 72.775612,
+          "peak_g": 137422.61049569442,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 5.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 165.669763,
+          "peak_strain": 61.226967,
+          "peak_g": 54361.08208370714,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 112.049767,
+          "peak_strain": 21.296061,
+          "peak_g": 271068.4580688822,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213101_97370a",
+      "angle": {
+        "name": "E05_Front_Right",
+        "roll": 180.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 354.097242,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000425,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 158.334644,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 127.750643,
+          "peak_strain": 39.167919,
+          "peak_g": 242885.21548765534,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 5.8e-05,
+          "time_of_peak_g": 0.000379
+        },
+        "5": {
+          "peak_stress": 150.520507,
+          "peak_strain": 50.122536,
+          "peak_g": 147137.77395619216,
+          "peak_disp": 69.684776,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.000178
+        },
+        "6": {
+          "peak_stress": 180.550773,
+          "peak_strain": 62.06715,
+          "peak_g": 49140.0147937998,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 4.2e-05
+        },
+        "7": {
+          "peak_stress": 118.158233,
+          "peak_strain": 34.15332,
+          "peak_g": 230743.48751304526,
+          "peak_disp": 58.724638,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.00014
+        },
+        "8": {
+          "peak_stress": 81.18796,
+          "peak_strain": 29.030363,
+          "peak_g": 202099.7487049421,
+          "peak_disp": 52.559175,
+          "time_of_peak_stress": 5.5e-05,
+          "time_of_peak_g": 0.000159
+        },
+        "9": {
+          "peak_stress": 163.911139,
+          "peak_strain": 55.440849,
+          "peak_g": 177095.07048385657,
+          "peak_disp": 54.323179,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.000155
+        },
+        "10": {
+          "peak_stress": 99.097451,
+          "peak_strain": 38.99017,
+          "peak_g": 307251.34443959023,
+          "peak_disp": 66.496156,
+          "time_of_peak_stress": 6e-05,
+          "time_of_peak_g": 0.000175
+        },
+        "11": {
+          "peak_stress": 226.045272,
+          "peak_strain": 44.183784,
+          "peak_g": 166899.73093429665,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 7.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 164.436671,
+          "peak_strain": 89.229736,
+          "peak_g": 146948.2392704899,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 7.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 138.079335,
+          "peak_strain": 31.052267,
+          "peak_g": 327810.547922716,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 7.5e-05,
+          "time_of_peak_g": 0.000336
+        },
+        "14": {
+          "peak_stress": 80.160622,
+          "peak_strain": 23.391695,
+          "peak_g": 278404.9407371215,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.000111
+        },
+        "16": {
+          "peak_stress": 124.263156,
+          "peak_strain": 25.219976,
+          "peak_g": 291224.9901050795,
+          "peak_disp": 66.691521,
+          "time_of_peak_stress": 7.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 129.6196,
+          "peak_strain": 50.329144,
+          "peak_g": 155677.5943815731,
+          "peak_disp": 65.444314,
+          "time_of_peak_stress": 4.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 201.589195,
+          "peak_strain": 58.031029,
+          "peak_g": 58052.495059933026,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.000104
+        },
+        "19": {
+          "peak_stress": 98.719068,
+          "peak_strain": 23.962036,
+          "peak_g": 245256.68028039255,
+          "peak_disp": 62.108579,
+          "time_of_peak_stress": 7.2e-05,
+          "time_of_peak_g": 0.000146
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213106_e0a55f",
+      "angle": {
+        "name": "E06_Front_Left",
+        "roll": 180.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 337.945699,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000316,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 152.207826,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 138.354496,
+          "peak_strain": 36.83905,
+          "peak_g": 377965.0802769671,
+          "peak_disp": 49.957377,
+          "time_of_peak_stress": 5.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 163.07825,
+          "peak_strain": 52.607388,
+          "peak_g": 134023.4411876841,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 5.8e-05,
+          "time_of_peak_g": 0.00015
+        },
+        "6": {
+          "peak_stress": 180.218276,
+          "peak_strain": 62.598068,
+          "peak_g": 42948.99171222466,
+          "peak_disp": 59.487712,
+          "time_of_peak_stress": 4.8e-05,
+          "time_of_peak_g": 0.00013
+        },
+        "7": {
+          "peak_stress": 136.377302,
+          "peak_strain": 27.391075,
+          "peak_g": 216403.1003851415,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.000254
+        },
+        "8": {
+          "peak_stress": 75.392333,
+          "peak_strain": 22.764383,
+          "peak_g": 268727.86387309857,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 154.717706,
+          "peak_strain": 63.05653,
+          "peak_g": 141595.46605665842,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 7e-05,
+          "time_of_peak_g": 0.000145
+        },
+        "10": {
+          "peak_stress": 110.844421,
+          "peak_strain": 35.885956,
+          "peak_g": 253541.60786546994,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 5.6e-05,
+          "time_of_peak_g": 0.000197
+        },
+        "11": {
+          "peak_stress": 223.306736,
+          "peak_strain": 48.646767,
+          "peak_g": 151399.07954312448,
+          "peak_disp": 66.642281,
+          "time_of_peak_stress": 8.8e-05,
+          "time_of_peak_g": 0.000146
+        },
+        "12": {
+          "peak_stress": 139.493065,
+          "peak_strain": 73.8573,
+          "peak_g": 122086.00782576147,
+          "peak_disp": 70.566567,
+          "time_of_peak_stress": 8.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 123.19162,
+          "peak_strain": 38.33353,
+          "peak_g": 237518.22559271427,
+          "peak_disp": 55.152833,
+          "time_of_peak_stress": 8.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 90.648906,
+          "peak_strain": 19.79689,
+          "peak_g": 262071.65357715025,
+          "peak_disp": 52.529762,
+          "time_of_peak_stress": 3.6e-05,
+          "time_of_peak_g": 0.000288
+        },
+        "16": {
+          "peak_stress": 139.442494,
+          "peak_strain": 21.503223,
+          "peak_g": 197453.55448560917,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 193.431904,
+          "peak_strain": 48.209103,
+          "peak_g": 85472.26335786331,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.000263
+        },
+        "18": {
+          "peak_stress": 229.459139,
+          "peak_strain": 57.57962,
+          "peak_g": 72965.52639764617,
+          "peak_disp": 65.976314,
+          "time_of_peak_stress": 3.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 101.503255,
+          "peak_strain": 20.23299,
+          "peak_g": 246748.5233679852,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 3.5e-05,
+          "time_of_peak_g": 0.000394
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213653_6305d9",
+      "angle": {
+        "name": "E07_Front_Top",
+        "roll": 135.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 500.783878,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000722,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 149.371389,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000185,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 93.074443,
+          "peak_strain": 34.888062,
+          "peak_g": 209291.63813345504,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.000182,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 106.609297,
+          "peak_strain": 42.782791,
+          "peak_g": 78068.79075709806,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000162,
+          "time_of_peak_g": 7.6e-05
+        },
+        "6": {
+          "peak_stress": 151.372093,
+          "peak_strain": 59.980679,
+          "peak_g": 38116.51047687625,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.00045,
+          "time_of_peak_g": 9.3e-05
+        },
+        "7": {
+          "peak_stress": 114.58533,
+          "peak_strain": 33.175098,
+          "peak_g": 257437.7416282747,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000447,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 83.902298,
+          "peak_strain": 10.245598,
+          "peak_g": 273774.9626390804,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000233,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 95.507822,
+          "peak_strain": 50.194389,
+          "peak_g": 94852.99814370694,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000184,
+          "time_of_peak_g": 9.5e-05
+        },
+        "10": {
+          "peak_stress": 91.023463,
+          "peak_strain": 24.771589,
+          "peak_g": 267837.87121799786,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000142,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 198.250355,
+          "peak_strain": 35.781685,
+          "peak_g": 100615.35835791998,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000336,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 149.784536,
+          "peak_strain": 45.786758,
+          "peak_g": 81647.35093776014,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.00024,
+          "time_of_peak_g": 0.000251
+        },
+        "13": {
+          "peak_stress": 99.234173,
+          "peak_strain": 37.576439,
+          "peak_g": 205285.87370308992,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000155,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 119.406449,
+          "peak_strain": 10.207613,
+          "peak_g": 152297.43297621977,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000184,
+          "time_of_peak_g": 0.000426
+        },
+        "16": {
+          "peak_stress": 82.822287,
+          "peak_strain": 17.025709,
+          "peak_g": 214220.91928290602,
+          "peak_disp": 67.737785,
+          "time_of_peak_stress": 0.000185,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 90.509629,
+          "peak_strain": 52.844021,
+          "peak_g": 149090.2194988883,
+          "peak_disp": 66.721633,
+          "time_of_peak_stress": 0.000229,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 162.954858,
+          "peak_strain": 44.261806,
+          "peak_g": 126595.27652849787,
+          "peak_disp": 67.050757,
+          "time_of_peak_stress": 0.000649,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 86.51429,
+          "peak_strain": 16.919899,
+          "peak_g": 665619.0276357812,
+          "peak_disp": 63.109336,
+          "time_of_peak_stress": 0.000505,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213659_96dcab",
+      "angle": {
+        "name": "E08_Front_Bottom",
+        "roll": -135.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 368.095021,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000797,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 184.598926,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 171.931094,
+          "peak_strain": 39.129059,
+          "peak_g": 358579.6563149891,
+          "peak_disp": 50.747814,
+          "time_of_peak_stress": 2.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 181.507479,
+          "peak_strain": 38.581966,
+          "peak_g": 156740.91982392874,
+          "peak_disp": 70.743225,
+          "time_of_peak_stress": 2.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 202.939582,
+          "peak_strain": 59.087223,
+          "peak_g": 69266.86720951284,
+          "peak_disp": 60.805683,
+          "time_of_peak_stress": 2.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 195.15515,
+          "peak_strain": 41.48143,
+          "peak_g": 294292.9317047843,
+          "peak_disp": 59.663148,
+          "time_of_peak_stress": 2.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 123.65806,
+          "peak_strain": 15.961146,
+          "peak_g": 167578.80591258378,
+          "peak_disp": 53.435141,
+          "time_of_peak_stress": 3.8e-05,
+          "time_of_peak_g": 0.000179
+        },
+        "9": {
+          "peak_stress": 201.690717,
+          "peak_strain": 34.452362,
+          "peak_g": 129426.93566943792,
+          "peak_disp": 55.519294,
+          "time_of_peak_stress": 2.9e-05,
+          "time_of_peak_g": 4.5e-05
+        },
+        "10": {
+          "peak_stress": 158.704377,
+          "peak_strain": 41.881382,
+          "peak_g": 271213.18649226514,
+          "peak_disp": 67.889012,
+          "time_of_peak_stress": 3.2e-05,
+          "time_of_peak_g": 0.000119
+        },
+        "11": {
+          "peak_stress": 270.721971,
+          "peak_strain": 43.225315,
+          "peak_g": 107039.07166991294,
+          "peak_disp": 68.049523,
+          "time_of_peak_stress": 3.8e-05,
+          "time_of_peak_g": 7.6e-05
+        },
+        "12": {
+          "peak_stress": 189.209079,
+          "peak_strain": 47.120487,
+          "peak_g": 114398.82678462987,
+          "peak_disp": 71.663919,
+          "time_of_peak_stress": 6.8e-05,
+          "time_of_peak_g": 9.6e-05
+        },
+        "13": {
+          "peak_stress": 146.161985,
+          "peak_strain": 57.448288,
+          "peak_g": 256125.44710243485,
+          "peak_disp": 56.03948,
+          "time_of_peak_stress": 0.000105,
+          "time_of_peak_g": 0.00021
+        },
+        "14": {
+          "peak_stress": 133.954893,
+          "peak_strain": 12.917584,
+          "peak_g": 232767.4917153212,
+          "peak_disp": 53.370504,
+          "time_of_peak_stress": 3.4e-05,
+          "time_of_peak_g": 8.9e-05
+        },
+        "16": {
+          "peak_stress": 175.899269,
+          "peak_strain": 18.284246,
+          "peak_g": 124490.59375394873,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 4e-05,
+          "time_of_peak_g": 0.000191
+        },
+        "17": {
+          "peak_stress": 164.580787,
+          "peak_strain": 45.107506,
+          "peak_g": 159520.86036594832,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 3.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 204.071521,
+          "peak_strain": 34.609653,
+          "peak_g": 39613.055554247505,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 3.8e-05,
+          "time_of_peak_g": 0.000244
+        },
+        "19": {
+          "peak_stress": 105.704471,
+          "peak_strain": 15.873168,
+          "peak_g": 207306.0087687903,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 3.1e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213703_ee6f6d",
+      "angle": {
+        "name": "E09_Right_Top",
+        "roll": 90.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 605.389968,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000694,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 176.686211,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 144.79272,
+          "peak_strain": 51.70068,
+          "peak_g": 425783.5872380158,
+          "peak_disp": 52.329297,
+          "time_of_peak_stress": 7.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 171.204057,
+          "peak_strain": 93.98867,
+          "peak_g": 165703.3721050006,
+          "peak_disp": 72.408452,
+          "time_of_peak_stress": 7.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 215.393101,
+          "peak_strain": 99.620407,
+          "peak_g": 100385.56869566157,
+          "peak_disp": 62.562248,
+          "time_of_peak_stress": 8.9e-05,
+          "time_of_peak_g": 6.6e-05
+        },
+        "7": {
+          "peak_stress": 177.430306,
+          "peak_strain": 54.019051,
+          "peak_g": 408747.23727982695,
+          "peak_disp": 61.289923,
+          "time_of_peak_stress": 4.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 115.318789,
+          "peak_strain": 26.572294,
+          "peak_g": 284709.35746709513,
+          "peak_disp": 54.991068,
+          "time_of_peak_stress": 0.000661,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 155.050413,
+          "peak_strain": 82.118576,
+          "peak_g": 347490.78279527684,
+          "peak_disp": 57.239293,
+          "time_of_peak_stress": 0.000481,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 193.486342,
+          "peak_strain": 50.085766,
+          "peak_g": 280788.40806167986,
+          "peak_disp": 69.659235,
+          "time_of_peak_stress": 5.6e-05,
+          "time_of_peak_g": 9e-05
+        },
+        "11": {
+          "peak_stress": 223.509984,
+          "peak_strain": 75.79483,
+          "peak_g": 400488.8361675546,
+          "peak_disp": 69.833719,
+          "time_of_peak_stress": 0.000112,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 199.572652,
+          "peak_strain": 70.616272,
+          "peak_g": 121317.68414547441,
+          "peak_disp": 73.343933,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 4.5e-05
+        },
+        "13": {
+          "peak_stress": 133.723132,
+          "peak_strain": 65.004715,
+          "peak_g": 534124.5617463031,
+          "peak_disp": 57.672247,
+          "time_of_peak_stress": 9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 119.553281,
+          "peak_strain": 17.2771,
+          "peak_g": 517374.5890461886,
+          "peak_disp": 54.975029,
+          "time_of_peak_stress": 9.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 192.40709,
+          "peak_strain": 29.710344,
+          "peak_g": 243815.397066581,
+          "peak_disp": 66.357048,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 168.209846,
+          "peak_strain": 120.13456,
+          "peak_g": 308747.05754136463,
+          "peak_disp": 65.302222,
+          "time_of_peak_stress": 0.000549,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 225.244138,
+          "peak_strain": 93.538414,
+          "peak_g": 209121.86918508276,
+          "peak_disp": 65.664994,
+          "time_of_peak_stress": 0.000348,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 112.356684,
+          "peak_strain": 26.428011,
+          "peak_g": 479440.39007290377,
+          "peak_disp": 61.746201,
+          "time_of_peak_stress": 5e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_213719_8eccd1",
+      "angle": {
+        "name": "E10_Right_Bottom",
+        "roll": -90.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 664.646339,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000715,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 244.631985,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 245.041749,
+          "peak_strain": 51.028084,
+          "peak_g": 226617.12941385628,
+          "peak_disp": 49.473943,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 6.2e-05
+        },
+        "5": {
+          "peak_stress": 242.028254,
+          "peak_strain": 66.994232,
+          "peak_g": 233365.78727489314,
+          "peak_disp": 69.321578,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 268.826071,
+          "peak_strain": 73.101013,
+          "peak_g": 116141.69201316248,
+          "peak_disp": 59.371973,
+          "time_of_peak_stress": 4.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 267.605928,
+          "peak_strain": 36.681976,
+          "peak_g": 269206.63378291856,
+          "peak_disp": 58.310874,
+          "time_of_peak_stress": 4.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 157.807234,
+          "peak_strain": 30.324522,
+          "peak_g": 288838.2361789532,
+          "peak_disp": 52.079786,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 243.117741,
+          "peak_strain": 66.600288,
+          "peak_g": 316603.9072789402,
+          "peak_disp": 54.111793,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 250.256061,
+          "peak_strain": 42.290535,
+          "peak_g": 271010.64208909834,
+          "peak_disp": 66.461618,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 277.195731,
+          "peak_strain": 67.222084,
+          "peak_g": 277721.917191439,
+          "peak_disp": 66.611645,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 261.411166,
+          "peak_strain": 69.864807,
+          "peak_g": 117366.80413136249,
+          "peak_disp": 70.257545,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.000391
+        },
+        "13": {
+          "peak_stress": 259.021405,
+          "peak_strain": 58.647968,
+          "peak_g": 486454.6732345233,
+          "peak_disp": 54.726527,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 229.409335,
+          "peak_strain": 20.999001,
+          "peak_g": 665002.3873218556,
+          "peak_disp": 52.080734,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 226.476615,
+          "peak_strain": 23.362005,
+          "peak_g": 286381.4729605274,
+          "peak_disp": 69.376513,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.000486
+        },
+        "17": {
+          "peak_stress": 232.869424,
+          "peak_strain": 64.511787,
+          "peak_g": 121295.65030423315,
+          "peak_disp": 68.460264,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 0.000918
+        },
+        "18": {
+          "peak_stress": 281.476037,
+          "peak_strain": 91.897552,
+          "peak_g": 142798.694406757,
+          "peak_disp": 68.703092,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 222.909024,
+          "peak_strain": 19.849863,
+          "peak_g": 443115.90628885577,
+          "peak_disp": 64.721804,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_214302_3dbc00",
+      "angle": {
+        "name": "E11_Left_Top",
+        "roll": 90.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 603.733076,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000694,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 176.75173,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 144.708786,
+          "peak_strain": 52.026974,
+          "peak_g": 424192.523021318,
+          "peak_disp": 52.329179,
+          "time_of_peak_stress": 7.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 171.021854,
+          "peak_strain": 94.067062,
+          "peak_g": 164000.19535334772,
+          "peak_disp": 72.408327,
+          "time_of_peak_stress": 7.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 215.315228,
+          "peak_strain": 99.61853,
+          "peak_g": 102281.07182190356,
+          "peak_disp": 62.562166,
+          "time_of_peak_stress": 8.9e-05,
+          "time_of_peak_g": 6.6e-05
+        },
+        "7": {
+          "peak_stress": 177.465654,
+          "peak_strain": 54.017952,
+          "peak_g": 403323.06886804383,
+          "peak_disp": 61.289931,
+          "time_of_peak_stress": 4.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 115.350009,
+          "peak_strain": 27.02717,
+          "peak_g": 273771.5261896619,
+          "peak_disp": 54.99106,
+          "time_of_peak_stress": 0.000661,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 154.401603,
+          "peak_strain": 82.376602,
+          "peak_g": 342054.27475772536,
+          "peak_disp": 57.239251,
+          "time_of_peak_stress": 0.000481,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 193.567347,
+          "peak_strain": 50.067303,
+          "peak_g": 278906.7298954301,
+          "peak_disp": 69.659023,
+          "time_of_peak_stress": 5.6e-05,
+          "time_of_peak_g": 0.000869
+        },
+        "11": {
+          "peak_stress": 223.507054,
+          "peak_strain": 75.877213,
+          "peak_g": 390896.7770002265,
+          "peak_disp": 69.833631,
+          "time_of_peak_stress": 0.000112,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 199.461627,
+          "peak_strain": 70.467064,
+          "peak_g": 121370.1335326637,
+          "peak_disp": 73.343853,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 4.5e-05
+        },
+        "13": {
+          "peak_stress": 133.751293,
+          "peak_strain": 64.948143,
+          "peak_g": 544109.43263239,
+          "peak_disp": 57.671987,
+          "time_of_peak_stress": 9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 119.611362,
+          "peak_strain": 17.297529,
+          "peak_g": 477982.6154515042,
+          "peak_disp": 54.974886,
+          "time_of_peak_stress": 9.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 192.404204,
+          "peak_strain": 29.746828,
+          "peak_g": 234164.7625772375,
+          "peak_disp": 66.357052,
+          "time_of_peak_stress": 9.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 168.306039,
+          "peak_strain": 120.100616,
+          "peak_g": 302636.47690173157,
+          "peak_disp": 65.302227,
+          "time_of_peak_stress": 0.000549,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 224.924586,
+          "peak_strain": 93.600372,
+          "peak_g": 209294.0901457257,
+          "peak_disp": 65.664996,
+          "time_of_peak_stress": 0.000348,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 112.283045,
+          "peak_strain": 26.431646,
+          "peak_g": 470421.8810307651,
+          "peak_disp": 61.746205,
+          "time_of_peak_stress": 5e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_214307_9016de",
+      "angle": {
+        "name": "E12_Left_Bottom",
+        "roll": -90.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "edge"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 663.709252,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000715,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 244.557043,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 245.262037,
+          "peak_strain": 51.107044,
+          "peak_g": 225478.4934098521,
+          "peak_disp": 49.473945,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 6.2e-05
+        },
+        "5": {
+          "peak_stress": 241.873908,
+          "peak_strain": 67.053909,
+          "peak_g": 235729.71767966705,
+          "peak_disp": 69.321584,
+          "time_of_peak_stress": 4.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 269.039747,
+          "peak_strain": 73.16906,
+          "peak_g": 123110.87463676881,
+          "peak_disp": 59.371975,
+          "time_of_peak_stress": 4.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 267.768668,
+          "peak_strain": 36.738312,
+          "peak_g": 271790.0371456037,
+          "peak_disp": 58.310874,
+          "time_of_peak_stress": 4.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 157.619696,
+          "peak_strain": 30.223053,
+          "peak_g": 292722.58533946355,
+          "peak_disp": 52.079786,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 243.456104,
+          "peak_strain": 66.58033,
+          "peak_g": 320350.1574423526,
+          "peak_disp": 54.111793,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 250.018647,
+          "peak_strain": 42.455406,
+          "peak_g": 278433.5408103521,
+          "peak_disp": 66.461624,
+          "time_of_peak_stress": 4.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 277.250817,
+          "peak_strain": 67.261612,
+          "peak_g": 285701.2980153061,
+          "peak_disp": 66.611653,
+          "time_of_peak_stress": 5.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 261.39635,
+          "peak_strain": 69.866028,
+          "peak_g": 117572.75575217695,
+          "peak_disp": 70.257547,
+          "time_of_peak_stress": 5.4e-05,
+          "time_of_peak_g": 0.000391
+        },
+        "13": {
+          "peak_stress": 258.420716,
+          "peak_strain": 58.736134,
+          "peak_g": 482960.6446834561,
+          "peak_disp": 54.72653,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 230.083858,
+          "peak_strain": 20.991774,
+          "peak_g": 689029.1871087077,
+          "peak_disp": 52.080736,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 226.732905,
+          "peak_strain": 23.432096,
+          "peak_g": 282728.0781761948,
+          "peak_disp": 69.376586,
+          "time_of_peak_stress": 4.6e-05,
+          "time_of_peak_g": 0.000486
+        },
+        "17": {
+          "peak_stress": 232.472837,
+          "peak_strain": 64.489845,
+          "peak_g": 121234.47829979214,
+          "peak_disp": 68.460292,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 9.2e-05
+        },
+        "18": {
+          "peak_stress": 281.279024,
+          "peak_strain": 91.776527,
+          "peak_g": 143989.3853163205,
+          "peak_disp": 68.703035,
+          "time_of_peak_stress": 3.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 222.392081,
+          "peak_strain": 19.697193,
+          "peak_g": 495889.23902176024,
+          "peak_disp": 64.72179,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_214315_de6bf0",
+      "angle": {
+        "name": "C1_Back_Right_Top",
+        "roll": 45.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 458.906023,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 82.273873,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000545,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 63.458013,
+          "peak_strain": 14.309019,
+          "peak_g": 58335.01744490438,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.000258,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 85.454835,
+          "peak_strain": 30.733461,
+          "peak_g": 77989.69013996208,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000374,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 126.219518,
+          "peak_strain": 46.760952,
+          "peak_g": 9311.033490834454,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.000364,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 101.974405,
+          "peak_strain": 18.915508,
+          "peak_g": 51935.3721209106,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000357,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 52.636462,
+          "peak_strain": 5.041512,
+          "peak_g": 57961.826974703574,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000377,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 79.72602,
+          "peak_strain": 31.270554,
+          "peak_g": 53438.029980985826,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000354,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 59.369199,
+          "peak_strain": 27.97327,
+          "peak_g": 171016.96163685588,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000368,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 161.526326,
+          "peak_strain": 30.323997,
+          "peak_g": 36219.783287028644,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000384,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 123.803238,
+          "peak_strain": 63.289886,
+          "peak_g": 40333.645004049846,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.000368,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 83.522498,
+          "peak_strain": 34.321606,
+          "peak_g": 102713.82710116748,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000544,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 49.349831,
+          "peak_strain": 25.766048,
+          "peak_g": 90190.47483101487,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000538,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 76.015217,
+          "peak_strain": 25.720617,
+          "peak_g": 98095.02969280387,
+          "peak_disp": 68.088778,
+          "time_of_peak_stress": 0.000798,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 91.014205,
+          "peak_strain": 53.185879,
+          "peak_g": 28409.226262269625,
+          "peak_disp": 66.95447,
+          "time_of_peak_stress": 0.000795,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 115.349159,
+          "peak_strain": 55.070354,
+          "peak_g": 25818.457554150966,
+          "peak_disp": 66.691968,
+          "time_of_peak_stress": 0.000526,
+          "time_of_peak_g": 0.00061
+        },
+        "19": {
+          "peak_stress": 75.853505,
+          "peak_strain": 19.075998,
+          "peak_g": 105478.04356334067,
+          "peak_disp": 63.479705,
+          "time_of_peak_stress": 0.000275,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_214324_78508a",
+      "angle": {
+        "name": "C2_Back_Right_Bottom",
+        "roll": -45.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 573.506378,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 4.1e-05,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 105.390624,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000141,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 89.641931,
+          "peak_strain": 20.918293,
+          "peak_g": 75893.80624623374,
+          "peak_disp": 50.248961,
+          "time_of_peak_stress": 8.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 110.626853,
+          "peak_strain": 39.495178,
+          "peak_g": 38670.79655572671,
+          "peak_disp": 71.061796,
+          "time_of_peak_stress": 8.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 136.775395,
+          "peak_strain": 64.511063,
+          "peak_g": 24594.516568582058,
+          "peak_disp": 60.558373,
+          "time_of_peak_stress": 0.000138,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 128.999439,
+          "peak_strain": 23.157442,
+          "peak_g": 64311.594796403166,
+          "peak_disp": 60.068925,
+          "time_of_peak_stress": 0.000106,
+          "time_of_peak_g": 0.00053
+        },
+        "8": {
+          "peak_stress": 68.648726,
+          "peak_strain": 7.677129,
+          "peak_g": 36957.420240857085,
+          "peak_disp": 53.858842,
+          "time_of_peak_stress": 0.000107,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 92.167305,
+          "peak_strain": 57.476334,
+          "peak_g": 33734.20574305739,
+          "peak_disp": 55.811225,
+          "time_of_peak_stress": 0.000119,
+          "time_of_peak_g": 0.000129
+        },
+        "10": {
+          "peak_stress": 74.885219,
+          "peak_strain": 31.785904,
+          "peak_g": 93377.92730706789,
+          "peak_disp": 68.044015,
+          "time_of_peak_stress": 0.0001,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 182.743324,
+          "peak_strain": 37.226593,
+          "peak_g": 39688.6408801684,
+          "peak_disp": 67.881092,
+          "time_of_peak_stress": 0.000139,
+          "time_of_peak_g": 0.000752
+        },
+        "12": {
+          "peak_stress": 146.044783,
+          "peak_strain": 48.902596,
+          "peak_g": 39761.127621604996,
+          "peak_disp": 71.283984,
+          "time_of_peak_stress": 0.000131,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 88.737256,
+          "peak_strain": 26.228506,
+          "peak_g": 51036.227120750256,
+          "peak_disp": 55.595614,
+          "time_of_peak_stress": 0.000138,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 55.813964,
+          "peak_strain": 20.302145,
+          "peak_g": 89543.28886050152,
+          "peak_disp": 52.906954,
+          "time_of_peak_stress": 0.000139,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 79.756011,
+          "peak_strain": 34.115166,
+          "peak_g": 116750.49505359327,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 0.000111,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 116.170189,
+          "peak_strain": 59.580681,
+          "peak_g": 47593.84750622181,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 0.000159,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 154.685273,
+          "peak_strain": 42.458611,
+          "peak_g": 61330.18344327971,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 0.000736,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 69.286633,
+          "peak_strain": 19.692745,
+          "peak_g": 72081.33197311783,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 0.000736,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215034_106636",
+      "angle": {
+        "name": "C3_Back_Left_Top",
+        "roll": 45.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 579.468336,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000956,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 89.458654,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000383,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 66.265136,
+          "peak_strain": 13.664721,
+          "peak_g": 65673.99880992222,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.00026,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 87.907387,
+          "peak_strain": 42.924129,
+          "peak_g": 51706.938134878386,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000377,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 132.15821,
+          "peak_strain": 59.199558,
+          "peak_g": 18412.666493826502,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.000797,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 101.921797,
+          "peak_strain": 21.825119,
+          "peak_g": 44477.78331014995,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000361,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 68.821456,
+          "peak_strain": 5.976881,
+          "peak_g": 26221.630183274618,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000375,
+          "time_of_peak_g": 0.000785
+        },
+        "9": {
+          "peak_stress": 64.273813,
+          "peak_strain": 43.273453,
+          "peak_g": 28573.309002595513,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000357,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 75.899091,
+          "peak_strain": 29.878132,
+          "peak_g": 85294.44791032335,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000794,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 94.530352,
+          "peak_strain": 35.93626,
+          "peak_g": 34438.18025561346,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000374,
+          "time_of_peak_g": 0.000671
+        },
+        "12": {
+          "peak_stress": 81.587795,
+          "peak_strain": 45.455315,
+          "peak_g": 22084.27600278991,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.000502,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 67.144987,
+          "peak_strain": 29.155968,
+          "peak_g": 81723.80477515148,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000502,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 61.81673,
+          "peak_strain": 24.854132,
+          "peak_g": 74481.05947020164,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000293,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 67.81019,
+          "peak_strain": 34.225506,
+          "peak_g": 291486.51694796706,
+          "peak_disp": 67.385769,
+          "time_of_peak_stress": 0.000214,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 73.526813,
+          "peak_strain": 49.308781,
+          "peak_g": 35733.516030630584,
+          "peak_disp": 66.533567,
+          "time_of_peak_stress": 0.000215,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 96.333355,
+          "peak_strain": 42.413261,
+          "peak_g": 49536.709310877675,
+          "peak_disp": 67.416409,
+          "time_of_peak_stress": 0.000231,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 82.849109,
+          "peak_strain": 9.420751,
+          "peak_g": 269963.5284155127,
+          "peak_disp": 62.74398,
+          "time_of_peak_stress": 0.000567,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215039_309a70",
+      "angle": {
+        "name": "C4_Back_Left_Bottom",
+        "roll": -45.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 364.655215,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000712,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 102.542171,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000156,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 87.699073,
+          "peak_strain": 25.157391,
+          "peak_g": 127591.07932047891,
+          "peak_disp": 51.271157,
+          "time_of_peak_stress": 8.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 105.534767,
+          "peak_strain": 50.7243,
+          "peak_g": 24995.138246002345,
+          "peak_disp": 70.345658,
+          "time_of_peak_stress": 0.0001,
+          "time_of_peak_g": 0.000743
+        },
+        "6": {
+          "peak_stress": 142.842624,
+          "peak_strain": 67.96991,
+          "peak_g": 52185.521931763506,
+          "peak_disp": 61.059432,
+          "time_of_peak_stress": 0.000103,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 112.307362,
+          "peak_strain": 29.267536,
+          "peak_g": 53850.485172266366,
+          "peak_disp": 59.232952,
+          "time_of_peak_stress": 0.000133,
+          "time_of_peak_g": 0.000739
+        },
+        "8": {
+          "peak_stress": 79.491094,
+          "peak_strain": 9.028798,
+          "peak_g": 38881.440430500305,
+          "peak_disp": 52.922069,
+          "time_of_peak_stress": 0.000145,
+          "time_of_peak_g": 0.000311
+        },
+        "9": {
+          "peak_stress": 103.640631,
+          "peak_strain": 58.158031,
+          "peak_g": 61314.796043266266,
+          "peak_disp": 55.253697,
+          "time_of_peak_stress": 9.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 75.820877,
+          "peak_strain": 26.065586,
+          "peak_g": 88255.91814749368,
+          "peak_disp": 67.755464,
+          "time_of_peak_stress": 0.000105,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 91.585793,
+          "peak_strain": 46.450203,
+          "peak_g": 53787.86446753211,
+          "peak_disp": 68.226948,
+          "time_of_peak_stress": 0.000111,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 116.533024,
+          "peak_strain": 48.305927,
+          "peak_g": 30168.64108348899,
+          "peak_disp": 72.012589,
+          "time_of_peak_stress": 0.000112,
+          "time_of_peak_g": 7.7e-05
+        },
+        "13": {
+          "peak_stress": 114.451113,
+          "peak_strain": 30.21463,
+          "peak_g": 50112.70548146157,
+          "peak_disp": 56.518179,
+          "time_of_peak_stress": 0.000112,
+          "time_of_peak_g": 0.000452
+        },
+        "14": {
+          "peak_stress": 63.544779,
+          "peak_strain": 32.872669,
+          "peak_g": 75900.9516908316,
+          "peak_disp": 53.878813,
+          "time_of_peak_stress": 0.000733,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 101.290868,
+          "peak_strain": 38.51255,
+          "peak_g": 193329.8344655424,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 0.000107,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 111.853892,
+          "peak_strain": 42.070206,
+          "peak_g": 35220.41412808563,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 0.000106,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 108.614312,
+          "peak_strain": 54.498745,
+          "peak_g": 29488.269258707543,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 0.000121,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 95.648101,
+          "peak_strain": 11.321567,
+          "peak_g": 366505.17017130164,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 0.000174,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215041_053ba9",
+      "angle": {
+        "name": "C5_Front_Right_Top",
+        "roll": 135.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 311.547535,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000801,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 93.515163,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000542,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 62.070431,
+          "peak_strain": 15.951883,
+          "peak_g": 126672.6952068204,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.000252,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 85.121488,
+          "peak_strain": 43.66671,
+          "peak_g": 85830.6854327317,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000372,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 129.149877,
+          "peak_strain": 46.49173,
+          "peak_g": 35453.39130661825,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.000351,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 95.218809,
+          "peak_strain": 23.556997,
+          "peak_g": 195375.4847234908,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000347,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 56.072194,
+          "peak_strain": 7.500991,
+          "peak_g": 78945.0026718845,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000177,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 75.926923,
+          "peak_strain": 40.124931,
+          "peak_g": 40416.30217327044,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000375,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 61.728663,
+          "peak_strain": 37.491547,
+          "peak_g": 127671.55649068869,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000359,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 187.896728,
+          "peak_strain": 39.02964,
+          "peak_g": 69803.03464541907,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000381,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 120.959256,
+          "peak_strain": 50.128777,
+          "peak_g": 44111.685353031906,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.000368,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 83.414263,
+          "peak_strain": 30.912527,
+          "peak_g": 209983.66281187115,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000534,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 59.064322,
+          "peak_strain": 22.363848,
+          "peak_g": 199813.74395346298,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000825,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 81.311482,
+          "peak_strain": 44.981823,
+          "peak_g": 191172.42343474872,
+          "peak_disp": 68.079126,
+          "time_of_peak_stress": 0.000796,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 102.096959,
+          "peak_strain": 52.374363,
+          "peak_g": 126673.22656609042,
+          "peak_disp": 66.92593,
+          "time_of_peak_stress": 0.000798,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 125.098859,
+          "peak_strain": 49.295872,
+          "peak_g": 75329.75191743302,
+          "peak_disp": 66.688926,
+          "time_of_peak_stress": 0.000791,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 73.153215,
+          "peak_strain": 14.499496,
+          "peak_g": 174895.0213823317,
+          "peak_disp": 63.478359,
+          "time_of_peak_stress": 0.000273,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215049_50109b",
+      "angle": {
+        "name": "C6_Front_Right_Bottom",
+        "roll": -135.0,
+        "pitch": 45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 332.694261,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.00042,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 136.606748,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 6.6e-05,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 113.135296,
+          "peak_strain": 16.217106,
+          "peak_g": 103332.08734993711,
+          "peak_disp": 50.159617,
+          "time_of_peak_stress": 7.6e-05,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 130.757674,
+          "peak_strain": 52.658997,
+          "peak_g": 46613.27848608298,
+          "peak_disp": 71.031919,
+          "time_of_peak_stress": 7.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 156.178766,
+          "peak_strain": 52.718472,
+          "peak_g": 32842.18004461845,
+          "peak_disp": 60.47999,
+          "time_of_peak_stress": 9.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 140.170354,
+          "peak_strain": 33.373611,
+          "peak_g": 77960.02907328185,
+          "peak_disp": 60.034484,
+          "time_of_peak_stress": 0.000101,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 71.291383,
+          "peak_strain": 8.844318,
+          "peak_g": 86247.3145968366,
+          "peak_disp": 53.832974,
+          "time_of_peak_stress": 0.000106,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 123.285803,
+          "peak_strain": 50.455257,
+          "peak_g": 42370.91106329337,
+          "peak_disp": 55.758858,
+          "time_of_peak_stress": 6.9e-05,
+          "time_of_peak_g": 0.000115
+        },
+        "10": {
+          "peak_stress": 92.495408,
+          "peak_strain": 57.647522,
+          "peak_g": 125610.45977064414,
+          "peak_disp": 67.981087,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 176.467897,
+          "peak_strain": 53.324284,
+          "peak_g": 36565.09415265484,
+          "peak_disp": 67.811237,
+          "time_of_peak_stress": 0.000136,
+          "time_of_peak_g": 0.000643
+        },
+        "12": {
+          "peak_stress": 163.156638,
+          "peak_strain": 43.930035,
+          "peak_g": 27100.435410248727,
+          "peak_disp": 71.223431,
+          "time_of_peak_stress": 0.000133,
+          "time_of_peak_g": 0.000721
+        },
+        "13": {
+          "peak_stress": 106.356332,
+          "peak_strain": 31.355167,
+          "peak_g": 135461.54487683903,
+          "peak_disp": 55.501008,
+          "time_of_peak_stress": 0.000217,
+          "time_of_peak_g": 0.000856
+        },
+        "14": {
+          "peak_stress": 61.338404,
+          "peak_strain": 30.609112,
+          "peak_g": 84553.22415591458,
+          "peak_disp": 52.808331,
+          "time_of_peak_stress": 6.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 94.235815,
+          "peak_strain": 47.321365,
+          "peak_g": 152993.3263721739,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 0.000107,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 118.828987,
+          "peak_strain": 47.755253,
+          "peak_g": 42155.31487330081,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 0.00018,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 173.014921,
+          "peak_strain": 50.958206,
+          "peak_g": 67930.41260431672,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 0.000729,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 78.833523,
+          "peak_strain": 13.952251,
+          "peak_g": 80024.2066109683,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 0.000726,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215828_acd6fd",
+      "angle": {
+        "name": "C7_Front_Left_Top",
+        "roll": 135.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 405.554896,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000927,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 86.309403,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000378,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 68.234281,
+          "peak_strain": 16.161446,
+          "peak_g": 91109.69204712182,
+          "peak_disp": 49.337004,
+          "time_of_peak_stress": 0.000244,
+          "time_of_peak_g": 0.001
+        },
+        "5": {
+          "peak_stress": 91.213378,
+          "peak_strain": 27.004848,
+          "peak_g": 75516.60268334119,
+          "peak_disp": 69.196387,
+          "time_of_peak_stress": 0.000365,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 127.641422,
+          "peak_strain": 53.122917,
+          "peak_g": 24886.38204410754,
+          "peak_disp": 59.204223,
+          "time_of_peak_stress": 0.000356,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 109.166143,
+          "peak_strain": 28.715889,
+          "peak_g": 47617.39372928756,
+          "peak_disp": 58.173362,
+          "time_of_peak_stress": 0.000363,
+          "time_of_peak_g": 0.000663
+        },
+        "8": {
+          "peak_stress": 66.925704,
+          "peak_strain": 8.162042,
+          "peak_g": 63882.81608116555,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.00038,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 66.330649,
+          "peak_strain": 42.034382,
+          "peak_g": 82579.04323534037,
+          "peak_disp": 53.954981,
+          "time_of_peak_stress": 0.000213,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 70.593997,
+          "peak_strain": 21.432566,
+          "peak_g": 53925.43947179225,
+          "peak_disp": 66.280766,
+          "time_of_peak_stress": 0.000799,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 100.100173,
+          "peak_strain": 37.034649,
+          "peak_g": 54523.9653218421,
+          "peak_disp": 66.438995,
+          "time_of_peak_stress": 0.000184,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 82.135968,
+          "peak_strain": 37.838619,
+          "peak_g": 25859.641321259325,
+          "peak_disp": 70.129452,
+          "time_of_peak_stress": 0.000204,
+          "time_of_peak_g": 0.000629
+        },
+        "13": {
+          "peak_stress": 66.852937,
+          "peak_strain": 28.541908,
+          "peak_g": 71558.04367045495,
+          "peak_disp": 54.590659,
+          "time_of_peak_stress": 0.000984,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 59.361273,
+          "peak_strain": 22.582169,
+          "peak_g": 87174.9188042155,
+          "peak_disp": 51.943623,
+          "time_of_peak_stress": 0.000815,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 76.00925,
+          "peak_strain": 27.365301,
+          "peak_g": 213648.12919359887,
+          "peak_disp": 67.298764,
+          "time_of_peak_stress": 0.000193,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 87.43401,
+          "peak_strain": 35.67527,
+          "peak_g": 50205.04380307614,
+          "peak_disp": 66.450968,
+          "time_of_peak_stress": 0.00022,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 121.227887,
+          "peak_strain": 30.545799,
+          "peak_g": 71577.98353416157,
+          "peak_disp": 67.390398,
+          "time_of_peak_stress": 0.000219,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 90.372231,
+          "peak_strain": 9.28028,
+          "peak_g": 179271.5251748472,
+          "peak_disp": 62.63096,
+          "time_of_peak_stress": 0.000548,
+          "time_of_peak_g": 0.001
+        }
+      }
+    },
+    {
+      "run_folder": "Run_20260207_215836_049513",
+      "angle": {
+        "name": "C8_Front_Left_Bottom",
+        "roll": -135.0,
+        "pitch": -45.0,
+        "yaw": 0.0,
+        "category": "corner"
+      },
+      "num_states": 992,
+      "parts": {
+        "1": {
+          "peak_stress": 420.813175,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000559,
+          "time_of_peak_g": 0.0
+        },
+        "2": {
+          "peak_stress": 101.835751,
+          "peak_strain": 0.0,
+          "peak_g": 0.0,
+          "peak_disp": 0.0,
+          "time_of_peak_stress": 0.000117,
+          "time_of_peak_g": 0.0
+        },
+        "4": {
+          "peak_stress": 110.381414,
+          "peak_strain": 21.210247,
+          "peak_g": 46036.018259099794,
+          "peak_disp": 51.208404,
+          "time_of_peak_stress": 7.6e-05,
+          "time_of_peak_g": 0.000134
+        },
+        "5": {
+          "peak_stress": 123.61763,
+          "peak_strain": 34.911663,
+          "peak_g": 53145.6744012845,
+          "peak_disp": 70.285626,
+          "time_of_peak_stress": 8.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "6": {
+          "peak_stress": 164.82481,
+          "peak_strain": 55.204823,
+          "peak_g": 73977.72391568196,
+          "peak_disp": 60.947347,
+          "time_of_peak_stress": 8.5e-05,
+          "time_of_peak_g": 0.001
+        },
+        "7": {
+          "peak_stress": 118.877578,
+          "peak_strain": 25.007233,
+          "peak_g": 107019.86635970071,
+          "peak_disp": 59.143819,
+          "time_of_peak_stress": 8.3e-05,
+          "time_of_peak_g": 0.001
+        },
+        "8": {
+          "peak_stress": 99.208548,
+          "peak_strain": 7.893166,
+          "peak_g": 88535.57273345586,
+          "peak_disp": 52.824334,
+          "time_of_peak_stress": 0.000116,
+          "time_of_peak_g": 0.001
+        },
+        "9": {
+          "peak_stress": 122.807153,
+          "peak_strain": 45.563648,
+          "peak_g": 49501.21338129266,
+          "peak_disp": 55.129531,
+          "time_of_peak_stress": 9.2e-05,
+          "time_of_peak_g": 0.001
+        },
+        "10": {
+          "peak_stress": 93.989538,
+          "peak_strain": 25.322111,
+          "peak_g": 166011.55764406698,
+          "peak_disp": 67.668944,
+          "time_of_peak_stress": 8.7e-05,
+          "time_of_peak_g": 0.001
+        },
+        "11": {
+          "peak_stress": 111.473074,
+          "peak_strain": 29.706543,
+          "peak_g": 65554.64266955851,
+          "peak_disp": 68.143619,
+          "time_of_peak_stress": 9.4e-05,
+          "time_of_peak_g": 0.001
+        },
+        "12": {
+          "peak_stress": 156.028041,
+          "peak_strain": 54.216736,
+          "peak_g": 42498.2505245633,
+          "peak_disp": 71.96183,
+          "time_of_peak_stress": 9.1e-05,
+          "time_of_peak_g": 0.001
+        },
+        "13": {
+          "peak_stress": 124.732639,
+          "peak_strain": 33.177959,
+          "peak_g": 56447.08672520479,
+          "peak_disp": 56.451432,
+          "time_of_peak_stress": 0.000111,
+          "time_of_peak_g": 0.001
+        },
+        "14": {
+          "peak_stress": 70.429383,
+          "peak_strain": 25.164185,
+          "peak_g": 65603.71963665525,
+          "peak_disp": 53.808638,
+          "time_of_peak_stress": 0.000724,
+          "time_of_peak_g": 0.001
+        },
+        "16": {
+          "peak_stress": 132.344521,
+          "peak_strain": 33.276718,
+          "peak_g": 186957.4771502147,
+          "peak_disp": 66.227713,
+          "time_of_peak_stress": 9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "17": {
+          "peak_stress": 146.208992,
+          "peak_strain": 44.858261,
+          "peak_g": 56719.745543326804,
+          "peak_disp": 65.162182,
+          "time_of_peak_stress": 8.8e-05,
+          "time_of_peak_g": 0.001
+        },
+        "18": {
+          "peak_stress": 170.785809,
+          "peak_strain": 46.869049,
+          "peak_g": 30265.581246147096,
+          "peak_disp": 65.514197,
+          "time_of_peak_stress": 7.9e-05,
+          "time_of_peak_g": 0.001
+        },
+        "19": {
+          "peak_stress": 131.50782,
+          "peak_strain": 10.588572,
+          "peak_g": 134450.7559136315,
+          "peak_disp": 61.61258,
+          "time_of_peak_stress": 0.000106,
+          "time_of_peak_g": 0.000553
+        }
+      }
+    }
+  ]
+}

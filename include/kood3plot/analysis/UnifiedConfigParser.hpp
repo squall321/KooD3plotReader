@@ -58,6 +58,10 @@
 #include <vector>
 
 namespace kood3plot {
+
+// Forward declaration
+class D3plotReader;
+
 namespace analysis {
 
 /**
@@ -137,6 +141,25 @@ private:
     // Job parsers
     static bool parseAnalysisJob(const std::vector<std::string>& lines, size_t& idx, AnalysisJob& job);
     static bool parseRenderJob(const std::vector<std::string>& lines, size_t& idx, RenderJob& job);
+
+public:
+    /**
+     * @brief Match part name against pattern (supports * and ? wildcards)
+     * @param name Part name to match
+     * @param pattern Pattern with wildcards (e.g., "CELL*", "*BATTERY*", "PART_??")
+     * @return true if name matches pattern
+     */
+    static bool matchPattern(const std::string& name, const std::string& pattern);
+
+    /**
+     * @brief Filter part IDs by name pattern
+     * @param reader D3plot reader to get part names
+     * @param pattern Pattern to match (e.g., "CELL*")
+     * @return Vector of part IDs matching the pattern
+     */
+    static std::vector<int32_t> filterPartsByPattern(
+        const class D3plotReader& reader,
+        const std::string& pattern);
 };
 
 } // namespace analysis

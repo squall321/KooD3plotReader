@@ -1,0 +1,74 @@
+# KooD3plot CLI - All Quantities Query Configuration
+# ===================================================
+# 사용법: kood3plot_cli --mode query --config all_quantities.yaml <d3plot> -o <output.csv>
+#
+# 이 설정은 가능한 모든 물리량을 추출합니다.
+# d3plot 경로와 output 경로는 CLI 인자로 지정하세요.
+
+# 출력 형식: csv, json, hdf5
+format: csv
+
+# 추출할 파트 (비어있으면 전체 파트)
+parts: []
+
+# 추출할 물리량 - 가능한 모든 옵션
+quantities:
+  # 응력 (Stress)
+  - von_mises              # Von Mises 등가응력
+  - stress                 # 응력 텐서 성분 (xx, yy, zz, xy, yz, xz)
+  - stress_xx              # X방향 수직응력
+  - stress_yy              # Y방향 수직응력
+  - stress_zz              # Z방향 수직응력
+  - stress_xy              # XY 전단응력
+  - stress_yz              # YZ 전단응력
+  - stress_xz              # XZ 전단응력
+  - pressure               # 압력 (평균 수직응력)
+  - max_shear              # 최대 전단응력
+
+  # 변형률 (Strain)
+  - strain                 # 변형률 텐서 성분
+  - effective_strain       # 유효 변형률
+  - plastic_strain         # 소성 변형률
+
+  # 변위/속도/가속도 (Kinematics)
+  - displacement           # 변위 (magnitude)
+  - displacement_x         # X방향 변위
+  - displacement_y         # Y방향 변위
+  - displacement_z         # Z방향 변위
+  - velocity               # 속도 (magnitude)
+  - velocity_x             # X방향 속도
+  - velocity_y             # Y방향 속도
+  - velocity_z             # Z방향 속도
+  - acceleration           # 가속도 (magnitude)
+  - acceleration_x         # X방향 가속도
+  - acceleration_y         # Y방향 가속도
+  - acceleration_z         # Z방향 가속도
+
+# 시간/상태 선택
+time:
+  first: 0        # 시작 state (0-based)
+  last: -1        # 마지막 state (-1 = 끝까지)
+  step: 1         # state 간격 (1 = 모든 state)
+
+# 성능 설정
+performance:
+  verbose: true   # 상세 로그 출력
+
+# ===================================================
+# 사용 예시:
+# ===================================================
+#
+# 1. 전체 분석:
+#    kood3plot_cli --mode query --config all_quantities.yaml \
+#      results/d3plot -o results/full_analysis.csv
+#
+# 2. 특정 폴더에 출력:
+#    kood3plot_cli --mode query --config all_quantities.yaml \
+#      /path/to/d3plot -o /path/to/output/analysis.csv
+#
+# 3. JSON 형식으로 출력 (CLI에서 override):
+#    kood3plot_cli --mode query --config all_quantities.yaml \
+#      --format json results/d3plot -o results/analysis.json
+#
+# 참고: 모든 물리량을 추출하면 파일 크기가 클 수 있습니다.
+#       필요한 물리량만 선택하는 것을 권장합니다.

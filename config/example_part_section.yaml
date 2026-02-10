@@ -1,0 +1,152 @@
+# KooD3plot Part-Based Section Analysis Configuration
+# ===================================================
+# 특정 파트 패턴을 기반으로 분석 및 단면 렌더링
+#
+# 기능:
+#   - part_pattern: 파트 이름 패턴 필터링 (*, ? 와일드카드 지원)
+#   - sections: 파트 바운딩박스 기준 자동 단면 생성
+#   - position: center, min, max, 또는 퍼센트 (예: 25%)
+#
+# 사용법: unified_analyzer --config example_part_section.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "path/to/your/d3plot"
+
+output:
+  directory: "./part_section_output"
+  json: true
+  csv: true
+
+performance:
+  threads: 4
+  verbose: true
+
+# ============================================================
+# Analysis Jobs - 파트 패턴 기반 분석
+# ============================================================
+analysis_jobs:
+  # 배터리 셀 파트만 분석 (CELL로 시작하는 파트)
+  - name: "Battery Cell Stress"
+    type: von_mises
+    part_pattern: "CELL*"          # CELL로 시작하는 모든 파트
+    output_prefix: "cell_stress"
+
+  - name: "Battery Cell Strain"
+    type: eff_plastic_strain
+    part_pattern: "CELL*"
+    output_prefix: "cell_strain"
+
+  # 하우징 파트 분석 (HOUSING 포함하는 파트)
+  - name: "Housing Stress"
+    type: von_mises
+    part_pattern: "*HOUSING*"      # HOUSING 포함하는 모든 파트
+    output_prefix: "housing_stress"
+
+  # 커버 파트 분석 (COVER로 끝나는 파트)
+  - name: "Cover Motion"
+    type: part_motion
+    part_pattern: "*COVER"         # COVER로 끝나는 모든 파트
+    quantities:
+      - avg_displacement
+      - avg_velocity
+    output_prefix: "cover_motion"
+
+  # 숫자 ID와 패턴 조합 (둘 다 지정 가능)
+  - name: "Critical Parts"
+    type: von_mises
+    parts: [1, 2, 3]               # 명시적 파트 ID
+    part_pattern: "CRITICAL_*"     # 추가로 패턴 매칭
+    output_prefix: "critical_stress"
+
+  # 표면 응력 (특정 파트만)
+  - name: "Cell Bottom Surface"
+    type: surface_stress
+    part_pattern: "CELL*"
+    surface:
+      direction: [0, 0, -1]        # -Z 방향 (아래쪽)
+      angle: 45.0
+    output_prefix: "cell_bottom"
+
+# ============================================================
+# Render Jobs - 파트 기반 단면 뷰
+# ============================================================
+render_jobs:
+  # 배터리 셀 단면 렌더링
+  - name: "Cell Z-Sections"
+    type: section_view
+    part_pattern: "CELL*"          # CELL 파트 바운딩박스 기준
+    fringe: von_mises
+    sections:
+      # Z축 중심 단면
+      - axis: z
+        position: center           # 50%
+      # Z축 하단 10% 지점
+      - axis: z
+        position: 10%              # 파트의 Z축 10% 지점
+      # Z축 상단 90% 지점
+      - axis: z
+        position: 90%
+    output:
+      format: png
+      directory: "./renders/cell_sections"
+
+  # 하우징 다방향 단면
+  - name: "Housing Multi-Axis"
+    type: section_view
+    part_pattern: "*HOUSING*"
+    fringe: eff_plastic_strain
+    sections:
+      - axis: x
+        position: center
+      - axis: y
+        position: center
+      - axis: z
+        position: center
+    output:
+      format: mp4
+      directory: "./renders/housing"
+      fps: 30
+
+  # 특정 파트 상세 단면 (여러 위치)
+  - name: "Detailed Part Analysis"
+    type: multi_section
+    parts: [10]                    # 파트 10번
+    fringe: von_mises
+    sections:
+      - axis: z
+        position: min              # 최하단
+      - axis: z
+        position: 25%              # 25% 지점
+      - axis: z
+        position: center           # 중심
+      - axis: z
+        position: 75%              # 75% 지점
+      - axis: z
+        position: max              # 최상단
+    output:
+      format: png
+      filename_pattern: "part10_z_{position}.png"
+      directory: "./renders/detailed"
+
+# ============================================================
+# 패턴 문법:
+# ============================================================
+# *        - 0개 이상의 모든 문자
+# ?        - 정확히 1개의 문자
+#
+# 예시:
+#   "CELL*"       -> CELL, CELL_01, CELL_BOTTOM 등
+#   "*HOUSING*"   -> FRONT_HOUSING, HOUSING_REAR, MY_HOUSING_01 등
+#   "PART_??"     -> PART_01, PART_99 등 (2자리만)
+#   "*_TOP"       -> CELL_TOP, COVER_TOP 등
+
+# ============================================================
+# 위치 지정:
+# ============================================================
+# center   -> 50% (중심)
+# min      -> 0% (최소 경계)
+# max      -> 100% (최대 경계)
+# 25%      -> 25% 지점
+# 0.25     -> 25% 지점 (소수점 형식)

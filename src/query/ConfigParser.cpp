@@ -632,15 +632,15 @@ QuantitySelector ConfigParser::createQuantitySelector(const QueryConfig& config)
         std::transform(q.begin(), q.end(), q.begin(), ::tolower);
 
         if (q == "von_mises" || q == "vonmises") {
-            selector.vonMises();
+            selector.add(QuantityType::STRESS_VON_MISES);
         } else if (q == "displacement" || q == "disp") {
-            selector.displacement();
+            selector.add(QuantityType::DISPLACEMENT_MAGNITUDE);
         } else if (q == "stress" || q == "all_stress") {
-            selector.allStress();
+            selector.addStressAll();
         } else if (q == "strain" || q == "all_strain") {
-            selector.allStrain();
+            selector.addStrainAll();
         } else if (q == "plastic_strain" || q == "effective_strain") {
-            selector.effectiveStrain();
+            selector.add(QuantityType::STRAIN_EFFECTIVE);
         }
     }
     return selector;

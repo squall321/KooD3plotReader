@@ -4,11 +4,170 @@
  */
 
 #include "kood3plot/analysis/UnifiedConfigParser.hpp"
+#include "kood3plot/D3plotReader.hpp"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <filesystem>
+#include <unordered_map>
+#include <set>
+
+namespace {
+
+/**
+ * @brief Parse part names from LS-DYNA keyword file (*PART section)
+ * @param keyword_path Path to keyword file (.k, .key, .dyn)
+ * @return Map of part ID to part name
+ */
+std::unordered_map<int32_t, std::string> parsePartNamesFromKeyword(const std::string& keyword_path) {
+    std::unordered_map<int32_t, std::string> part_names;
+
+    std::ifstream ifs(keyword_path);
+    if (!ifs.is_open()) {
+        return part_names;
+    }
+
+    std::string line;
+    bool in_part_section = false;
+    std::string current_title;
+    int line_in_part = 0;
+
+    while (std::getline(ifs, line)) {
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == '$') continue;
+
+        // Check for *PART keyword
+        if (line[0] == '*') {
+            std::string upper_line = line;
+            std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
+
+            if (upper_line.find("*PART") != std::string::npos &&
+                upper_line.find("*PART_") == std::string::npos) {
+                // Found *PART (not *PART_INERTIA etc.)
+                in_part_section = true;
+                line_in_part = 0;
+                current_title.clear();
+                continue;
+            } else {
+                in_part_section = false;
+            }
+        }
+
+        if (in_part_section) {
+            line_in_part++;
+
+            if (line_in_part == 1) {
+                // First line after *PART is the title (heading/name)
+                current_title = line;
+                // Trim whitespace
+                size_t start = current_title.find_first_not_of(" \t\r\n");
+                size_t end = current_title.find_last_not_of(" \t\r\n");
+                if (start != std::string::npos && end != std::string::npos) {
+                    current_title = current_title.substr(start, end - start + 1);
+                }
+            } else if (line_in_part == 2) {
+                // Second line contains: PID, SECID, MID, ...
+                // PID is first field (columns 1-10 in fixed format, or first comma-separated)
+                try {
+                    int32_t pid;
+                    if (line.find(',') != std::string::npos) {
+                        // Comma-separated format
+                        size_t comma = line.find(',');
+                        pid = std::stoi(line.substr(0, comma));
+                    } else {
+                        // Fixed format (columns 1-10)
+                        std::string pid_str = line.substr(0, 10);
+                        // Trim whitespace
+                        size_t start = pid_str.find_first_not_of(" \t");
+                        if (start != std::string::npos) {
+                            pid = std::stoi(pid_str.substr(start));
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    if (!current_title.empty()) {
+                        part_names[pid] = current_title;
+                    }
+                } catch (...) {
+                    // Parse error, skip
+                }
+
+                in_part_section = false;  // Reset for next *PART
+            }
+        }
+    }
+
+    return part_names;
+}
+
+/**
+ * @brief Find keyword file next to d3plot
+ * @param d3plot_path Path to d3plot file
+ * @return Path to keyword file, or empty if not found
+ */
+std::string findKeywordFile(const std::string& d3plot_path) {
+    namespace fs = std::filesystem;
+
+    fs::path d3plot(d3plot_path);
+    fs::path dir = d3plot.parent_path();
+
+    // Common keyword file extensions
+    std::vector<std::string> extensions = {".k", ".key", ".dyn", ".K", ".KEY", ".DYN"};
+
+    // Try same name with keyword extension
+    std::string stem = d3plot.stem().string();
+    // Remove d3plot suffix if present
+    if (stem.find("d3plot") != std::string::npos) {
+        size_t pos = stem.find("d3plot");
+        stem = stem.substr(0, pos);
+        if (!stem.empty() && (stem.back() == '_' || stem.back() == '-' || stem.back() == '.')) {
+            stem.pop_back();
+        }
+    }
+
+    for (const auto& ext : extensions) {
+        // Try with stem
+        if (!stem.empty()) {
+            fs::path candidate = dir / (stem + ext);
+            if (fs::exists(candidate)) {
+                return candidate.string();
+            }
+        }
+
+        // Try main.k, input.k, etc.
+        for (const std::string& name : {"main", "input", "model", "keyword"}) {
+            fs::path candidate = dir / (name + ext);
+            if (fs::exists(candidate)) {
+                return candidate.string();
+            }
+        }
+    }
+
+    // Try to find any .k file in the directory
+    try {
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (entry.is_regular_file()) {
+                std::string ext = entry.path().extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext == ".k" || ext == ".key" || ext == ".dyn") {
+                    return entry.path().string();
+                }
+            }
+        }
+    } catch (...) {
+        // Directory iteration failed
+    }
+
+    return "";
+}
+
+// Global cache for part names (loaded once per d3plot path)
+std::unordered_map<std::string, std::unordered_map<int32_t, std::string>> g_part_name_cache;
+
+} // anonymous namespace
 
 namespace kood3plot {
 namespace analysis {
@@ -262,6 +421,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     current_analysis_job.type = parseJobType(value);
                 } else if (key == "parts") {
                     current_analysis_job.part_ids = parseIntArray(value);
+                } else if (key == "part_pattern") {
+                    current_analysis_job.part_pattern = value;
                 } else if (key == "output_prefix") {
                     current_analysis_job.output_prefix = value;
                 } else if (key == "quantities") {
@@ -276,10 +437,33 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
             // Check for sub-sections
             if (value.empty()) {
                 sub_section = key;
-                // Initialize section spec for section sub-section
+                // Initialize section spec for single section sub-section
                 if (key == "section") {
                     current_render_job.sections.clear();
                     current_render_job.sections.push_back(RenderSectionSpec());
+                }
+                // "sections" (plural) is an array - don't initialize here
+                continue;
+            }
+
+            // Handle sections array (each item starts with "- axis:")
+            if (sub_section == "sections" && is_list_item) {
+                // New section item in the array
+                current_render_job.sections.push_back(RenderSectionSpec());
+                RenderSectionSpec& sec = current_render_job.sections.back();
+                if (key == "axis" && !value.empty()) {
+                    sec.axis = std::tolower(value[0]);
+                }
+                continue;
+            }
+
+            // Continue parsing current section in sections array
+            if (sub_section == "sections" && !current_render_job.sections.empty()) {
+                RenderSectionSpec& sec = current_render_job.sections.back();
+                if (key == "axis" && !value.empty()) {
+                    sec.axis = std::tolower(value[0]);
+                } else if (key == "position") {
+                    sec = RenderSectionSpec::fromPositionString(sec.axis, value);
                 }
                 continue;
             }
@@ -290,26 +474,10 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 }
                 RenderSectionSpec& sec = current_render_job.sections.back();
                 if (key == "axis") {
-                    if (!value.empty()) sec.axis = value[0];
+                    if (!value.empty()) sec.axis = std::tolower(value[0]);
                 } else if (key == "position") {
-                    // Check for auto positions
-                    if (value == "center" || value == "edge_min" || value == "edge_max" ||
-                        value == "quarter1" || value == "quarter2" || value == "quarter3" || value == "quarter4") {
-                        sec.position_auto = value;
-                        sec.normalized = true;
-                        if (value == "center") sec.position = 0.5;
-                        else if (value == "edge_min") sec.position = 0.0;
-                        else if (value == "edge_max") sec.position = 1.0;
-                        else if (value == "quarter1") sec.position = 0.25;
-                        else if (value == "quarter2") sec.position = 0.5;
-                        else if (value == "quarter3") sec.position = 0.75;
-                        else if (value == "quarter4") sec.position = 1.0;
-                    } else {
-                        try {
-                            sec.position = std::stod(value);
-                            sec.normalized = (sec.position >= 0.0 && sec.position <= 1.0);
-                        } catch (...) {}
-                    }
+                    // Use the new fromPositionString helper
+                    sec = RenderSectionSpec::fromPositionString(sec.axis, value);
                 }
             } else if (sub_section == "fringe_range") {
                 if (key == "min") {
@@ -354,6 +522,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     current_render_job.fringe_type = value;
                 } else if (key == "parts") {
                     current_render_job.parts = parseIntArray(value);
+                } else if (key == "part_pattern") {
+                    current_render_job.part_pattern = value;
                 } else if (key == "states") {
                     if (value == "all") {
                         current_render_job.states.clear();  // empty = all
@@ -389,6 +559,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 config.verbose = parseBool(value);
             } else if (key == "cache_geometry") {
                 config.cache_geometry = parseBool(value);
+            } else if (key == "lsprepost_path" || key == "lsprepost") {
+                config.lsprepost_path = value;
             }
         }
     }
@@ -425,7 +597,11 @@ bool UnifiedConfigParser::saveToYAML(const std::string& file_path, const Unified
     ofs << "performance:\n";
     ofs << "  threads: " << config.num_threads << "\n";
     ofs << "  verbose: " << (config.verbose ? "true" : "false") << "\n";
-    ofs << "  cache_geometry: " << (config.cache_geometry ? "true" : "false") << "\n\n";
+    ofs << "  cache_geometry: " << (config.cache_geometry ? "true" : "false") << "\n";
+    if (!config.lsprepost_path.empty()) {
+        ofs << "  lsprepost_path: \"" << config.lsprepost_path << "\"\n";
+    }
+    ofs << "\n";
 
     // Analysis jobs
     if (!config.analysis_jobs.empty()) {
@@ -541,7 +717,10 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "performance:\n";
     oss << "  threads: 0      # 0 = auto (use all cores)\n";
     oss << "  verbose: true\n";
-    oss << "  cache_geometry: true\n\n";
+    oss << "  cache_geometry: true\n";
+    oss << "  # lsprepost_path: \"/path/to/lsprepost\"  # Optional: custom LSPrePost path\n";
+    oss << "  # Linux default: {exe_dir}/../lsprepost/lsprepost\n";
+    oss << "  # Windows default: {exe_dir}/../lsprepost/lspp412_win64.exe\n\n";
 
     oss << "# ============================================================\n";
     oss << "# Analysis Jobs (C++ SinglePassAnalyzer)\n";
@@ -685,6 +864,118 @@ bool UnifiedConfigParser::validate(const UnifiedConfig& config) {
     }
 
     return true;
+}
+
+// ============================================================
+// Pattern Matching Utility Functions
+// ============================================================
+
+bool UnifiedConfigParser::matchPattern(const std::string& name, const std::string& pattern) {
+    if (pattern.empty()) return true;  // Empty pattern matches all
+
+    // Simple wildcard matching: * matches any sequence, ? matches single char
+    size_t n = name.size();
+    size_t p = pattern.size();
+
+    std::vector<std::vector<bool>> dp(n + 1, std::vector<bool>(p + 1, false));
+    dp[0][0] = true;
+
+    // Handle patterns starting with *
+    for (size_t j = 1; j <= p; ++j) {
+        if (pattern[j - 1] == '*') {
+            dp[0][j] = dp[0][j - 1];
+        }
+    }
+
+    for (size_t i = 1; i <= n; ++i) {
+        for (size_t j = 1; j <= p; ++j) {
+            if (pattern[j - 1] == '*') {
+                dp[i][j] = dp[i][j - 1] || dp[i - 1][j];
+            } else if (pattern[j - 1] == '?' ||
+                       std::toupper(pattern[j - 1]) == std::toupper(name[i - 1])) {
+                dp[i][j] = dp[i - 1][j - 1];
+            }
+        }
+    }
+
+    return dp[n][p];
+}
+
+std::vector<int32_t> UnifiedConfigParser::filterPartsByPattern(
+    const D3plotReader& reader,
+    const std::string& pattern) {
+
+    std::vector<int32_t> matching_parts;
+
+    if (pattern.empty()) {
+        return matching_parts;  // Empty = no filter (caller should use all parts)
+    }
+
+    // Check if pattern looks like a part ID (numeric: "1,2,3" or "10-20")
+    bool is_numeric = true;
+    for (char c : pattern) {
+        if (!std::isdigit(c) && c != '-' && c != ',' && c != ' ') {
+            is_numeric = false;
+            break;
+        }
+    }
+
+    if (is_numeric) {
+        // Parse as part ID range (e.g., "1,2,3" or "10-20")
+        matching_parts = parseIntArray("[" + pattern + "]");
+        return matching_parts;
+    }
+
+    // Pattern contains wildcards - try to load part names from keyword file
+    std::string d3plot_path = reader.getFilePath();
+
+    // Check cache first
+    if (g_part_name_cache.find(d3plot_path) == g_part_name_cache.end()) {
+        // Try to find and parse keyword file
+        std::string keyword_path = findKeywordFile(d3plot_path);
+        if (!keyword_path.empty()) {
+            g_part_name_cache[d3plot_path] = parsePartNamesFromKeyword(keyword_path);
+            std::cerr << "[UnifiedConfigParser] Loaded part names from: " << keyword_path << std::endl;
+        } else {
+            // No keyword file found - use empty map
+            g_part_name_cache[d3plot_path] = {};
+            std::cerr << "[UnifiedConfigParser] No keyword file found for part names. "
+                      << "Using fallback Part_N names." << std::endl;
+        }
+    }
+
+    const auto& part_names = g_part_name_cache[d3plot_path];
+
+    // Get all part IDs from mesh
+    D3plotReader& mutable_reader = const_cast<D3plotReader&>(reader);
+    auto mesh = mutable_reader.read_mesh();
+
+    // Collect unique part IDs
+    std::set<int32_t> all_part_ids;
+    for (int32_t pid : mesh.solid_parts) all_part_ids.insert(pid);
+    for (int32_t pid : mesh.shell_parts) all_part_ids.insert(pid);
+    for (int32_t pid : mesh.beam_parts) all_part_ids.insert(pid);
+    for (int32_t pid : mesh.thick_shell_parts) all_part_ids.insert(pid);
+
+    // Match each part against pattern
+    for (int32_t pid : all_part_ids) {
+        std::string name;
+
+        // Try to get name from keyword file
+        auto it = part_names.find(pid);
+        if (it != part_names.end()) {
+            name = it->second;
+        } else {
+            // Fallback: use Part_N format
+            name = "Part_" + std::to_string(pid);
+        }
+
+        if (matchPattern(name, pattern)) {
+            matching_parts.push_back(pid);
+        }
+    }
+
+    return matching_parts;
 }
 
 } // namespace analysis

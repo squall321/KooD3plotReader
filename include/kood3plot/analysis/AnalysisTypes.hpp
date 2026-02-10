@@ -199,6 +199,7 @@ struct AnalysisJob {
     std::string name;                      ///< Job name (human-readable)
     AnalysisJobType type = AnalysisJobType::VON_MISES;
     std::vector<int32_t> part_ids;         ///< Parts to analyze (empty = all)
+    std::string part_pattern;              ///< Part name pattern filter (e.g., "BATTERY*", "*CELL*")
 
     // Surface analysis options
     SurfaceSpec surface;
@@ -293,9 +294,46 @@ enum class RenderOutputFormat {
  */
 struct RenderSectionSpec {
     char axis = 'z';           ///< Section axis (x, y, z)
-    double position = 0.5;      ///< Position (0-1 normalized or absolute)
-    bool normalized = true;     ///< Is position normalized?
-    std::string position_auto;  ///< Auto position: "center", "edge_min", "edge_max", etc.
+    double position = 0.5;      ///< Position (0-1 normalized or absolute, e.g., 0.25 = 25%)
+    bool normalized = true;     ///< Is position normalized (0-1)?
+    std::string position_auto;  ///< Auto position: "center", "min", "max", or percentage like "25%"
+
+    /**
+     * @brief Parse position string (e.g., "center", "min", "max", "25%", "0.5")
+     */
+    static RenderSectionSpec fromPositionString(char axis, const std::string& pos_str) {
+        RenderSectionSpec spec;
+        spec.axis = axis;
+        spec.normalized = true;
+
+        if (pos_str == "center") {
+            spec.position = 0.5;
+            spec.position_auto = "center";
+        } else if (pos_str == "min") {
+            spec.position = 0.0;
+            spec.position_auto = "min";
+        } else if (pos_str == "max") {
+            spec.position = 1.0;
+            spec.position_auto = "max";
+        } else if (pos_str.back() == '%') {
+            // Parse percentage (e.g., "25%")
+            try {
+                double pct = std::stod(pos_str.substr(0, pos_str.size() - 1));
+                spec.position = pct / 100.0;
+                spec.position_auto = pos_str;
+            } catch (...) {
+                spec.position = 0.5;
+            }
+        } else {
+            // Parse as decimal (e.g., "0.25")
+            try {
+                spec.position = std::stod(pos_str);
+            } catch (...) {
+                spec.position = 0.5;
+            }
+        }
+        return spec;
+    }
 };
 
 /**
@@ -335,6 +373,7 @@ struct RenderJob {
 
     // Part selection
     std::vector<int32_t> parts;  ///< Empty = all parts
+    std::string part_pattern;    ///< Part name pattern filter (e.g., "CELL*", "*BATTERY*")
 
     // State selection
     std::vector<int> states;  ///< Empty = all, -1 = last state
@@ -480,6 +519,14 @@ struct UnifiedConfig {
     int num_threads = 0;  ///< 0 = auto
     bool verbose = true;
     bool cache_geometry = true;
+
+    // LSPrePost path (for render jobs)
+    // Fallback order:
+    // 1. YAML lsprepost_path value
+    // 2. Linux: {exe_dir}/../lsprepost/lsprepost
+    // 3. Windows: {exe_dir}/../lsprepost/lspp412_win64.exe
+    // 4. System PATH: "lsprepost"
+    std::string lsprepost_path;
 
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;

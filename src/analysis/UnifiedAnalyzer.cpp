@@ -1,9 +1,13 @@
 /**
  * @file UnifiedAnalyzer.cpp
  * @brief Unified job-based analyzer implementation
+ *
+ * Note: processRenderJobs is implemented in UnifiedAnalyzerRender.cpp
+ * to avoid circular dependency with kood3plot_render library.
  */
 
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
+#include "kood3plot/analysis/UnifiedConfigParser.hpp"
 #include "kood3plot/analysis/PartAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
@@ -34,8 +38,8 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         return result;
     }
 
-    if (config.analysis_jobs.empty()) {
-        last_error_ = "No analysis jobs defined";
+    if (config.analysis_jobs.empty() && config.render_jobs.empty()) {
+        last_error_ = "No analysis or render jobs defined";
         return result;
     }
 
@@ -52,7 +56,8 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (callback) callback("Reading all states (parallel)...");
 
     // Read all states in parallel (family files read concurrently)
-    auto all_states = reader.read_all_states_parallel();
+    // Use configured thread count (0 = auto-detect)
+    auto all_states = reader.read_all_states_parallel(config.num_threads);
     if (all_states.empty()) {
         last_error_ = "No states found in d3plot";
         return result;
@@ -136,6 +141,11 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     // Fill metadata
     fillMetadata(reader, config, all_states, result);
 
+    // Process render jobs if any
+    if (!config.render_jobs.empty()) {
+        processRenderJobs(reader, config, callback);
+    }
+
     success_ = true;
     if (callback) callback("Analysis complete!");
 
@@ -161,17 +171,27 @@ void UnifiedAnalyzer::processStressJobs(
     // Use analyze_with_states to avoid re-reading d3plot files
     auto histories = analyzer.analyze_with_states(all_states, StressComponent::VON_MISES);
 
-    // Collect part IDs from jobs (empty means all)
+    // Collect part IDs from jobs (empty means all, or use part_pattern)
     std::vector<int32_t> requested_parts;
     bool want_all = false;
     for (const auto& job : jobs) {
-        if (job.part_ids.empty()) {
+        if (job.part_ids.empty() && job.part_pattern.empty()) {
             want_all = true;
             break;
         }
+        // Add explicit part IDs
         for (int32_t pid : job.part_ids) {
             if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
                 requested_parts.push_back(pid);
+            }
+        }
+        // Add parts matching pattern
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
+                    requested_parts.push_back(pid);
+                }
             }
         }
     }
@@ -185,6 +205,7 @@ void UnifiedAnalyzer::processStressJobs(
 
         PartTimeSeriesStats stats;
         stats.part_id = history.part_id;
+        stats.part_name = "Part_" + std::to_string(history.part_id);
         stats.quantity = "von_mises";
         stats.unit = "MPa";
 
@@ -224,17 +245,27 @@ void UnifiedAnalyzer::processStrainJobs(
     // Use analyze_with_states to avoid re-reading d3plot files
     auto histories = analyzer.analyze_with_states(all_states, StressComponent::EFF_PLASTIC);
 
-    // Collect part IDs from jobs (empty means all)
+    // Collect part IDs from jobs (empty means all, or use part_pattern)
     std::vector<int32_t> requested_parts;
     bool want_all = false;
     for (const auto& job : jobs) {
-        if (job.part_ids.empty()) {
+        if (job.part_ids.empty() && job.part_pattern.empty()) {
             want_all = true;
             break;
         }
+        // Add explicit part IDs
         for (int32_t pid : job.part_ids) {
             if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
                 requested_parts.push_back(pid);
+            }
+        }
+        // Add parts matching pattern
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
+                    requested_parts.push_back(pid);
+                }
             }
         }
     }
@@ -248,6 +279,7 @@ void UnifiedAnalyzer::processStrainJobs(
 
         PartTimeSeriesStats stats;
         stats.part_id = history.part_id;
+        stats.part_name = "Part_" + std::to_string(history.part_id);
         stats.quantity = "eff_plastic_strain";
         stats.unit = "";
 
@@ -275,23 +307,37 @@ void UnifiedAnalyzer::processMotionJobs(
     ExtendedAnalysisResult& result,
     UnifiedProgressCallback callback
 ) {
-    // Collect all part IDs
+    // Collect all part IDs (empty means all, or use part_pattern)
     std::vector<int32_t> all_parts;
+    bool want_all = false;
     for (const auto& job : jobs) {
-        if (job.part_ids.empty()) {
+        if (job.part_ids.empty() && job.part_pattern.empty()) {
+            want_all = true;
             all_parts.clear();
             break;
         }
+        // Add explicit part IDs
         for (int32_t pid : job.part_ids) {
             if (std::find(all_parts.begin(), all_parts.end(), pid) == all_parts.end()) {
                 all_parts.push_back(pid);
+            }
+        }
+        // Add parts matching pattern
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(all_parts.begin(), all_parts.end(), pid) == all_parts.end()) {
+                    all_parts.push_back(pid);
+                }
             }
         }
     }
 
     // Use MotionAnalyzer
     MotionAnalyzer analyzer(reader);
-    analyzer.setParts(all_parts);
+    if (!want_all) {
+        analyzer.setParts(all_parts);
+    }
 
     if (!analyzer.initialize()) {
         if (callback) callback("  Motion: Failed to initialize - " + analyzer.getLastError());
@@ -331,12 +377,23 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
     for (const auto& job : jobs) {
         if (callback) callback("  Surface stress: " + job.name);
 
+        // Collect part IDs (empty means all, or use part_pattern)
+        std::vector<int32_t> target_parts = job.part_ids;
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end()) {
+                    target_parts.push_back(pid);
+                }
+            }
+        }
+
         // Extract faces for this surface
         SurfaceExtractionResult extraction;
-        if (job.part_ids.empty()) {
+        if (target_parts.empty()) {
             extraction = extractor.extractExteriorSurfaces();
         } else {
-            extraction = extractor.extractExteriorSurfaces(job.part_ids);
+            extraction = extractor.extractExteriorSurfaces(target_parts);
         }
 
         // Filter by direction
@@ -387,7 +444,17 @@ void UnifiedAnalyzer::processSurfaceStrainJobs(
 
     // Add all surface specifications
     for (const auto& job : jobs) {
-        analyzer.addSurface(job.name, job.surface.direction, job.surface.angle, job.part_ids);
+        // Collect part IDs (empty means all, or use part_pattern)
+        std::vector<int32_t> target_parts = job.part_ids;
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end()) {
+                    target_parts.push_back(pid);
+                }
+            }
+        }
+        analyzer.addSurface(job.name, job.surface.direction, job.surface.angle, target_parts);
     }
 
     if (!analyzer.initialize()) {
@@ -445,6 +512,26 @@ void UnifiedAnalyzer::fillMetadata(
     std::sort(all_parts.begin(), all_parts.end());
     result.metadata.analyzed_parts = all_parts;
 }
+
+// Note: processRenderJobs is implemented in UnifiedAnalyzerRender.cpp
+// when KOOD3PLOT_HAS_RENDER is defined. This is a stub for when
+// render support is not available.
+#ifndef KOOD3PLOT_HAS_RENDER
+bool UnifiedAnalyzer::processRenderJobs(
+    D3plotReader& /* reader */,
+    const UnifiedConfig& config,
+    UnifiedProgressCallback callback
+) {
+    if (config.render_jobs.empty()) {
+        return true;  // No render jobs to process
+    }
+
+    // Render module not available
+    if (callback) callback("  Render jobs skipped: LSPrePost renderer not available");
+    if (callback) callback("  Build with KOOD3PLOT_BUILD_V4_RENDER=ON to enable rendering");
+    return false;
+}
+#endif
 
 } // namespace analysis
 } // namespace kood3plot

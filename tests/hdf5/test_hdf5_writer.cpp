@@ -71,25 +71,20 @@ TEST_F(HDF5WriterTest, CreateFile) {
 // Test 2: Write simple mesh
 TEST_F(HDF5WriterTest, WriteSimpleMesh) {
     // Create simple test mesh
-    kood3plot::Mesh mesh;
+    kood3plot::data::Mesh mesh;
 
     // Add 4 nodes (simple tetrahedron)
-    mesh.nodes.push_back({0.0, 0.0, 0.0});
-    mesh.nodes.push_back({1.0, 0.0, 0.0});
-    mesh.nodes.push_back({0.0, 1.0, 0.0});
-    mesh.nodes.push_back({0.0, 0.0, 1.0});
+    mesh.nodes.push_back({1, 0.0, 0.0, 0.0});
+    mesh.nodes.push_back({2, 1.0, 0.0, 0.0});
+    mesh.nodes.push_back({3, 0.0, 1.0, 0.0});
+    mesh.nodes.push_back({4, 0.0, 0.0, 1.0});
 
     // Add 1 solid element (8-node hex, but we'll use tetrahedron nodes)
-    kood3plot::Solid solid;
-    solid.nodes[0] = 0;
-    solid.nodes[1] = 1;
-    solid.nodes[2] = 2;
-    solid.nodes[3] = 3;
-    solid.nodes[4] = 0;  // Degenerate (repeat nodes for tet in hex format)
-    solid.nodes[5] = 1;
-    solid.nodes[6] = 2;
-    solid.nodes[7] = 3;
-    solid.part_id = 1;
+    kood3plot::Element solid;
+    solid.id = 1;
+    solid.type = kood3plot::ElementType::SOLID;
+    solid.material_id = 1;
+    solid.node_ids = {0, 1, 2, 3, 0, 1, 2, 3};  // Degenerate (repeat nodes for tet in hex format)
     mesh.solids.push_back(solid);
 
     // Write mesh to HDF5
@@ -167,14 +162,16 @@ TEST_F(HDF5WriterTest, WriteSimpleMesh) {
 // Test 3: Write larger mesh (performance test)
 TEST_F(HDF5WriterTest, WriteLargeMesh) {
     // Create larger test mesh (10k nodes, 8k elements)
-    kood3plot::Mesh mesh;
+    kood3plot::data::Mesh mesh;
 
     // Generate grid of nodes (100 x 100 x 1 = 10k nodes)
     const int nx = 100;
     const int ny = 100;
+    int node_id = 1;
     for (int j = 0; j < ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             mesh.nodes.push_back({
+                node_id++,
                 static_cast<double>(i),
                 static_cast<double>(j),
                 0.0
@@ -183,24 +180,20 @@ TEST_F(HDF5WriterTest, WriteLargeMesh) {
     }
 
     // Generate hex elements (99 x 99 = 9801 elements)
+    int elem_id = 1;
     for (int j = 0; j < ny - 1; ++j) {
         for (int i = 0; i < nx - 1; ++i) {
-            kood3plot::Solid solid;
+            kood3plot::Element solid;
             int n0 = j * nx + i;
             int n1 = j * nx + (i + 1);
             int n2 = (j + 1) * nx + (i + 1);
             int n3 = (j + 1) * nx + i;
 
             // Create degenerate hex (actually a quad)
-            solid.nodes[0] = n0;
-            solid.nodes[1] = n1;
-            solid.nodes[2] = n2;
-            solid.nodes[3] = n3;
-            solid.nodes[4] = n0;
-            solid.nodes[5] = n1;
-            solid.nodes[6] = n2;
-            solid.nodes[7] = n3;
-            solid.part_id = 1;
+            solid.id = elem_id++;
+            solid.type = kood3plot::ElementType::SOLID;
+            solid.material_id = 1;
+            solid.node_ids = {n0, n1, n2, n3, n0, n1, n2, n3};
 
             mesh.solids.push_back(solid);
         }

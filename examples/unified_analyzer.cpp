@@ -234,6 +234,248 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
     }
 }
 
+// ============================================================
+// Recursive Analysis Functions
+// ============================================================
+
+/**
+ * @brief Find all directories containing d3plot files
+ * @param root_dir Root directory to search
+ * @return Vector of directory paths containing d3plot
+ */
+std::vector<fs::path> findD3plotDirectories(const fs::path& root_dir) {
+    std::vector<fs::path> result;
+
+    try {
+        for (const auto& entry : fs::recursive_directory_iterator(root_dir,
+                fs::directory_options::follow_directory_symlink |
+                fs::directory_options::skip_permission_denied)) {
+            if (entry.is_regular_file() || entry.is_symlink()) {
+                std::string filename = entry.path().filename().string();
+                // Look for base d3plot file (not d3plot01, d3plot02, etc.)
+                if (filename == "d3plot") {
+                    result.push_back(entry.path().parent_path());
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error scanning directories: " << e.what() << "\n";
+    }
+
+    return result;
+}
+
+/**
+ * @brief Generate unique result folder name from d3plot path
+ * @param d3plot_dir Directory containing d3plot
+ * @param root_dir Root directory for relative path calculation
+ * @return Sanitized folder name
+ */
+std::string generateResultFolderName(const fs::path& d3plot_dir, const fs::path& root_dir) {
+    // Resolve symlinks and get canonical paths
+    fs::path canonical_dir, canonical_root;
+    try {
+        canonical_dir = fs::canonical(d3plot_dir);
+        canonical_root = fs::canonical(root_dir);
+    } catch (...) {
+        canonical_dir = d3plot_dir;
+        canonical_root = root_dir;
+    }
+
+    // Get relative path from root
+    fs::path rel_path = fs::relative(canonical_dir, canonical_root);
+
+    // Convert to string and replace separators with underscores
+    std::string name = rel_path.string();
+    for (char& c : name) {
+        if (c == '/' || c == '\\' || c == ' ') {
+            c = '_';
+        }
+    }
+
+    // Remove leading ".._" patterns
+    while (name.size() >= 3 && name.substr(0, 3) == ".._") {
+        name = name.substr(3);
+    }
+
+    return name;
+}
+
+/**
+ * @brief Check if analysis was already completed for a d3plot
+ * @param result_dir Result directory to check
+ * @return true if analysis_result.json exists
+ */
+bool isAnalysisCompleted(const fs::path& result_dir) {
+    return fs::exists(result_dir / "analysis_result.json");
+}
+
+/**
+ * @brief Save analysis metadata for tracking
+ * @param result_dir Result directory
+ * @param d3plot_path Original d3plot path
+ * @param config_path Config file used
+ */
+void saveAnalysisMetadata(const fs::path& result_dir,
+                          const fs::path& d3plot_path,
+                          const std::string& config_path) {
+    std::ofstream ofs(result_dir / ".analysis_info");
+    if (ofs) {
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+
+        ofs << "d3plot_path: " << d3plot_path.string() << "\n";
+        ofs << "config_file: " << config_path << "\n";
+        ofs << "analyzed_at: " << std::ctime(&time_t);
+    }
+}
+
+/**
+ * @brief Run analysis on a single d3plot with specified output directory
+ * @return true if analysis succeeded
+ */
+bool runSingleAnalysis(const fs::path& d3plot_path,
+                       const fs::path& result_dir,
+                       UnifiedConfig base_config,
+                       bool analysis_only,
+                       const std::string& config_path) {
+    // Update config for this specific d3plot
+    base_config.d3plot_path = d3plot_path.string();
+    base_config.output_directory = result_dir.string();
+
+    // Create output directory
+    try {
+        fs::create_directories(result_dir);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to create output directory: " << e.what() << "\n";
+        return false;
+    }
+
+    // Run analyzer
+    UnifiedAnalyzer analyzer;
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    auto result = analyzer.analyze(base_config, [](const std::string& msg) {
+        std::cout << "  " << msg << "\n";
+    });
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    double elapsed = std::chrono::duration<double>(end_time - start_time).count();
+
+    if (!analyzer.wasSuccessful()) {
+        std::cerr << "Analysis failed: " << analyzer.getLastError() << "\n";
+        return false;
+    }
+
+    // Export results
+    exportResults(result, base_config);
+
+    // Run render jobs if not analysis_only
+    if (!analysis_only && base_config.hasRenderJobs()) {
+        D3plotReader render_reader(d3plot_path.string());
+        auto error = render_reader.open();
+        if (error == ErrorCode::SUCCESS) {
+            UnifiedAnalyzer render_analyzer;
+            render_analyzer.processRenderJobs(render_reader, base_config,
+                [](const std::string& msg) {
+                    std::cout << "  " << msg << "\n";
+                });
+        }
+    }
+
+    // Save metadata
+    saveAnalysisMetadata(result_dir, d3plot_path, config_path);
+
+    std::cout << "  Completed in " << std::fixed << std::setprecision(2)
+              << elapsed << " seconds\n";
+
+    return true;
+}
+
+/**
+ * @brief Run recursive analysis on all d3plot files under root directory
+ */
+int runRecursiveAnalysis(const fs::path& root_dir,
+                         const fs::path& output_root,
+                         const UnifiedConfig& base_config,
+                         const std::string& config_path,
+                         bool analysis_only,
+                         bool skip_existing) {
+    std::cout << "\n=============================================================\n";
+    std::cout << "Recursive Analysis Mode\n";
+    std::cout << "=============================================================\n";
+    std::cout << "Scanning: " << root_dir << "\n";
+    std::cout << "Output to: " << output_root << "\n";
+    std::cout << "Skip existing: " << (skip_existing ? "yes" : "no") << "\n\n";
+
+    // Find all d3plot directories
+    auto d3plot_dirs = findD3plotDirectories(root_dir);
+
+    if (d3plot_dirs.empty()) {
+        std::cout << "No d3plot files found.\n";
+        return 0;
+    }
+
+    std::cout << "Found " << d3plot_dirs.size() << " d3plot file(s):\n";
+    for (const auto& dir : d3plot_dirs) {
+        std::cout << "  - " << fs::relative(dir, root_dir) << "\n";
+    }
+    std::cout << "\n";
+
+    // Create output root directory
+    try {
+        fs::create_directories(output_root);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to create output directory: " << e.what() << "\n";
+        return 1;
+    }
+
+    // Process each d3plot
+    int success_count = 0;
+    int skip_count = 0;
+    int fail_count = 0;
+
+    for (size_t i = 0; i < d3plot_dirs.size(); ++i) {
+        const auto& d3plot_dir = d3plot_dirs[i];
+        fs::path d3plot_path = d3plot_dir / "d3plot";
+
+        // Generate result folder name
+        std::string folder_name = generateResultFolderName(d3plot_dir, root_dir);
+        fs::path result_dir = output_root / folder_name;
+
+        std::cout << "[" << (i + 1) << "/" << d3plot_dirs.size() << "] "
+                  << fs::relative(d3plot_dir, root_dir) << "\n";
+
+        // Check if already analyzed
+        if (skip_existing && isAnalysisCompleted(result_dir)) {
+            std::cout << "  Skipped (already analyzed)\n\n";
+            ++skip_count;
+            continue;
+        }
+
+        // Run analysis
+        if (runSingleAnalysis(d3plot_path, result_dir, base_config, analysis_only, config_path)) {
+            ++success_count;
+        } else {
+            ++fail_count;
+        }
+        std::cout << "\n";
+    }
+
+    // Summary
+    std::cout << "=============================================================\n";
+    std::cout << "Recursive Analysis Complete\n";
+    std::cout << "=============================================================\n";
+    std::cout << "Total: " << d3plot_dirs.size() << "\n";
+    std::cout << "Success: " << success_count << "\n";
+    std::cout << "Skipped: " << skip_count << "\n";
+    std::cout << "Failed: " << fail_count << "\n";
+    std::cout << "Results saved to: " << output_root << "\n";
+    std::cout << "=============================================================\n";
+
+    return (fail_count > 0) ? 1 : 0;
+}
+
 /**
  * @brief Print usage
  */
@@ -244,15 +486,28 @@ void printUsage(const char* prog_name) {
 
     std::cout << "Usage:\n";
     std::cout << "  " << prog_name << " --config <yaml_file> [options]\n";
+    std::cout << "  " << prog_name << " --recursive <dir> --config <yaml_file> [options]\n";
     std::cout << "  " << prog_name << " --generate-config\n\n";
 
     std::cout << "Options:\n";
     std::cout << "  --config <file>     Load configuration from YAML file\n";
+    std::cout << "  --recursive <dir>   Scan directory recursively for d3plot files\n";
+    std::cout << "  --output <dir>      Output directory for recursive mode (default: ./analysis_results)\n";
+    std::cout << "  --skip-existing     Skip already analyzed d3plot folders\n";
     std::cout << "  --threads N         Set number of OpenMP threads (0=auto)\n";
     std::cout << "  --analysis-only     Run only analysis jobs (skip rendering)\n";
     std::cout << "  --render-only       Run only render jobs (skip analysis)\n";
     std::cout << "  --generate-config   Print example YAML configuration\n";
     std::cout << "  --help              Show this help message\n\n";
+
+    std::cout << "Single Analysis Mode:\n";
+    std::cout << "  Uses d3plot path from YAML config file.\n\n";
+
+    std::cout << "Recursive Analysis Mode:\n";
+    std::cout << "  Scans specified directory for all d3plot files in subdirectories.\n";
+    std::cout << "  Applies same analysis config to each d3plot.\n";
+    std::cout << "  Creates result folders mirroring source directory structure.\n";
+    std::cout << "  Use --skip-existing for incremental analysis.\n\n";
 
     std::cout << "Features:\n";
     std::cout << "  - Job-based analysis configuration\n";
@@ -260,15 +515,21 @@ void printUsage(const char* prog_name) {
     std::cout << "  - Motion analysis (displacement, velocity, acceleration)\n";
     std::cout << "  - Surface stress and strain analysis\n";
     std::cout << "  - Section view rendering (with LSPrePost)\n";
-    std::cout << "  - CSV and JSON output\n\n";
+    std::cout << "  - CSV and JSON output\n";
+    std::cout << "  - Recursive batch processing\n\n";
 
     std::cout << "Examples:\n";
-    std::cout << "  # Generate example config and run\n";
-    std::cout << "  " << prog_name << " --generate-config > my_analysis.yaml\n";
+    std::cout << "  # Single analysis\n";
     std::cout << "  " << prog_name << " --config my_analysis.yaml\n\n";
 
-    std::cout << "  # Analysis only (no rendering)\n";
-    std::cout << "  " << prog_name << " --config full_workflow.yaml --analysis-only\n";
+    std::cout << "  # Recursive analysis of all simulations\n";
+    std::cout << "  " << prog_name << " --recursive /data/simulations --config common.yaml\n\n";
+
+    std::cout << "  # Incremental analysis (skip already done)\n";
+    std::cout << "  " << prog_name << " --recursive /data/simulations --config common.yaml --skip-existing\n\n";
+
+    std::cout << "  # Custom output directory\n";
+    std::cout << "  " << prog_name << " --recursive /data/sims --config common.yaml --output /results\n";
 }
 
 /**
@@ -297,10 +558,13 @@ void printSummary(const ExtendedAnalysisResult& result, const UnifiedConfig& con
 int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string config_file;
+    std::string recursive_dir;
+    std::string output_dir;
     int num_threads = 0;
     bool generate_config = false;
     bool analysis_only = false;
     bool render_only = false;
+    bool skip_existing = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -314,6 +578,15 @@ int main(int argc, char* argv[]) {
         }
         else if (arg == "--config" && i + 1 < argc) {
             config_file = argv[++i];
+        }
+        else if (arg == "--recursive" && i + 1 < argc) {
+            recursive_dir = argv[++i];
+        }
+        else if (arg == "--output" && i + 1 < argc) {
+            output_dir = argv[++i];
+        }
+        else if (arg == "--skip-existing") {
+            skip_existing = true;
         }
         else if (arg == "--threads" && i + 1 < argc) {
             try {
@@ -351,8 +624,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Validate
-    if (!UnifiedConfigParser::validate(config)) {
+    // Validate (but skip d3plot path validation in recursive mode)
+    if (recursive_dir.empty() && !UnifiedConfigParser::validate(config)) {
         std::cerr << "Invalid configuration: " << UnifiedConfigParser::getLastError() << "\n";
         return 1;
     }
@@ -371,6 +644,33 @@ int main(int argc, char* argv[]) {
         std::cout << "Using " << omp_get_max_threads() << " threads (auto)\n";
     }
 #endif
+
+    // ============================================================
+    // Recursive Mode
+    // ============================================================
+    if (!recursive_dir.empty()) {
+        fs::path root_path(recursive_dir);
+        if (!fs::exists(root_path) || !fs::is_directory(root_path)) {
+            std::cerr << "Invalid directory: " << recursive_dir << "\n";
+            return 1;
+        }
+
+        // Determine output directory
+        fs::path output_root;
+        if (!output_dir.empty()) {
+            output_root = output_dir;
+        } else {
+            // Default: analysis_results in current directory
+            output_root = fs::current_path() / "analysis_results";
+        }
+
+        return runRecursiveAnalysis(root_path, output_root, config, config_file,
+                                    analysis_only, skip_existing);
+    }
+
+    // ============================================================
+    // Single Analysis Mode
+    // ============================================================
 
     // Create output directory
     try {
@@ -419,9 +719,26 @@ int main(int argc, char* argv[]) {
 
     // Run rendering (if V4 Render is available and not analysis_only)
     if (!analysis_only && config.hasRenderJobs()) {
-        std::cout << "\n[NOTE] Render jobs require V4 Render with LSPrePost.\n";
-        std::cout << "Render jobs defined: " << config.render_jobs.size() << "\n";
-        // TODO: Integrate with V4 Render system
+        std::cout << "\n[RENDER] Processing " << config.render_jobs.size() << " render job(s)...\n";
+
+        // Open d3plot for render jobs
+        D3plotReader render_reader(config.d3plot_path);
+        auto error = render_reader.open();
+        if (error != ErrorCode::SUCCESS) {
+            std::cerr << "Failed to open d3plot for render jobs\n";
+        } else {
+            UnifiedAnalyzer render_analyzer;
+            bool render_success = render_analyzer.processRenderJobs(render_reader, config,
+                [](const std::string& msg) {
+                    std::cout << msg << "\n";
+                });
+
+            if (render_success) {
+                std::cout << "\n[RENDER] All render jobs completed successfully.\n";
+            } else {
+                std::cerr << "\n[RENDER] Some render jobs failed.\n";
+            }
+        }
     }
 
     return 0;
