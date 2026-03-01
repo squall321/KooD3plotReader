@@ -23,11 +23,12 @@ class _Encoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def _build_report_data(report: Report) -> dict:
+def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -> dict:
     """Build JSON-serializable data object for embedding in HTML."""
     data = {
         "project_name": report.project_name,
         "doe_strategy": report.doe_strategy,
+        "test_dir": test_dir,
         "total_runs": report.total_runs,
         "successful_runs": report.successful_runs,
         "failed_runs": report.failed_runs,
@@ -57,6 +58,15 @@ def _build_report_data(report: Report) -> dict:
     for pid, pi in report.part_info.items():
         data["parts"][str(pid)] = {"name": pi.part_name, "group": pi.group, "id": pid}
 
+    # Time series resolution: user-specified or adaptive based on dataset size
+    n_results = len(report.results)
+    if ts_points > 0:
+        ts_pts = ts_points
+    else:
+        ts_pts = 100 if n_results <= 50 else 30 if n_results <= 200 else 20
+    comp_pts = max(1, ts_pts // 2)  # XYZ components at half resolution
+    include_extras = n_results <= 200  # elem IDs, min values only for smaller datasets
+
     for sr in report.results:
         rd = {
             "folder": sr.run_folder,
@@ -66,6 +76,7 @@ def _build_report_data(report: Report) -> dict:
                 "pitch": sr.angle.pitch,
                 "yaw": sr.angle.yaw,
                 "category": sr.angle.category,
+                "swap": sr.angle.swap_axes,
             },
             "num_states": sr.num_states,
             "parts": {},
@@ -77,20 +88,19 @@ def _build_report_data(report: Report) -> dict:
                 "peak_g": round(pr.peak_g, 1),
                 "peak_disp": round(pr.peak_disp, 3),
             }
-            # Include downsampled time series for charts (every 10th point)
             if pr.stress and pr.stress.times:
-                step = max(1, len(pr.stress.times) // 100)
+                step = max(1, len(pr.stress.times) // ts_pts)
                 pd["stress_ts"] = {
                     "t": [round(pr.stress.times[i], 7) for i in range(0, len(pr.stress.times), step)],
                     "max": [round(pr.stress.max_values[i], 2) for i in range(0, len(pr.stress.max_values), step)],
                     "avg": [round(pr.stress.avg_values[i], 2) for i in range(0, len(pr.stress.avg_values), step)],
                 }
-                if pr.stress.min_values:
+                if include_extras and pr.stress.min_values:
                     pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], 2) for i in range(0, len(pr.stress.min_values), step)]
-                if pr.stress.max_element_ids:
+                if include_extras and pr.stress.max_element_ids:
                     pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in range(0, len(pr.stress.max_element_ids), step)]
             if pr.strain and pr.strain.times:
-                step = max(1, len(pr.strain.times) // 100)
+                step = max(1, len(pr.strain.times) // ts_pts)
                 pd["strain_ts"] = {
                     "t": [round(pr.strain.times[i], 7) for i in range(0, len(pr.strain.times), step)],
                     "max": [round(pr.strain.max_values[i], 6) for i in range(0, len(pr.strain.max_values), step)],
@@ -98,7 +108,7 @@ def _build_report_data(report: Report) -> dict:
                 if pr.strain.avg_values:
                     pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], 6) for i in range(0, len(pr.strain.avg_values), step)]
             if pr.motion and pr.motion.times:
-                step = max(1, len(pr.motion.times) // 100)
+                step = max(1, len(pr.motion.times) // ts_pts)
                 g_factor = 9810.0
                 pd["g_ts"] = {
                     "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
@@ -108,19 +118,18 @@ def _build_report_data(report: Report) -> dict:
                     "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
                     "mag": [round(pr.motion.avg_disp_mag[i], 3) for i in range(0, len(pr.motion.avg_disp_mag), step)],
                 }
-                # XYZ components at coarser downsample (50 points)
-                comp_step = max(1, len(pr.motion.times) // 50)
+                cs = max(1, len(pr.motion.times) // comp_pts)
                 pd["acc_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), comp_step)],
-                    "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_x), comp_step)],
-                    "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_y), comp_step)],
-                    "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_z), comp_step)],
+                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), cs)],
+                    "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_x), cs)],
+                    "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_y), cs)],
+                    "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_z), cs)],
                 }
                 pd["disp_comp_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), comp_step)],
-                    "x": [round(pr.motion.avg_disp_x[i], 2) for i in range(0, len(pr.motion.avg_disp_x), comp_step)],
-                    "y": [round(pr.motion.avg_disp_y[i], 2) for i in range(0, len(pr.motion.avg_disp_y), comp_step)],
-                    "z": [round(pr.motion.avg_disp_z[i], 2) for i in range(0, len(pr.motion.avg_disp_z), comp_step)],
+                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), cs)],
+                    "x": [round(pr.motion.avg_disp_x[i], 2) for i in range(0, len(pr.motion.avg_disp_x), cs)],
+                    "y": [round(pr.motion.avg_disp_y[i], 2) for i in range(0, len(pr.motion.avg_disp_y), cs)],
+                    "z": [round(pr.motion.avg_disp_z[i], 2) for i in range(0, len(pr.motion.avg_disp_z), cs)],
                 }
                 pd["peak_vel"] = round(max(abs(v) for v in pr.motion.avg_vel_mag) if pr.motion.avg_vel_mag else 0.0, 1)
             rd["parts"][str(pid)] = pd
@@ -221,6 +230,18 @@ svg text { font-family: inherit; }
 .dd-group-compare { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .dd-group-card { background: var(--bg3); border-radius: 6px; padding: 10px; }
 .dd-group-card.dd-self { border: 1px solid var(--cyan); }
+.re-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg3); border: 1px solid var(--dim); border-radius: 12px; padding: 2px 10px 2px 8px; font-size: 11px; color: var(--fg2); margin: 2px; }
+.re-chip .x { cursor: pointer; color: var(--dim); font-weight: bold; margin-left: 4px; }
+.re-chip .x:hover { color: var(--red); }
+.re-chip.selected { border-color: var(--cyan); color: var(--cyan); }
+.re-opt-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--fg2); }
+.re-opt-grid label { color: var(--dim); text-align: right; }
+.re-yaml-pre { background: #1a1b26; border: 1px solid var(--bg3); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; color: #9aa5ce; white-space: pre; overflow-x: auto; max-height: 400px; overflow-y: auto; line-height: 1.5; }
+.re-yaml-pre .yk { color: #7aa2f7; } .re-yaml-pre .yv { color: #9ece6a; } .re-yaml-pre .yc { color: #565f89; }
+.re-qbtn { background: var(--bg3); border: 1px solid var(--dim); border-radius: 4px; padding: 3px 10px; font-size: 11px; color: var(--fg2); cursor: pointer; }
+.re-qbtn:hover { border-color: var(--cyan); color: var(--cyan); }
+.re-mini-svg { cursor: crosshair; }
+.re-mini-svg circle.sel { stroke: var(--cyan); stroke-width: 2; }
 """
 
 _JS = r"""
@@ -439,6 +460,27 @@ const I18N = {
   caiArrestLikely: { en: 'Arrest Likely', ko: '정지 가능' },
   caiMarginal: { en: 'Marginal', ko: '한계' },
   caiArrestUnlikely: { en: 'Arrest Unlikely', ko: '정지 불가' },
+  // Render Export
+  reTitle: { en: 'Render Config Export', ko: '렌더 설정 내보내기' },
+  reAngleSelect: { en: 'Angle Selection', ko: '각도 선택' },
+  reOptions: { en: 'Render Options', ko: '렌더링 옵션' },
+  rePreview: { en: 'YAML Preview', ko: 'YAML 미리보기' },
+  reAxis: { en: 'Section Axis', ko: '단면 축' },
+  rePositions: { en: 'Section Positions', ko: '단면 위치' },
+  reFringe: { en: 'Contour Quantity', ko: '컨투어 물리량' },
+  rePartFilter: { en: 'Part Filter', ko: '부품 필터' },
+  reFormat: { en: 'Output Format', ko: '출력 형식' },
+  reResolution: { en: 'Resolution', ko: '해상도' },
+  reFPS: { en: 'FPS', ko: 'FPS' },
+  reDownload: { en: 'Download YAML', ko: 'YAML 다운로드' },
+  reCopy: { en: 'Copy to Clipboard', ko: '클립보드 복사' },
+  reSelected: { en: 'selected', ko: '개 선택됨' },
+  reTopStress: { en: 'Top 5 Stress', ko: '응력 상위5' },
+  reTopG: { en: 'Top 5 G', ko: 'G 상위5' },
+  reClear: { en: 'Clear', ko: '초기화' },
+  reRunGuide: { en: 'Run with:', ko: '실행 방법:' },
+  reRefPart: { en: 'Ref Part:', ko: '기준 부품:' },
+  reCustomPos: { en: 'Custom', ko: '커스텀' },
   caGuide: {
     en: '<b>Standard reference</b> — Crack arrest assessment follows concepts from BS 7910 (Guide to methods for assessing the acceptability of flaws in metallic structures), ASTM E1221 (Standard Test Method for K_Ia), and API 579-1/ASME FFS-1 (Fitness-For-Service). These standards define crack arrest toughness K_Ia and arrest criteria based on stress intensity vs. material resistance.<br><b>Stress Duration Ratio (w=30%)</b> — Fraction of event time where stress exceeds threshold. In crack mechanics, sustained tension keeps the crack open (Mode I). Short-duration pulses allow crack closure and arrest via compressive stress waves. Analogous to the concept of "arrest segment" in dynamic fracture mechanics where K_I drops below K_Ia.<br><b>Loading Rate (w=20%)</b> — dσ/dt at onset. Per ASTM E399/E1820, dynamic fracture toughness K_Id can be 30–70% lower than static K_Ic at high loading rates (>10⁶ MPa/s). Lower K_Id means cracks propagate more easily and arrest requires a larger toughness margin.<br><b>Stress Concentration (w=25%)</b> — σ_max/σ_avg ratio. The Irwin plastic zone size r_p ∝ (K/σ_y)². When SCF is high (localized stress), the plastic zone is small relative to the crack, reducing energy absorption and blunting. BS 7910 Annex M addresses stress concentration effects on flaw assessment.<br><b>Energy Dissipation (w=25%)</b> — Rate of post-peak stress decay. In dynamic fracture, the energy release rate G must exceed the material resistance R for crack propagation. Rapid stress decay means G drops quickly below R → arrest condition. Relates to the concept of crack arrest toughness where the running crack decelerates as the driving force diminishes.<br><b>Limitation</b> — CAI is a continuum-mechanics proxy. For rigorous crack arrest assessment per BS 7910 Level 3, explicit fracture mechanics modeling (CTOD, J-integral, K_I vs K_Ia curve) with actual crack geometry is required.',
     ko: '<b>참조 규격</b> — 균열 정지 평가는 BS 7910 (금속 구조물 결함 평가 지침), ASTM E1221 (K_Ia 시험법), API 579-1/ASME FFS-1 (적합성 평가)의 개념을 따릅니다. 이들 규격은 응력확대계수 대 재료 저항의 균열 정지 인성 K_Ia 및 정지 기준을 정의합니다.<br><b>응력 지속비 (w=30%)</b> — 임계 응력 초과 시간 비율. 균열역학에서 지속적 인장은 균열을 개방 상태로 유지(Mode I). 짧은 펄스는 압축 응력파에 의한 균열 닫힘과 정지를 허용합니다. 동적 파괴역학에서 K_I가 K_Ia 이하로 떨어지는 "정지 구간" 개념과 유사.<br><b>하중속도 (w=20%)</b> — 충격 시작 시 dσ/dt. ASTM E399/E1820에 따르면 동적 파괴인성 K_Id는 높은 하중속도(>10⁶ MPa/s)에서 정적 K_Ic의 30–70% 수준으로 저하. 낮은 K_Id는 균열 전파가 용이하여 정지에 더 큰 인성 여유가 필요.<br><b>응력 집중 (w=25%)</b> — σ_max/σ_avg 비율. Irwin 소성 영역 크기 r_p ∝ (K/σ_y)². SCF가 높으면(국부 응력) 균열 대비 소성 영역이 작아 에너지 흡수와 둔화 효과가 감소. BS 7910 부속서 M은 응력 집중이 결함 평가에 미치는 영향을 다룹니다.<br><b>에너지 소산 (w=25%)</b> — 피크 후 응력 감쇠 속도. 동적 파괴에서 에너지 해방률 G가 재료 저항 R을 초과해야 균열이 전파. 빠른 응력 감쇠는 G가 R 이하로 급감 → 정지 조건 성립. 구동력 감소에 따른 주행 균열 감속 개념과 관련.<br><b>한계</b> — CAI는 연속체 역학 프록시입니다. BS 7910 Level 3 수준의 엄밀한 평가에는 실제 균열 형상을 반영한 명시적 파괴역학 모델링(CTOD, J-적분, K_I vs K_Ia 곡선)이 필요합니다.'
@@ -450,7 +492,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -491,6 +533,7 @@ function renderTab(i) {
     case 8: renderImpactAnalysis(); break;
     case 9: renderPartDeepDive(); break;
     case 10: renderAdvancedAnalysis(); break;
+    case 11: renderRenderExport(); break;
   }
 }
 
@@ -631,6 +674,12 @@ function mollweideProject(lonDeg, latDeg) {
   return [x, y];
 }
 
+function mollweideXY(lonDeg, latDeg, cx, cy, rx, ry) {
+  const [x, y] = mollweideProject(lonDeg, latDeg);
+  const scale = rx / (2*Math.SQRT2);
+  return [cx + x*scale, cy - y*scale];
+}
+
 function mollweideInverse(x, y) {
   // Inverse Mollweide: pixel coords -> (lon, lat) in degrees
   const theta = Math.asin(Math.max(-1, Math.min(1, y / Math.SQRT2)));
@@ -680,7 +729,7 @@ function directionToLonLat(dir) {
   return [lon, Math.max(-85, Math.min(85, lat))];
 }
 
-function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName) {
+function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName, swap) {
   // Use angle name to determine exact impact direction for Mollweide projection
   // Name-based decoding produces correct cube geometry (faces/edges/corners)
   // Euler angles alone cannot produce true cube corner directions (math limitation)
@@ -690,17 +739,24 @@ function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName) {
       return directionToLonLat(dir);
     }
   }
-  // Fallback: impact = Rx(roll)*Ry(pitch)*Rz(yaw) * [0,0,-1] = [-sp, sr*cp, -cr*cp]
+  // Physical impact direction: Ry(pitch) * Rx(roll) * [0, 0, -1]
+  // This gives consistent mapping regardless of DOE generator convention:
+  //   roll → latitude (vertical), pitch → longitude (horizontal)
+  // Preserves fibonacci lattice uniformity (CoV ~3%)
+  if (mollweideState.swapRP) {
+    // User toggled swap: treat pitchDeg as roll, rollDeg as pitch
+    const tmp = rollDeg; rollDeg = pitchDeg; pitchDeg = tmp;
+  }
   const r = rollDeg * Math.PI / 180;
   const p = pitchDeg * Math.PI / 180;
-  const vx = -Math.sin(p);
-  const vy = Math.sin(r) * Math.cos(p);
-  const vz = -Math.cos(r) * Math.cos(p);
-  // Same mapping as directionToLonLat: lon=atan2(x,-z), lat=asin(y)
-  // Clamp lat to ±85 so poles stay visible inside the ellipse
-  // At poles (vx≈0,vz≈0), atan2(0,-0) gives ±180; force lon=0
-  const lon = (Math.abs(vx) < 1e-10 && Math.abs(vz) < 1e-10) ? 0 : Math.atan2(vx, -vz) * 180 / Math.PI;
-  const lat = Math.asin(Math.max(-1, Math.min(1, vy))) * 180 / Math.PI;
+  // Rx(roll) * [0, 0, -1]
+  const x1 = 0, y1 = Math.sin(r), z1 = -Math.cos(r);
+  // Ry(pitch) * above
+  const x2 = x1 * Math.cos(p) + z1 * Math.sin(p);
+  const y2 = y1;
+  const z2 = -x1 * Math.sin(p) + z1 * Math.cos(p);
+  const lon = Math.atan2(x2, -z2) * 180 / Math.PI;
+  const lat = Math.asin(Math.max(-1, Math.min(1, y2))) * 180 / Math.PI;
   return [lon, Math.max(-85, Math.min(85, lat))];
 }
 
@@ -718,11 +774,12 @@ function getAllPartIds() {
   return Object.keys(DATA.parts).map(Number).sort((a,b)=>a-b);
 }
 
-let mollweideState = { quantity: 'peak_stress', partId: 0, hoveredAngle: null, viewMode: 'contour' };
+let mollweideState = { quantity: 'peak_stress', partId: 0, hoveredAngle: null, viewMode: 'contour', showPoints: true, manualScale: false, scaleMin: 0, scaleMax: 0, swapRP: false };
 let globeState = {
   viewLon: 0, viewLat: 0, targetLon: 0, targetLat: 0,
   rotating: false, animStart: 0, startLon: 0, startLat: 0,
-  canvas: null, ctx: null, dataPoints: [], hoveredRi: -1
+  canvas: null, ctx: null, dataPoints: [], hoveredRi: -1,
+  recording: false
 };
 
 function projectGlobe(lon, lat, vLon, vLat, R) {
@@ -754,15 +811,20 @@ function updateGlobeData() {
     const r = DATA.results[ri], pd = r.parts[pid];
     const v = getQtyValue(pd, qty);
     if (v < vmin) vmin = v; if (v > vmax) vmax = v;
-    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
     pts.push({ lon, lat, v, ri });
+  }
+  if (mollweideState.manualScale && mollweideState.scaleMax > mollweideState.scaleMin) {
+    vmin = mollweideState.scaleMin;
+    vmax = mollweideState.scaleMax;
   }
   const vrange = vmax - vmin || 1;
   const invertColor = qty === 'safety_factor';
-  globeState.dataPoints = pts.map(p => ({
-    lon: p.lon, lat: p.lat, ri: p.ri,
-    rgb: valueToColorRGB(invertColor ? 1 - (p.v - vmin) / vrange : (p.v - vmin) / vrange)
-  }));
+  globeState.dataPoints = pts.map(p => {
+    const norm = Math.max(0, Math.min(1, (p.v - vmin) / vrange));
+    return { lon: p.lon, lat: p.lat, ri: p.ri,
+      rgb: valueToColorRGB(invertColor ? 1 - norm : norm) };
+  });
 }
 
 function renderGlobe() {
@@ -797,28 +859,34 @@ function renderGlobe() {
   }
 
   // Data points sorted back-to-front
-  const proj = globeState.dataPoints.map(pt => {
-    const p = projectGlobe(pt.lon, pt.lat, vLon, vLat, R);
-    return { x: p.x, y: p.y, z: p.z, rgb: pt.rgb, ri: pt.ri };
-  }).sort((a,b) => a.z - b.z);
+  if (mollweideState.showPoints) {
+    const proj = globeState.dataPoints.map(pt => {
+      const p = projectGlobe(pt.lon, pt.lat, vLon, vLat, R);
+      return { x: p.x, y: p.y, z: p.z, rgb: pt.rgb, ri: pt.ri };
+    }).sort((a,b) => a.z - b.z);
 
-  for (const pt of proj) {
-    const sx = cx+pt.x, sy = cy-pt.y;
-    const isHovered = pt.ri === globeState.hoveredRi;
-    if (pt.z > 0) {
-      const r = isHovered ? 7 : 4;
-      ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2*Math.PI);
-      ctx.fillStyle = `rgb(${pt.rgb[0]},${pt.rgb[1]},${pt.rgb[2]})`;
-      ctx.fill();
-      ctx.strokeStyle = isHovered ? '#fff' : 'rgba(255,255,255,0.25)';
-      ctx.lineWidth = isHovered ? 2 : 0.8;
-      ctx.stroke();
-    } else {
-      const r = isHovered ? 4 : 2.5;
-      ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2*Math.PI);
-      const d = pt.rgb.map(c => Math.floor(c*0.25));
-      ctx.fillStyle = `rgb(${d[0]},${d[1]},${d[2]})`;
-      ctx.fill();
+    const nPts = proj.length;
+    const gBaseR = nPts > 500 ? 2 : nPts > 200 ? 3 : 4;
+    const gHoverR = gBaseR + 3;
+    const gBackR = nPts > 500 ? 1.5 : 2.5;
+    for (const pt of proj) {
+      const sx = cx+pt.x, sy = cy-pt.y;
+      const isHovered = pt.ri === globeState.hoveredRi;
+      if (pt.z > 0) {
+        const r = isHovered ? gHoverR : gBaseR;
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2*Math.PI);
+        ctx.fillStyle = `rgb(${pt.rgb[0]},${pt.rgb[1]},${pt.rgb[2]})`;
+        ctx.fill();
+        ctx.strokeStyle = isHovered ? '#fff' : 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = isHovered ? 2 : 0.8;
+        ctx.stroke();
+      } else {
+        const r = isHovered ? gBackR + 1.5 : gBackR;
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2*Math.PI);
+        const d = pt.rgb.map(c => Math.floor(c*0.25));
+        ctx.fillStyle = `rgb(${d[0]},${d[1]},${d[2]})`;
+        ctx.fill();
+      }
     }
   }
 
@@ -851,6 +919,144 @@ function animGlobe(ts) {
   else globeState.rotating = false;
 }
 
+// High-resolution globe rendering for recording
+function renderGlobeHR(ctx, W, vLon, vLat) {
+  const cx = W/2, cy = W/2, R = W*0.46;
+  ctx.fillStyle = '#1a1b26';
+  ctx.fillRect(0, 0, W, W);
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1;
+  for (let lon = -180; lon <= 150; lon += 30) {
+    ctx.beginPath(); let first = true;
+    for (let lat = -90; lat <= 90; lat += 2) {
+      const p = projectGlobe(lon, lat, vLon, vLat, R);
+      if (p.z > 0) { const sx=cx+p.x, sy=cy-p.y; first ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy); first=false; }
+      else if (!first) { ctx.stroke(); ctx.beginPath(); first=true; }
+    }
+    if (!first) ctx.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    ctx.beginPath(); let first = true;
+    for (let lon = -180; lon <= 180; lon += 2) {
+      const p = projectGlobe(lon, lat, vLon, vLat, R);
+      if (p.z > 0) { const sx=cx+p.x, sy=cy-p.y; first ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy); first=false; }
+      else if (!first) { ctx.stroke(); ctx.beginPath(); first=true; }
+    }
+    if (!first) ctx.stroke();
+  }
+  // Data points
+  if (mollweideState.showPoints) {
+    const proj = globeState.dataPoints.map(pt => {
+      const p = projectGlobe(pt.lon, pt.lat, vLon, vLat, R);
+      return { x: p.x, y: p.y, z: p.z, rgb: pt.rgb };
+    }).sort((a,b) => a.z - b.z);
+    const nPts = proj.length;
+    const gR = nPts > 500 ? W/125 : nPts > 200 ? W/83 : W/62;
+    const gBackR = nPts > 500 ? W/166 : W/100;
+    for (const pt of proj) {
+      const sx = cx+pt.x, sy = cy-pt.y;
+      if (pt.z > 0) {
+        ctx.beginPath(); ctx.arc(sx, sy, gR, 0, 2*Math.PI);
+        ctx.fillStyle = `rgb(${pt.rgb[0]},${pt.rgb[1]},${pt.rgb[2]})`;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = W/250;
+        ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(sx, sy, gBackR, 0, 2*Math.PI);
+        const d = pt.rgb.map(c => Math.floor(c*0.25));
+        ctx.fillStyle = `rgb(${d[0]},${d[1]},${d[2]})`;
+        ctx.fill();
+      }
+    }
+  }
+  // Outline
+  ctx.strokeStyle = '#7982a9';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2*Math.PI); ctx.stroke();
+  // Quantity & part label
+  const qty = mollweideState.quantity;
+  const qLbl = qty==='peak_stress'?'Von Mises (MPa)':qty==='peak_strain'?'Eff. Plastic Strain':qty==='peak_g'?'Peak G (MG)':qty==='peak_disp'?'Disp (mm)':qty==='peak_vel'?'Vel (mm/s)':'Safety Factor';
+  const pName = DATA.parts[String(mollweideState.partId)]?.name || '';
+  ctx.fillStyle = '#c0caf5'; ctx.font = `${W/25}px sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText(pName + ' - ' + qLbl, cx, W - W/30);
+}
+
+function recordGlobe() {
+  const btn = document.getElementById('btn-rec-globe');
+  if (!btn) return;
+  if (globeState.recording) {
+    globeState.recording = false;
+    btn.textContent = 'Rec';
+    btn.style.background = '#24283b';
+    btn.style.color = '#565f89';
+    return;
+  }
+  const W = 600;
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = W; offCanvas.height = W;
+  const ctx = offCanvas.getContext('2d');
+  const stream = offCanvas.captureStream(30);
+  const chunks = [];
+  // Prefer MP4 (H.264) for PPT compatibility, fallback to WebM
+  let mimeType = 'video/webm';
+  let fileExt = 'webm';
+  const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4;codecs=h264', 'video/mp4'];
+  for (const mt of mp4Types) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mt)) {
+      mimeType = mt; fileExt = 'mp4'; break;
+    }
+  }
+  if (fileExt === 'webm') {
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) mimeType = 'video/webm;codecs=vp9';
+  }
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (DATA.project_name || 'globe') + '_globe_360.' + fileExt;
+    a.click();
+    URL.revokeObjectURL(url);
+    btn.textContent = 'Rec';
+    btn.style.background = '#24283b';
+    btn.style.color = '#565f89';
+    if (fileExt === 'webm') {
+      alert('WebM format saved.\\nPPT uses MP4 — convert with:\\nffmpeg -i input.webm -c:v libx264 -pix_fmt yuv420p output.mp4');
+    }
+  };
+
+  btn.textContent = 'Stop';
+  btn.style.background = '#7f1d1d';
+  btn.style.color = '#fca5a5';
+  globeState.recording = true;
+  recorder.start();
+
+  const startLon = globeState.viewLon;
+  const fixedLat = globeState.viewLat;
+  const totalFrames = 360;  // 360 frames = 12s at 30fps
+  let frame = 0;
+
+  function tick() {
+    if (!globeState.recording || frame >= totalFrames) {
+      globeState.recording = false;
+      recorder.stop();
+      return;
+    }
+    const lon = startLon + (frame / totalFrames) * 360;
+    renderGlobeHR(ctx, W, lon, fixedLat);
+    // Also update the small globe preview
+    globeState.viewLon = lon;
+    renderGlobe();
+    frame++;
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
 function renderMollweide() {
   const container = document.getElementById('mollweide-content');
   if (!container) return;
@@ -879,6 +1085,19 @@ function renderMollweide() {
       <button id="btn-contour" class="${mollweideState.viewMode==='contour'?'active':''}" onclick="mollweideState.viewMode='contour';drawMollweideAll()">Contour</button>
       <button id="btn-points" class="${mollweideState.viewMode==='points'?'active':''}" onclick="mollweideState.viewMode='points';drawMollweideAll()">Data Points</button>
     </div>
+    <label style="margin-left:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="moll-show-pts" ${mollweideState.showPoints?'checked':''} onchange="mollweideState.showPoints=this.checked;drawMollweideAll()"> Markers
+    </label>
+    <span style="margin-left:16px;border-left:1px solid #3b3d57;padding-left:12px;display:inline-flex;align-items:center;gap:6px;">
+      <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;">
+        <input type="checkbox" id="moll-manual-scale" ${mollweideState.manualScale?'checked':''} onchange="mollweideState.manualScale=this.checked;if(!this.checked){drawMollweideAll();}"> Scale:
+      </label>
+      <input type="number" id="moll-scale-min" style="width:72px;background:#1a1b26;color:#c0caf5;border:1px solid #3b3d57;border-radius:3px;padding:2px 4px;font-size:11px;" placeholder="Min" step="any" onchange="mollweideState.scaleMin=parseFloat(this.value)||0">
+      <span style="color:#565f89">~</span>
+      <input type="number" id="moll-scale-max" style="width:72px;background:#1a1b26;color:#c0caf5;border:1px solid #3b3d57;border-radius:3px;padding:2px 4px;font-size:11px;" placeholder="Max" step="any" onchange="mollweideState.scaleMax=parseFloat(this.value)||0">
+      <button style="padding:2px 8px;font-size:11px;background:#24283b;color:#7aa2f7;border:1px solid #3b3d57;border-radius:3px;cursor:pointer;" onclick="mollweideState.manualScale=true;document.getElementById('moll-manual-scale').checked=true;mollweideState.scaleMin=parseFloat(document.getElementById('moll-scale-min').value)||0;mollweideState.scaleMax=parseFloat(document.getElementById('moll-scale-max').value)||0;drawMollweideAll()">Apply</button>
+    </span>
+    <button id="btn-swap-rp" style="margin-left:12px;padding:2px 8px;font-size:11px;background:${mollweideState.swapRP?'#364a82':'#24283b'};color:${mollweideState.swapRP?'#7dcfff':'#565f89'};border:1px solid #3b3d57;border-radius:3px;cursor:pointer;" onclick="mollweideState.swapRP=!mollweideState.swapRP;drawMollweideAll();renderMollweide();" title="Swap Roll and Pitch axes (use when DOE generator uses opposite convention)">Swap R/P</button>
   </div>`;
 
   container.innerHTML = controlsHtml +
@@ -888,8 +1107,9 @@ function renderMollweide() {
       <div id="moll-risk-table" style="max-height:500px;overflow-y:auto;"></div>
     </div>
     <div id="moll-sidebar" style="position:fixed;right:max(24px, calc((100vw - 1600px)/2 + 24px));top:120px;width:260px;z-index:10;">
-      <div class="globe-container">
+      <div class="globe-container" style="position:relative;">
         <canvas id="globe-canvas" class="globe-canvas" width="250" height="250"></canvas>
+        <button id="btn-rec-globe" onclick="recordGlobe()" style="position:absolute;top:4px;right:4px;padding:2px 8px;font-size:10px;background:#24283b;color:#565f89;border:1px solid #3b3d57;border-radius:3px;cursor:pointer;" title="Record 360° rotation (WebM)">Rec</button>
       </div>
       <div id="moll-3d" class="device-3d"></div>
       <div id="moll-info" class="panel" style="width:240px;font-size:12px;margin-top:8px;"></div>
@@ -979,9 +1199,14 @@ function drawMollweideContour() {
     const v = getQtyValue(pd, qty);
     vmin = Math.min(vmin, v);
     vmax = Math.max(vmax, v);
-    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
     const [mx, my] = mollweideProject(lon, lat);
     dataPoints.push({ mx, my, lon, lat, v, ri });
+  }
+  // Apply manual scale if enabled
+  if (mollweideState.manualScale && mollweideState.scaleMax > mollweideState.scaleMin) {
+    vmin = mollweideState.scaleMin;
+    vmax = mollweideState.scaleMax;
   }
   const vrange = vmax - vmin || 1;
   const invertContour = qty === 'safety_factor';
@@ -1009,7 +1234,7 @@ function drawMollweideContour() {
         wsum += w;
         vsum += w * dp.v;
       }
-      gridVals[gy * gW + gx] = wsum > 0 ? (vsum / wsum - vmin) / vrange : 0;
+      gridVals[gy * gW + gx] = wsum > 0 ? Math.max(0, Math.min(1, (vsum / wsum - vmin) / vrange)) : 0;
     }
   }
 
@@ -1068,17 +1293,22 @@ function drawMollweideContour() {
   ctx.strokeStyle = '#a9b1d6'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 2*Math.PI); ctx.stroke();
 
-  // Data point markers (clipped to ellipse)
-  ctx.save();
-  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 2*Math.PI); ctx.clip();
-  for (const dp of dataPoints) {
-    const sx = cx + dp.mx*scale, sy = cy - dp.my*scale;
-    ctx.beginPath(); ctx.arc(sx, sy, 5, 0, 2*Math.PI);
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.beginPath(); ctx.arc(sx, sy, 2, 0, 2*Math.PI);
-    ctx.fillStyle = '#ffffff'; ctx.fill();
+  // Data point markers (clipped to ellipse) - togglable
+  if (mollweideState.showPoints) {
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 2*Math.PI); ctx.clip();
+    const n = dataPoints.length;
+    const mrkR = n > 500 ? 2 : n > 200 ? 3 : 5;
+    const dotR = n > 500 ? 1 : n > 200 ? 1.5 : 2;
+    for (const dp of dataPoints) {
+      const sx = cx + dp.mx*scale, sy = cy - dp.my*scale;
+      ctx.beginPath(); ctx.arc(sx, sy, mrkR, 0, 2*Math.PI);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = n > 500 ? 0.8 : 1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(sx, sy, dotR, 0, 2*Math.PI);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   const dataUrl = offCanvas.toDataURL();
 
@@ -1142,8 +1372,12 @@ function drawMollweidePoints() {
     const pd = r.parts[pid];
     if (pd) vals.push(getQtyValue(pd, qty));
   }
-  const vmin = Math.min(...vals);
-  const vmax = Math.max(...vals);
+  let vmin = Math.min(...vals);
+  let vmax = Math.max(...vals);
+  if (mollweideState.manualScale && mollweideState.scaleMax > mollweideState.scaleMin) {
+    vmin = mollweideState.scaleMin;
+    vmax = mollweideState.scaleMax;
+  }
   const vrange = vmax - vmin || 1;
 
   let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
@@ -1176,12 +1410,14 @@ function drawMollweidePoints() {
     const r = DATA.results[ri];
     const pd = r.parts[pid];
     const v = getQtyValue(pd, qty);
-    const norm = (v - vmin) / vrange;
+    const norm = Math.max(0, Math.min(1, (v - vmin) / vrange));
     const color = valueToColor(norm);
-    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
     const [x, y] = mollweideProject(lon, lat);
     const sx = cx + x*scale, sy = cy - y*scale;
-    const radius = 8 + norm * 8;
+    const n = DATA.results.length;
+    const baseR = n > 500 ? 2 : n > 200 ? 4 : n > 50 ? 6 : 8;
+    const radius = baseR + norm * baseR;
     svg += `<circle class="heatmap-cell" cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" data-ri="${ri}"
       onmouseenter="onMollHover(${ri})" onmouseleave="onMollLeave()"/>`;
   }
@@ -1301,7 +1537,7 @@ function onMollHover(ri) {
   mollweideState.hoveredAngle = ri;
   const r = DATA.results[ri];
   update3DDevice(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
-  const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+  const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
   globeState.hoveredRi = ri;
   rotateGlobeTo(lon, lat);
   updateMollInfo(ri);
@@ -1557,7 +1793,7 @@ function renderTimeHistory() {
     // Unselected dots first (below), then selected on top
     DATA.results.forEach((r, i) => {
       if (timeHistState.selectedAngles.includes(i)) return;
-      const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+      const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
       const [px, py] = mollweideProject(lon, lat);
       msvg += `<circle cx="${(mcx+px*msc).toFixed(1)}" cy="${(mcy-py*msc).toFixed(1)}" r="6" fill="#7982a9" opacity="0.5" style="cursor:pointer" `
         + `onclick="(function(){if(timeHistState.selectedAngles.length<8){timeHistState.selectedAngles.push(${i});renderTimeHistory();}})()"><title>${r.angle.name}</title></circle>`;
@@ -1565,7 +1801,7 @@ function renderTimeHistory() {
     timeHistState.selectedAngles.forEach((ri, ci) => {
       const r = DATA.results[ri];
       if (!r) return;
-      const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+      const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
       const [px, py] = mollweideProject(lon, lat);
       const col = thColors[ci % thColors.length];
       msvg += `<circle cx="${(mcx+px*msc).toFixed(1)}" cy="${(mcy-py*msc).toFixed(1)}" r="9" fill="${col}" stroke="white" stroke-width="1.5" style="cursor:pointer" `
@@ -3702,12 +3938,287 @@ function renderAdvancedAnalysis() {
 
   container.innerHTML = html;
 }
+
+// ============ Tab 11: Render Export ============
+let reState = {
+  selectedRis: [],        // selected result indices
+  refPartId: 0,           // reference part for quick-select ranking
+  axis: 'z',
+  positions: ['center'],
+  customPos: '',
+  fringe: 'von_mises',
+  partPattern: 'PKG*',
+  format: 'mp4',
+  fps: 30,
+  resolution: [1920, 1080]
+};
+
+function reToggleAngle(ri) {
+  const idx = reState.selectedRis.indexOf(ri);
+  if (idx >= 0) reState.selectedRis.splice(idx, 1);
+  else reState.selectedRis.push(ri);
+  renderRenderExport();
+}
+
+function reQuickSelect(mode) {
+  const pid = String(reState.refPartId);
+  if (mode === 'clear') { reState.selectedRis = []; renderRenderExport(); return; }
+  const scored = [];
+  for (let ri = 0; ri < DATA.results.length; ri++) {
+    const pd = DATA.results[ri].parts[pid];
+    if (!pd) continue;
+    if (mode === 'stress') scored.push({ ri, val: pd.peak_stress });
+    else if (mode === 'g') scored.push({ ri, val: pd.peak_g });
+  }
+  scored.sort((a, b) => b.val - a.val);
+  reState.selectedRis = scored.slice(0, 5).map(s => s.ri);
+  renderRenderExport();
+}
+
+function reGenerateYAML() {
+  const ko = reportLang === 'ko';
+  const now = new Date().toISOString().slice(0, 19);
+  const testDir = DATA.test_dir || '/path/to/test_dir';
+  const lines = [];
+  lines.push(`# Auto-generated by KooReport Render Export`);
+  lines.push(`# Test: ${DATA.project_name}`);
+  lines.push(`# Generated: ${now}`);
+  lines.push(`# Angles: ${reState.selectedRis.length}`);
+  lines.push(`version: "2.0"`);
+  lines.push(``);
+  lines.push(`performance:`);
+  lines.push(`  lsprepost_path: "${testDir}/../../installed/lsprepost/lsprepost"`);
+  lines.push(``);
+
+  // Collect all positions
+  const allPos = [...reState.positions];
+  if (reState.customPos.trim()) {
+    reState.customPos.split(',').forEach(p => {
+      const t = p.trim();
+      if (t) allPos.push(t);
+    });
+  }
+
+  if (reState.selectedRis.length > 0) {
+    lines.push(`render_jobs:`);
+    for (const ri of reState.selectedRis) {
+      const r = DATA.results[ri];
+      if (!r) continue;
+      const name = (r.angle.name || `angle_${ri}`).replace(/[^a-zA-Z0-9_]/g, '_');
+      const folder = r.folder || `Run_${ri}`;
+      const d3path = `${testDir}/output/${folder}/d3plot`;
+      lines.push(`  - name: "${name}_${reState.axis}_section"`);
+      lines.push(`    type: section_view`);
+      lines.push(`    input: "${d3path}"`);
+      lines.push(`    fringe: ${reState.fringe}`);
+      if (reState.partPattern.trim()) {
+        lines.push(`    part_pattern: "${reState.partPattern}"`);
+      }
+      if (allPos.length === 1) {
+        lines.push(`    section:`);
+        lines.push(`      axis: ${reState.axis}`);
+        lines.push(`      position: ${allPos[0]}`);
+      } else {
+        lines.push(`    sections:`);
+        for (const pos of allPos) {
+          lines.push(`      - axis: ${reState.axis}`);
+          lines.push(`        position: ${pos}`);
+        }
+      }
+      lines.push(`    output:`);
+      lines.push(`      format: ${reState.format}`);
+      lines.push(`      directory: "./renders"`);
+      if (reState.format !== 'png') {
+        lines.push(`      fps: ${reState.fps}`);
+      }
+      lines.push(`      resolution: [${reState.resolution[0]}, ${reState.resolution[1]}]`);
+      lines.push(``);
+    }
+  }
+  return lines.join('\n');
+}
+
+function reSyntaxHL(yaml) {
+  return yaml.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^(#.*)$/gm, '<span class="yc">$1</span>')
+    .replace(/^(\s*[\w_]+):/gm, '<span class="yk">$1</span>:')
+    .replace(/: "([^"]*)"/g, ': "<span class="yv">$1</span>"')
+    .replace(/: (\d[\d.]*)/g, ': <span class="yv">$1</span>')
+    .replace(/: (true|false|null)/g, ': <span class="yv">$1</span>');
+}
+
+function reDownloadYAML() {
+  const yaml = reGenerateYAML();
+  const blob = new Blob([yaml], { type: 'text/yaml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `render_config_${DATA.project_name.replace(/[^a-zA-Z0-9]/g,'_')}.yaml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function reCopyYAML() {
+  navigator.clipboard.writeText(reGenerateYAML()).then(() => {
+    const btn = document.getElementById('re-copy-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = L('reCopy'), 1500); }
+  });
+}
+
+function reDrawMiniMollweide() {
+  const W = 500, H = 250;
+  const cx = W/2, cy = H/2, rx = W/2 - 10, ry = H/2 - 10;
+  const pid = String(reState.refPartId);
+  const vals = [];
+  for (const r of DATA.results) {
+    const pd = r.parts[pid];
+    vals.push(pd ? pd.peak_stress : 0);
+  }
+  const vmax = Math.max(...vals, 1);
+  let svg = `<svg class="re-mini-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  // Background ellipse
+  svg += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="var(--bg3)" stroke="var(--dim)" stroke-width="0.5"/>`;
+  // Grid lines
+  for (let lon = -150; lon <= 150; lon += 30) {
+    let path = '';
+    for (let lat = -85; lat <= 85; lat += 5) {
+      const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+      path += (lat === -85 ? 'M' : 'L') + mx.toFixed(1) + ',' + my.toFixed(1);
+    }
+    svg += `<path d="${path}" fill="none" stroke="var(--bg)" stroke-width="0.3"/>`;
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    let path = '';
+    for (let lon = -180; lon <= 180; lon += 5) {
+      const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+      path += (lon === -180 ? 'M' : 'L') + mx.toFixed(1) + ',' + my.toFixed(1);
+    }
+    svg += `<path d="${path}" fill="none" stroke="var(--bg)" stroke-width="0.3"/>`;
+  }
+  // Data points
+  const ptR = DATA.results.length > 200 ? 3 : DATA.results.length > 50 ? 4 : 5;
+  for (let ri = 0; ri < DATA.results.length; ri++) {
+    const r = DATA.results[ri];
+    const swap = r.angle.swap;
+    const [lon, lat] = typeof eulerToLonLat === 'function'
+      ? eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, swap)
+      : [0, 0];
+    const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+    const norm = vals[ri] / vmax;
+    const color = typeof valueToColor === 'function' ? valueToColor(norm) : `hsl(${(1-norm)*240},80%,50%)`;
+    const isSel = reState.selectedRis.includes(ri);
+    svg += `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${isSel ? ptR+2 : ptR}" fill="${color}" opacity="${isSel ? 1 : 0.7}" class="${isSel ? 'sel' : ''}" style="cursor:pointer" onclick="reToggleAngle(${ri})"><title>${r.angle.name}: ${vals[ri].toFixed(1)} MPa</title></circle>`;
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+function renderRenderExport() {
+  const container = document.getElementById('render-export-content');
+  if (!container) return;
+  const ko = reportLang === 'ko';
+  const parts = getAllPartIds();
+  if (reState.refPartId === 0 && parts.length > 0) reState.refPartId = parts[0];
+
+  let html = `<div class="panel"><h2>${L('reTitle')}</h2>`;
+
+  // --- Panel 1: Angle Selection ---
+  html += `<div class="panel" style="margin-bottom:12px"><h3>${L('reAngleSelect')} (${reState.selectedRis.length} ${L('reSelected')})</h3>`;
+  // Reference part + quick buttons
+  html += `<div class="controls" style="margin-bottom:8px">`;
+  html += `<label>${L('reRefPart')}</label> <select onchange="reState.refPartId=parseInt(this.value);renderRenderExport()">`;
+  for (const pid of parts) {
+    const p = DATA.parts[String(pid)];
+    html += `<option value="${pid}"${pid===reState.refPartId?' selected':''}>${p?p.name:''} (${pid})</option>`;
+  }
+  html += `</select> `;
+  html += `<button class="re-qbtn" onclick="reQuickSelect('stress')">${L('reTopStress')}</button> `;
+  html += `<button class="re-qbtn" onclick="reQuickSelect('g')">${L('reTopG')}</button> `;
+  html += `<button class="re-qbtn" onclick="reQuickSelect('clear')">${L('reClear')}</button>`;
+  html += `</div>`;
+  // Mini mollweide
+  html += `<div style="overflow-x:auto">${reDrawMiniMollweide()}</div>`;
+  // Selected chips
+  if (reState.selectedRis.length > 0) {
+    html += `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:2px">`;
+    for (const ri of reState.selectedRis) {
+      const r = DATA.results[ri];
+      html += `<span class="re-chip selected">${r?r.angle.name:'?'}<span class="x" onclick="reToggleAngle(${ri})">x</span></span>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // --- Panel 2: Options ---
+  html += `<div class="panel" style="margin-bottom:12px"><h3>${L('reOptions')}</h3>`;
+  html += `<div class="re-opt-grid">`;
+  // Axis
+  html += `<label>${L('reAxis')}</label><div>`;
+  for (const a of ['x','y','z']) {
+    html += `<label style="margin-right:12px;cursor:pointer"><input type="radio" name="re-axis" value="${a}" ${reState.axis===a?'checked':''} onchange="reState.axis=this.value;renderRenderExport()"> ${a.toUpperCase()}</label>`;
+  }
+  html += `</div>`;
+  // Positions
+  const posOpts = ['center','25%','50%','75%','min','max'];
+  html += `<label>${L('rePositions')}</label><div>`;
+  for (const p of posOpts) {
+    const ck = reState.positions.includes(p);
+    html += `<label style="margin-right:10px;cursor:pointer"><input type="checkbox" ${ck?'checked':''} onchange="if(this.checked){if(!reState.positions.includes('${p}'))reState.positions.push('${p}')}else{reState.positions=reState.positions.filter(x=>x!=='${p}')};renderRenderExport()"> ${p}</label>`;
+  }
+  html += `</div>`;
+  // Custom position
+  html += `<label>${L('reCustomPos')}</label><div><input type="text" value="${reState.customPos}" placeholder="30%, 60%" style="width:160px;background:var(--bg);color:var(--fg2);border:1px solid var(--dim);border-radius:3px;padding:2px 6px;font-size:11px" onchange="reState.customPos=this.value;renderRenderExport()"></div>`;
+  // Fringe
+  const fringeOpts = [
+    ['von_mises','Von Mises Stress'],['eff_plastic_strain','Eff. Plastic Strain'],
+    ['displacement','Displacement'],['velocity','Velocity'],['acceleration','Acceleration'],
+    ['stress_xx','Stress XX'],['stress_yy','Stress YY'],['stress_zz','Stress ZZ'],
+    ['principal_stress_1','Principal Stress 1'],['max_shear_stress','Max Shear']
+  ];
+  html += `<label>${L('reFringe')}</label><div><select onchange="reState.fringe=this.value;renderRenderExport()" style="background:var(--bg);color:var(--fg2);border:1px solid var(--dim);border-radius:3px;padding:2px 6px;font-size:11px">`;
+  for (const [v,l] of fringeOpts) html += `<option value="${v}"${reState.fringe===v?' selected':''}>${l}</option>`;
+  html += `</select></div>`;
+  // Part pattern
+  html += `<label>${L('rePartFilter')}</label><div><input type="text" value="${reState.partPattern}" style="width:120px;background:var(--bg);color:var(--fg2);border:1px solid var(--dim);border-radius:3px;padding:2px 6px;font-size:11px" onchange="reState.partPattern=this.value;renderRenderExport()"></div>`;
+  // Format
+  html += `<label>${L('reFormat')}</label><div>`;
+  for (const f of ['mp4','png','gif']) {
+    html += `<label style="margin-right:12px;cursor:pointer"><input type="radio" name="re-fmt" value="${f}" ${reState.format===f?'checked':''} onchange="reState.format=this.value;renderRenderExport()"> ${f.toUpperCase()}</label>`;
+  }
+  html += `</div>`;
+  // Resolution
+  const resOpts = [[1920,1080,'1920x1080'],[1280,720,'1280x720'],[3840,2160,'4K']];
+  html += `<label>${L('reResolution')}</label><div><select onchange="reState.resolution=this.value.split(',').map(Number);renderRenderExport()" style="background:var(--bg);color:var(--fg2);border:1px solid var(--dim);border-radius:3px;padding:2px 6px;font-size:11px">`;
+  for (const [w,h,l] of resOpts) html += `<option value="${w},${h}"${reState.resolution[0]===w?' selected':''}>${l}</option>`;
+  html += `</select></div>`;
+  // FPS
+  html += `<label>${L('reFPS')}</label><div><input type="number" value="${reState.fps}" min="1" max="60" style="width:60px;background:var(--bg);color:var(--fg2);border:1px solid var(--dim);border-radius:3px;padding:2px 6px;font-size:11px" onchange="reState.fps=parseInt(this.value)||30;renderRenderExport()"></div>`;
+  html += `</div></div>`;
+
+  // --- Panel 3: YAML Preview + Download ---
+  html += `<div class="panel"><h3>${L('rePreview')}</h3>`;
+  const yaml = reGenerateYAML();
+  html += `<div class="re-yaml-pre">${reSyntaxHL(yaml)}</div>`;
+  html += `<div style="margin-top:10px;display:flex;gap:8px;align-items:center">`;
+  html += `<button class="re-qbtn" style="background:var(--cyan);color:#1a1b26;font-weight:bold;border-color:var(--cyan)" onclick="reDownloadYAML()">${L('reDownload')}</button>`;
+  html += `<button class="re-qbtn" id="re-copy-btn" onclick="reCopyYAML()">${L('reCopy')}</button>`;
+  html += `</div>`;
+  // Run guide
+  html += `<div style="margin-top:12px;padding:8px 12px;background:var(--bg);border-radius:4px;font-size:11px;color:var(--dim)">`;
+  html += `<div style="color:var(--fg2);margin-bottom:4px">${L('reRunGuide')}</div>`;
+  html += `<code style="color:var(--cyan)">analyze_and_report ${DATA.test_dir || '/path/to/test'} --render-config render_config.yaml</code>`;
+  html += `</div>`;
+  html += `</div>`;
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
 """
 
 
-def generate_html(report: Report, path: str) -> None:
+def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str = "") -> None:
     """Generate standalone interactive HTML report."""
-    data = _build_report_data(report)
+    data = _build_report_data(report, ts_points=ts_points, test_dir=test_dir)
     data_json = json.dumps(data, cls=_Encoder, ensure_ascii=False)
 
     # Findings HTML
@@ -3754,6 +4265,7 @@ def generate_html(report: Report, path: str) -> None:
   <div class="tab" data-tab="8">Impact Analysis</div>
   <div class="tab" data-tab="9">Part Analysis</div>
   <div class="tab" data-tab="10">Advanced</div>
+  <div class="tab" data-tab="11">Render Export</div>
 </div>
 
 <div class="content">
@@ -3817,6 +4329,11 @@ def generate_html(report: Report, path: str) -> None:
   <!-- Tab 10: Advanced Analysis -->
   <div class="tab-content hidden" id="tab-10">
     <div id="advanced-content"></div>
+  </div>
+
+  <!-- Tab 11: Render Export -->
+  <div class="tab-content hidden" id="tab-11">
+    <div id="render-export-content"></div>
   </div>
 </div>
 

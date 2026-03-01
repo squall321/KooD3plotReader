@@ -304,4 +304,18 @@ def load_all(test_dir: Path) -> tuple[
             if sr is not None:
                 results.append(sr)
 
+    # Auto-detect pitch/roll convention swap.
+    # Standard: roll ∈ [-90, 90] (latitude), pitch ∈ [-180, 180] (longitude).
+    # Some DOE generators swap them: pitch ∈ [-90, 90], roll ∈ [-180, 180].
+    all_angles = [sr.angle for sr in results]
+    if all_angles:
+        max_abs_roll = max(abs(a.roll) for a in all_angles)
+        max_abs_pitch = max(abs(a.pitch) for a in all_angles)
+        need_swap = max_abs_roll > 91 and max_abs_pitch <= 91
+        if need_swap:
+            for sr in results:
+                sr.angle.swap_axes = True
+            for ac in doe_angles.values():
+                ac.swap_axes = True
+
     return project_name, doe_strategy, sim_params, part_info, results, doe_angles

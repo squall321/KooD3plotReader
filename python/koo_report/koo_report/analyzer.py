@@ -11,24 +11,23 @@ from .models import (
 
 
 def _compute_sphere_coverage(angles: list[AngleCondition]) -> float:
-    """Estimate sphere coverage as fraction of 4π steradians.
+    """Estimate sphere coverage using ideal spacing comparison.
 
-    Uses Voronoi-like estimation: each point covers ~4π/N steradians
-    for uniform distribution. We measure actual uniformity vs ideal.
+    Computes ideal_spacing = sqrt(4π/N) for N points, then compares
+    with actual nearest-neighbor spacing. If actual spacing ≤ ideal,
+    points are at least as dense as uniform → coverage 100%.
+    Otherwise, coverage = (ideal/actual)² capped at 1.0.
     """
     n = len(angles)
     if n == 0:
         return 0.0
-    # For uniform sphere sampling, ideal spacing = arccos(1 - 2/N)
-    # Simple heuristic: coverage ≈ min(1.0, N * avg_solid_angle / 4π)
-    # For N=26 cuboid: ~0.6, for N=100 fibonacci: ~0.9, for N=1146: ~1.0
     spacing = compute_angular_spacing(angles)
     if spacing <= 0:
         return 0.0
-    # Each point covers a cap of angular radius ≈ spacing/2
-    cap_area = 2 * math.pi * (1 - math.cos(math.radians(spacing / 2)))
-    total_coverage = n * cap_area / (4 * math.pi)
-    return min(1.0, total_coverage)
+    ideal_spacing = math.degrees(math.sqrt(4 * math.pi / n))
+    if spacing <= ideal_spacing:
+        return 1.0
+    return min(1.0, (ideal_spacing / spacing) ** 2)
 
 
 def _generate_findings(report: Report) -> list[Finding]:

@@ -39,6 +39,10 @@ def main():
         "--yield-stress", type=float, default=0.0,
         help="Material yield stress (MPa) for safety factor calculation",
     )
+    parser.add_argument(
+        "--ts-points", type=int, default=0,
+        help="Time series points per chart (0=auto: 100/30/20 based on N results)",
+    )
     args = parser.parse_args()
 
     test_dir = Path(args.test_dir)
@@ -70,7 +74,7 @@ def main():
         html_path = args.output or str(test_dir / "report.html")
         print(f"Generating HTML report: {html_path}")
         t0 = time.time()
-        generate_html(report, html_path)
+        generate_html(report, html_path, ts_points=args.ts_points, test_dir=str(test_dir.resolve()))
         print(f"HTML report saved in {time.time()-t0:.1f}s ({Path(html_path).stat().st_size/1024:.0f} KB)")
 
     if "json" in formats:

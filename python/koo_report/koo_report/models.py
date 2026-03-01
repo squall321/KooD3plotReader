@@ -25,6 +25,7 @@ class AngleCondition:
     pitch: float          # degrees
     yaw: float            # degrees
     category: str = ""    # "face", "edge", "corner", "fibonacci"
+    swap_axes: bool = False  # True if pitch=lat, roll=lon (auto-detected)
 
     @property
     def label(self) -> str:
@@ -33,14 +34,16 @@ class AngleCondition:
     def to_spherical(self) -> tuple[float, float]:
         """Convert to (longitude, latitude) in radians for Mollweide projection.
 
-        Convention: roll=0, pitch=0, yaw=0 → display face front drop.
-        latitude = roll mapped to [-π/2, π/2]
-        longitude = pitch mapped to [-π, π]
+        Default: lat=roll, lon=pitch.
+        If swap_axes=True: lat=pitch, lon=roll (some DOE generators use this).
         """
         import math
-        lat = math.radians(self.roll)
-        lon = math.radians(self.pitch)
-        # Clamp latitude
+        if self.swap_axes:
+            lat = math.radians(self.pitch)
+            lon = math.radians(self.roll)
+        else:
+            lat = math.radians(self.roll)
+            lon = math.radians(self.pitch)
         lat = max(-math.pi / 2, min(math.pi / 2, lat))
         return lon, lat
 
