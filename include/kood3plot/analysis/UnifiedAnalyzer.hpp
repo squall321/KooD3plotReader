@@ -134,6 +134,14 @@ private:
         UnifiedProgressCallback callback
     );
 
+    void processElementQualityJobs(
+        D3plotReader& reader,
+        const std::vector<AnalysisJob>& jobs,
+        const std::vector<data::StateData>& all_states,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
     /**
      * @brief Fill metadata in result
      */

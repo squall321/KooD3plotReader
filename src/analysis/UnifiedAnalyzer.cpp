@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -136,6 +137,19 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (!surface_strain_jobs.empty()) {
         if (callback) callback("Processing surface strain analysis jobs...");
         processSurfaceStrainJobs(reader, surface_strain_jobs, all_states, result, callback);
+    }
+
+    // Element quality jobs
+    std::vector<AnalysisJob> quality_jobs;
+    for (const auto& job : config.analysis_jobs) {
+        if (job.type == AnalysisJobType::ELEMENT_QUALITY) {
+            quality_jobs.push_back(job);
+        }
+    }
+
+    if (!quality_jobs.empty()) {
+        if (callback) callback("Processing element quality jobs...");
+        processElementQualityJobs(reader, quality_jobs, all_states, result, callback);
     }
 
     // Fill metadata
@@ -471,6 +485,337 @@ void UnifiedAnalyzer::processSurfaceStrainJobs(
 
     // Get results
     result.surface_strain_analysis = analyzer.getResults();
+}
+
+// ============================================================
+// Element Quality Computation Helpers
+// ============================================================
+
+namespace {
+
+struct Vec3Q {
+    double x = 0, y = 0, z = 0;
+    Vec3Q() = default;
+    Vec3Q(double a, double b, double c) : x(a), y(b), z(c) {}
+    Vec3Q operator-(const Vec3Q& o) const { return {x-o.x, y-o.y, z-o.z}; }
+    Vec3Q operator+(const Vec3Q& o) const { return {x+o.x, y+o.y, z+o.z}; }
+    Vec3Q operator*(double s) const { return {x*s, y*s, z*s}; }
+    double dot(const Vec3Q& o) const { return x*o.x + y*o.y + z*o.z; }
+    Vec3Q cross(const Vec3Q& o) const {
+        return {y*o.z - z*o.y, z*o.x - x*o.z, x*o.y - y*o.x};
+    }
+    double mag() const { return std::sqrt(x*x + y*y + z*z); }
+};
+
+// Get current position of node (initial + displacement)
+Vec3Q getNodePos(const data::Mesh& mesh, const data::StateData& state, size_t node_idx) {
+    double dx = 0, dy = 0, dz = 0;
+    if (!state.node_displacements.empty() && node_idx * 3 + 2 < state.node_displacements.size()) {
+        dx = state.node_displacements[node_idx * 3 + 0];
+        dy = state.node_displacements[node_idx * 3 + 1];
+        dz = state.node_displacements[node_idx * 3 + 2];
+    }
+    return {mesh.nodes[node_idx].x + dx, mesh.nodes[node_idx].y + dy, mesh.nodes[node_idx].z + dz};
+}
+
+Vec3Q getNodeInitialPos(const data::Mesh& mesh, size_t node_idx) {
+    return {mesh.nodes[node_idx].x, mesh.nodes[node_idx].y, mesh.nodes[node_idx].z};
+}
+
+// Aspect ratio: max edge length / min edge length
+double computeAspectRatio4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
+    double edges[4] = {
+        (p1 - p0).mag(), (p2 - p1).mag(), (p3 - p2).mag(), (p0 - p3).mag()
+    };
+    double mn = edges[0], mx = edges[0];
+    for (int i = 1; i < 4; ++i) {
+        if (edges[i] < mn) mn = edges[i];
+        if (edges[i] > mx) mx = edges[i];
+    }
+    return (mn > 1e-20) ? mx / mn : 1e6;
+}
+
+// Skewness for quad: max deviation of corner angles from 90 degrees / 90
+double computeSkewness4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
+    auto angle = [](const Vec3Q& a, const Vec3Q& b, const Vec3Q& c) -> double {
+        Vec3Q ba = a - b, bc = c - b;
+        double d = ba.dot(bc);
+        double m = ba.mag() * bc.mag();
+        if (m < 1e-20) return 0;
+        double cosA = std::max(-1.0, std::min(1.0, d / m));
+        return std::acos(cosA) * 180.0 / 3.14159265358979;
+    };
+    double angles[4] = {
+        angle(p3, p0, p1), angle(p0, p1, p2), angle(p1, p2, p3), angle(p2, p3, p0)
+    };
+    double max_dev = 0;
+    for (int i = 0; i < 4; ++i) {
+        double dev = std::abs(angles[i] - 90.0) / 90.0;
+        if (dev > max_dev) max_dev = dev;
+    }
+    return max_dev;
+}
+
+// Warpage for quad: angle between normals of two triangles
+double computeWarpage4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
+    Vec3Q n1 = (p1 - p0).cross(p2 - p0);
+    Vec3Q n2 = (p2 - p0).cross(p3 - p0);
+    double m1 = n1.mag(), m2 = n2.mag();
+    if (m1 < 1e-20 || m2 < 1e-20) return 0;
+    double cosA = std::max(-1.0, std::min(1.0, n1.dot(n2) / (m1 * m2)));
+    return std::acos(cosA) * 180.0 / 3.14159265358979;
+}
+
+// Area of quad (sum of two triangle areas)
+double computeArea4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
+    return 0.5 * ((p1 - p0).cross(p2 - p0).mag() + (p2 - p0).cross(p3 - p0).mag());
+}
+
+// Jacobian determinant at center for 8-node hex
+// Simplified: compute volume and compare sign
+double computeHexVolume(const Vec3Q* p) {
+    // 8-node hex volume via 5-tetrahedron decomposition
+    auto tetVol = [](const Vec3Q& a, const Vec3Q& b, const Vec3Q& c, const Vec3Q& d) -> double {
+        return (b - a).dot((c - a).cross(d - a)) / 6.0;
+    };
+    double vol = tetVol(p[0], p[1], p[3], p[4])
+               + tetVol(p[1], p[2], p[3], p[6])
+               + tetVol(p[1], p[4], p[5], p[6])
+               + tetVol(p[3], p[4], p[6], p[7])
+               + tetVol(p[1], p[3], p[4], p[6]);
+    return vol;
+}
+
+// Aspect ratio for hex: max edge / min edge (12 edges)
+double computeAspectRatio8(const Vec3Q* p) {
+    int edges[12][2] = {
+        {0,1},{1,2},{2,3},{3,0},
+        {4,5},{5,6},{6,7},{7,4},
+        {0,4},{1,5},{2,6},{3,7}
+    };
+    double mn = 1e30, mx = 0;
+    for (int i = 0; i < 12; ++i) {
+        double len = (p[edges[i][1]] - p[edges[i][0]]).mag();
+        if (len < mn) mn = len;
+        if (len > mx) mx = len;
+    }
+    return (mn > 1e-20) ? mx / mn : 1e6;
+}
+
+} // anonymous namespace
+
+void UnifiedAnalyzer::processElementQualityJobs(
+    D3plotReader& reader,
+    const std::vector<AnalysisJob>& jobs,
+    const std::vector<data::StateData>& all_states,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback
+) {
+    auto mesh = reader.read_mesh();
+
+    // Collect target parts
+    std::vector<int32_t> target_parts;
+    bool want_all = false;
+    for (const auto& job : jobs) {
+        if (job.part_ids.empty() && job.part_pattern.empty()) {
+            want_all = true;
+            break;
+        }
+        for (int32_t pid : job.part_ids) {
+            if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
+                target_parts.push_back(pid);
+        }
+        if (!job.part_pattern.empty()) {
+            auto pparts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pparts) {
+                if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
+                    target_parts.push_back(pid);
+            }
+        }
+    }
+
+    // Build part → element index maps
+    struct ElemInfo {
+        size_t idx;          // index in mesh.shells / mesh.solids
+        bool is_solid;
+    };
+    std::map<int32_t, std::vector<ElemInfo>> part_elements;
+    std::map<int32_t, std::string> part_types;  // "shell" or "solid"
+
+    for (size_t i = 0; i < mesh.shells.size(); ++i) {
+        int32_t pid = (i < mesh.shell_parts.size()) ? mesh.shell_parts[i] : 0;
+        if (!want_all && std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
+            continue;
+        part_elements[pid].push_back({i, false});
+        part_types[pid] = "shell";
+    }
+    for (size_t i = 0; i < mesh.solids.size(); ++i) {
+        int32_t pid = (i < mesh.solid_parts.size()) ? mesh.solid_parts[i] : 0;
+        if (!want_all && std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
+            continue;
+        part_elements[pid].push_back({i, true});
+        part_types[pid] = "solid";
+    }
+
+    // Compute initial volumes/areas for reference
+    struct InitialMetric {
+        double volume_or_area;
+    };
+    std::map<int32_t, std::vector<InitialMetric>> initial_metrics;
+    for (auto& [pid, elems] : part_elements) {
+        auto& metrics = initial_metrics[pid];
+        metrics.resize(elems.size());
+        for (size_t ei = 0; ei < elems.size(); ++ei) {
+            const auto& info = elems[ei];
+            if (info.is_solid) {
+                const auto& elem = mesh.solids[info.idx];
+                if (elem.node_ids.size() >= 8) {
+                    Vec3Q p[8];
+                    for (int n = 0; n < 8; ++n)
+                        p[n] = getNodeInitialPos(mesh, elem.node_ids[n] - 1);
+                    metrics[ei].volume_or_area = std::abs(computeHexVolume(p));
+                }
+            } else {
+                const auto& elem = mesh.shells[info.idx];
+                if (elem.node_ids.size() >= 4) {
+                    Vec3Q p[4];
+                    for (int n = 0; n < 4; ++n)
+                        p[n] = getNodeInitialPos(mesh, elem.node_ids[n] - 1);
+                    metrics[ei].volume_or_area = computeArea4(p[0], p[1], p[2], p[3]);
+                }
+            }
+        }
+    }
+
+    // Sample states (not all — use ~10 evenly spaced states for performance)
+    std::vector<size_t> sample_indices;
+    size_t n_states = all_states.size();
+    size_t n_samples = std::min(n_states, size_t(10));
+    if (n_samples <= 1) {
+        sample_indices.push_back(0);
+        if (n_states > 1) sample_indices.push_back(n_states - 1);
+    } else {
+        for (size_t i = 0; i < n_samples; ++i) {
+            size_t idx = i * (n_states - 1) / (n_samples - 1);
+            sample_indices.push_back(idx);
+        }
+    }
+
+    // Initialize result stats
+    std::map<int32_t, ElementQualityStats> stats_map;
+    for (auto& [pid, elems] : part_elements) {
+        auto& qs = stats_map[pid];
+        qs.part_id = pid;
+        qs.part_name = "Part_" + std::to_string(pid);
+        qs.element_type = part_types[pid];
+        qs.num_elements = elems.size();
+    }
+
+    // Process sampled states
+    for (size_t si = 0; si < sample_indices.size(); ++si) {
+        size_t state_idx = sample_indices[si];
+        const auto& state = all_states[state_idx];
+
+        if (callback && (si == 0 || si == sample_indices.size() - 1)) {
+            callback("  Quality: state " + std::to_string(state_idx + 1) + "/" + std::to_string(n_states));
+        }
+
+        for (auto& [pid, elems] : part_elements) {
+            ElementQualityTimePoint tp;
+            tp.time = state.time;
+
+            double ar_sum = 0, sk_sum = 0, wp_sum = 0, jac_sum = 0;
+            int count = 0;
+
+            for (size_t ei = 0; ei < elems.size(); ++ei) {
+                const auto& info = elems[ei];
+                int32_t elem_id = 0;
+
+                if (info.is_solid) {
+                    const auto& elem = mesh.solids[info.idx];
+                    elem_id = elem.id;
+                    if (elem.node_ids.size() < 8) continue;
+
+                    Vec3Q p[8];
+                    for (int n = 0; n < 8; ++n)
+                        p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
+
+                    double ar = computeAspectRatio8(p);
+                    double vol = computeHexVolume(p);
+                    double jac = (vol >= 0) ? 1.0 : -1.0;  // simplified: sign of volume
+                    double init_vol = initial_metrics[pid][ei].volume_or_area;
+                    double vol_ratio = (init_vol > 1e-20) ? std::abs(vol) / init_vol : 1.0;
+
+                    if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
+                    if (jac < tp.jacobian_min) { tp.jacobian_min = jac; tp.worst_jacobian_elem = elem_id; }
+                    if (vol_ratio < tp.volume_change_min) { tp.volume_change_min = vol_ratio; tp.worst_volume_change_elem = elem_id; }
+                    if (vol_ratio > tp.volume_change_max) tp.volume_change_max = vol_ratio;
+                    if (vol < 0) tp.n_negative_jacobian++;
+                    if (ar > 5.0) tp.n_high_aspect++;
+
+                    ar_sum += ar;
+                    jac_sum += jac;
+                    count++;
+                } else {
+                    const auto& elem = mesh.shells[info.idx];
+                    elem_id = elem.id;
+                    if (elem.node_ids.size() < 4) continue;
+
+                    // Check for degenerate quad (tria element: node 3 == node 4)
+                    bool is_tria = (elem.node_ids[2] == elem.node_ids[3]);
+
+                    Vec3Q p[4];
+                    for (int n = 0; n < 4; ++n)
+                        p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
+
+                    double ar, sk, wp, area;
+                    if (is_tria) {
+                        // Triangle: aspect ratio from 3 edges
+                        double e0 = (p[1]-p[0]).mag(), e1 = (p[2]-p[1]).mag(), e2 = (p[0]-p[2]).mag();
+                        double mn = std::min({e0,e1,e2}), mx = std::max({e0,e1,e2});
+                        ar = (mn > 1e-20) ? mx / mn : 1e6;
+                        sk = 0; wp = 0;
+                        area = 0.5 * (p[1]-p[0]).cross(p[2]-p[0]).mag();
+                    } else {
+                        ar = computeAspectRatio4(p[0], p[1], p[2], p[3]);
+                        sk = computeSkewness4(p[0], p[1], p[2], p[3]);
+                        wp = computeWarpage4(p[0], p[1], p[2], p[3]);
+                        area = computeArea4(p[0], p[1], p[2], p[3]);
+                    }
+
+                    double init_area = initial_metrics[pid][ei].volume_or_area;
+                    double area_ratio = (init_area > 1e-20) ? area / init_area : 1.0;
+
+                    if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
+                    if (sk > tp.skewness_max) { tp.skewness_max = sk; tp.worst_skewness_elem = elem_id; }
+                    if (wp > tp.warpage_max) { tp.warpage_max = wp; tp.worst_warpage_elem = elem_id; }
+                    if (area_ratio < tp.volume_change_min) { tp.volume_change_min = area_ratio; tp.worst_volume_change_elem = elem_id; }
+                    if (area_ratio > tp.volume_change_max) tp.volume_change_max = area_ratio;
+                    if (ar > 5.0) tp.n_high_aspect++;
+
+                    ar_sum += ar; sk_sum += sk; wp_sum += wp;
+                    count++;
+                }
+            }
+
+            if (count > 0) {
+                tp.aspect_ratio_avg = ar_sum / count;
+                tp.skewness_avg = sk_sum / count;
+                tp.warpage_avg = wp_sum / count;
+                tp.jacobian_avg = jac_sum / count;
+            }
+
+            stats_map[pid].data.push_back(tp);
+        }
+    }
+
+    // Compute global stats and add to result
+    for (auto& [pid, qs] : stats_map) {
+        qs.computeGlobalStats();
+        result.element_quality.push_back(std::move(qs));
+    }
+
+    if (callback) callback("  Element quality complete: " + std::to_string(result.element_quality.size()) + " parts");
 }
 
 void UnifiedAnalyzer::fillMetadata(

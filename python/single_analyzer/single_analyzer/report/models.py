@@ -149,12 +149,31 @@ class MotionData:
 
 
 @dataclass
+class ElementQualityData:
+    """Element quality time-history for one part."""
+    part_id: int
+    part_name: str = ""
+    element_type: str = "shell"
+    num_elements: int = 0
+    peak_aspect_ratio: float = 0.0
+    min_jacobian: float = 1.0
+    peak_warpage: float = 0.0
+    peak_skewness: float = 0.0
+    min_volume_change: float = 1.0
+    max_volume_change: float = 1.0
+    max_negative_jacobian_count: int = 0
+    data: list[dict] = field(default_factory=list)
+    # data[i] = {time, ar_max, ar_avg, jac_min, skew_max, warp_max, vol_min, vol_max, n_neg_jac, n_high_ar}
+
+
+@dataclass
 class D3plotResult:
     metadata: dict                            # unified_analyzer metadata
     stress: list[PartTimeSeries]              # stress_history[]
     strain: list[PartTimeSeries]              # strain_history[]
     acceleration: list[PartTimeSeries]        # acceleration_history[]
     motion: dict[int, MotionData]             # part_id → motion CSV
+    element_quality: list[ElementQualityData] = field(default_factory=list)
     render_files: list[Path] = field(default_factory=list)
     output_dir: Path | None = None
 

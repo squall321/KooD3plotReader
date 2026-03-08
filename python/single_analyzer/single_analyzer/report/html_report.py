@@ -29,6 +29,7 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
     has_energy = gl is not None and bool(gl.t)
     has_contact = bn is not None and (bool(bn.rcforc) or bool(bn.sleout) or bn.matsum is not None)
     has_renders = dr is not None and bool(dr.render_files)
+    has_quality = dr is not None and bool(dr.element_quality)
 
     tabs = [("overview", "Overview")]
     if has_stress:
@@ -41,6 +42,8 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
         tabs.append(("energy", "에너지"))
     if has_contact:
         tabs.append(("contact", "접촉·에너지"))
+    if has_quality:
+        tabs.append(("quality", "요소 품질"))
     if has_renders:
         tabs.append(("renders", "렌더 갤러리"))
     tabs.append(("sysinfo", "시스템 정보"))
@@ -173,6 +176,7 @@ def _build_js_data(result: SingleResult) -> dict:
         "glstat": None,
         "binout": None,
         "renders": [],
+        "element_quality": [],
         "metadata": {},
     }
 
@@ -201,6 +205,23 @@ def _build_js_data(result: SingleResult) -> dict:
         renders_dir = result.d3plot_result.output_dir / "renders"
         data["renders"] = [
             str(p.relative_to(renders_dir)) for p in dr.render_files
+        ]
+        data["element_quality"] = [
+            {
+                "part_id": eq.part_id,
+                "part_name": eq.part_name,
+                "element_type": eq.element_type,
+                "num_elements": eq.num_elements,
+                "peak_aspect_ratio": eq.peak_aspect_ratio,
+                "min_jacobian": eq.min_jacobian,
+                "peak_warpage": eq.peak_warpage,
+                "peak_skewness": eq.peak_skewness,
+                "min_volume_change": eq.min_volume_change,
+                "max_volume_change": eq.max_volume_change,
+                "max_negative_jacobian_count": eq.max_negative_jacobian_count,
+                "data": eq.data,
+            }
+            for eq in dr.element_quality
         ]
 
     if gl:
@@ -340,8 +361,14 @@ a { color: var(--accent2); }
 /* Charts */
 .chart-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
              padding: 14px; margin-bottom: 16px; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
 .chart-title { font-size: 0.85rem; color: var(--fg2); margin-bottom: 8px; }
 .plotly-chart { width: 100%; }
+
+/* Quality indicators */
+.crit { background: rgba(235,87,87,.18); color: var(--err); font-weight: 600; }
+.warn { background: rgba(242,201,76,.15); color: var(--warn); font-weight: 600; }
 
 /* Part selector */
 .part-selector { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
@@ -464,6 +491,7 @@ function renderTab(tid) {
     case 'deep_dive':  el.innerHTML = renderDeepDive(); initDeepDive(); break;
     case 'energy':     el.innerHTML = renderEnergy(); initEnergyCharts(); break;
     case 'contact':    el.innerHTML = renderContact(); initContactCharts(); break;
+    case 'quality':    el.innerHTML = renderQuality(); initQualityCharts(); break;
     case 'renders':    el.innerHTML = renderGallery(); initGallery(); break;
     case 'sysinfo':    el.innerHTML = renderSysInfo(); break;
   }
@@ -1029,6 +1057,93 @@ function closeModal() {
   const modal = document.getElementById('render-modal');
   modal.classList.remove('open');
   modal.querySelector('#modal-content').innerHTML = '';
+}
+
+// ── Element Quality ────────────────────────────────────────────────────
+function renderQuality() {
+  const eq = DATA.element_quality || [];
+  if (!eq.length) return '<div class="card"><p>요소 품질 데이터가 없습니다. <code>--element-quality</code> 옵션으로 실행하세요.</p></div>';
+
+  let html = '<div class="card"><h2>요소 품질 요약</h2>';
+  html += '<table class="data-table"><thead><tr>';
+  html += '<th>Part ID</th><th>이름</th><th>타입</th><th>요소 수</th>';
+  html += '<th>Peak AR</th><th>Min Jac</th><th>Peak Warp(°)</th><th>Peak Skew</th>';
+  html += '<th>Vol Min</th><th>Vol Max</th><th>음수 Jac</th>';
+  html += '</tr></thead><tbody>';
+
+  for (const q of eq) {
+    const arCls = q.peak_aspect_ratio > 10 ? 'crit' : (q.peak_aspect_ratio > 5 ? 'warn' : '');
+    const jacCls = q.min_jacobian < 0 ? 'crit' : (q.min_jacobian < 0.3 ? 'warn' : '');
+    const negCls = q.max_negative_jacobian_count > 0 ? 'crit' : '';
+
+    html += `<tr>
+      <td>${q.part_id}</td><td>${q.part_name}</td><td>${q.element_type}</td><td>${q.num_elements}</td>
+      <td class="${arCls}">${q.peak_aspect_ratio.toFixed(2)}</td>
+      <td class="${jacCls}">${q.min_jacobian.toFixed(3)}</td>
+      <td>${q.peak_warpage.toFixed(1)}</td>
+      <td>${q.peak_skewness.toFixed(3)}</td>
+      <td>${q.min_volume_change.toFixed(3)}</td>
+      <td>${q.max_volume_change.toFixed(3)}</td>
+      <td class="${negCls}">${q.max_negative_jacobian_count}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+
+  // Charts per part (time history)
+  for (let i = 0; i < eq.length; i++) {
+    const q = eq[i];
+    if (!q.data || q.data.length < 2) continue;
+    html += `<div class="card"><h3>Part ${q.part_id}: ${q.part_name} (${q.element_type})</h3>`;
+    html += `<div class="chart-row"><div id="eq-ar-${i}" class="chart-box"></div><div id="eq-vol-${i}" class="chart-box"></div></div>`;
+    if (q.element_type === 'shell') {
+      html += `<div class="chart-row"><div id="eq-warp-${i}" class="chart-box"></div><div id="eq-skew-${i}" class="chart-box"></div></div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+function initQualityCharts() {
+  const eq = DATA.element_quality || [];
+  const layout = {margin:{t:30,b:40,l:50,r:20}, height:250, paper_bgcolor:'#1a1b26', plot_bgcolor:'#1a1b26',
+    font:{color:'#d5daf0',size:10}, xaxis:{title:'Time',color:'#7982a9',gridcolor:'#24283b'},
+    yaxis:{color:'#7982a9',gridcolor:'#24283b'}};
+
+  for (let i = 0; i < eq.length; i++) {
+    const q = eq[i];
+    if (!q.data || q.data.length < 2) continue;
+    const t = q.data.map(d=>d.time);
+
+    // Aspect ratio chart
+    Plotly.newPlot('eq-ar-'+i, [
+      {x:t, y:q.data.map(d=>d.ar_max), name:'Max', line:{color:'#f7768e'}},
+      {x:t, y:q.data.map(d=>d.ar_avg), name:'Avg', line:{color:'#7aa2f7'}},
+    ], {...layout, yaxis:{...layout.yaxis, title:'Aspect Ratio'}, title:{text:'Aspect Ratio',font:{size:12}}});
+
+    // Volume change chart
+    Plotly.newPlot('eq-vol-'+i, [
+      {x:t, y:q.data.map(d=>d.vol_min), name:'Min (compressed)', line:{color:'#f7768e'}},
+      {x:t, y:q.data.map(d=>d.vol_max), name:'Max (expanded)', line:{color:'#9ece6a'}},
+    ], {...layout, yaxis:{...layout.yaxis, title:'Volume/Area Ratio'}, title:{text:'Volume/Area Change',font:{size:12}},
+      shapes:[{type:'line',x0:t[0],x1:t[t.length-1],y0:1,y1:1,line:{color:'#7982a9',dash:'dot',width:1}}]});
+
+    if (q.element_type === 'shell') {
+      // Warpage chart
+      const wEl = document.getElementById('eq-warp-'+i);
+      if (wEl) {
+        Plotly.newPlot('eq-warp-'+i, [
+          {x:t, y:q.data.map(d=>d.warp_max), name:'Max', line:{color:'#e0af68'}},
+        ], {...layout, yaxis:{...layout.yaxis, title:'Warpage (°)'}, title:{text:'Warpage Angle',font:{size:12}}});
+      }
+      // Skewness chart
+      const sEl = document.getElementById('eq-skew-'+i);
+      if (sEl) {
+        Plotly.newPlot('eq-skew-'+i, [
+          {x:t, y:q.data.map(d=>d.skew_max), name:'Max', line:{color:'#bb9af7'}},
+        ], {...layout, yaxis:{...layout.yaxis, title:'Skewness'}, title:{text:'Skewness',font:{size:12}}});
+      }
+    }
+  }
 }
 
 // ── System Info ────────────────────────────────────────────────────────

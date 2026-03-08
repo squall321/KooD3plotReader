@@ -779,6 +779,12 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "      angle: 45.0\n";
     oss << "    output_prefix: \"top_strain\"\n\n";
 
+    oss << "  # Element quality analysis (track mesh degradation over time)\n";
+    oss << "  - name: \"Element Quality\"\n";
+    oss << "    type: element_quality\n";
+    oss << "    parts: []  # empty = all parts\n";
+    oss << "    output_prefix: \"quality\"\n\n";
+
     oss << "  # Comprehensive analysis (multiple quantities)\n";
     oss << "  - name: \"Full Part Analysis\"\n";
     oss << "    type: comprehensive\n";

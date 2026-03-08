@@ -153,6 +153,40 @@ void writeSurfaceStrainCSV(const std::string& filepath, const SurfaceStrainStats
 }
 
 /**
+ * @brief Write element quality to CSV
+ */
+void writeQualityCSV(const std::string& filepath, const ElementQualityStats& stats) {
+    std::ofstream ofs(filepath);
+    if (!ofs) {
+        std::cerr << "Failed to open " << filepath << "\n";
+        return;
+    }
+
+    ofs << "Time,AspectRatio_Max,AspectRatio_Avg,Jacobian_Min,Jacobian_Avg,"
+        << "Skewness_Max,Skewness_Avg,Warpage_Max,Warpage_Avg,"
+        << "VolumeChange_Min,VolumeChange_Max,"
+        << "N_NegativeJacobian,N_HighAspectRatio,"
+        << "Worst_AR_Elem,Worst_Jac_Elem,Worst_Skew_Elem,Worst_Warp_Elem,Worst_Vol_Elem\n";
+
+    for (const auto& tp : stats.data) {
+        ofs << std::fixed << std::setprecision(6)
+            << tp.time << ","
+            << tp.aspect_ratio_max << "," << tp.aspect_ratio_avg << ","
+            << tp.jacobian_min << "," << tp.jacobian_avg << ","
+            << tp.skewness_max << "," << tp.skewness_avg << ","
+            << tp.warpage_max << "," << tp.warpage_avg << ","
+            << tp.volume_change_min << "," << tp.volume_change_max << ","
+            << tp.n_negative_jacobian << "," << tp.n_high_aspect << ","
+            << tp.worst_aspect_ratio_elem << "," << tp.worst_jacobian_elem << ","
+            << tp.worst_skewness_elem << "," << tp.worst_warpage_elem << ","
+            << tp.worst_volume_change_elem << "\n";
+    }
+
+    ofs.close();
+    std::cout << "  Written: " << filepath << " (" << stats.data.size() << " states)\n";
+}
+
+/**
  * @brief Export results to files
  */
 void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& config) {
@@ -225,10 +259,21 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         }
     }
 
-    // Export JSON summary
+    // Export element quality
+    if (config.output_csv && !result.element_quality.empty()) {
+        std::string quality_dir = output_dir + "/quality";
+        fs::create_directories(quality_dir);
+        std::cout << "\nExporting element quality:\n";
+        for (const auto& stats : result.element_quality) {
+            std::string filename = quality_dir + "/part_" + std::to_string(stats.part_id) + "_quality.csv";
+            writeQualityCSV(filename, stats);
+        }
+    }
+
+    // Export JSON summary (use extended JSON to include motion/quality data)
     if (config.output_json) {
         std::string json_path = output_dir + "/analysis_result.json";
-        if (result.saveToFile(json_path)) {
+        if (result.saveExtendedToFile(json_path)) {
             std::cout << "\nJSON summary: " << json_path << "\n";
         }
     }
@@ -552,6 +597,7 @@ void printSummary(const ExtendedAnalysisResult& result, const UnifiedConfig& con
     std::cout << "  - Motion analysis: " << result.motion_analysis.size() << " parts\n";
     std::cout << "  - Surface stress: " << result.surface_analysis.size() << " surfaces\n";
     std::cout << "  - Surface strain: " << result.surface_strain_analysis.size() << " surfaces\n";
+    std::cout << "  - Element quality: " << result.element_quality.size() << " parts\n";
     std::cout << "=============================================================\n";
 }
 

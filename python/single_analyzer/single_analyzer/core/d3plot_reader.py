@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..report.models import D3plotResult, MotionData, PartTimeSeries
+from ..report.models import D3plotResult, ElementQualityData, MotionData, PartTimeSeries
 
 if TYPE_CHECKING:
     from ..render.job_builder import RenderConfig
@@ -39,6 +39,7 @@ def run_analysis(
     threads: int = 0,
     render_threads: int = 1,
     verbose: bool = False,
+    element_quality: bool = False,
 ) -> D3plotResult:
     """
     1. analysis_jobs + render_jobs 통합 YAML 생성
@@ -70,7 +71,7 @@ def run_analysis(
         rc_first = copy.copy(render_config)
         rc_first.per_part_render = False  # skip per-part for 1st pass
 
-    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose)
+    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality)
     _run_ua(ua, yaml_content, verbose)
 
     result = _parse_outputs(output_dir)
@@ -140,6 +141,7 @@ def _build_yaml(
     render_threads: int = 1,
     verbose: bool = False,
     render_only: bool = False,
+    element_quality: bool = False,
 ) -> str:
     parts_list = part_ids if part_ids else []
 
@@ -183,6 +185,13 @@ def _build_yaml(
             "    quantities: [avg_displacement, avg_velocity, avg_acceleration, max_displacement]",
             '    output_prefix: "motion/all"',
         ]
+        if element_quality:
+            lines += [
+                "  - name: Element Quality",
+                "    type: element_quality",
+                f"    parts: {parts_str(parts_list)}",
+                '    output_prefix: "quality/all"',
+            ]
 
     # render_jobs
     if render_config and render_config.enabled:
@@ -251,6 +260,24 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
         if not md.part_name and pid in name_map:
             md.part_name = name_map[pid]
 
+    # element_quality from JSON
+    eq_list: list[ElementQualityData] = []
+    for eq in raw.get("element_quality", []):
+        eq_list.append(ElementQualityData(
+            part_id=eq.get("part_id", 0),
+            part_name=eq.get("part_name", ""),
+            element_type=eq.get("element_type", "shell"),
+            num_elements=eq.get("num_elements", 0),
+            peak_aspect_ratio=eq.get("peak_aspect_ratio", 0.0),
+            min_jacobian=eq.get("min_jacobian", 1.0),
+            peak_warpage=eq.get("peak_warpage", 0.0),
+            peak_skewness=eq.get("peak_skewness", 0.0),
+            min_volume_change=eq.get("min_volume_change", 1.0),
+            max_volume_change=eq.get("max_volume_change", 1.0),
+            max_negative_jacobian_count=eq.get("max_negative_jacobian_count", 0),
+            data=eq.get("data", []),
+        ))
+
     # renders/
     render_files: list[Path] = []
     renders_dir = output_dir / "renders"
@@ -264,6 +291,7 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
         strain=strain,
         acceleration=accel,
         motion=motion,
+        element_quality=eq_list,
         render_files=render_files,
         output_dir=output_dir,
     )

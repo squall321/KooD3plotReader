@@ -33,6 +33,7 @@ enum class AnalysisJobType {
     SURFACE_STRESS,         ///< Direction-based surface stress
     SURFACE_STRAIN,         ///< Direction-based surface strain
     PART_MOTION,            ///< Part motion analysis (displacement/velocity/acceleration)
+    ELEMENT_QUALITY,        ///< Element quality metrics (aspect ratio, Jacobian, etc.)
     COMPREHENSIVE           ///< Multiple quantities in one job
 };
 
@@ -46,6 +47,7 @@ inline std::string jobTypeToString(AnalysisJobType type) {
         case AnalysisJobType::SURFACE_STRESS: return "surface_stress";
         case AnalysisJobType::SURFACE_STRAIN: return "surface_strain";
         case AnalysisJobType::PART_MOTION: return "part_motion";
+        case AnalysisJobType::ELEMENT_QUALITY: return "element_quality";
         case AnalysisJobType::COMPREHENSIVE: return "comprehensive";
         default: return "unknown";
     }
@@ -60,6 +62,7 @@ inline AnalysisJobType parseJobType(const std::string& str) {
     if (str == "surface_stress") return AnalysisJobType::SURFACE_STRESS;
     if (str == "surface_strain") return AnalysisJobType::SURFACE_STRAIN;
     if (str == "part_motion") return AnalysisJobType::PART_MOTION;
+    if (str == "element_quality") return AnalysisJobType::ELEMENT_QUALITY;
     if (str == "comprehensive") return AnalysisJobType::COMPREHENSIVE;
     return AnalysisJobType::VON_MISES; // default
 }
@@ -181,6 +184,96 @@ struct SurfaceStrainStats {
 };
 
 // ============================================================
+// Element Quality Data Structures
+// ============================================================
+
+/**
+ * @brief Per-state element quality statistics for a part
+ */
+struct ElementQualityTimePoint {
+    double time = 0.0;
+
+    // Aspect ratio (max_edge / min_edge, ideal = 1.0)
+    double aspect_ratio_max = 0.0;
+    double aspect_ratio_avg = 0.0;
+    int32_t worst_aspect_ratio_elem = 0;
+
+    // Jacobian determinant (normalized, ideal = 1.0, negative = inverted)
+    double jacobian_min = 1.0;
+    double jacobian_avg = 1.0;
+    int32_t worst_jacobian_elem = 0;
+
+    // Warpage angle for shells (degrees, ideal = 0)
+    double warpage_max = 0.0;
+    double warpage_avg = 0.0;
+    int32_t worst_warpage_elem = 0;
+
+    // Skewness (0 = ideal, 1 = degenerate)
+    double skewness_max = 0.0;
+    double skewness_avg = 0.0;
+    int32_t worst_skewness_elem = 0;
+
+    // Volume/area change from initial (ratio: 1.0 = no change)
+    double volume_change_min = 1.0;   // most compressed
+    double volume_change_max = 1.0;   // most expanded
+    int32_t worst_volume_change_elem = 0;
+
+    // Count of degraded elements
+    int32_t n_negative_jacobian = 0;  // elements with negative Jacobian
+    int32_t n_high_aspect = 0;        // elements with aspect ratio > 5
+};
+
+/**
+ * @brief Element quality time-history for a part
+ */
+struct ElementQualityStats {
+    int32_t part_id = 0;
+    std::string part_name;
+    std::string element_type;        ///< "shell", "solid"
+    size_t num_elements = 0;
+    std::vector<ElementQualityTimePoint> data;
+
+    // Peak values across all time
+    double peak_aspect_ratio = 0.0;
+    double min_jacobian = 1.0;
+    double peak_warpage = 0.0;
+    double peak_skewness = 0.0;
+    double min_volume_change = 1.0;
+    double max_volume_change = 1.0;
+    int32_t max_negative_jacobian_count = 0;
+
+    void computeGlobalStats() {
+        peak_aspect_ratio = 0;
+        min_jacobian = 1.0;
+        peak_warpage = 0;
+        peak_skewness = 0;
+        min_volume_change = 1.0;
+        max_volume_change = 1.0;
+        max_negative_jacobian_count = 0;
+
+        for (const auto& tp : data) {
+            if (tp.aspect_ratio_max > peak_aspect_ratio)
+                peak_aspect_ratio = tp.aspect_ratio_max;
+            if (tp.jacobian_min < min_jacobian)
+                min_jacobian = tp.jacobian_min;
+            if (tp.warpage_max > peak_warpage)
+                peak_warpage = tp.warpage_max;
+            if (tp.skewness_max > peak_skewness)
+                peak_skewness = tp.skewness_max;
+            if (tp.volume_change_min < min_volume_change)
+                min_volume_change = tp.volume_change_min;
+            if (tp.volume_change_max > max_volume_change)
+                max_volume_change = tp.volume_change_max;
+            if (tp.n_negative_jacobian > max_negative_jacobian_count)
+                max_negative_jacobian_count = tp.n_negative_jacobian;
+        }
+    }
+
+    size_t size() const { return data.size(); }
+    bool empty() const { return data.empty(); }
+};
+
+// ============================================================
 // Analysis Job Definition
 // ============================================================
 
@@ -249,7 +342,7 @@ struct AnalysisJob {
      * @brief Check if this job requires node displacement data
      */
     bool requiresDisplacement() const {
-        if (type == AnalysisJobType::PART_MOTION) {
+        if (type == AnalysisJobType::PART_MOTION || type == AnalysisJobType::ELEMENT_QUALITY) {
             return true;
         }
         if (type == AnalysisJobType::COMPREHENSIVE) {
@@ -396,6 +489,7 @@ struct ExtendedAnalysisResult : public AnalysisResult {
     // Additional results
     std::vector<PartMotionStats> motion_analysis;
     std::vector<SurfaceStrainStats> surface_strain_analysis;
+    std::vector<ElementQualityStats> element_quality;
 
     /**
      * @brief Check if any motion analysis results exist
@@ -406,6 +500,86 @@ struct ExtendedAnalysisResult : public AnalysisResult {
      * @brief Check if any surface strain results exist
      */
     bool hasSurfaceStrainAnalysis() const { return !surface_strain_analysis.empty(); }
+
+    /**
+     * @brief Check if any element quality results exist
+     */
+    bool hasElementQuality() const { return !element_quality.empty(); }
+
+    /**
+     * @brief Save extended result to JSON (includes motion, surface strain, element quality)
+     */
+    bool saveExtendedToFile(const std::string& filepath) const {
+        std::ofstream file(filepath);
+        if (!file) return false;
+        file << toExtendedJSON();
+        return true;
+    }
+
+    std::string toExtendedJSON() const {
+        // Start with base JSON but inject additional sections before closing brace
+        std::string base = toJSON(true);
+
+        // Find the last "]" + newline before closing "}" and append additional sections
+        std::ostringstream extra;
+
+        // Motion analysis
+        extra << ",\n  \"motion_analysis\": [";
+        for (size_t i = 0; i < motion_analysis.size(); ++i) {
+            if (i > 0) extra << ",";
+            const auto& m = motion_analysis[i];
+            extra << "\n    {\"part_id\": " << m.part_id
+                  << ", \"part_name\": \"" << m.part_name << "\""
+                  << ", \"peak_velocity\": " << std::fixed << std::setprecision(6) << m.peak_velocity_magnitude
+                  << ", \"peak_acceleration\": " << m.peak_acceleration_magnitude
+                  << ", \"max_displacement\": " << m.max_displacement_magnitude
+                  << ", \"num_points\": " << m.data.size() << "}";
+        }
+        extra << "\n  ]";
+
+        // Element quality
+        extra << ",\n  \"element_quality\": [";
+        for (size_t i = 0; i < element_quality.size(); ++i) {
+            if (i > 0) extra << ",";
+            const auto& q = element_quality[i];
+            extra << "\n    {\"part_id\": " << q.part_id
+                  << ", \"part_name\": \"" << q.part_name << "\""
+                  << ", \"element_type\": \"" << q.element_type << "\""
+                  << ", \"num_elements\": " << q.num_elements
+                  << ", \"peak_aspect_ratio\": " << std::fixed << std::setprecision(4) << q.peak_aspect_ratio
+                  << ", \"min_jacobian\": " << q.min_jacobian
+                  << ", \"peak_warpage\": " << q.peak_warpage
+                  << ", \"peak_skewness\": " << q.peak_skewness
+                  << ", \"min_volume_change\": " << q.min_volume_change
+                  << ", \"max_volume_change\": " << q.max_volume_change
+                  << ", \"max_negative_jacobian_count\": " << q.max_negative_jacobian_count
+                  << ", \"data\": [";
+            for (size_t j = 0; j < q.data.size(); ++j) {
+                if (j > 0) extra << ", ";
+                const auto& tp = q.data[j];
+                extra << "{\"time\": " << std::setprecision(8) << tp.time
+                      << ", \"ar_max\": " << std::setprecision(4) << tp.aspect_ratio_max
+                      << ", \"ar_avg\": " << tp.aspect_ratio_avg
+                      << ", \"jac_min\": " << tp.jacobian_min
+                      << ", \"skew_max\": " << tp.skewness_max
+                      << ", \"warp_max\": " << tp.warpage_max
+                      << ", \"vol_min\": " << tp.volume_change_min
+                      << ", \"vol_max\": " << tp.volume_change_max
+                      << ", \"n_neg_jac\": " << tp.n_negative_jacobian
+                      << ", \"n_high_ar\": " << tp.n_high_aspect
+                      << "}";
+            }
+            extra << "]}";
+        }
+        extra << "\n  ]";
+
+        // Insert before closing brace
+        size_t close_brace = base.rfind('}');
+        if (close_brace != std::string::npos) {
+            base.insert(close_brace, extra.str() + "\n");
+        }
+        return base;
+    }
 
     /**
      * @brief Export motion analysis to CSV

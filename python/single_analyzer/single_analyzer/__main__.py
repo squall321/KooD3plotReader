@@ -67,6 +67,8 @@ def _add_single_args(p: argparse.ArgumentParser) -> None:
                    help="unified_analyzer 스레드 수 (0=자동)")
     p.add_argument("--render-threads", type=int, default=1,
                    help="병렬 렌더링 LSPrePost 인스턴스 수 (기본 1)")
+    p.add_argument("--element-quality", action="store_true",
+                   help="요소 품질 분석 활성화 (aspect ratio, Jacobian 등)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="unified_analyzer 출력 표시")
 
@@ -132,6 +134,7 @@ def run_single(args: argparse.Namespace) -> None:
             threads=args.ua_threads,
             render_threads=args.render_threads,
             verbose=args.verbose,
+            element_quality=getattr(args, "element_quality", False),
         )
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -264,6 +267,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         threads=getattr(args, "ua_threads", 0),
         render_threads=getattr(args, "render_threads", 1),
         verbose=False,
+        element_quality=getattr(args, "element_quality", False),
     )
     result = _aggregate(
         sim_info=sim_info,
@@ -354,6 +358,11 @@ def _print_summary(result: SingleResult) -> None:
     print(f"  피크 변위    : {result.peak_disp_global:.2f} mm")
     if result.energy_ratio_min is not None:
         print(f"  에너지 비율  : {result.energy_ratio_min:.4f} (min)")
+    if result.d3plot_result and result.d3plot_result.element_quality:
+        worst_ar = max(q.peak_aspect_ratio for q in result.d3plot_result.element_quality)
+        worst_jac = min(q.min_jacobian for q in result.d3plot_result.element_quality)
+        n_neg = max(q.max_negative_jacobian_count for q in result.d3plot_result.element_quality)
+        print(f"  요소 품질    : AR={worst_ar:.2f} | Jac={worst_jac:.2f} | 음수Jac={n_neg}개")
     print("─────────────────────────────────────────────")
 
 
