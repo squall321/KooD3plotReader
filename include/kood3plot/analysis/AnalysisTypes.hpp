@@ -378,6 +378,9 @@ struct RenderJob {
     // State selection
     std::vector<int> states;  ///< Empty = all, -1 = last state
 
+    // View override (empty = auto-select based on section axis or ISOMETRIC)
+    std::string view_str;  ///< "right", "front", "top", "iso", "left", "bottom", "back"
+
     // Output settings
     RenderOutputSpec output;
 };
@@ -516,7 +519,8 @@ struct UnifiedConfig {
     bool output_csv = true;
 
     // Performance
-    int num_threads = 0;  ///< 0 = auto
+    int num_threads = 0;  ///< 0 = auto (analysis/read threads)
+    int render_threads = 1;  ///< Parallel LSPrePost instances (default 1, separate from analysis)
     bool verbose = true;
     bool cache_geometry = true;
 

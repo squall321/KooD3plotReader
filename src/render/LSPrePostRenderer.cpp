@@ -128,6 +128,9 @@ bool LSPrePostRenderer::renderImage(
 
     bool success = executeLSPrePost(script_path.string(), working_dir);
 
+    // Keep script for debugging (copy to /tmp/last_render.cfile)
+    std::filesystem::copy_file(script_path, "/tmp/last_render.cfile",
+        std::filesystem::copy_options::overwrite_existing);
     // Clean up temporary script
     std::filesystem::remove(script_path);
 
@@ -201,64 +204,129 @@ std::string LSPrePostRenderer::generateScript(
 
     // Open d3plot file (correct command is "open d3plot" not "opend")
     script << "open d3plot \"" << d3plot_path << "\"\n";
-    script << "ac\n\n";
+    script << "ac\n";
+    script << "bgstyle fade\n\n";
 
-    // Part filtering (Phase 8) - Apply BEFORE section planes
-    if (options.part_id > 0) {
+    // Part visibility: highlight_parts takes priority over part_id
+    int fringe_code = fringeTypeToCode(options.fringe_type);
+    if (!options.highlight_parts.empty()) {
+        // Highlight mode (per-part render):
+        // Common: selectpart isolation → view → fit → zout → selectpart restore (camera centering)
+        // Then axis-specific fringe: Z→drawcut+genselect, X/Y→global fringe
+
+        bool has_drawcut = false;
+        for (const auto& plane : options.section_planes) {
+            if (std::abs(plane.normal[2]) > 0.9) { has_drawcut = true; break; }
+        }
+
+        script << "$# Highlight mode: per-part section render\n\n";
+
+        // Step 1: Isolate target parts and fit camera (BEFORE drawcut/fringe)
+        script << "$# Isolate target parts for camera fitting\n";
+        script << "selectpart all off\n";
+        for (int pid : options.highlight_parts) {
+            script << "selectpart on " << pid << "/0\n";
+        }
+        script << "ac\n\n";
+
+        // Step 2: Set view and fit camera to isolated target
+        script << "$# Camera fit to target parts\n";
+        std::string view_str = viewOrientationToString(options.view);
+        script << view_str << "\n";
+        script << "fit\n";
+        script << "zout 1.500000\n";
+        script << "ac\n\n";
+
+        // Step 3: Restore all parts (camera stays centered on target)
+        script << "$# Restore all parts\n";
+        script << "selectpart all on\n";
+        script << "ac\n\n";
+
+        // Step 4: Section planes
+        if (!options.section_planes.empty()) {
+            script << "$# Section planes\n";
+            for (size_t i = 0; i < options.section_planes.size(); ++i) {
+                const auto& plane = options.section_planes[i];
+                if (i == 0) script << "splane linewidth 1\n";
+                script << "splane dep0 "
+                       << plane.point[0] << " " << plane.point[1] << " " << plane.point[2] << " "
+                       << plane.normal[0] << " " << plane.normal[1] << " " << plane.normal[2] << "\n";
+                // drawcut only for Z-axis sections (Mesa bug: X/Y drawcut hides model)
+                if (std::abs(plane.normal[2]) > 0.9) script << "splane drawcut\n";
+            }
+            script << "ac\n\n";
+        }
+
+        // Step 5: Apply fringe
+        if (has_drawcut && !options.context_parts.empty()) {
+            // Z-section: selective fringe via genselect (target=colored, context=mesh)
+            script << "$# Selective fringe via genselect\n";
+            script << "genselect target part\n";
+            script << "selectpart select 1\n";
+            for (int pid : options.context_parts) {
+                script << "genselect part remove part " << pid << "/0\n";
+            }
+            script << "selectpart select 0\n";
+            script << "fringe " << fringe_code << "\n";
+            script << "pfringe\n";
+            if (!options.auto_fringe_range) {
+                script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+            }
+            script << "postmodel off\n";
+            script << "postmodel on\n";
+            script << "ac\n\n";
+        } else {
+            // X/Y section or no section: global fringe
+            script << "$# Global fringe\n";
+            script << "fringe " << fringe_code << "\n";
+            script << "pfringe\n";
+            if (!options.auto_fringe_range) {
+                script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+            }
+            script << "ac\n\n";
+        }
+
+    } else if (options.part_id > 0) {
         script << "$# Filter to show specific part\n";
         script << "ponly " << options.part_id << "\n";
         script << "ac\n\n";
     }
 
-    // Apply section planes BEFORE fringe/view settings
-    if (!options.section_planes.empty()) {
+    // Apply section planes (non-highlight mode only; highlight mode handles above)
+    if (options.highlight_parts.empty() && !options.section_planes.empty()) {
         script << "$# Apply section planes (" << options.section_planes.size() << " planes)\n";
-
-        // Handle multiple section planes
         for (size_t i = 0; i < options.section_planes.size(); ++i) {
             const auto& plane = options.section_planes[i];
-
-            if (i == 0) {
-                script << "splane linewidth 1\n";
-            }
-
+            if (i == 0) script << "splane linewidth 1\n";
             script << "splane dep0 "
                    << plane.point[0] << " " << plane.point[1] << " " << plane.point[2] << " "
                    << plane.normal[0] << " " << plane.normal[1] << " " << plane.normal[2] << "\n";
-            script << "splane drawcut\n";
+            bool is_z_section = (std::abs(plane.normal[2]) > 0.9);
+            if (is_z_section) script << "splane drawcut\n";
         }
         script << "ac\n\n";
     }
 
-    // Set fringe type (use numeric codes)
-    script << "$# Fringe type mapping:\n";
-    script << "$ 1: x-stress, 2: y-stress, 3: z-stress\n";
-    script << "$ 4: xy-stress, 5: yz-stress, 6: zx-stress\n";
-    script << "$ 7: effective plastic strain\n";
-    script << "$ 8: pressure, 9: Von Mises stress\n";
-    int fringe_code = fringeTypeToCode(options.fringe_type);
-    script << "fringe " << fringe_code << "\n";
-    script << "pfringe\n";
-
-    // Set fringe range
-    if (!options.auto_fringe_range) {
-        script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
-    }
-    script << "\n";
-
-    // Set view orientation
-    script << "$# Set view orientation\n";
-    std::string view_str = viewOrientationToString(options.view);
-    script << view_str << "\n";
-    script << "ac\n";
-
-    // Zoom controls (Phase 8)
-    if (options.use_auto_fit) {
-        script << "fit\n";
+    // Apply fringe (non-highlight mode only)
+    if (options.highlight_parts.empty()) {
+        script << "fringe " << fringe_code << "\n";
+        script << "pfringe\n";
+        if (!options.auto_fringe_range) {
+            script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+        }
+        script << "\n";
     }
 
-    if (options.zoom_factor != 1.0) {
-        script << "zoom " << options.zoom_factor << "\n";
+    // Set view orientation (non-highlight mode only; highlight mode handles view+fit internally)
+    if (options.highlight_parts.empty()) {
+        script << "$# Set view orientation\n";
+        std::string view_str = viewOrientationToString(options.view);
+        script << view_str << "\n";
+        script << "ac\n";
+
+        if (options.zoom_factor != 1.0) {
+            script << "zoom " << options.zoom_factor << "\n";
+        }
     }
 
     script << "\n";
@@ -267,30 +335,19 @@ std::string LSPrePostRenderer::generateScript(
     script << "$# Generate movie output\n";
     script << "anim forward\n";
 
-    // Determine output format and file extension
+    // LSPrePost appends the extension automatically to the filename given in the movie command.
+    // Do NOT add the extension here; pass the bare filename so we get exactly one extension.
     std::string full_output = output_path;
     std::string movie_format = "MP4/H264";
 
     if (options.create_animation) {
-        // Animation: use requested format
-        std::string video_ext = videoFormatToExtension(options.video_format);
-        if (full_output.rfind(video_ext) != full_output.length() - video_ext.length()) {
-            full_output += video_ext;
-        }
-
         if (options.video_format == VideoFormat::AVI) {
             movie_format = "AVI";
         } else if (options.video_format == VideoFormat::WMV) {
             movie_format = "WMV";
         }
-    } else {
-        // Single "image": generate 1-frame MP4 since batch mode doesn't support PNG/JPG export
-        if (full_output.rfind(".mp4") == std::string::npos &&
-            full_output.rfind(".avi") == std::string::npos) {
-            full_output += ".mp4";
-        }
-        movie_format = "MP4/H264";
     }
+    // For both animation and single-frame the movie command format stays MP4/H264 (default).
 
     // CRITICAL: movie mt 0 is required before the movie command (movie type initialization)
     script << "movie mt 0\n";

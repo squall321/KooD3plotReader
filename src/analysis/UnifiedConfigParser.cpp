@@ -434,6 +434,13 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
 
         // Parse render job properties
         if (in_render_jobs && has_current_render_job) {
+            // Reset sub_section when back at job-property indent (≤4, non-list, non-empty value).
+            // Sub-section content is at indent 6; job-level properties are at indent 4.
+            // Without this, "states:" after "section:" block is silently ignored.
+            if (!is_list_item && indent <= 4 && !value.empty() && !sub_section.empty()) {
+                sub_section.clear();
+            }
+
             // Check for sub-sections
             if (value.empty()) {
                 sub_section = key;
@@ -530,6 +537,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     } else {
                         current_render_job.states = parseIntArray(value);
                     }
+                } else if (key == "view") {
+                    current_render_job.view_str = value;
                 }
             }
             continue;
@@ -555,6 +564,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         else if (current_section == "performance") {
             if (key == "threads") {
                 try { config.num_threads = std::stoi(value); } catch (...) {}
+            } else if (key == "render_threads") {
+                try { config.render_threads = std::stoi(value); } catch (...) {}
             } else if (key == "verbose") {
                 config.verbose = parseBool(value);
             } else if (key == "cache_geometry") {
@@ -596,6 +607,7 @@ bool UnifiedConfigParser::saveToYAML(const std::string& file_path, const Unified
     // Performance section
     ofs << "performance:\n";
     ofs << "  threads: " << config.num_threads << "\n";
+    ofs << "  render_threads: " << config.render_threads << "\n";
     ofs << "  verbose: " << (config.verbose ? "true" : "false") << "\n";
     ofs << "  cache_geometry: " << (config.cache_geometry ? "true" : "false") << "\n";
     if (!config.lsprepost_path.empty()) {
@@ -715,7 +727,8 @@ std::string UnifiedConfigParser::generateExampleYAML() {
 
     oss << "# Performance settings\n";
     oss << "performance:\n";
-    oss << "  threads: 0      # 0 = auto (use all cores)\n";
+    oss << "  threads: 0           # 0 = auto (use all cores for analysis/read)\n";
+    oss << "  render_threads: 1    # Parallel LSPrePost instances (default 1)\n";
     oss << "  verbose: true\n";
     oss << "  cache_geometry: true\n";
     oss << "  # lsprepost_path: \"/path/to/lsprepost\"  # Optional: custom LSPrePost path\n";

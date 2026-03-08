@@ -168,6 +168,11 @@ struct RenderOptions {
     int part_id = -1;                   ///< Part ID to show (-1 = all parts)
     std::string part_name = "";         ///< Part name to show (empty = all parts)
 
+    // Highlight mode: show only these parts in fringe color, hide others
+    // Empty = show all parts (no blanking). Non-empty = blank all, unblank only these.
+    std::vector<int> highlight_parts;   ///< Part IDs to show with fringe (camera zooms to these)
+    std::vector<int> context_parts;     ///< Part IDs for genselect removal (Z: also shown as mesh)
+
     // Section settings
     std::vector<SectionPlane> section_planes;
 

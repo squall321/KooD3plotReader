@@ -81,43 +81,58 @@ BoundingBox GeometryAnalyzer::calculatePartBounds(
 
     std::vector<Point3D> coords;
 
-    // Find all solid elements for this part
-    for (size_t i = 0; i < mesh.solids.size(); ++i) {
-        if (mesh.solid_parts[i] == part_id) {
-            // Add coordinates for all nodes of the solid
-            for (int32_t node_id : mesh.solids[i].node_ids) {
-                // node_id is 1-based, but vector is 0-based
-                if (node_id > 0 && static_cast<size_t>(node_id) <= mesh.nodes.size()) {
-                    const auto& node = mesh.nodes[node_id - 1];
-                    Point3D pt;
-                    pt[0] = node.x;
-                    pt[1] = node.y;
-                    pt[2] = node.z;
-                    coords.push_back(pt);
-                }
+    // Helper to add nodes for an element
+    auto addNodes = [&](const std::vector<int32_t>& node_ids) {
+        for (int32_t node_id : node_ids) {
+            if (node_id > 0 && static_cast<size_t>(node_id) <= mesh.nodes.size()) {
+                const auto& node = mesh.nodes[node_id - 1];
+                Point3D pt;
+                pt[0] = node.x;
+                pt[1] = node.y;
+                pt[2] = node.z;
+                coords.push_back(pt);
             }
+        }
+    };
+
+    // Find all solid elements for this part
+    const size_t nsolid_parts = mesh.solid_parts.size();
+    for (size_t i = 0; i < mesh.solids.size() && i < nsolid_parts; ++i) {
+        if (mesh.solid_parts[i] == part_id) {
+            addNodes(mesh.solids[i].node_ids);
         }
     }
 
     // Also check shell elements
-    for (size_t i = 0; i < mesh.shells.size(); ++i) {
+    const size_t nshell_parts = mesh.shell_parts.size();
+    for (size_t i = 0; i < mesh.shells.size() && i < nshell_parts; ++i) {
         if (mesh.shell_parts[i] == part_id) {
-            // Add coordinates for all nodes of the shell
-            for (int32_t node_id : mesh.shells[i].node_ids) {
-                if (node_id > 0 && static_cast<size_t>(node_id) <= mesh.nodes.size()) {
-                    const auto& node = mesh.nodes[node_id - 1];
-                    Point3D pt;
-                    pt[0] = node.x;
-                    pt[1] = node.y;
-                    pt[2] = node.z;
-                    coords.push_back(pt);
-                }
+            addNodes(mesh.shells[i].node_ids);
+        }
+    }
+
+    // Also check thick shell elements (if part ID mapping is populated)
+    const size_t ntshell_parts = mesh.thick_shell_parts.size();
+    if (ntshell_parts > 0) {
+        for (size_t i = 0; i < mesh.thick_shells.size() && i < ntshell_parts; ++i) {
+            if (mesh.thick_shell_parts[i] == part_id) {
+                addNodes(mesh.thick_shells[i].node_ids);
             }
         }
     }
 
     if (coords.empty()) {
-        throw std::runtime_error("No elements found for part ID: " + std::to_string(part_id));
+        // Fallback: use all nodes (model bounds) without re-reading mesh
+        if (mesh.nodes.empty()) {
+            throw std::runtime_error("No nodes in mesh for part ID: " + std::to_string(part_id));
+        }
+        for (const auto& node : mesh.nodes) {
+            Point3D pt;
+            pt[0] = node.x;
+            pt[1] = node.y;
+            pt[2] = node.z;
+            coords.push_back(pt);
+        }
     }
 
     BoundingBox bbox = calculateBoundsFromCoords(coords);

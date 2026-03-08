@@ -1,0 +1,1068 @@
+"""Generate single-simulation HTML report."""
+from __future__ import annotations
+import json
+from datetime import datetime
+from pathlib import Path
+
+from .models import SingleResult, PartSummary
+
+
+def generate_html(result: SingleResult, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    html = _build_html(result, output_path.parent)
+    output_path.write_text(html, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Top-level builder
+# ---------------------------------------------------------------------------
+
+def _build_html(result: SingleResult, report_dir: Path) -> str:
+    dr = result.d3plot_result
+    gl = result.glstat_data
+    bn = result.binout_data
+    si = result.sim_info
+
+    # Determine which tabs to show
+    has_stress = dr is not None and (dr.stress or dr.strain)
+    has_motion = dr is not None and bool(dr.motion)
+    has_energy = gl is not None and bool(gl.t)
+    has_contact = bn is not None and (bool(bn.rcforc) or bool(bn.sleout) or bn.matsum is not None)
+    has_renders = dr is not None and bool(dr.render_files)
+
+    tabs = [("overview", "Overview")]
+    if has_stress:
+        tabs.append(("stress", "응력·변형률"))
+    if has_motion:
+        tabs.append(("motion", "운동"))
+    if has_stress or has_motion:
+        tabs.append(("deep_dive", "부품 Deep Dive"))
+    if has_energy:
+        tabs.append(("energy", "에너지"))
+    if has_contact:
+        tabs.append(("contact", "접촉·에너지"))
+    if has_renders:
+        tabs.append(("renders", "렌더 갤러리"))
+    tabs.append(("sysinfo", "시스템 정보"))
+
+    # Pre-build strings that would require backslashes inside f-strings
+    tab_buttons = "".join(
+        f'<button class="tab-btn" data-tab="{tid}" onclick="switchTab(\'{tid}\')">{name}</button>'
+        for tid, name in tabs
+    )
+    tab_panels = "".join(
+        f'<div class="tab-panel" id="panel-{tid}"></div>'
+        for tid, _ in tabs
+    )
+    term_class = "ok" if si.normal_termination else ("error" if si.normal_termination is False else "unknown")
+    term_text = ("✓ Normal termination" if si.normal_termination
+                 else ("✗ Error termination" if si.normal_termination is False
+                       else "? Unknown termination"))
+    d3plot_str = str(si.d3plot) if si.d3plot else "d3plot 없음"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Serialize data for JS
+    js_data = _build_js_data(result)
+    js_data_str = json.dumps(js_data, ensure_ascii=False, default=str)
+    js_tabs_str = json.dumps([t[0] for t in tabs])
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Single Analyzer — {si.path.name}</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+{_CSS}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-title">
+    <span class="badge tier-badge">Tier {si.tier}</span>
+    <h1>{si.path.name}</h1>
+    <span class="sub">{d3plot_str}</span>
+  </div>
+  <div class="header-meta">
+    <span class="termination {term_class}">{term_text}</span>
+    <span class="meta-item">{si.tier_label}</span>
+    <span class="meta-item">생성: {now_str}</span>
+  </div>
+</div>
+
+<div class="tab-bar">
+{tab_buttons}
+</div>
+
+<div class="content">
+{tab_panels}
+</div>
+
+<script>
+const DATA = {js_data_str};
+const TABS = {js_tabs_str};
+
+{_JS}
+
+// Init
+switchTab(TABS[0]);
+</script>
+
+<!-- Fullscreen render modal -->
+<div id="render-modal">
+  <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+  <div id="modal-content"></div>
+  <div class="modal-label"></div>
+</div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# JS data serialization
+# ---------------------------------------------------------------------------
+
+def _build_js_data(result: SingleResult) -> dict:
+    dr = result.d3plot_result
+    gl = result.glstat_data
+    si = result.sim_info
+
+    data: dict = {
+        "sim": {
+            "name": si.path.name,
+            "path": str(si.path),
+            "d3plot": str(si.d3plot) if si.d3plot else None,
+            "tier": si.tier,
+            "tier_label": si.tier_label,
+            "normal_termination": si.normal_termination,
+            "termination_source": si.termination_source,
+            "files": {
+                "glstat": str(si.glstat) if si.glstat else None,
+                "binout": str(si.binout) if si.binout else None,
+                "rcforc": str(si.rcforc) if si.rcforc else None,
+                "matsum": str(si.matsum) if si.matsum else None,
+            },
+        },
+        "label": result.label,
+        "yield_stress": result.yield_stress,
+        "summary": {
+            "peak_stress": result.peak_stress_global,
+            "peak_stress_part_id": result.peak_stress_part_id,
+            "peak_strain": result.peak_strain_global,
+            "peak_disp": result.peak_disp_global,
+            "energy_ratio_min": result.energy_ratio_min,
+        },
+        "parts": {
+            str(pid): {
+                "name": p.part_name,
+                "peak_stress": p.peak_stress,
+                "time_of_peak_stress": p.time_of_peak_stress,
+                "peak_element_id": p.peak_element_id,
+                "peak_strain": p.peak_strain,
+                "peak_disp_mag": p.peak_disp_mag,
+                "peak_vel_mag": p.peak_vel_mag,
+                "peak_acc_mag": p.peak_acc_mag,
+                "safety_factor": p.safety_factor,
+            }
+            for pid, p in result.parts.items()
+        },
+        "stress": [],
+        "strain": [],
+        "motion": {},
+        "glstat": None,
+        "binout": None,
+        "renders": [],
+        "metadata": {},
+    }
+
+    if dr:
+        data["metadata"] = dr.metadata
+        data["stress"] = [_series_to_dict(s) for s in dr.stress]
+        data["strain"] = [_series_to_dict(s) for s in dr.strain]
+        data["motion"] = {
+            str(pid): {
+                "part_id": pid,
+                "part_name": md.part_name,
+                "t": md.t,
+                "disp_x": md.disp_x,
+                "disp_y": md.disp_y,
+                "disp_z": md.disp_z,
+                "disp_mag": md.disp_mag,
+                "vel_mag": md.vel_mag,
+                "acc_mag": md.acc_mag,
+                "max_disp_mag": md.max_disp_mag,
+                "peak_disp_mag": md.peak_disp_mag,
+                "peak_vel_mag": md.peak_vel_mag,
+                "peak_acc_mag": md.peak_acc_mag,
+            }
+            for pid, md in dr.motion.items()
+        }
+        renders_dir = result.d3plot_result.output_dir / "renders"
+        data["renders"] = [
+            str(p.relative_to(renders_dir)) for p in dr.render_files
+        ]
+
+    if gl:
+        data["glstat"] = {
+            "t": gl.t,
+            "total_energy": gl.total_energy,
+            "kinetic_energy": gl.kinetic_energy,
+            "internal_energy": gl.internal_energy,
+            "hourglass_energy": gl.hourglass_energy,
+            "energy_ratio": gl.energy_ratio,
+            "mass": gl.mass,
+            "energy_ratio_min": gl.energy_ratio_min,
+            "energy_ratio_max": gl.energy_ratio_max,
+            "has_mass_added": gl.has_mass_added,
+            "normal_termination": gl.normal_termination,
+        }
+
+    bn = result.binout_data
+    if bn:
+        data["binout"] = {
+            "matsum": {
+                "part_ids": bn.matsum.part_ids,
+                "part_names": bn.matsum.part_names,
+                "t": bn.matsum.t,
+                "internal_energy": bn.matsum.internal_energy,
+                "kinetic_energy": bn.matsum.kinetic_energy,
+            } if bn.matsum else None,
+            "rcforc": [
+                {
+                    "id": ifc.interface_id,
+                    "name": ifc.name,
+                    "side": ifc.side,
+                    "t": ifc.t,
+                    "fx": ifc.fx, "fy": ifc.fy, "fz": ifc.fz,
+                    "fmag": ifc.fmag,
+                    "peak_fmag": ifc.peak_fmag,
+                }
+                for ifc in bn.rcforc
+            ],
+            "sleout": [
+                {
+                    "id": ifc.interface_id,
+                    "name": ifc.name,
+                    "t": ifc.t,
+                    "total_energy": ifc.total_energy,
+                    "friction_energy": ifc.friction_energy,
+                }
+                for ifc in bn.sleout
+            ],
+        }
+
+    return data
+
+
+def _series_to_dict(s) -> dict:
+    return {
+        "part_id": s.part_id,
+        "part_name": s.part_name,
+        "quantity": s.quantity,
+        "unit": s.unit,
+        "global_max": s.global_max,
+        "global_min": s.global_min,
+        "time_of_max": s.time_of_max,
+        "t": s.t,
+        "max_vals": s.max_vals,
+        "avg_vals": s.avg_vals,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CSS
+# ---------------------------------------------------------------------------
+
+_CSS = """
+:root {
+  --bg: #1a1a2e; --bg2: #16213e; --bg3: #0f3460;
+  --fg: #e0e0e0; --fg2: #a0a0b0;
+  --accent: #e94560; --accent2: #4ecca3; --accent3: #f5a623;
+  --border: #2a2a4a; --card: #1e2a45;
+  --ok: #4ecca3; --err: #e94560; --warn: #f5a623;
+  --radius: 8px; --font: 'Segoe UI', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; }
+a { color: var(--accent2); }
+
+.header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px;
+          display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.header-title h1 { font-size: 1.3rem; margin: 4px 0; }
+.header-title .sub { color: var(--fg2); font-size: 0.8rem; font-family: monospace; }
+.header-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.meta-item { color: var(--fg2); font-size: 0.82rem; }
+
+.badge { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.tier-badge { background: var(--bg3); color: var(--accent2); }
+.termination { font-size: 0.85rem; font-weight: 600; }
+.termination.ok { color: var(--ok); }
+.termination.error { color: var(--err); }
+.termination.unknown { color: var(--warn); }
+
+.tab-bar { background: var(--bg2); border-bottom: 1px solid var(--border);
+           display: flex; gap: 2px; padding: 0 12px; overflow-x: auto; }
+.tab-btn { background: none; border: none; color: var(--fg2); cursor: pointer;
+           padding: 10px 16px; font-size: 0.85rem; border-bottom: 2px solid transparent;
+           white-space: nowrap; transition: all .2s; }
+.tab-btn:hover { color: var(--fg); }
+.tab-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+.content { padding: 20px 24px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 14px 16px; }
+.kpi-label { font-size: 0.75rem; color: var(--fg2); text-transform: uppercase; letter-spacing: .5px; }
+.kpi-value { font-size: 1.4rem; font-weight: 700; margin: 4px 0; }
+.kpi-unit { font-size: 0.75rem; color: var(--fg2); }
+.kpi-warn { color: var(--warn); }
+.kpi-err { color: var(--err); }
+.kpi-ok { color: var(--ok); }
+
+/* Section heading */
+.sec-title { font-size: 1rem; font-weight: 600; margin: 20px 0 10px;
+             border-left: 3px solid var(--accent2); padding-left: 10px; }
+
+/* Tables */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.data-table th { background: var(--bg3); color: var(--fg2); padding: 7px 10px; text-align: left; font-weight: 500; }
+.data-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.data-table tr:hover td { background: rgba(78,204,163,.06); }
+.data-table .num { text-align: right; font-family: monospace; }
+.warn-row td { color: var(--warn); }
+.err-row td { color: var(--err); }
+
+/* Charts */
+.chart-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+             padding: 14px; margin-bottom: 16px; }
+.chart-title { font-size: 0.85rem; color: var(--fg2); margin-bottom: 8px; }
+.plotly-chart { width: 100%; }
+
+/* Part selector */
+.part-selector { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.part-selector label { font-size: 0.85rem; color: var(--fg2); }
+.part-selector select { background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+                         border-radius: 4px; padding: 5px 10px; font-size: 0.85rem; cursor: pointer; }
+
+/* File list */
+.file-list { display: flex; flex-direction: column; gap: 4px; }
+.file-item { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+             border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+.file-status { font-weight: 600; width: 16px; text-align: center; }
+.file-status.present { color: var(--ok); }
+.file-status.absent { color: var(--fg2); }
+.file-path { font-family: monospace; color: var(--fg2); font-size: 0.78rem; }
+
+/* Render gallery */
+.render-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.render-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+               padding: 10px; cursor: zoom-in; transition: border-color .2s; }
+.render-card:hover { border-color: var(--accent2); }
+.render-card video, .render-card img { width: 100%; border-radius: 4px; display: block; }
+.render-card .render-name { font-size: 0.78rem; color: var(--fg2); margin-top: 6px;
+                             text-align: center; font-family: monospace; }
+.render-axis-label { font-size: 0.95rem; font-weight: 700; color: var(--accent2);
+                     text-align: center; margin-bottom: 4px; letter-spacing: 1px; }
+/* Folder accordion */
+.render-folder { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+.render-folder-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+                         background: var(--bg2); cursor: pointer; user-select: none;
+                         transition: background .15s; }
+.render-folder-header:hover { background: var(--bg3); }
+.render-folder-arrow { font-size: 0.75rem; color: var(--fg2); transition: transform .2s; }
+.render-folder.open .render-folder-arrow { transform: rotate(90deg); }
+.render-folder-title { font-size: 0.9rem; font-weight: 600; color: var(--fg); flex: 1; }
+.render-folder-count { font-size: 0.75rem; color: var(--fg2); }
+.render-folder-body { display: none; padding: 12px; background: var(--bg1); }
+.render-folder.open .render-folder-body { display: block; }
+/* Fullscreen modal */
+#render-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92);
+                z-index: 9999; align-items: center; justify-content: center; flex-direction: column; }
+#render-modal.open { display: flex; }
+#render-modal video, #render-modal img { max-width: 95vw; max-height: 88vh; border-radius: 6px; }
+#render-modal .modal-label { color: #aaa; font-size: 0.85rem; margin-top: 10px; font-family: monospace; }
+#render-modal .modal-close { position: absolute; top: 16px; right: 20px; background: none; border: none;
+                              color: #fff; font-size: 2rem; cursor: pointer; line-height: 1; }
+
+/* Bar chart inline */
+.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.bar-label { width: 120px; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); text-align: right; }
+.bar-track { flex: 1; background: var(--bg3); border-radius: 3px; height: 14px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent2); border-radius: 3px; transition: width .3s; }
+.bar-val { width: 90px; font-size: 0.78rem; font-family: monospace; color: var(--fg); }
+
+/* Warn box */
+.warn-box { background: rgba(245,166,35,.1); border: 1px solid var(--warn); border-radius: var(--radius);
+            padding: 10px 14px; margin-bottom: 12px; color: var(--warn); font-size: 0.85rem; }
+.err-box { background: rgba(233,69,96,.1); border: 1px solid var(--err); border-radius: var(--radius);
+           padding: 10px 14px; margin-bottom: 12px; color: var(--err); font-size: 0.85rem; }
+
+/* Safety factor */
+.sf-ok { color: var(--ok); }
+.sf-warn { color: var(--warn); }
+.sf-fail { color: var(--err); }
+
+@media (max-width: 600px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .content { padding: 12px; }
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# JavaScript
+# ---------------------------------------------------------------------------
+
+_JS = r"""
+// ── Plotly default layout ──────────────────────────────────────────────
+const PLOT_LAYOUT = {
+  paper_bgcolor: 'transparent',
+  plot_bgcolor: 'rgba(15,52,96,0.4)',
+  font: {color: '#e0e0e0', size: 12},
+  margin: {l: 55, r: 20, t: 30, b: 45},
+  xaxis: {gridcolor: '#2a2a4a', linecolor: '#2a2a4a', zerolinecolor: '#2a2a4a'},
+  yaxis: {gridcolor: '#2a2a4a', linecolor: '#2a2a4a', zerolinecolor: '#2a2a4a'},
+  legend: {bgcolor: 'rgba(0,0,0,0)', bordercolor: '#2a2a4a'},
+};
+const PLOT_CONFIG = {responsive: true, displayModeBar: false};
+const COLORS = ['#4ecca3','#e94560','#f5a623','#7b68ee','#00bcd4','#ff9800','#9c27b0','#4caf50'];
+
+function fmt(v, dec=2) {
+  if (v === null || v === undefined) return '—';
+  if (Math.abs(v) >= 1e6) return v.toExponential(2);
+  return Number(v).toFixed(dec);
+}
+function fmtPct(v, dec=1) { return v === null ? '—' : fmt(v*100, dec) + '%'; }
+
+// ── Tab switching ──────────────────────────────────────────────────────
+let _rendered = {};
+function switchTab(tid) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tid);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === 'panel-' + tid);
+  });
+  if (!_rendered[tid]) {
+    _rendered[tid] = true;
+    renderTab(tid);
+  }
+}
+
+function renderTab(tid) {
+  const el = document.getElementById('panel-' + tid);
+  if (!el) return;
+  switch(tid) {
+    case 'overview':   el.innerHTML = renderOverview(); break;
+    case 'stress':     el.innerHTML = renderStress(); initStressCharts(); break;
+    case 'motion':     el.innerHTML = renderMotion(); initMotionCharts(); break;
+    case 'deep_dive':  el.innerHTML = renderDeepDive(); initDeepDive(); break;
+    case 'energy':     el.innerHTML = renderEnergy(); initEnergyCharts(); break;
+    case 'contact':    el.innerHTML = renderContact(); initContactCharts(); break;
+    case 'renders':    el.innerHTML = renderGallery(); initGallery(); break;
+    case 'sysinfo':    el.innerHTML = renderSysInfo(); break;
+  }
+}
+
+// ── Overview ──────────────────────────────────────────────────────────
+function renderOverview() {
+  const s = DATA.summary;
+  const yld = DATA.yield_stress;
+  const sf = (yld > 0 && s.peak_stress > 0) ? (yld / s.peak_stress) : null;
+  const er = s.energy_ratio_min;
+  // 에너지 생성(>1.1)만 오류. 소산(<1.0)은 물리적으로 정상 (고무·소성·감쇠 해석).
+  const erClass = er === null ? '' : er > 1.1 ? 'kpi-err' : er > 1.05 ? 'kpi-warn' : 'kpi-ok';
+
+  let kpis = `
+  <div class="kpi-card">
+    <div class="kpi-label">피크 Von Mises 응력</div>
+    <div class="kpi-value">${fmt(s.peak_stress)}</div>
+    <div class="kpi-unit">MPa${s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id : ''}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">피크 소성 변형률</div>
+    <div class="kpi-value">${fmt(s.peak_strain, 4)}</div>
+    <div class="kpi-unit">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">피크 변위</div>
+    <div class="kpi-value">${fmt(s.peak_disp)}</div>
+    <div class="kpi-unit">mm</div>
+  </div>`;
+  if (sf !== null) {
+    const sfClass = sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
+    kpis += `<div class="kpi-card">
+    <div class="kpi-label">Safety Factor</div>
+    <div class="kpi-value ${sfClass}">${fmt(sf, 3)}</div>
+    <div class="kpi-unit">σ_yield=${fmt(yld)} MPa</div>
+    </div>`;
+  }
+  if (er !== null) {
+    kpis += `<div class="kpi-card">
+    <div class="kpi-label">에너지 비율 (최소)</div>
+    <div class="kpi-value ${erClass}">${fmt(er, 4)}</div>
+    <div class="kpi-unit">internal/total (이상: 1.0)</div>
+    </div>`;
+  }
+  kpis += `<div class="kpi-card">
+    <div class="kpi-label">분석 States</div>
+    <div class="kpi-value">${DATA.metadata.num_states || '—'}</div>
+    <div class="kpi-unit">t_end=${fmt(DATA.metadata.end_time, 4)}</div>
+  </div>`;
+
+  // Top 5 stress parts
+  const parts = Object.entries(DATA.parts)
+    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+    .slice(0, 5);
+  const maxStress = parts[0]?.[1].peak_stress || 1;
+  const topBars = parts.map(([pid, p], i) => {
+    const pct = (p.peak_stress / maxStress * 100).toFixed(1);
+    return `<div class="bar-row">
+      <div class="bar-label" title="${p.name}">${p.name || 'Part '+pid}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-val">${fmt(p.peak_stress)} MPa</div>
+    </div>`;
+  }).join('');
+
+  return `
+<div class="kpi-grid">${kpis}</div>
+<div class="sec-title">응력 상위 부품</div>
+<div class="chart-box">${topBars || '<div style="color:var(--fg2);padding:8px">응력 데이터 없음</div>'}</div>`;
+}
+
+// ── Stress & Strain ──────────────────────────────────────────────────
+function renderStress() {
+  const parts = Object.entries(DATA.parts).sort((a,b) => b[1].peak_stress - a[1].peak_stress);
+  const maxS = parts[0]?.[1].peak_stress || 1;
+
+  const stressBars = parts.map(([pid, p]) => {
+    const pct = (p.peak_stress / maxS * 100).toFixed(1);
+    const sf = p.safety_factor;
+    const sfHtml = sf !== null && sf !== undefined
+      ? `<span class="${sf>=1?'sf-ok':sf>=0.85?'sf-warn':'sf-fail'}"> SF=${fmt(sf,3)}</span>` : '';
+    return `<div class="bar-row">
+      <div class="bar-label" title="${p.name}">${p.name||'Part '+pid}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-val">${fmt(p.peak_stress)} MPa${sfHtml}</div>
+    </div>`;
+  }).join('');
+
+  const maxE = Math.max(...parts.map(([,p]) => p.peak_strain), 0) || 1;
+  const strainBars = parts.filter(([,p]) => p.peak_strain > 0)
+    .sort((a,b) => b[1].peak_strain - a[1].peak_strain)
+    .map(([pid, p]) => {
+      const pct = (p.peak_strain / maxE * 100).toFixed(1);
+      return `<div class="bar-row">
+        <div class="bar-label" title="${p.name}">${p.name||'Part '+pid}</div>
+        <div class="bar-track"><div class="bar-fill" style="background:var(--accent3);width:${pct}%"></div></div>
+        <div class="bar-val">${fmt(p.peak_strain, 4)}</div>
+      </div>`;
+    }).join('');
+
+  const opts = Object.entries(DATA.parts)
+    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+    .map(([pid, p]) => `<option value="${pid}">${p.name||'Part '+pid}</option>`).join('');
+
+  return `
+<div class="sec-title">Von Mises 응력 순위</div>
+<div class="chart-box">${stressBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
+<div class="sec-title">소성 변형률 순위</div>
+<div class="chart-box">${strainBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
+<div class="sec-title">전체 부품 응력 이력 오버레이</div>
+<div class="chart-box"><div id="stress-overlay-chart" class="plotly-chart" style="height:320px"></div></div>
+<div class="sec-title">부품별 상세 시계열</div>
+<div class="part-selector">
+  <label>부품 선택:</label>
+  <select id="stress-part-sel" onchange="updateStressChart()">${opts}</select>
+</div>
+<div class="chart-box"><div id="stress-chart" class="plotly-chart" style="height:300px"></div></div>
+<div class="chart-box"><div id="strain-chart" class="plotly-chart" style="height:280px"></div></div>`;
+}
+
+function initStressCharts() {
+  // Overlay: all parts max stress on one chart
+  if (DATA.stress.length > 0) {
+    const traces = DATA.stress.map((s, i) => ({
+      x: s.t, y: s.max_vals, name: s.part_name || `Part ${s.part_id}`,
+      mode: 'lines', line: {color: COLORS[i % COLORS.length]},
+    }));
+    Plotly.newPlot('stress-overlay-chart', traces,
+      {...PLOT_LAYOUT, title:{text:'Von Mises Max — 전체 부품 (MPa)',font:{size:13}}}, PLOT_CONFIG);
+  }
+  updateStressChart();
+}
+
+function updateStressChart() {
+  const pid = document.getElementById('stress-part-sel')?.value;
+  if (!pid) return;
+  const st = DATA.stress.find(s => String(s.part_id) === pid);
+  const sr = DATA.strain.find(s => String(s.part_id) === pid);
+
+  if (st) {
+    Plotly.newPlot('stress-chart', [{
+      x: st.t, y: st.max_vals, name: 'Max', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[0]}
+    }, {
+      x: st.t, y: st.avg_vals, name: 'Avg', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[0], dash: 'dot'}
+    }], {...PLOT_LAYOUT, title: {text: `Von Mises — ${st.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+  }
+  if (sr) {
+    Plotly.newPlot('strain-chart', [{
+      x: sr.t, y: sr.max_vals, name: 'Max', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[2]}
+    }, {
+      x: sr.t, y: sr.avg_vals, name: 'Avg', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[2], dash: 'dot'}
+    }], {...PLOT_LAYOUT, title: {text: `소성 변형률 — ${sr.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+  }
+}
+
+// ── Motion ────────────────────────────────────────────────────────────
+function renderMotion() {
+  const mEntries = Object.entries(DATA.motion)
+    .sort((a,b) => b[1].peak_disp_mag - a[1].peak_disp_mag);
+  const maxD = mEntries[0]?.[1].peak_disp_mag || 1;
+
+  const dispBars = mEntries.map(([pid, m]) => {
+    const pct = (m.peak_disp_mag / maxD * 100).toFixed(1);
+    return `<div class="bar-row">
+      <div class="bar-label" title="${m.part_name}">${m.part_name||'Part '+pid}</div>
+      <div class="bar-track"><div class="bar-fill" style="background:var(--accent2);width:${pct}%"></div></div>
+      <div class="bar-val">${fmt(m.peak_disp_mag)} mm</div>
+    </div>`;
+  }).join('');
+
+  const opts = mEntries.map(([pid, m]) =>
+    `<option value="${pid}">${m.part_name||'Part '+pid}</option>`).join('');
+
+  return `
+<div class="sec-title">최대 변위 순위</div>
+<div class="chart-box">${dispBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
+<div class="sec-title">시계열</div>
+<div class="part-selector">
+  <label>부품 선택:</label>
+  <select id="motion-part-sel" onchange="updateMotionChart()">${opts}</select>
+</div>
+<div class="chart-box"><div id="motion-disp-chart" class="plotly-chart" style="height:280px"></div></div>
+<div class="chart-box"><div id="motion-disp-xyz-chart" class="plotly-chart" style="height:260px"></div></div>
+<div class="chart-box"><div id="motion-vel-chart" class="plotly-chart" style="height:250px"></div></div>
+<div class="chart-box"><div id="motion-acc-chart" class="plotly-chart" style="height:240px"></div></div>`;
+}
+
+function initMotionCharts() { updateMotionChart(); }
+
+function updateMotionChart() {
+  const pid = document.getElementById('motion-part-sel')?.value;
+  if (!pid || !DATA.motion[pid]) return;
+  const m = DATA.motion[pid];
+  Plotly.newPlot('motion-disp-chart', [{
+    x: m.t, y: m.disp_mag, name: 'Avg |U|', type: 'scatter', mode: 'lines',
+    line: {color: COLORS[1]}
+  }, {
+    x: m.t, y: m.max_disp_mag, name: 'Max |U|', type: 'scatter', mode: 'lines',
+    line: {color: COLORS[1], dash: 'dot'}
+  }], {...PLOT_LAYOUT, title: {text: `변위 크기 (mm) — ${m.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+
+  // X/Y/Z directional displacement
+  if (m.disp_x?.some(v => v !== 0) || m.disp_y?.some(v => v !== 0) || m.disp_z?.some(v => v !== 0)) {
+    Plotly.newPlot('motion-disp-xyz-chart', [
+      {x: m.t, y: m.disp_x, name: 'Ux', mode: 'lines', line: {color: '#e05555'}},
+      {x: m.t, y: m.disp_y, name: 'Uy', mode: 'lines', line: {color: '#4caf6f'}},
+      {x: m.t, y: m.disp_z, name: 'Uz', mode: 'lines', line: {color: '#4f8ef7'}},
+    ], {...PLOT_LAYOUT, title: {text: `변위 성분 X/Y/Z (mm) — ${m.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+  }
+
+  if (m.vel_mag && m.vel_mag.some(v => v > 0)) {
+    Plotly.newPlot('motion-vel-chart', [{
+      x: m.t, y: m.vel_mag, name: 'Avg |V|', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[3]}
+    }], {...PLOT_LAYOUT, title: {text: `속도 크기 — ${m.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+  }
+
+  if (m.acc_mag && m.acc_mag.some(v => v > 0)) {
+    Plotly.newPlot('motion-acc-chart', [{
+      x: m.t, y: m.acc_mag, name: 'Avg |A|', type: 'scatter', mode: 'lines',
+      line: {color: COLORS[4]}
+    }], {...PLOT_LAYOUT, title: {text: `가속도 크기 — ${m.part_name}`, font:{size:13}}}, PLOT_CONFIG);
+  }
+}
+
+// ── Deep Dive ─────────────────────────────────────────────────────────
+function renderDeepDive() {
+  const opts = Object.entries(DATA.parts)
+    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+    .map(([pid, p]) => `<option value="${pid}">${p.name||'Part '+pid}</option>`).join('');
+  return `
+<div class="part-selector">
+  <label>부품 선택:</label>
+  <select id="dd-part-sel" onchange="updateDeepDive()">${opts}</select>
+</div>
+<div id="dd-kpis" class="kpi-grid"></div>
+<div class="chart-box"><div id="dd-stress-chart" style="height:260px"></div></div>
+<div class="chart-box"><div id="dd-strain-chart" style="height:240px"></div></div>
+<div class="chart-box"><div id="dd-disp-chart" style="height:240px"></div></div>
+<div class="chart-box"><div id="dd-disp-xyz-chart" style="height:230px"></div></div>
+<div class="chart-box"><div id="dd-vel-chart" style="height:220px"></div></div>
+<div class="chart-box"><div id="dd-acc-chart" style="height:220px"></div></div>`;
+}
+
+function initDeepDive() { updateDeepDive(); }
+
+function updateDeepDive() {
+  const pid = document.getElementById('dd-part-sel')?.value;
+  if (!pid) return;
+  const p = DATA.parts[pid];
+  const st = DATA.stress.find(s => String(s.part_id) === pid);
+  const sr = DATA.strain.find(s => String(s.part_id) === pid);
+  const mo = DATA.motion[pid];
+
+  // KPI cards
+  const sf = p?.safety_factor;
+  const sfClass = sf === null || sf === undefined ? '' : sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
+  let kpiHtml = `
+  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">MPa (t=${fmt(p?.time_of_peak_stress,4)})</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 변형률</div><div class="kpi-value">${fmt(p?.peak_strain,4)}</div><div class="kpi-unit">—</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 변위</div><div class="kpi-value">${fmt(p?.peak_disp_mag)}</div><div class="kpi-unit">mm</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 가속도</div><div class="kpi-value">${fmt(p?.peak_acc_mag)}</div><div class="kpi-unit">—</div></div>`;
+  if (sf !== null && sf !== undefined) {
+    kpiHtml += `<div class="kpi-card"><div class="kpi-label">Safety Factor</div><div class="kpi-value ${sfClass}">${fmt(sf,3)}</div><div class="kpi-unit">σ_yield=${fmt(DATA.yield_stress)} MPa</div></div>`;
+  }
+  if (p?.peak_element_id) {
+    kpiHtml += `<div class="kpi-card"><div class="kpi-label">피크 Element</div><div class="kpi-value" style="font-size:1rem">#${p.peak_element_id}</div><div class="kpi-unit">max stress 위치</div></div>`;
+  }
+  document.getElementById('dd-kpis').innerHTML = kpiHtml;
+
+  // Charts
+  if (st) Plotly.newPlot('dd-stress-chart',
+    [{x:st.t, y:st.max_vals, name:'Max', line:{color:COLORS[0]}},
+     {x:st.t, y:st.avg_vals, name:'Avg', line:{color:COLORS[0],dash:'dot'}}],
+    {...PLOT_LAYOUT, title:{text:'Von Mises Stress (MPa)',font:{size:12}}}, PLOT_CONFIG);
+  if (sr) Plotly.newPlot('dd-strain-chart',
+    [{x:sr.t, y:sr.max_vals, name:'Max', line:{color:COLORS[2]}},
+     {x:sr.t, y:sr.avg_vals, name:'Avg', line:{color:COLORS[2],dash:'dot'}}],
+    {...PLOT_LAYOUT, title:{text:'Eff. Plastic Strain',font:{size:12}}}, PLOT_CONFIG);
+  if (mo) {
+    Plotly.newPlot('dd-disp-chart',
+      [{x:mo.t, y:mo.disp_mag, name:'Avg |U|', line:{color:COLORS[1]}},
+       {x:mo.t, y:mo.max_disp_mag, name:'Max |U|', line:{color:COLORS[1],dash:'dot'}}],
+      {...PLOT_LAYOUT, title:{text:'변위 크기 (mm)',font:{size:12}}}, PLOT_CONFIG);
+    if (mo.disp_x?.some(v => v !== 0) || mo.disp_y?.some(v => v !== 0) || mo.disp_z?.some(v => v !== 0)) {
+      Plotly.newPlot('dd-disp-xyz-chart', [
+        {x:mo.t, y:mo.disp_x, name:'Ux', mode:'lines', line:{color:'#e05555'}},
+        {x:mo.t, y:mo.disp_y, name:'Uy', mode:'lines', line:{color:'#4caf6f'}},
+        {x:mo.t, y:mo.disp_z, name:'Uz', mode:'lines', line:{color:'#4f8ef7'}},
+      ], {...PLOT_LAYOUT, title:{text:'변위 성분 X/Y/Z (mm)',font:{size:12}}}, PLOT_CONFIG);
+    }
+    if (mo.vel_mag?.some(v => v > 0)) {
+      Plotly.newPlot('dd-vel-chart',
+        [{x:mo.t, y:mo.vel_mag, name:'Avg |V|', line:{color:COLORS[3]}}],
+        {...PLOT_LAYOUT, title:{text:'속도 크기',font:{size:12}}}, PLOT_CONFIG);
+    }
+    if (mo.acc_mag?.some(v => v > 0)) {
+      Plotly.newPlot('dd-acc-chart',
+        [{x:mo.t, y:mo.acc_mag, name:'Avg |A|', line:{color:COLORS[4]}}],
+        {...PLOT_LAYOUT, title:{text:'가속도 크기',font:{size:12}}}, PLOT_CONFIG);
+    }
+  }
+}
+
+// ── Energy ────────────────────────────────────────────────────────────
+function renderEnergy() {
+  const g = DATA.glstat;
+  if (!g) return '<div class="err-box">glstat 데이터 없음</div>';
+
+  const erMin = g.energy_ratio_min;
+  const erMax = g.energy_ratio_max;
+  // 에너지 비율 = total energy / initial energy
+  // 소산(<1.0): 고무·소성·감쇠 해석에서 정상. 생성(>1.0): 수치 불안정 가능.
+  const warn = (erMax !== null && erMax > 1.1)
+    ? `<div class="err-box">에너지 비율 이상: max=${fmt(erMax,4)} — 에너지가 생성됨 (수치 불안정 가능)</div>` :
+    (erMax !== null && erMax > 1.05)
+    ? `<div class="warn-box">에너지 비율 주의: max=${fmt(erMax,4)} — 에너지 소폭 증가</div>` : '';
+  const massWarn = g.has_mass_added
+    ? '<div class="warn-box">질량 추가 감지 — 시간 스텝 조절에 의한 인위적 질량 증가 확인 필요</div>' : '';
+
+  return `${warn}${massWarn}
+<div class="sec-title">에너지 이력</div>
+<div class="chart-box"><div id="energy-main-chart" style="height:320px"></div></div>
+<div class="sec-title">에너지 비율 (total / initial)</div>
+<div class="chart-box"><div id="energy-ratio-chart" style="height:240px"></div></div>`;
+}
+
+function initEnergyCharts() {
+  const g = DATA.glstat;
+  if (!g || !g.t.length) return;
+  Plotly.newPlot('energy-main-chart', [
+    {x:g.t, y:g.total_energy,    name:'Total',    line:{color:COLORS[0]}},
+    {x:g.t, y:g.kinetic_energy,  name:'Kinetic',  line:{color:COLORS[1]}},
+    {x:g.t, y:g.internal_energy, name:'Internal', line:{color:COLORS[2]}},
+    {x:g.t, y:g.hourglass_energy,name:'Hourglass',line:{color:COLORS[3], dash:'dot'}},
+  ], {...PLOT_LAYOUT, title:{text:'에너지 이력',font:{size:13}}}, PLOT_CONFIG);
+
+  const refLine  = {x:g.t, y:g.t.map(()=>1.0),  name:'ideal', line:{color:'#444',dash:'dash'}, showlegend:false};
+  const warnHigh = {x:g.t, y:g.t.map(()=>1.05), name:'+5%',  line:{color:'#f5a623',dash:'dot'}, showlegend:true};
+  Plotly.newPlot('energy-ratio-chart', [
+    {x:g.t, y:g.energy_ratio, name:'에너지 비율', line:{color:COLORS[4]}},
+    refLine, warnHigh,
+  ], {...PLOT_LAYOUT, title:{text:'에너지 비율 (total / initial)',font:{size:13}}}, PLOT_CONFIG);
+}
+
+// ── Contact & Energy (binout) ─────────────────────────────────────────
+function renderContact() {
+  const bn = DATA.binout;
+  if (!bn) return '<div class="err-box">binout 데이터 없음</div>';
+
+  let html = '';
+
+  // rcforc: interface peak force table + selector
+  if (bn.rcforc && bn.rcforc.length) {
+    const slaves = bn.rcforc.filter(r => r.side === 0);
+    const rows = slaves.map(r =>
+      `<tr><td>${r.id}</td><td>${r.name}</td><td class="num">${fmt(r.peak_fmag)}</td></tr>`
+    ).join('');
+    const opts = slaves.map(r =>
+      `<option value="${r.id}">${r.name} (id=${r.id})</option>`).join('');
+    html += `
+<div class="sec-title">접촉 인터페이스 피크 합력</div>
+<div class="chart-box">
+  <table class="data-table"><thead><tr><th>ID</th><th>이름</th><th>피크 합력</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+</div>
+<div class="sec-title">접촉력 시계열</div>
+<div class="part-selector">
+  <label>인터페이스:</label>
+  <select id="rcforc-sel" onchange="updateRcforcChart()">${opts}</select>
+</div>
+<div class="chart-box"><div id="rcforc-chart" class="plotly-chart" style="height:300px"></div></div>`;
+  }
+
+  // matsum: per-part internal energy
+  if (bn.matsum) {
+    const ms = bn.matsum;
+    const opts = ms.part_ids.map((pid, i) =>
+      `<option value="${i}">${ms.part_names[i]||'Part '+pid} (id=${pid})</option>`).join('');
+    html += `
+<div class="sec-title">재료별 내부 에너지 (matsum)</div>
+<div class="part-selector">
+  <label>재료:</label>
+  <select id="matsum-sel" onchange="updateMatsumChart()">${opts}</select>
+</div>
+<div class="chart-box"><div id="matsum-chart" class="plotly-chart" style="height:280px"></div></div>`;
+  }
+
+  // sleout: sliding energy
+  if (bn.sleout && bn.sleout.length) {
+    const opts = bn.sleout.map(s =>
+      `<option value="${s.id}">${s.name} (id=${s.id})</option>`).join('');
+    html += `
+<div class="sec-title">슬라이딩 에너지 (sleout)</div>
+<div class="part-selector">
+  <label>인터페이스:</label>
+  <select id="sleout-sel" onchange="updateSleoutChart()">${opts}</select>
+</div>
+<div class="chart-box"><div id="sleout-chart" class="plotly-chart" style="height:260px"></div></div>`;
+  }
+
+  return html || '<div class="warn-box">binout 데이터 없음</div>';
+}
+
+function initContactCharts() {
+  updateRcforcChart();
+  updateMatsumChart();
+  updateSleoutChart();
+}
+
+function updateRcforcChart() {
+  const bn = DATA.binout;
+  if (!bn || !bn.rcforc) return;
+  const sel = document.getElementById('rcforc-sel');
+  if (!sel) return;
+  const id = parseInt(sel.value);
+  const ifc = bn.rcforc.find(r => r.id === id && r.side === 0);
+  if (!ifc) return;
+  Plotly.newPlot('rcforc-chart', [
+    {x: ifc.t, y: ifc.fx, name: 'Fx', line: {color: COLORS[0]}},
+    {x: ifc.t, y: ifc.fy, name: 'Fy', line: {color: COLORS[1]}},
+    {x: ifc.t, y: ifc.fz, name: 'Fz', line: {color: COLORS[2]}},
+    {x: ifc.t, y: ifc.fmag, name: '|F|', line: {color: COLORS[3], width: 2}},
+  ], {...PLOT_LAYOUT, title: {text: `접촉력 — ${ifc.name}`, font:{size:13}}}, PLOT_CONFIG);
+}
+
+function updateMatsumChart() {
+  const bn = DATA.binout;
+  if (!bn || !bn.matsum) return;
+  const sel = document.getElementById('matsum-sel');
+  if (!sel) return;
+  const idx = parseInt(sel.value);
+  const ms = bn.matsum;
+  const ie = ms.internal_energy.map(row => row[idx]);
+  const ke = ms.kinetic_energy.map(row => row[idx]);
+  Plotly.newPlot('matsum-chart', [
+    {x: ms.t, y: ie, name: '내부 에너지', line: {color: COLORS[2]}},
+    {x: ms.t, y: ke, name: '운동 에너지', line: {color: COLORS[1]}},
+  ], {...PLOT_LAYOUT, title: {text: `에너지 — ${ms.part_names[idx]||'Part '+ms.part_ids[idx]}`, font:{size:13}}}, PLOT_CONFIG);
+}
+
+function updateSleoutChart() {
+  const bn = DATA.binout;
+  if (!bn || !bn.sleout) return;
+  const sel = document.getElementById('sleout-sel');
+  if (!sel) return;
+  const id = parseInt(sel.value);
+  const ifc = bn.sleout.find(s => s.id === id);
+  if (!ifc) return;
+  Plotly.newPlot('sleout-chart', [
+    {x: ifc.t, y: ifc.total_energy, name: '총 슬라이딩 에너지', line: {color: COLORS[4]}},
+    {x: ifc.t, y: ifc.friction_energy, name: '마찰 에너지', line: {color: COLORS[5], dash: 'dot'}},
+  ], {...PLOT_LAYOUT, title: {text: `슬라이딩 에너지 — ${ifc.name}`, font:{size:13}}}, PLOT_CONFIG);
+}
+
+// ── Render Gallery ────────────────────────────────────────────────────
+function _mediaCard(relPath, label) {
+  const ext = relPath.split('.').pop().toLowerCase();
+  const src = 'renders/' + relPath;
+  const inner = (ext === 'mp4' || ext === 'webm')
+    ? `<video controls loop muted playsinline><source src="${src}" type="video/${ext}"></video>`
+    : `<img src="${src}" alt="${label}" loading="lazy">`;
+  return `<div class="render-card" onclick="openModal('${src}','${label}')">
+    <div class="render-axis-label">${label}</div>
+    ${inner}
+    <div class="render-name">${relPath}</div>
+  </div>`;
+}
+
+function _axisLabel(relPath) {
+  const m = relPath.match(/_([xyz])(?:_final)?\./i);
+  if (!m) return relPath.replace(/\.\w+$/, '');
+  const ax = m[1].toUpperCase();
+  return relPath.includes('final') ? ax + '축 (최종)' : ax + '축';
+}
+
+function _folderHtml(folderId, title, subtitle, renders, openByDefault) {
+  const axisOrder = ['x','y','z'];
+  renders.sort((a,b) => {
+    const ax = (a.match(/_([xyz])(?:_final)?\./i)||[])[1]||'';
+    const bx = (b.match(/_([xyz])(?:_final)?\./i)||[])[1]||'';
+    return axisOrder.indexOf(ax.toLowerCase()) - axisOrder.indexOf(bx.toLowerCase());
+  });
+  const cards = renders.map(r => _mediaCard(r, _axisLabel(r))).join('');
+  const openCls = openByDefault ? ' open' : '';
+  return `<div class="render-folder${openCls}" id="folder-${folderId}">
+    <div class="render-folder-header" onclick="toggleFolder('${folderId}')">
+      <span class="render-folder-arrow">▶</span>
+      <span class="render-folder-title">${title}</span>
+      <span class="render-folder-count">${subtitle} · ${renders.length}개</span>
+    </div>
+    <div class="render-folder-body">
+      <div class="render-grid">${cards}</div>
+    </div>
+  </div>`;
+}
+
+function renderGallery() {
+  if (!DATA.renders || !DATA.renders.length) {
+    return '<div class="warn-box">렌더 파일 없음</div>';
+  }
+
+  const overviewRenders = DATA.renders.filter(r => !r.includes('/'));
+  const partRenders     = DATA.renders.filter(r => r.includes('/'));
+
+  // Group by first path component
+  const groups = {};
+  for (const r of partRenders) {
+    const folder = r.split('/')[0];
+    if (!groups[folder]) groups[folder] = [];
+    groups[folder].push(r);
+  }
+
+  // Name map from DATA.parts
+  const nameMap = {};
+  if (DATA.parts) Object.entries(DATA.parts).forEach(([pid, p]) => {
+    nameMap['part_' + pid] = p.name && p.name !== 'Part_' + pid ? p.name : null;
+  });
+
+  let html = '';
+
+  if (overviewRenders.length) {
+    html += _folderHtml('overview', '전체 모델 단면', 'Overview', overviewRenders, true);
+  }
+
+  const folderKeys = Object.keys(groups).sort();
+  for (const folder of folderKeys) {
+    const m = folder.match(/^part_(\d+)$/);
+    const pid = m ? m[1] : null;
+    const name = pid && nameMap['part_' + pid] ? nameMap['part_' + pid] : '';
+    const title = pid ? `Part ${pid}${name ? ' — ' + name : ''}` : folder;
+    html += _folderHtml(folder, title, 'X · Y · Z 단면', groups[folder], false);
+  }
+
+  return html;
+}
+
+function toggleFolder(id) {
+  document.getElementById('folder-' + id).classList.toggle('open');
+}
+
+function initGallery() {
+  const modal = document.getElementById('render-modal');
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+}
+
+// Fullscreen modal
+function openModal(src, label) {
+  const modal = document.getElementById('render-modal');
+  const ext = src.split('.').pop().toLowerCase();
+  const isVid = ext === 'mp4' || ext === 'webm';
+  modal.querySelector('#modal-content').innerHTML = isVid
+    ? `<video controls autoplay loop muted><source src="${src}" type="video/${ext}"></video>`
+    : `<img src="${src}" alt="${label}">`;
+  modal.querySelector('.modal-label').textContent = label;
+  modal.classList.add('open');
+}
+function closeModal() {
+  const modal = document.getElementById('render-modal');
+  modal.classList.remove('open');
+  modal.querySelector('#modal-content').innerHTML = '';
+}
+
+// ── System Info ────────────────────────────────────────────────────────
+function renderSysInfo() {
+  const s = DATA.sim;
+  const files = [
+    {name: 'd3plot',  path: s.d3plot,       present: !!s.d3plot},
+    {name: 'glstat',  path: s.files.glstat, present: !!s.files.glstat},
+    {name: 'binout',  path: s.files.binout, present: !!s.files.binout},
+    {name: 'rcforc',  path: s.files.rcforc, present: !!s.files.rcforc},
+    {name: 'matsum',  path: s.files.matsum, present: !!s.files.matsum},
+  ];
+  const fileList = files.map(f => `
+    <div class="file-item">
+      <span class="file-status ${f.present?'present':'absent'}">${f.present?'✓':'○'}</span>
+      <span style="width:70px;font-size:.82rem">${f.name}</span>
+      <span class="file-path">${f.path||'—'}</span>
+    </div>`).join('');
+
+  const meta = DATA.metadata;
+  return `
+<div class="sec-title">시뮬레이션 정보</div>
+<div class="chart-box">
+  <div class="file-list">
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">경로</span><span class="file-path">${s.path}</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">분석 Tier</span><span>${s.tier_label}</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">종료 상태</span><span>${s.normal_termination===true?'정상':s.normal_termination===false?'오류':'불명'} (${s.termination_source})</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">States 수</span><span>${meta.num_states||'—'}</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">시간 범위</span><span>${fmt(meta.start_time,4)} ~ ${fmt(meta.end_time,4)}</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">분석 부품 수</span><span>${(meta.analyzed_parts||[]).length}</span></div>
+    <div class="file-item"><span style="width:140px;color:var(--fg2)">unified_analyzer</span><span>${meta.kood3plot_version||'—'}</span></div>
+  </div>
+</div>
+<div class="sec-title">파일 목록</div>
+<div class="chart-box"><div class="file-list">${fileList}</div></div>`;
+}
+"""

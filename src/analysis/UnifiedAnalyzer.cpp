@@ -141,10 +141,8 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     // Fill metadata
     fillMetadata(reader, config, all_states, result);
 
-    // Process render jobs if any
-    if (!config.render_jobs.empty()) {
-        processRenderJobs(reader, config, callback);
-    }
+    // Note: render jobs are processed separately in unified_analyzer.cpp main,
+    // not here, to avoid double-execution.
 
     success_ = true;
     if (callback) callback("Analysis complete!");
