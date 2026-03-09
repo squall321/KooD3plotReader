@@ -3,46 +3,52 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 jobs:
-  linux:
-    runs-on: ubuntu-22.04
-    name: Linux (GCC)
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x64
+            cmake_extra: ""
+            ext: ""
+          - os: windows-2022
+            platform: win-x64
+            cmake_extra: "-A x64"
+            ext: ".exe"
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libomp-dev
 
-      - name: Configure
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=install \
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF \
             -DKOOD3PLOT_BUILD_CAPI=OFF \
             -DKOOD3PLOT_BUILD_HDF5=OFF \
             -DKOOD3PLOT_ENABLE_SIMD=OFF
 
-      - name: Build
-        run: cmake --build build --parallel 4
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure --timeout 120
-
-  windows:
-    runs-on: windows-2022
-    name: Windows (MSVC)
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: |
-          cmake -B build -A x64 `
+          cmake -B build ${{ matrix.cmake_extra }} `
+            -DCMAKE_INSTALL_PREFIX=install `
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF `
             -DKOOD3PLOT_BUILD_CAPI=OFF `
             -DKOOD3PLOT_BUILD_HDF5=OFF `
@@ -53,3 +59,73 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --build-config Release --output-on-failure --timeout 120
+
+      - name: Package distribution
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-dev}"
+          DIST="KooD3plotReader-${TAG}-${{ matrix.platform }}"
+          mkdir -p "${DIST}/bin"
+
+          # Collect executables
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            find build -path "*/Release/*.exe" -exec cp {} "${DIST}/bin/" \;
+          else
+            # Copy known targets (unified_analyzer and other key executables)
+            for f in build/examples/unified_analyzer \
+                     build/examples/comprehensive_example \
+                     build/examples/full_extraction_example; do
+              [ -f "$f" ] && cp "$f" "${DIST}/bin/"
+            done
+          fi
+
+          # Python single_analyzer
+          cp -r python/single_analyzer "${DIST}/python_single_analyzer"
+
+          # Config / YAML examples
+          cp -r config "${DIST}/config"
+
+          # Scripts
+          mkdir -p "${DIST}/scripts"
+          cp scripts/analyze_and_report.sh "${DIST}/scripts/" 2>/dev/null || true
+          cp scripts/copy_dependencies.bat "${DIST}/scripts/" 2>/dev/null || true
+          cp scripts/copy_dependencies.sh  "${DIST}/scripts/" 2>/dev/null || true
+
+          echo "Distribution contents:"
+          find "${DIST}" -type f | head -40
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KooD3plotReader-${{ matrix.platform }}
+          path: KooD3plotReader-*-${{ matrix.platform }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create zip archives
+        run: |
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            (cd "$name" && zip -r "../../${name}.zip" .)
+          done
+          cd ..
+          ls -lh *.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: "*.zip"
