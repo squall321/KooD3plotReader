@@ -215,23 +215,39 @@ def _build_yaml(
     return "\n".join(lines) + "\n"
 
 
-_LSPREPOST_CANDIDATES = [
-    "/home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/lsprepost/lsprepost",
-    "/usr/local/lsprepost/lsprepost",
-]
-
-
 def _resolve_lsprepost(render_config: "RenderConfig | None") -> str | None:
     """Return absolute lsprepost path, or None if render disabled / not found."""
     if render_config is None or not render_config.enabled:
         return None
     if render_config.lsprepost_path and render_config.lsprepost_path != "auto":
         return render_config.lsprepost_path
-    # auto-detect
-    for p in _LSPREPOST_CANDIDATES:
-        if Path(p).exists():
-            return p
+
+    import platform
     import shutil
+
+    # 플랫폼별 기본 탐색 경로
+    if platform.system() == "Windows":
+        candidates = [
+            Path(r"C:\Program Files\LSTC\LS-PrePost\lsprepost.exe"),
+            Path(r"C:\LSTC\lsprepost\lsprepost.exe"),
+            Path(r"C:\lsprepost\lsprepost.exe"),
+        ]
+    else:
+        candidates = [
+            Path("/usr/local/lsprepost/lsprepost"),
+        ]
+
+    # 패키지 기준 상대 경로 (배포 패키지 내 포함 시)
+    pkg_root = Path(__file__).resolve().parent.parent.parent.parent
+    if platform.system() == "Windows":
+        candidates.insert(0, pkg_root / "lsprepost" / "lsprepost.exe")
+    else:
+        candidates.insert(0, pkg_root / "lsprepost" / "lsprepost")
+
+    for p in candidates:
+        if p.exists():
+            return str(p)
+
     found = shutil.which("lsprepost")
     return found or None
 

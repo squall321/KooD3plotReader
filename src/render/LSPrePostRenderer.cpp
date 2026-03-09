@@ -128,9 +128,15 @@ bool LSPrePostRenderer::renderImage(
 
     bool success = executeLSPrePost(script_path.string(), working_dir);
 
-    // Keep script for debugging (copy to /tmp/last_render.cfile)
-    std::filesystem::copy_file(script_path, "/tmp/last_render.cfile",
-        std::filesystem::copy_options::overwrite_existing);
+    // Keep script for debugging
+#ifdef _WIN32
+    std::filesystem::path debug_cfile = std::filesystem::temp_directory_path() / "last_render.cfile";
+#else
+    std::filesystem::path debug_cfile = "/tmp/last_render.cfile";
+#endif
+    std::error_code ec;
+    std::filesystem::copy_file(script_path, debug_cfile,
+        std::filesystem::copy_options::overwrite_existing, ec);
     // Clean up temporary script
     std::filesystem::remove(script_path);
 
