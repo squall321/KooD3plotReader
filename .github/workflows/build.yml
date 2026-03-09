@@ -7,56 +7,62 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            triplet: x64-linux
-            cmake_extra: ""
-          - os: windows-2022
-            triplet: x64-windows
-            cmake_extra: "-A x64"
-
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }}
-
-    env:
-      VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+  linux:
+    runs-on: ubuntu-22.04
+    name: Linux (GCC)
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: "c82f74667287d3dc386bce81e44964370c91a289"
-          runVcpkgInstall: false
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libyaml-cpp-dev libgtest-dev libomp-dev
 
-      - name: Install dependencies (vcpkg)
-        run: >
-          vcpkg install
-          hdf5[cpp]:${{ matrix.triplet }}
-          yaml-cpp:${{ matrix.triplet }}
-          gtest:${{ matrix.triplet }}
-
-      - name: Configure (Linux)
-        if: runner.os == 'Linux'
+      - name: Configure
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF \
             -DKOOD3PLOT_BUILD_CAPI=OFF \
+            -DKOOD3PLOT_BUILD_HDF5=OFF \
             -DKOOD3PLOT_ENABLE_SIMD=OFF
 
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --timeout 120
+
+  windows:
+    runs-on: windows-2022
+    name: Windows (MSVC)
+
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\packages
+          key: vcpkg-win-yaml-gtest-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: vcpkg-win-yaml-gtest-
+
+      - name: Install dependencies (vcpkg)
         run: |
-          cmake -B build ${{ matrix.cmake_extra }} `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          vcpkg install yaml-cpp:x64-windows gtest:x64-windows
+
+      - name: Configure
+        run: |
+          cmake -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF `
             -DKOOD3PLOT_BUILD_CAPI=OFF `
+            -DKOOD3PLOT_BUILD_HDF5=OFF `
             -DKOOD3PLOT_ENABLE_SIMD=OFF
 
       - name: Build
