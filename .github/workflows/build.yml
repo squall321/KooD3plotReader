@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libyaml-cpp-dev libgtest-dev libomp-dev
+          sudo apt-get install -y cmake libyaml-cpp-dev libomp-dev
 
       - name: Configure
         run: |
@@ -37,29 +37,25 @@ jobs:
     runs-on: windows-2022
     name: Windows (MSVC)
 
-    env:
-      VCPKG_DEFAULT_TRIPLET: x64-windows
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Cache vcpkg packages
         uses: actions/cache@v4
         with:
-          path: |
-            C:\vcpkg\installed
-            C:\vcpkg\packages
-          key: vcpkg-win-yaml-gtest-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: vcpkg-win-yaml-gtest-
+          path: ${{ env.VCPKG_INSTALLATION_ROOT }}\installed
+          key: vcpkg-win-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: vcpkg-win-
 
       - name: Install dependencies (vcpkg)
         run: |
-          vcpkg install yaml-cpp:x64-windows gtest:x64-windows
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install yaml-cpp:x64-windows
+        shell: pwsh
 
       - name: Configure
         run: |
           cmake -B build -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF `
             -DKOOD3PLOT_BUILD_CAPI=OFF `
             -DKOOD3PLOT_BUILD_HDF5=OFF `

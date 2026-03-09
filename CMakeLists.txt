@@ -739,25 +739,22 @@ if(KOOD3PLOT_BUILD_CAPI)
 endif()
 
 # ============================================================
-# CLI Tool (requires V3 Query System)
+# CLI Tool (requires V3 Query System + V4 Render System)
 # ============================================================
-if(KOOD3PLOT_BUILD_V3_QUERY)
+if(KOOD3PLOT_BUILD_V3_QUERY AND KOOD3PLOT_BUILD_V4_RENDER)
     add_executable(kood3plot_cli src/cli/kood3plot_cli.cpp)
-    target_link_libraries(kood3plot_cli PRIVATE kood3plot_query kood3plot)
+    target_link_libraries(kood3plot_cli PRIVATE kood3plot_query kood3plot kood3plot_render)
     target_include_directories(kood3plot_cli PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/query
     )
-
-    # Link with V4 render library if enabled
-    if(KOOD3PLOT_BUILD_V4_RENDER)
-        target_link_libraries(kood3plot_cli PRIVATE kood3plot_render)
-    endif()
 
     install(TARGETS kood3plot_cli
         RUNTIME DESTINATION bin
     )
 
     message(STATUS "CLI tool configured")
+elseif(KOOD3PLOT_BUILD_V3_QUERY)
+    message(STATUS "CLI tool skipped (requires V4 Render System)")
 endif()
 
 # Configure version header
@@ -845,7 +842,7 @@ install(DIRECTORY config/cli_examples/
 )
 
 # Copy config files to build output for development
-if(KOOD3PLOT_BUILD_V3_QUERY)
+if(KOOD3PLOT_BUILD_V3_QUERY AND KOOD3PLOT_BUILD_V4_RENDER)
     # Copy config examples next to CLI executable during build
     add_custom_command(TARGET kood3plot_cli POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
