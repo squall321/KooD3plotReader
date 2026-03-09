@@ -13,20 +13,25 @@ if TYPE_CHECKING:
     from ..render.job_builder import RenderConfig
 
 
-# unified_analyzer 바이너리 탐색 순서
-_UA_CANDIDATES = [
-    "/home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/bin/unified_analyzer",
-    "/home/koopark/claude/KooD3plotReader/KooD3plotReader/build/examples/unified_analyzer",
-]
-
-
+# unified_analyzer 바이너리 탐색: 패키지 위치 기준 상대 경로 → PATH
 def find_unified_analyzer() -> Path | None:
-    for p in _UA_CANDIDATES:
-        path = Path(p)
-        if path.exists():
-            return path
-    # PATH에서 탐색
     import shutil
+    import platform
+
+    exe = "unified_analyzer.exe" if platform.system() == "Windows" else "unified_analyzer"
+
+    # 1) 패키지와 함께 배포된 bin/ 디렉토리
+    pkg_dir = Path(__file__).resolve().parent.parent.parent.parent  # single_analyzer/ root
+    for rel in [
+        Path("bin") / exe,                              # 배포 패키지: bin/unified_analyzer
+        Path("..") / "bin" / exe,                       # 상위 bin/
+        Path("..") / "build" / "examples" / exe,        # 개발 빌드
+    ]:
+        cand = (pkg_dir / rel).resolve()
+        if cand.exists():
+            return cand
+
+    # 2) PATH에서 탐색
     found = shutil.which("unified_analyzer")
     return Path(found) if found else None
 
