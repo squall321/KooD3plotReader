@@ -315,12 +315,19 @@ class SingleAnalyzerApp(ctk.CTk):
         ctk.CTkLabel(pf, text="Part IDs:").pack(side="left")
         self.var_parts = ctk.StringVar()
         ctk.CTkEntry(pf, textvariable=self.var_parts, width=120,
-                     placeholder_text="e.g. 1,2,5").pack(side="left", padx=(4, 16))
+                     placeholder_text="e.g. 1,2,5").pack(side="left", padx=(4, 12))
 
         ctk.CTkLabel(pf, text="Pattern:").pack(side="left")
         self.var_part_pattern = ctk.StringVar()
         ctk.CTkEntry(pf, textvariable=self.var_part_pattern, width=120,
-                     placeholder_text="e.g. PKG*").pack(side="left", padx=4)
+                     placeholder_text="e.g. PKG*").pack(side="left", padx=(4, 12))
+
+        ctk.CTkButton(pf, text="Load Parts", width=90, height=28,
+                       command=self._load_parts).pack(side="left", padx=4)
+
+        # Part picker (scrollable checkbox list — initially hidden)
+        self._part_picker_frame = ctk.CTkFrame(params, fg_color="transparent")
+        self._part_checkboxes: dict[int, tuple[ctk.BooleanVar, str]] = {}  # pid → (var, name)
 
         # Surface params
         surf = ctk.CTkFrame(sec.body, fg_color="transparent")
@@ -952,6 +959,84 @@ class SingleAnalyzerApp(ctk.CTk):
         if positions_found:
             for pos, var in self.var_sec_positions.items():
                 var.set(pos in positions_found)
+
+    # ── Part picker ──────────────────────────────────────────────────
+
+    def _load_parts(self) -> None:
+        """Load part list from keyword file near d3plot path."""
+        d3plot = self.inp_d3plot.get().strip()
+        if not d3plot:
+            messagebox.showwarning("No d3plot", "먼저 d3plot 경로를 지정하세요.")
+            return
+
+        from ..core.keyword_parser import find_and_parse_keyword
+
+        kw = find_and_parse_keyword(d3plot)
+        if kw is None or not kw.parts:
+            messagebox.showinfo("Parts", "키워드 파일에서 파트 정보를 찾을 수 없습니다.")
+            return
+
+        # Clear old checkboxes
+        for w in self._part_picker_frame.winfo_children():
+            w.destroy()
+        self._part_checkboxes.clear()
+
+        # Show the frame
+        self._part_picker_frame.pack(fill="x", padx=8, pady=(0, 6))
+
+        # Header row: Select All / Deselect All
+        hdr = ctk.CTkFrame(self._part_picker_frame, fg_color="transparent")
+        hdr.pack(fill="x", pady=(2, 4))
+        ctk.CTkLabel(hdr, text=f"Parts ({len(kw.parts)}):",
+                     font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkButton(hdr, text="All", width=40, height=24,
+                       command=lambda: self._toggle_all_parts(True)).pack(side="left", padx=4)
+        ctk.CTkButton(hdr, text="None", width=40, height=24,
+                       command=lambda: self._toggle_all_parts(False)).pack(side="left", padx=2)
+
+        # Scrollable checkbox list
+        scroll = ctk.CTkScrollableFrame(self._part_picker_frame, height=120,
+                                         fg_color=("gray92", "gray14"))
+        scroll.pack(fill="x", pady=2)
+
+        # Pre-selected parts from Part IDs field
+        parts_str = self.var_parts.get().strip()
+        selected: set[int] = set()
+        if parts_str:
+            for x in parts_str.split(","):
+                x = x.strip()
+                if x.isdigit():
+                    selected.add(int(x))
+
+        # Get material info for display
+        mat_map = kw.materials
+
+        for pid in sorted(kw.parts):
+            part = kw.parts[pid]
+            mat = mat_map.get(part.mid)
+            mat_label = f" ({mat.mat_type})" if mat and mat.mat_type else ""
+            label = f"Part {pid}: {part.name}{mat_label}" if part.name else f"Part {pid}{mat_label}"
+
+            var = ctk.BooleanVar(value=(pid in selected) if selected else True)
+            var.trace_add("write", lambda *_: self._sync_parts_from_checkboxes())
+            self._part_checkboxes[pid] = (var, part.name)
+
+            ctk.CTkCheckBox(scroll, text=label, variable=var,
+                           font=ctk.CTkFont(size=12)).pack(anchor="w", pady=1)
+
+    def _toggle_all_parts(self, state: bool) -> None:
+        for var, _ in self._part_checkboxes.values():
+            var.set(state)
+
+    def _sync_parts_from_checkboxes(self) -> None:
+        """Update Part IDs field from checked parts."""
+        selected = [str(pid) for pid, (var, _) in self._part_checkboxes.items() if var.get()]
+        all_checked = len(selected) == len(self._part_checkboxes)
+        # If all selected, leave empty (= all parts)
+        if all_checked:
+            self.var_parts.set("")
+        else:
+            self.var_parts.set(", ".join(selected))
 
     # ── Run analysis ──────────────────────────────────────────────────
 
