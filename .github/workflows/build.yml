@@ -28,6 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -54,11 +59,20 @@ jobs:
             -DKOOD3PLOT_BUILD_HDF5=OFF `
             -DKOOD3PLOT_ENABLE_SIMD=OFF
 
-      - name: Build
+      - name: Build C++
         run: cmake --build build --config Release --parallel 4
 
       - name: Run tests
         run: ctest --test-dir build --build-config Release --output-on-failure --timeout 120
+
+      - name: Build single_analyzer executable (PyInstaller)
+        shell: bash
+        run: |
+          pip install pyinstaller
+          cd python/single_analyzer
+          pyinstaller single_analyzer.spec --noconfirm
+          echo "PyInstaller output:"
+          ls -lh dist/
 
       - name: Package distribution
         shell: bash
@@ -67,11 +81,10 @@ jobs:
           DIST="KooD3plotReader-${TAG}-${{ matrix.platform }}"
           mkdir -p "${DIST}/bin"
 
-          # Collect executables
+          # C++ executables
           if [ "${{ runner.os }}" = "Windows" ]; then
             find build -path "*/Release/*.exe" -exec cp {} "${DIST}/bin/" \;
           else
-            # Copy known targets (unified_analyzer and other key executables)
             for f in build/examples/unified_analyzer \
                      build/examples/comprehensive_example \
                      build/examples/full_extraction_example; do
@@ -79,7 +92,14 @@ jobs:
             done
           fi
 
-          # Python single_analyzer
+          # PyInstaller-built single_analyzer executable
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp python/single_analyzer/dist/single_analyzer.exe "${DIST}/bin/"
+          else
+            cp python/single_analyzer/dist/single_analyzer "${DIST}/bin/"
+          fi
+
+          # Python source (fallback for users who prefer python -m)
           cp -r python/single_analyzer "${DIST}/python_single_analyzer"
 
           # Config / YAML examples
@@ -92,7 +112,7 @@ jobs:
           cp scripts/copy_dependencies.sh  "${DIST}/scripts/" 2>/dev/null || true
 
           echo "Distribution contents:"
-          find "${DIST}" -type f | head -40
+          find "${DIST}" -type f | head -50
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
