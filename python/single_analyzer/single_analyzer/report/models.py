@@ -215,7 +215,42 @@ class PartSummary:
     peak_vel_mag: float = 0.0
     peak_acc_mag: float = 0.0
     internal_energy: float = 0.0
-    safety_factor: float | None = None   # peak_stress / yield_stress (있을 때)
+    safety_factor: float | None = None   # yield_stress / peak_stress
+
+    # Design criteria evaluation (per-part, from keyword MAT card)
+    mat_type: str = ""
+    stress_limit: float = 0.0             # design stress limit (MPa)
+    stress_source: str = "none"           # "mat_card" | "manual" | "none"
+    strain_limit: float = 0.002           # design strain limit (default 0.2%)
+    strain_source: str = "default"        # "mat_card" | "manual" | "default"
+    stress_ratio: float | None = None     # peak_stress / stress_limit
+    strain_ratio: float | None = None     # peak_strain / strain_limit
+
+    @property
+    def stress_warning(self) -> str:
+        """'ok' | 'warn' (>=80%) | 'crit' (>=100%) | 'none'."""
+        if self.stress_ratio is None:
+            return "none"
+        if self.stress_ratio >= 1.0:
+            return "crit"
+        if self.stress_ratio >= 0.8:
+            return "warn"
+        return "ok"
+
+    @property
+    def strain_warning(self) -> str:
+        if self.strain_ratio is None:
+            return "none"
+        if self.strain_ratio >= 1.0:
+            return "crit"
+        if self.strain_ratio >= 0.8:
+            return "warn"
+        return "ok"
+
+    @property
+    def worst_warning(self) -> str:
+        levels = {"none": 0, "ok": 1, "warn": 2, "crit": 3}
+        return max(self.stress_warning, self.strain_warning, key=lambda w: levels[w])
 
 
 @dataclass
@@ -226,7 +261,7 @@ class SingleResult:
     binout_data: "BinoutData | None" = None
     parts: dict[int, PartSummary] = field(default_factory=dict)
     label: str = ""
-    yield_stress: float = 0.0
+    yield_stress: float = 0.0  # legacy global override (0 = use per-part)
 
     # 글로벌 요약
     peak_stress_global: float = 0.0
@@ -266,6 +301,15 @@ class SingleResult:
                     "peak_disp_mag": p.peak_disp_mag,
                     "peak_acc_mag": p.peak_acc_mag,
                     "safety_factor": p.safety_factor,
+                    "mat_type": p.mat_type,
+                    "stress_limit": p.stress_limit,
+                    "stress_source": p.stress_source,
+                    "strain_limit": p.strain_limit,
+                    "strain_source": p.strain_source,
+                    "stress_ratio": p.stress_ratio,
+                    "strain_ratio": p.strain_ratio,
+                    "stress_warning": p.stress_warning,
+                    "strain_warning": p.strain_warning,
                 }
                 for pid, p in self.parts.items()
             },

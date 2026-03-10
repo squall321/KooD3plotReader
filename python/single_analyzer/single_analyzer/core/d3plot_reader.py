@@ -13,12 +13,19 @@ if TYPE_CHECKING:
     from ..render.job_builder import RenderConfig
 
 
-# unified_analyzer 바이너리 탐색: 패키지 위치 기준 상대 경로 → PATH
-def find_unified_analyzer() -> Path | None:
+# unified_analyzer 바이너리 탐색: install_dir → 패키지 상대 경로 → PATH
+def find_unified_analyzer(install_dir: Path | None = None) -> Path | None:
     import shutil
     import platform
 
     exe = "unified_analyzer.exe" if platform.system() == "Windows" else "unified_analyzer"
+
+    # 0) install_dir 지정 시 최우선 탐색
+    if install_dir is not None:
+        for rel in [Path("bin") / exe, Path(exe)]:
+            cand = (install_dir / rel).resolve()
+            if cand.exists():
+                return cand
 
     # 1) 패키지와 함께 배포된 bin/ 디렉토리
     pkg_dir = Path(__file__).resolve().parent.parent.parent.parent  # single_analyzer/ root
@@ -45,6 +52,7 @@ def run_analysis(
     render_threads: int = 1,
     verbose: bool = False,
     element_quality: bool = False,
+    install_dir: Path | None = None,
 ) -> D3plotResult:
     """
     1. analysis_jobs + render_jobs 통합 YAML 생성
@@ -54,7 +62,7 @@ def run_analysis(
     5. per_part_render이고 part_ids 미지정 시: 분석 결과에서 part IDs 추출 후 2nd render pass
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    ua = find_unified_analyzer()
+    ua = find_unified_analyzer(install_dir)
     if ua is None:
         raise RuntimeError("unified_analyzer not found. Build it first: cd build && make -j4 unified_analyzer")
 
@@ -76,7 +84,7 @@ def run_analysis(
         rc_first = copy.copy(render_config)
         rc_first.per_part_render = False  # skip per-part for 1st pass
 
-    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality)
+    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir)
     _run_ua(ua, yaml_content, verbose)
 
     result = _parse_outputs(output_dir)
@@ -92,6 +100,7 @@ def run_analysis(
                 d3plot_path, output_dir, rc_per_part,
                 extracted_ids, threads, render_threads, verbose,
                 render_only=True,
+                install_dir=install_dir,
             )
             try:
                 _run_ua(ua, yaml2, verbose)
@@ -147,10 +156,11 @@ def _build_yaml(
     verbose: bool = False,
     render_only: bool = False,
     element_quality: bool = False,
+    install_dir: Path | None = None,
 ) -> str:
     parts_list = part_ids if part_ids else []
 
-    lsprepost = _resolve_lsprepost(render_config)
+    lsprepost = _resolve_lsprepost(render_config, install_dir)
     perf_lines = [
         "performance:",
         f"  threads: {threads}",
@@ -215,7 +225,7 @@ def _build_yaml(
     return "\n".join(lines) + "\n"
 
 
-def _resolve_lsprepost(render_config: "RenderConfig | None") -> str | None:
+def _resolve_lsprepost(render_config: "RenderConfig | None", install_dir: Path | None = None) -> str | None:
     """Return absolute lsprepost path, or None if render disabled / not found."""
     if render_config is None or not render_config.enabled:
         return None
@@ -224,6 +234,15 @@ def _resolve_lsprepost(render_config: "RenderConfig | None") -> str | None:
 
     import platform
     import shutil
+
+    exe_name = "lsprepost.exe" if platform.system() == "Windows" else "lsprepost"
+
+    # 0) install_dir 지정 시 최우선 탐색
+    if install_dir is not None:
+        for rel in [Path("lsprepost") / exe_name, Path("bin") / exe_name]:
+            p = (install_dir / rel).resolve()
+            if p.exists():
+                return str(p)
 
     # 플랫폼별 기본 탐색 경로
     if platform.system() == "Windows":
@@ -238,11 +257,17 @@ def _resolve_lsprepost(render_config: "RenderConfig | None") -> str | None:
         ]
 
     # 패키지 기준 상대 경로 (배포 패키지 내 포함 시)
-    pkg_root = Path(__file__).resolve().parent.parent.parent.parent
-    if platform.system() == "Windows":
-        candidates.insert(0, pkg_root / "lsprepost" / "lsprepost.exe")
-    else:
-        candidates.insert(0, pkg_root / "lsprepost" / "lsprepost")
+    pkg_root = Path(__file__).resolve().parent.parent.parent.parent  # python/
+    for rel in [
+        Path("lsprepost") / exe_name,                          # python/lsprepost/
+        Path("..") / "installed" / "lsprepost" / exe_name,     # installed/lsprepost/ (dev build)
+        Path("..") / "lsprepost" / exe_name,                   # 프로젝트루트/lsprepost/
+        Path("installed") / "lsprepost" / exe_name,            # python/installed/
+    ]:
+        p = (pkg_root / rel).resolve()
+        if p.exists():
+            candidates.insert(0, p)
+            break
 
     for p in candidates:
         if p.exists():
