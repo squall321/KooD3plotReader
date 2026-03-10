@@ -5,13 +5,17 @@ import sys
 from pathlib import Path
 
 block_cipher = None
-src = Path("single_analyzer")
+
+# Collect customtkinter data files (themes, assets)
+import importlib
+ctk_path = Path(importlib.import_module("customtkinter").__file__).parent
+ctk_datas = [(str(ctk_path), "customtkinter")]
 
 a = Analysis(
     ["entry_point.py"],
     pathex=["."],
     binaries=[],
-    datas=[],
+    datas=ctk_datas,
     hiddenimports=[
         "single_analyzer",
         "single_analyzer.core",
@@ -28,6 +32,7 @@ a = Analysis(
         "single_analyzer.report.batch_report",
         "single_analyzer.gui",
         "single_analyzer.gui.app",
+        "customtkinter",
     ],
     hookspath=[],
     hooksconfig={},

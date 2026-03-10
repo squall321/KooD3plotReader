@@ -68,7 +68,7 @@ jobs:
       - name: Build single_analyzer executable (PyInstaller)
         shell: bash
         run: |
-          pip install pyinstaller
+          pip install pyinstaller customtkinter
           cd python/single_analyzer
           pyinstaller single_analyzer.spec --noconfirm 2>&1 || {
             echo "::warning::PyInstaller failed (likely missing tkinter). Retrying without GUI..."
@@ -77,6 +77,7 @@ jobs:
               --onefile --name single_analyzer --noconfirm \
               --exclude-module tkinter \
               --exclude-module _tkinter \
+              --exclude-module customtkinter \
               --exclude-module matplotlib \
               --exclude-module numpy \
               --exclude-module scipy \
