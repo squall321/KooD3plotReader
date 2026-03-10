@@ -37,7 +37,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libomp-dev
+          sudo apt-get install -y cmake libomp-dev python3-tk
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
