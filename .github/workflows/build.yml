@@ -120,7 +120,10 @@ jobs:
           fi
 
           # Python source (fallback for users who prefer python -m)
-          cp -r python/single_analyzer "${DIST}/python_single_analyzer"
+          mkdir -p "${DIST}/python_single_analyzer"
+          cp -r python/single_analyzer/single_analyzer "${DIST}/python_single_analyzer/"
+          cp python/single_analyzer/entry_point.py "${DIST}/python_single_analyzer/" 2>/dev/null || true
+          cp python/single_analyzer/single_analyzer.spec "${DIST}/python_single_analyzer/" 2>/dev/null || true
 
           # Config / YAML examples
           cp -r config "${DIST}/config"
@@ -132,7 +135,7 @@ jobs:
           cp scripts/copy_dependencies.sh  "${DIST}/scripts/" 2>/dev/null || true
 
           echo "Distribution contents:"
-          find "${DIST}" -type f | head -50
+          find "${DIST}" -type f | head -50 || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
