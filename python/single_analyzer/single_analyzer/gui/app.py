@@ -956,7 +956,11 @@ class SingleAnalyzerApp(ctk.CTk):
         tmp_yaml = Path(tempfile.mkdtemp()) / "single_analyzer_config.yaml"
         tmp_yaml.write_text(yaml_str, encoding="utf-8")
 
-        cmd = [sys.executable, "-m", "single_analyzer"]
+        # PyInstaller exe: sys.executable IS the app; normal Python: use -m
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable]
+        else:
+            cmd = [sys.executable, "-m", "single_analyzer"]
         cmd.append(cfg["d3plot"])
         cmd.extend(["--output", cfg["output_dir"]])
 
