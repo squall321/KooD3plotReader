@@ -26,7 +26,7 @@ def parse_glstat(path: Path) -> GlstatData | None:
         return None
 
     try:
-        text = path.read_text(errors="ignore")
+        text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return None
 

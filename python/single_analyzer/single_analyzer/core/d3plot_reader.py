@@ -283,7 +283,7 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
     if not json_path.exists():
         raise RuntimeError(f"analysis_result.json not found in {output_dir}")
 
-    with open(json_path) as f:
+    with open(json_path, encoding="utf-8") as f:
         raw = json.load(f)
 
     metadata = raw.get("metadata", {})
@@ -371,7 +371,7 @@ def _parse_motion_csv(csv_path: Path) -> MotionData | None:
 
     md = MotionData(part_id=pid)
     try:
-        with open(csv_path, newline="") as f:
+        with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 def fv(key: str) -> float:
