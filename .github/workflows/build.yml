@@ -70,7 +70,27 @@ jobs:
         run: |
           pip install pyinstaller
           cd python/single_analyzer
-          pyinstaller single_analyzer.spec --noconfirm
+          pyinstaller single_analyzer.spec --noconfirm 2>&1 || {
+            echo "::warning::PyInstaller failed (likely missing tkinter). Retrying without GUI..."
+            # Retry with tkinter excluded
+            pyinstaller entry_point.py \
+              --onefile --name single_analyzer --noconfirm \
+              --exclude-module tkinter \
+              --exclude-module _tkinter \
+              --exclude-module matplotlib \
+              --exclude-module numpy \
+              --exclude-module scipy \
+              --hidden-import single_analyzer \
+              --hidden-import single_analyzer.core.sim_detector \
+              --hidden-import single_analyzer.core.glstat_reader \
+              --hidden-import single_analyzer.core.d3plot_reader \
+              --hidden-import single_analyzer.core.binout_reader \
+              --hidden-import single_analyzer.core.keyword_parser \
+              --hidden-import single_analyzer.render.job_builder \
+              --hidden-import single_analyzer.report.models \
+              --hidden-import single_analyzer.report.html_report \
+              --hidden-import single_analyzer.report.batch_report
+          }
           echo "PyInstaller output:"
           ls -lh dist/
 
