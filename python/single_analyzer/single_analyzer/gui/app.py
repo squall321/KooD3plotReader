@@ -468,8 +468,11 @@ class SingleAnalyzerApp(ctk.CTk):
         ctk.CTkEntry(r1, textvariable=self.var_res_h, width=60).pack(side="left", padx=2)
 
         ctk.CTkLabel(r1, text="Position:").pack(side="left", padx=(12, 2))
-        self.var_sec_pos = ctk.StringVar(value="center")
-        ctk.CTkComboBox(r1, variable=self.var_sec_pos, values=_SECTION_POSITIONS, width=90).pack(side="left")
+        self.var_sec_positions: dict[str, ctk.BooleanVar] = {}
+        for pos in _SECTION_POSITIONS:
+            var = ctk.BooleanVar(value=(pos == "center"))
+            self.var_sec_positions[pos] = var
+            ctk.CTkCheckBox(r1, text=pos, variable=var, width=60).pack(side="left", padx=1)
 
         # ━━ 4. Performance ━━
         sec = SectionCard(scroll, "Performance")
@@ -736,35 +739,41 @@ class SingleAnalyzerApp(ctk.CTk):
             except ValueError: fps = 30
             try: res = [int(self.var_res_w.get()), int(self.var_res_h.get())]
             except ValueError: res = [1920, 1080]
-            sec_pos = self.var_sec_pos.get() or "center"
+            sec_positions = [p for p, v in self.var_sec_positions.items() if v.get()]
+            if not sec_positions:
+                sec_positions = ["center"]
             axis_label = {"x": "X", "y": "Y", "z": "Z"}
 
             for ax in axes:
                 ext = fmt
-                rj: dict[str, Any] = {
-                    "name": f"{axis_label[ax]}-Section {fringe}", "type": "section_view",
-                    "fringe": fringe, "section": {"axis": ax, "position": sec_pos},
-                    "states": "all",
-                    "output": {"format": fmt, "filename": f"section_{ax}_{fringe}.{ext}",
-                               "fps": fps, "resolution": res},
-                }
-                if parts: rj["parts"] = parts
-                if self.var_part_pattern.get().strip():
-                    rj["part_pattern"] = self.var_part_pattern.get().strip()
-                render_jobs.append(rj)
-
-            if self.var_per_part.get():
-                for ax in axes:
-                    rj = {
-                        "name": f"Per-Part {axis_label[ax]}-Section", "type": "section_view",
+                for sec_pos in sec_positions:
+                    pos_tag = sec_pos.replace("%", "pct")
+                    rj: dict[str, Any] = {
+                        "name": f"{axis_label[ax]}-Section {fringe} @{sec_pos}", "type": "section_view",
                         "fringe": fringe, "section": {"axis": ax, "position": sec_pos},
                         "states": "all",
-                        "output": {"format": fmt, "filename": f"per_part_{ax}_{fringe}.{ext}",
+                        "output": {"format": fmt, "filename": f"section_{ax}_{pos_tag}_{fringe}.{ext}",
                                    "fps": fps, "resolution": res},
                     }
+                    if parts: rj["parts"] = parts
                     if self.var_part_pattern.get().strip():
                         rj["part_pattern"] = self.var_part_pattern.get().strip()
                     render_jobs.append(rj)
+
+            if self.var_per_part.get():
+                for ax in axes:
+                    for sec_pos in sec_positions:
+                        pos_tag = sec_pos.replace("%", "pct")
+                        rj = {
+                            "name": f"Per-Part {axis_label[ax]}-Section @{sec_pos}", "type": "section_view",
+                            "fringe": fringe, "section": {"axis": ax, "position": sec_pos},
+                            "states": "all",
+                            "output": {"format": fmt, "filename": f"per_part_{ax}_{pos_tag}_{fringe}.{ext}",
+                                       "fps": fps, "resolution": res},
+                        }
+                        if self.var_part_pattern.get().strip():
+                            rj["part_pattern"] = self.var_part_pattern.get().strip()
+                        render_jobs.append(rj)
 
         try:
             stress_g = float(self.var_yield.get() or 0)
@@ -937,6 +946,12 @@ class SingleAnalyzerApp(ctk.CTk):
         m = re.search(r'fringe:\s*(\w+)', text)
         if m:
             self.var_fringe.set(m.group(1))
+
+        # Section positions: collect all unique position values from render_jobs
+        positions_found = set(re.findall(r'position:\s*(\S+)', text))
+        if positions_found:
+            for pos, var in self.var_sec_positions.items():
+                var.set(pos in positions_found)
 
     # ── Run analysis ──────────────────────────────────────────────────
 
