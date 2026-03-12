@@ -9,6 +9,8 @@
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include "kood3plot/analysis/UnifiedConfigParser.hpp"
 #include "kood3plot/analysis/PartAnalyzer.hpp"
+#include "kood3plot/analysis/TimeHistoryAnalyzer.hpp"
+#include "kood3plot/analysis/SinglePassAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 #include "kood3plot/Version.hpp"
@@ -236,6 +238,32 @@ void UnifiedAnalyzer::processStressJobs(
     }
 
     if (callback) callback("  Stress analysis complete: " + std::to_string(result.stress_history.size()) + " parts");
+
+    // Run SinglePassAnalyzer for principal stress + tensor history
+    if (callback) callback("  Analyzing principal stress and tensor history...");
+    SinglePassAnalyzer sp_analyzer(reader);
+    AnalysisConfig sp_config;
+    sp_config.analyze_stress = true;
+    sp_config.analyze_strain = false;
+    sp_config.part_ids = want_all ? std::vector<int32_t>{} : requested_parts;
+
+    auto sp_result = sp_analyzer.analyzeWithStates(sp_config, all_states);
+
+    // Move principal stress results
+    result.max_principal_history = std::move(sp_result.max_principal_history);
+    result.min_principal_history = std::move(sp_result.min_principal_history);
+
+    // Move principal strain results (conditional - only when strain tensor exists in d3plot)
+    result.max_principal_strain_history = std::move(sp_result.max_principal_strain_history);
+    result.min_principal_strain_history = std::move(sp_result.min_principal_strain_history);
+
+    // Move peak element tensor histories
+    result.peak_element_tensors = std::move(sp_result.peak_element_tensors);
+
+    if (callback) {
+        callback("  Principal stress: " + std::to_string(result.max_principal_history.size()) + " parts, " +
+                 "Tensors: " + std::to_string(result.peak_element_tensors.size()) + " elements");
+    }
 }
 
 void UnifiedAnalyzer::processStrainJobs(

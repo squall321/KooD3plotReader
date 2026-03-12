@@ -139,6 +139,35 @@ struct SurfaceAnalysisStats {
 };
 
 // ============================================================
+// Peak Element Tensor History (for stress ellipsoid)
+// ============================================================
+
+/**
+ * @brief Full stress tensor time history for a single element
+ *
+ * Stores all 6 stress components across all time states for a peak element.
+ * Used to reconstruct stress ellipsoid at any time point.
+ */
+struct ElementTensorHistory {
+    int32_t element_id = 0;          ///< Element ID
+    int32_t part_id = 0;             ///< Part ID this element belongs to
+    std::string reason;              ///< "peak_von_mises", "peak_max_principal", "peak_min_principal"
+    double peak_value = 0.0;         ///< The peak value that identified this element
+    double peak_time = 0.0;          ///< Time of the peak
+
+    std::vector<double> time;        ///< Time values
+    std::vector<double> sxx;         ///< σxx history
+    std::vector<double> syy;         ///< σyy history
+    std::vector<double> szz;         ///< σzz history
+    std::vector<double> sxy;         ///< σxy history
+    std::vector<double> syz;         ///< σyz history
+    std::vector<double> szx;         ///< σzx (σxz) history
+
+    size_t size() const { return time.size(); }
+    bool empty() const { return time.empty(); }
+};
+
+// ============================================================
 // Metadata
 // ============================================================
 
@@ -195,9 +224,16 @@ struct AnalysisResult {
     AnalysisMetadata metadata;
 
     // Time series data
-    std::vector<PartTimeSeriesStats> stress_history;       ///< Von Mises stress history
-    std::vector<PartTimeSeriesStats> strain_history;       ///< Effective plastic strain history
-    std::vector<PartTimeSeriesStats> acceleration_history; ///< Average acceleration history
+    std::vector<PartTimeSeriesStats> stress_history;             ///< Von Mises stress history
+    std::vector<PartTimeSeriesStats> strain_history;             ///< Effective plastic strain history
+    std::vector<PartTimeSeriesStats> acceleration_history;       ///< Average acceleration history
+    std::vector<PartTimeSeriesStats> max_principal_history;      ///< Max principal stress (σ1) history
+    std::vector<PartTimeSeriesStats> min_principal_history;      ///< Min principal stress (σ3) history
+    std::vector<PartTimeSeriesStats> max_principal_strain_history; ///< Max principal strain (ε1) history
+    std::vector<PartTimeSeriesStats> min_principal_strain_history; ///< Min principal strain (ε3) history
+
+    // Peak element tensor histories (per-part, for stress ellipsoid)
+    std::vector<ElementTensorHistory> peak_element_tensors;
 
     // Surface analysis
     std::vector<SurfaceAnalysisStats> surface_analysis;
@@ -234,6 +270,17 @@ struct AnalysisResult {
 
         // Strain history
         oss << indent << "\"strain_history\": " << partStatsArrayToJSON(strain_history, pretty, indent) << "," << nl;
+
+        // Principal stress history
+        oss << indent << "\"max_principal_history\": " << partStatsArrayToJSON(max_principal_history, pretty, indent) << "," << nl;
+        oss << indent << "\"min_principal_history\": " << partStatsArrayToJSON(min_principal_history, pretty, indent) << "," << nl;
+
+        // Principal strain history
+        oss << indent << "\"max_principal_strain_history\": " << partStatsArrayToJSON(max_principal_strain_history, pretty, indent) << "," << nl;
+        oss << indent << "\"min_principal_strain_history\": " << partStatsArrayToJSON(min_principal_strain_history, pretty, indent) << "," << nl;
+
+        // Peak element tensor histories
+        oss << indent << "\"peak_element_tensors\": " << tensorArrayToJSON(peak_element_tensors, pretty, indent) << "," << nl;
 
         // Acceleration history
         oss << indent << "\"acceleration_history\": " << partStatsArrayToJSON(acceleration_history, pretty, indent) << "," << nl;
@@ -545,6 +592,55 @@ private:
         if (pretty && !arr.empty()) oss << nl << indent;
         oss << "]";
 
+        return oss.str();
+    }
+
+    static std::string doubleArrayToJSON(const std::vector<double>& arr) {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(8) << "[";
+        for (size_t i = 0; i < arr.size(); ++i) {
+            if (i > 0) oss << ",";
+            oss << arr[i];
+        }
+        oss << "]";
+        return oss.str();
+    }
+
+    static std::string tensorToJSON(const ElementTensorHistory& t, bool pretty, const std::string& base_indent) {
+        std::ostringstream oss;
+        std::string nl = pretty ? "\n" : "";
+        std::string ind = base_indent;
+        std::string ind2 = ind + (pretty ? "  " : "");
+
+        oss << "{" << nl;
+        oss << ind2 << "\"element_id\": " << t.element_id << "," << nl;
+        oss << ind2 << "\"part_id\": " << t.part_id << "," << nl;
+        oss << ind2 << "\"reason\": \"" << t.reason << "\"," << nl;
+        oss << ind2 << std::fixed << std::setprecision(8) << "\"peak_value\": " << t.peak_value << "," << nl;
+        oss << ind2 << "\"peak_time\": " << t.peak_time << "," << nl;
+        oss << ind2 << "\"num_points\": " << t.time.size() << "," << nl;
+        oss << ind2 << "\"time\": " << doubleArrayToJSON(t.time) << "," << nl;
+        oss << ind2 << "\"sxx\": " << doubleArrayToJSON(t.sxx) << "," << nl;
+        oss << ind2 << "\"syy\": " << doubleArrayToJSON(t.syy) << "," << nl;
+        oss << ind2 << "\"szz\": " << doubleArrayToJSON(t.szz) << "," << nl;
+        oss << ind2 << "\"sxy\": " << doubleArrayToJSON(t.sxy) << "," << nl;
+        oss << ind2 << "\"syz\": " << doubleArrayToJSON(t.syz) << "," << nl;
+        oss << ind2 << "\"szx\": " << doubleArrayToJSON(t.szx) << nl;
+        oss << ind << "}";
+        return oss.str();
+    }
+
+    static std::string tensorArrayToJSON(const std::vector<ElementTensorHistory>& arr, bool pretty, const std::string& indent) {
+        std::ostringstream oss;
+        std::string nl = pretty ? "\n" : "";
+        oss << "[";
+        for (size_t i = 0; i < arr.size(); ++i) {
+            if (i > 0) oss << ",";
+            if (pretty) oss << nl << indent << "  ";
+            oss << tensorToJSON(arr[i], pretty, indent + "  ");
+        }
+        if (pretty && !arr.empty()) oss << nl << indent;
+        oss << "]";
         return oss.str();
     }
 

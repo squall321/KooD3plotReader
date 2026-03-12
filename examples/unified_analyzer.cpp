@@ -215,11 +215,40 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         }
     }
 
+    // Export principal stress history
+    if (config.output_csv && !result.max_principal_history.empty()) {
+        std::cout << "\nExporting max principal stress history:\n";
+        for (const auto& stats : result.max_principal_history) {
+            std::string filename = stress_dir + "/part_" + std::to_string(stats.part_id) + "_max_principal_stress.csv";
+            writePartCSV(filename, stats);
+        }
+    }
+    if (config.output_csv && !result.min_principal_history.empty()) {
+        std::cout << "\nExporting min principal stress history:\n";
+        for (const auto& stats : result.min_principal_history) {
+            std::string filename = stress_dir + "/part_" + std::to_string(stats.part_id) + "_min_principal_stress.csv";
+            writePartCSV(filename, stats);
+        }
+    }
+
     // Export strain history
     if (config.output_csv && !result.strain_history.empty()) {
         std::cout << "\nExporting strain history:\n";
         for (const auto& stats : result.strain_history) {
             std::string filename = strain_dir + "/part_" + std::to_string(stats.part_id) + "_eff_plastic_strain.csv";
+            writePartCSV(filename, stats);
+        }
+    }
+
+    // Export principal strain history (conditional - only when strain tensor exists in d3plot)
+    if (config.output_csv && !result.max_principal_strain_history.empty()) {
+        std::cout << "\nExporting principal strain history:\n";
+        for (const auto& stats : result.max_principal_strain_history) {
+            std::string filename = strain_dir + "/part_" + std::to_string(stats.part_id) + "_max_principal_strain.csv";
+            writePartCSV(filename, stats);
+        }
+        for (const auto& stats : result.min_principal_strain_history) {
+            std::string filename = strain_dir + "/part_" + std::to_string(stats.part_id) + "_min_principal_strain.csv";
             writePartCSV(filename, stats);
         }
     }
@@ -267,6 +296,29 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         for (const auto& stats : result.element_quality) {
             std::string filename = quality_dir + "/part_" + std::to_string(stats.part_id) + "_quality.csv";
             writeQualityCSV(filename, stats);
+        }
+    }
+
+    // Export peak element tensor histories (stress ellipsoid data)
+    if (config.output_csv && !result.peak_element_tensors.empty()) {
+        std::string tensor_dir = output_dir + "/stress/tensor";
+        fs::create_directories(tensor_dir);
+        std::cout << "\nExporting peak element tensor histories:\n";
+        for (const auto& hist : result.peak_element_tensors) {
+            std::string filename = tensor_dir + "/part_" + std::to_string(hist.part_id)
+                                 + "_elem_" + std::to_string(hist.element_id)
+                                 + "_" + hist.reason + ".csv";
+            std::ofstream file(filename);
+            if (file) {
+                file << "Time,sxx,syy,szz,sxy,syz,szx\n";
+                file << std::fixed << std::setprecision(8);
+                for (size_t i = 0; i < hist.time.size(); ++i) {
+                    file << hist.time[i] << ","
+                         << hist.sxx[i] << "," << hist.syy[i] << "," << hist.szz[i] << ","
+                         << hist.sxy[i] << "," << hist.syz[i] << "," << hist.szx[i] << "\n";
+                }
+                std::cout << "  " << filename << " (" << hist.time.size() << " states)\n";
+            }
         }
     }
 

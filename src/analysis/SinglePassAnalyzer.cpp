@@ -130,7 +130,103 @@ AnalysisResult SinglePassAnalyzer::analyzeParallel(
     }
 
     success_ = true;
-    return buildResult(config);
+    AnalysisResult result = buildResult(config);
+
+    // Extract peak element tensor histories (2nd lightweight pass over in-memory states)
+    if (config.analyze_stress) {
+        extractPeakElementTensors(all_states, result);
+    }
+
+    return result;
+}
+
+// ========================================
+// Pre-loaded states implementation (no file I/O)
+// ========================================
+
+AnalysisResult SinglePassAnalyzer::analyzeWithStates(
+    const AnalysisConfig& config,
+    const std::vector<data::StateData>& all_states,
+    SinglePassProgressCallback callback
+) {
+    success_ = false;
+    last_error_.clear();
+
+    // Initialize
+    if (!initialize(config)) {
+        return AnalysisResult();
+    }
+
+    size_t num_states = all_states.size();
+    if (num_states == 0) {
+        last_error_ = "No states provided";
+        return AnalysisResult();
+    }
+
+    num_states_ = num_states;
+
+    // Initialize result storage
+    initializeResults(num_states, config);
+
+    // Extract surfaces if needed
+    if (!config.surface_specs.empty()) {
+        extractSurfaces(config);
+    }
+
+    if (callback) {
+        callback(0, num_states, "Starting analysis with pre-loaded states (" +
+                 std::to_string(num_states) + " states)");
+    }
+
+#ifdef _OPENMP
+    std::atomic<size_t> completed_states{0};
+
+    #pragma omp parallel for schedule(dynamic, 1)
+    for (int64_t state_idx = 0; state_idx < static_cast<int64_t>(num_states); ++state_idx) {
+        const data::StateData& state = all_states[state_idx];
+
+        if (config.analyze_stress || config.analyze_strain) {
+            analyzePartStatsSequential(state_idx, state, config.analyze_stress, config.analyze_strain);
+        }
+
+        if (!surface_faces_.empty()) {
+            analyzeSurfaceStatsSequential(state_idx, state);
+        }
+
+        if (callback) {
+            size_t count = ++completed_states;
+            if (count == 1 || count == num_states || count % 100 == 0) {
+                #pragma omp critical
+                {
+                    callback(count, num_states, "Processing states (parallel)");
+                }
+            }
+        }
+    }
+#else
+    for (size_t state_idx = 0; state_idx < num_states; ++state_idx) {
+        const data::StateData& state = all_states[state_idx];
+        processState(state_idx, state, config);
+
+        if (callback && (state_idx == 0 || state_idx == num_states - 1 || (state_idx + 1) % 50 == 0)) {
+            callback(state_idx + 1, num_states, "Processing state " + std::to_string(state_idx + 1));
+        }
+    }
+#endif
+
+    if (callback) {
+        callback(num_states, num_states, "Analysis complete (pre-loaded states)");
+    }
+
+    success_ = true;
+    AnalysisResult result = buildResult(config);
+
+    // Extract peak element tensor histories
+    if (config.analyze_stress) {
+        extractPeakElementTensors(all_states, result);
+    }
+
+    return result;
 }
 
 // ========================================
@@ -200,7 +296,14 @@ AnalysisResult SinglePassAnalyzer::analyzeLegacy(
     }
 
     success_ = true;
-    return buildResult(config);
+    AnalysisResult result = buildResult(config);
+
+    // Extract peak element tensor histories (2nd lightweight pass over in-memory states)
+    if (config.analyze_stress) {
+        extractPeakElementTensors(all_states, result);
+    }
+
+    return result;
 }
 
 AnalysisResult SinglePassAnalyzer::analyze(
@@ -224,6 +327,7 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
     const auto& control_data = reader_.get_control_data();
     nv3d_ = control_data.NV3D;
     num_solid_elements_ = control_data.NEL8;
+    has_strain_tensor_ = (control_data.ISTRN != 0 && nv3d_ >= 13);
 
     // Read mesh
     mesh_ = reader_.read_mesh();
@@ -274,6 +378,40 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
             stress_results_[i].quantity = "von_mises";
             stress_results_[i].unit = "MPa";
             stress_results_[i].data.resize(num_states);
+        }
+    }
+
+    // Initialize principal stress results (always alongside von_mises)
+    if (config.analyze_stress) {
+        max_principal_results_.resize(num_parts);
+        min_principal_results_.resize(num_parts);
+        for (size_t i = 0; i < num_parts; ++i) {
+            max_principal_results_[i].part_id = part_ids_[i];
+            max_principal_results_[i].quantity = "max_principal_stress";
+            max_principal_results_[i].unit = "MPa";
+            max_principal_results_[i].data.resize(num_states);
+
+            min_principal_results_[i].part_id = part_ids_[i];
+            min_principal_results_[i].quantity = "min_principal_stress";
+            min_principal_results_[i].unit = "MPa";
+            min_principal_results_[i].data.resize(num_states);
+        }
+    }
+
+    // Initialize principal strain results (conditional on strain tensor availability)
+    if (config.analyze_strain && has_strain_tensor_) {
+        max_principal_strain_results_.resize(num_parts);
+        min_principal_strain_results_.resize(num_parts);
+        for (size_t i = 0; i < num_parts; ++i) {
+            max_principal_strain_results_[i].part_id = part_ids_[i];
+            max_principal_strain_results_[i].quantity = "max_principal_strain";
+            max_principal_strain_results_[i].unit = "";
+            max_principal_strain_results_[i].data.resize(num_states);
+
+            min_principal_strain_results_[i].part_id = part_ids_[i];
+            min_principal_strain_results_[i].quantity = "min_principal_strain";
+            min_principal_strain_results_[i].unit = "";
+            min_principal_strain_results_[i].data.resize(num_states);
         }
     }
 
@@ -406,6 +544,26 @@ void SinglePassAnalyzer::analyzePartStats(
                 }
                 stats.stress_sum += vm;
                 stats.stress_count++;
+
+                // Principal stresses (always computed alongside von_mises)
+                auto tensor = extractStressTensor(solid_data, elem_idx);
+                double s1 = tensor.maxPrincipal();
+                double s3 = tensor.minPrincipal();
+                if (s1 > stats.max_principal_max) {
+                    stats.max_principal_max = s1;
+                    stats.max_principal_max_elem = elem_id;
+                }
+                if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+                stats.max_principal_sum += s1;
+
+                if (s3 < stats.min_principal_min) {
+                    stats.min_principal_min = s3;
+                    stats.min_principal_min_elem = elem_id;
+                }
+                if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+                stats.min_principal_sum += s3;
+
+                stats.principal_count++;
             }
 
             if (analyze_strain) {
@@ -419,6 +577,28 @@ void SinglePassAnalyzer::analyzePartStats(
                 }
                 stats.strain_sum += strain;
                 stats.strain_count++;
+
+                // Principal strains (only when strain tensor is available)
+                if (has_strain_tensor_) {
+                    auto etensor = extractStrainTensor(solid_data, elem_idx);
+                    double e1 = etensor.maxPrincipal();
+                    double e3 = etensor.minPrincipal();
+                    if (e1 > stats.max_principal_strain_max) {
+                        stats.max_principal_strain_max = e1;
+                        stats.max_principal_strain_max_elem = elem_id;
+                    }
+                    if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                    stats.max_principal_strain_sum += e1;
+
+                    if (e3 < stats.min_principal_strain_min) {
+                        stats.min_principal_strain_min = e3;
+                        stats.min_principal_strain_min_elem = elem_id;
+                    }
+                    if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                    stats.min_principal_strain_sum += e3;
+
+                    stats.principal_strain_count++;
+                }
             }
         }
     }
@@ -458,6 +638,26 @@ void SinglePassAnalyzer::analyzePartStats(
             }
             stats.stress_sum += vm;
             stats.stress_count++;
+
+            // Principal stresses (always computed alongside von_mises)
+            auto tensor = extractStressTensor(solid_data, elem_idx);
+            double s1 = tensor.maxPrincipal();
+            double s3 = tensor.minPrincipal();
+            if (s1 > stats.max_principal_max) {
+                stats.max_principal_max = s1;
+                stats.max_principal_max_elem = elem_id;
+            }
+            if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+            stats.max_principal_sum += s1;
+
+            if (s3 < stats.min_principal_min) {
+                stats.min_principal_min = s3;
+                stats.min_principal_min_elem = elem_id;
+            }
+            if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+            stats.min_principal_sum += s3;
+
+            stats.principal_count++;
         }
 
         if (analyze_strain) {
@@ -471,6 +671,28 @@ void SinglePassAnalyzer::analyzePartStats(
             }
             stats.strain_sum += strain;
             stats.strain_count++;
+
+            // Principal strains (only when strain tensor is available)
+            if (has_strain_tensor_) {
+                auto etensor = extractStrainTensor(solid_data, elem_idx);
+                double e1 = etensor.maxPrincipal();
+                double e3 = etensor.minPrincipal();
+                if (e1 > stats.max_principal_strain_max) {
+                    stats.max_principal_strain_max = e1;
+                    stats.max_principal_strain_max_elem = elem_id;
+                }
+                if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                stats.max_principal_strain_sum += e1;
+
+                if (e3 < stats.min_principal_strain_min) {
+                    stats.min_principal_strain_min = e3;
+                    stats.min_principal_strain_min_elem = elem_id;
+                }
+                if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                stats.min_principal_strain_sum += e3;
+
+                stats.principal_strain_count++;
+            }
         }
     }
 #endif
@@ -488,6 +710,26 @@ void SinglePassAnalyzer::analyzePartStats(
                            stats.stress_sum / stats.stress_count : 0.0;
             tp.max_element_id = stats.stress_max_elem;
             tp.min_element_id = stats.stress_min_elem;
+
+            // Principal stress results
+            if (i < max_principal_results_.size()) {
+                auto& tp1 = max_principal_results_[i].data[state_idx];
+                tp1.time = state.time;
+                tp1.max_value = stats.max_principal_max;
+                tp1.min_value = stats.max_principal_min;
+                tp1.avg_value = (stats.principal_count > 0) ?
+                                stats.max_principal_sum / stats.principal_count : 0.0;
+                tp1.max_element_id = stats.max_principal_max_elem;
+            }
+            if (i < min_principal_results_.size()) {
+                auto& tp3 = min_principal_results_[i].data[state_idx];
+                tp3.time = state.time;
+                tp3.max_value = stats.min_principal_max;
+                tp3.min_value = stats.min_principal_min;
+                tp3.avg_value = (stats.principal_count > 0) ?
+                                stats.min_principal_sum / stats.principal_count : 0.0;
+                tp3.min_element_id = stats.min_principal_min_elem;
+            }
         }
 
         if (analyze_strain && i < strain_results_.size()) {
@@ -498,6 +740,26 @@ void SinglePassAnalyzer::analyzePartStats(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+
+            // Principal strain results
+            if (i < max_principal_strain_results_.size()) {
+                auto& tpe1 = max_principal_strain_results_[i].data[state_idx];
+                tpe1.time = state.time;
+                tpe1.max_value = stats.max_principal_strain_max;
+                tpe1.min_value = stats.max_principal_strain_min;
+                tpe1.avg_value = (stats.principal_strain_count > 0) ?
+                                 stats.max_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe1.max_element_id = stats.max_principal_strain_max_elem;
+            }
+            if (i < min_principal_strain_results_.size()) {
+                auto& tpe3 = min_principal_strain_results_[i].data[state_idx];
+                tpe3.time = state.time;
+                tpe3.max_value = stats.min_principal_strain_max;
+                tpe3.min_value = stats.min_principal_strain_min;
+                tpe3.avg_value = (stats.principal_strain_count > 0) ?
+                                 stats.min_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe3.min_element_id = stats.min_principal_strain_min_elem;
+            }
         }
     }
 }
@@ -686,6 +948,26 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             }
             stats.stress_sum += vm;
             stats.stress_count++;
+
+            // Principal stresses (always computed alongside von_mises)
+            auto tensor = extractStressTensor(solid_data, elem_idx);
+            double s1 = tensor.maxPrincipal();
+            double s3 = tensor.minPrincipal();
+            if (s1 > stats.max_principal_max) {
+                stats.max_principal_max = s1;
+                stats.max_principal_max_elem = elem_id;
+            }
+            if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+            stats.max_principal_sum += s1;
+
+            if (s3 < stats.min_principal_min) {
+                stats.min_principal_min = s3;
+                stats.min_principal_min_elem = elem_id;
+            }
+            if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+            stats.min_principal_sum += s3;
+
+            stats.principal_count++;
         }
 
         if (analyze_strain) {
@@ -699,6 +981,28 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             }
             stats.strain_sum += strain;
             stats.strain_count++;
+
+            // Principal strains (only when strain tensor is available)
+            if (has_strain_tensor_) {
+                auto etensor = extractStrainTensor(solid_data, elem_idx);
+                double e1 = etensor.maxPrincipal();
+                double e3 = etensor.minPrincipal();
+                if (e1 > stats.max_principal_strain_max) {
+                    stats.max_principal_strain_max = e1;
+                    stats.max_principal_strain_max_elem = elem_id;
+                }
+                if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                stats.max_principal_strain_sum += e1;
+
+                if (e3 < stats.min_principal_strain_min) {
+                    stats.min_principal_strain_min = e3;
+                    stats.min_principal_strain_min_elem = elem_id;
+                }
+                if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                stats.min_principal_strain_sum += e3;
+
+                stats.principal_strain_count++;
+            }
         }
     }
 
@@ -715,6 +1019,26 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                            stats.stress_sum / stats.stress_count : 0.0;
             tp.max_element_id = stats.stress_max_elem;
             tp.min_element_id = stats.stress_min_elem;
+
+            // Principal stress results
+            if (i < max_principal_results_.size()) {
+                auto& tp1 = max_principal_results_[i].data[state_idx];
+                tp1.time = state.time;
+                tp1.max_value = stats.max_principal_max;
+                tp1.min_value = stats.max_principal_min;
+                tp1.avg_value = (stats.principal_count > 0) ?
+                                stats.max_principal_sum / stats.principal_count : 0.0;
+                tp1.max_element_id = stats.max_principal_max_elem;
+            }
+            if (i < min_principal_results_.size()) {
+                auto& tp3 = min_principal_results_[i].data[state_idx];
+                tp3.time = state.time;
+                tp3.max_value = stats.min_principal_max;
+                tp3.min_value = stats.min_principal_min;
+                tp3.avg_value = (stats.principal_count > 0) ?
+                                stats.min_principal_sum / stats.principal_count : 0.0;
+                tp3.min_element_id = stats.min_principal_min_elem;
+            }
         }
 
         if (analyze_strain && i < strain_results_.size()) {
@@ -725,6 +1049,26 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+
+            // Principal strain results
+            if (i < max_principal_strain_results_.size()) {
+                auto& tpe1 = max_principal_strain_results_[i].data[state_idx];
+                tpe1.time = state.time;
+                tpe1.max_value = stats.max_principal_strain_max;
+                tpe1.min_value = stats.max_principal_strain_min;
+                tpe1.avg_value = (stats.principal_strain_count > 0) ?
+                                 stats.max_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe1.max_element_id = stats.max_principal_strain_max_elem;
+            }
+            if (i < min_principal_strain_results_.size()) {
+                auto& tpe3 = min_principal_strain_results_[i].data[state_idx];
+                tpe3.time = state.time;
+                tpe3.max_value = stats.min_principal_strain_max;
+                tpe3.min_value = stats.min_principal_strain_min;
+                tpe3.avg_value = (stats.principal_strain_count > 0) ?
+                                 stats.min_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe3.min_element_id = stats.min_principal_strain_min_elem;
+            }
         }
     }
 }
@@ -856,6 +1200,175 @@ StressTensor SinglePassAnalyzer::extractStressTensor(
     );
 }
 
+StressTensor SinglePassAnalyzer::extractStrainTensor(
+    const std::vector<double>& solid_data,
+    size_t elem_idx
+) {
+    // Strain tensor at words 7-12 (after 6 stress + 1 eff_plastic_strain)
+    size_t base = elem_idx * nv3d_;
+    if (base + 13 > solid_data.size()) {
+        return StressTensor(0, 0, 0, 0, 0, 0);
+    }
+
+    return StressTensor(
+        solid_data[base + 7],   // exx
+        solid_data[base + 8],   // eyy
+        solid_data[base + 9],   // ezz
+        solid_data[base + 10],  // exy
+        solid_data[base + 11],  // eyz
+        solid_data[base + 12]   // ezx
+    );
+}
+
+// ========================================
+// Peak element tensor extraction
+// ========================================
+
+void SinglePassAnalyzer::extractPeakElementTensors(
+    const std::vector<data::StateData>& all_states,
+    AnalysisResult& result
+) {
+    // For each part, identify peak elements and extract their full tensor history.
+    // Peak elements: max von Mises, max σ1, min σ3 (per part).
+    // Deduplicate by element_id per part to avoid duplicate histories.
+
+    struct PeakInfo {
+        int32_t element_id = 0;
+        int32_t part_id = 0;
+        std::string reason;
+        double peak_value = 0.0;
+        double peak_time = 0.0;
+    };
+
+    std::vector<PeakInfo> peaks;
+
+    // Find peak von Mises element per part
+    for (const auto& part_stats : result.stress_history) {
+        double best_val = -std::numeric_limits<double>::infinity();
+        int32_t best_elem = 0;
+        double best_time = 0.0;
+        for (const auto& tp : part_stats.data) {
+            if (tp.max_value > best_val) {
+                best_val = tp.max_value;
+                best_elem = tp.max_element_id;
+                best_time = tp.time;
+            }
+        }
+        if (best_elem != 0) {
+            peaks.push_back({best_elem, part_stats.part_id, "peak_von_mises", best_val, best_time});
+        }
+    }
+
+    // Find peak max principal (σ1) element per part
+    for (const auto& part_stats : result.max_principal_history) {
+        double best_val = -std::numeric_limits<double>::infinity();
+        int32_t best_elem = 0;
+        double best_time = 0.0;
+        for (const auto& tp : part_stats.data) {
+            if (tp.max_value > best_val) {
+                best_val = tp.max_value;
+                best_elem = tp.max_element_id;
+                best_time = tp.time;
+            }
+        }
+        if (best_elem != 0) {
+            // Check if same element already tracked for this part
+            bool duplicate = false;
+            for (const auto& p : peaks) {
+                if (p.part_id == part_stats.part_id && p.element_id == best_elem) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                peaks.push_back({best_elem, part_stats.part_id, "peak_max_principal", best_val, best_time});
+            }
+        }
+    }
+
+    // Find peak min principal (σ3) element per part (most compressive)
+    for (const auto& part_stats : result.min_principal_history) {
+        double best_val = std::numeric_limits<double>::infinity();
+        int32_t best_elem = 0;
+        double best_time = 0.0;
+        for (const auto& tp : part_stats.data) {
+            if (tp.min_value < best_val) {
+                best_val = tp.min_value;
+                best_elem = tp.min_element_id;
+                best_time = tp.time;
+            }
+        }
+        if (best_elem != 0) {
+            bool duplicate = false;
+            for (const auto& p : peaks) {
+                if (p.part_id == part_stats.part_id && p.element_id == best_elem) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                peaks.push_back({best_elem, part_stats.part_id, "peak_min_principal", best_val, best_time});
+            }
+        }
+    }
+
+    if (peaks.empty()) return;
+
+    // Build element_id → internal_index mapping for fast lookup
+    // (reuse existing elem_id_to_index_)
+
+    // Extract tensor history for each peak element across all states
+    size_t num_states = all_states.size();
+    for (const auto& peak : peaks) {
+        auto it = elem_id_to_index_.find(peak.element_id);
+        if (it == elem_id_to_index_.end()) continue;
+
+        size_t elem_idx = it->second;
+        ElementTensorHistory hist;
+        hist.element_id = peak.element_id;
+        hist.part_id = peak.part_id;
+        hist.reason = peak.reason;
+        hist.peak_value = peak.peak_value;
+        hist.peak_time = peak.peak_time;
+
+        hist.time.reserve(num_states);
+        hist.sxx.reserve(num_states);
+        hist.syy.reserve(num_states);
+        hist.szz.reserve(num_states);
+        hist.sxy.reserve(num_states);
+        hist.syz.reserve(num_states);
+        hist.szx.reserve(num_states);
+
+        for (size_t si = 0; si < num_states; ++si) {
+            const auto& solid_data = all_states[si].solid_data;
+            size_t base = elem_idx * nv3d_;
+            if (base + 6 > solid_data.size()) {
+                hist.time.push_back(all_states[si].time);
+                hist.sxx.push_back(0.0);
+                hist.syy.push_back(0.0);
+                hist.szz.push_back(0.0);
+                hist.sxy.push_back(0.0);
+                hist.syz.push_back(0.0);
+                hist.szx.push_back(0.0);
+            } else {
+                hist.time.push_back(all_states[si].time);
+                hist.sxx.push_back(solid_data[base + 0]);
+                hist.syy.push_back(solid_data[base + 1]);
+                hist.szz.push_back(solid_data[base + 2]);
+                hist.sxy.push_back(solid_data[base + 3]);
+                hist.syz.push_back(solid_data[base + 4]);
+                hist.szx.push_back(solid_data[base + 5]);
+            }
+        }
+
+        result.peak_element_tensors.push_back(std::move(hist));
+    }
+
+    std::cout << "[SinglePassAnalyzer] Extracted tensor history for "
+              << result.peak_element_tensors.size() << " peak elements across "
+              << num_states << " states\n";
+}
+
 // ========================================
 // Result building
 // ========================================
@@ -869,6 +1382,10 @@ AnalysisResult SinglePassAnalyzer::buildResult(const AnalysisConfig& config) {
     // Move results
     result.stress_history = std::move(stress_results_);
     result.strain_history = std::move(strain_results_);
+    result.max_principal_history = std::move(max_principal_results_);
+    result.min_principal_history = std::move(min_principal_results_);
+    result.max_principal_strain_history = std::move(max_principal_strain_results_);
+    result.min_principal_strain_history = std::move(min_principal_strain_results_);
     result.surface_analysis = std::move(surface_results_);
 
     // Save outputs if requested

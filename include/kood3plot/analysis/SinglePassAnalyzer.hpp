@@ -52,6 +52,32 @@ struct PartStateStats {
     int32_t strain_max_elem = 0;
     size_t strain_count = 0;
 
+    // Principal stress (computed from same stress tensor as von_mises)
+    double max_principal_max = -std::numeric_limits<double>::max();
+    double max_principal_min = std::numeric_limits<double>::max();
+    double max_principal_sum = 0.0;
+    int32_t max_principal_max_elem = 0;
+
+    double min_principal_max = -std::numeric_limits<double>::max();  // most tensile σ3
+    double min_principal_min = std::numeric_limits<double>::max();   // most compressive σ3
+    double min_principal_sum = 0.0;
+    int32_t min_principal_min_elem = 0;  // track most compressive
+
+    size_t principal_count = 0;
+
+    // Principal strain (only when ISTRN != 0 and strain tensor is available)
+    double max_principal_strain_max = -std::numeric_limits<double>::max();
+    double max_principal_strain_min = std::numeric_limits<double>::max();
+    double max_principal_strain_sum = 0.0;
+    int32_t max_principal_strain_max_elem = 0;
+
+    double min_principal_strain_max = -std::numeric_limits<double>::max();
+    double min_principal_strain_min = std::numeric_limits<double>::max();
+    double min_principal_strain_sum = 0.0;
+    int32_t min_principal_strain_min_elem = 0;
+
+    size_t principal_strain_count = 0;
+
     void reset() {
         stress_max = -std::numeric_limits<double>::max();
         stress_min = std::numeric_limits<double>::max();
@@ -65,6 +91,30 @@ struct PartStateStats {
         strain_sum = 0.0;
         strain_max_elem = 0;
         strain_count = 0;
+
+        max_principal_max = -std::numeric_limits<double>::max();
+        max_principal_min = std::numeric_limits<double>::max();
+        max_principal_sum = 0.0;
+        max_principal_max_elem = 0;
+
+        min_principal_max = -std::numeric_limits<double>::max();
+        min_principal_min = std::numeric_limits<double>::max();
+        min_principal_sum = 0.0;
+        min_principal_min_elem = 0;
+
+        principal_count = 0;
+
+        max_principal_strain_max = -std::numeric_limits<double>::max();
+        max_principal_strain_min = std::numeric_limits<double>::max();
+        max_principal_strain_sum = 0.0;
+        max_principal_strain_max_elem = 0;
+
+        min_principal_strain_max = -std::numeric_limits<double>::max();
+        min_principal_strain_min = std::numeric_limits<double>::max();
+        min_principal_strain_sum = 0.0;
+        min_principal_strain_min_elem = 0;
+
+        principal_strain_count = 0;
     }
 
     void merge(const PartStateStats& other) {
@@ -88,6 +138,46 @@ struct PartStateStats {
         }
         strain_sum += other.strain_sum;
         strain_count += other.strain_count;
+
+        if (other.max_principal_max > max_principal_max) {
+            max_principal_max = other.max_principal_max;
+            max_principal_max_elem = other.max_principal_max_elem;
+        }
+        if (other.max_principal_min < max_principal_min) {
+            max_principal_min = other.max_principal_min;
+        }
+        max_principal_sum += other.max_principal_sum;
+
+        if (other.min_principal_min < min_principal_min) {
+            min_principal_min = other.min_principal_min;
+            min_principal_min_elem = other.min_principal_min_elem;
+        }
+        if (other.min_principal_max > min_principal_max) {
+            min_principal_max = other.min_principal_max;
+        }
+        min_principal_sum += other.min_principal_sum;
+
+        principal_count += other.principal_count;
+
+        if (other.max_principal_strain_max > max_principal_strain_max) {
+            max_principal_strain_max = other.max_principal_strain_max;
+            max_principal_strain_max_elem = other.max_principal_strain_max_elem;
+        }
+        if (other.max_principal_strain_min < max_principal_strain_min) {
+            max_principal_strain_min = other.max_principal_strain_min;
+        }
+        max_principal_strain_sum += other.max_principal_strain_sum;
+
+        if (other.min_principal_strain_min < min_principal_strain_min) {
+            min_principal_strain_min = other.min_principal_strain_min;
+            min_principal_strain_min_elem = other.min_principal_strain_min_elem;
+        }
+        if (other.min_principal_strain_max > min_principal_strain_max) {
+            min_principal_strain_max = other.min_principal_strain_max;
+        }
+        min_principal_strain_sum += other.min_principal_strain_sum;
+
+        principal_strain_count += other.principal_strain_count;
     }
 };
 
@@ -228,6 +318,17 @@ public:
                                    SinglePassProgressCallback callback);
 
     /**
+     * @brief Run analysis with pre-loaded states (no redundant file I/O)
+     * @param config Analysis configuration
+     * @param all_states Pre-loaded state data
+     * @param callback Progress callback (optional)
+     * @return AnalysisResult containing all data
+     */
+    AnalysisResult analyzeWithStates(const AnalysisConfig& config,
+                                     const std::vector<data::StateData>& all_states,
+                                     SinglePassProgressCallback callback = nullptr);
+
+    /**
      * @brief Run analysis with element-level parallelization (legacy)
      *
      * This is the original implementation that parallelizes the inner
@@ -279,6 +380,7 @@ private:
     int32_t nv3d_ = 0;  // Values per solid element
     size_t num_solid_elements_ = 0;
     size_t num_states_ = 0;  // Number of states (set after read_all_states)
+    bool has_strain_tensor_ = false;  // true when ISTRN != 0 and nv3d >= 13
 
     // Element to part mapping
     std::vector<int32_t> elem_to_part_;  // elem_index -> part_id
@@ -295,6 +397,10 @@ private:
     // Results storage
     std::vector<PartTimeSeriesStats> stress_results_;
     std::vector<PartTimeSeriesStats> strain_results_;
+    std::vector<PartTimeSeriesStats> max_principal_results_;
+    std::vector<PartTimeSeriesStats> min_principal_results_;
+    std::vector<PartTimeSeriesStats> max_principal_strain_results_;
+    std::vector<PartTimeSeriesStats> min_principal_strain_results_;
     std::vector<SurfaceAnalysisStats> surface_results_;
 
     // ========================================
@@ -381,6 +487,26 @@ private:
      * @brief Extract stress tensor for an element
      */
     StressTensor extractStressTensor(const std::vector<double>& solid_data, size_t elem_idx);
+
+    /**
+     * @brief Extract strain tensor for an element (only when has_strain_tensor_)
+     * @note Uses StressTensor struct for eigenvalue computation (same math for any symmetric 3x3 tensor)
+     */
+    StressTensor extractStrainTensor(const std::vector<double>& solid_data, size_t elem_idx);
+
+    // ========================================
+    // Peak element tensor extraction
+    // ========================================
+
+    /**
+     * @brief Extract full tensor history for peak elements (per-part)
+     *
+     * Identifies elements with peak von Mises, σ1, σ3 per part and
+     * extracts their full 6-component stress tensor history from all states.
+     */
+    void extractPeakElementTensors(
+        const std::vector<data::StateData>& all_states,
+        AnalysisResult& result);
 
     // ========================================
     // Result finalization
