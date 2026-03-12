@@ -9,12 +9,18 @@
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include "kood3plot/analysis/UnifiedConfigParser.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <future>
+#include <limits>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <thread>
+#include <unistd.h>
 
 #ifdef KOOD3PLOT_HAS_RENDER
 #include "kood3plot/render/LSPrePostRenderer.h"
@@ -108,6 +114,193 @@ std::pair<double, double> computePartFringeRange(
     return {0.0, range_max};  // min=0 for von_mises (always >= 0)
 }
 
+/// Pixel bounding box detected from a rendered frame
+struct PixelBBox { int x1, y1, x2, y2; };
+
+/// Detect the model rendering area in pixel coordinates by analyzing the first frame.
+/// Uses background gradient interpolation from corners to find non-background pixels.
+/// Excludes legend (right 20%), title (top 7%), and axes indicator (bottom-left 12%).
+static std::optional<PixelBBox> detectModelPixelBBox(const std::string& video_path) {
+    namespace fs = std::filesystem;
+
+    // Extract first frame as PPM (simple binary format, easy to parse)
+    std::string tmp_ppm = "/tmp/kood3plot_detect_" + std::to_string(getpid()) + ".ppm";
+    {
+        std::ostringstream cmd;
+        cmd << "ffmpeg -y -i \"" << video_path << "\" -vframes 1 \""
+            << tmp_ppm << "\" >/dev/null 2>&1";
+        if (std::system(cmd.str().c_str()) != 0) return std::nullopt;
+    }
+
+    // Read PPM P6 binary format
+    std::ifstream f(tmp_ppm, std::ios::binary);
+    if (!f) return std::nullopt;
+
+    std::string magic;
+    f >> magic;
+    // Skip comment lines
+    while (f.peek() == '\n' || f.peek() == '\r') f.get();
+    while (f.peek() == '#') {
+        f.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+    int W, H, maxval;
+    f >> W >> H >> maxval;
+    f.get(); // consume single whitespace after maxval
+
+    if (magic != "P6" || W < 100 || H < 100) {
+        std::remove(tmp_ppm.c_str());
+        return std::nullopt;
+    }
+
+    std::vector<uint8_t> pixels(W * H * 3);
+    f.read(reinterpret_cast<char*>(pixels.data()), pixels.size());
+    f.close();
+    std::remove(tmp_ppm.c_str());
+
+    auto getPixel = [&](int x, int y) -> std::array<double,3> {
+        size_t idx = ((size_t)y * W + x) * 3;
+        return {(double)pixels[idx], (double)pixels[idx+1], (double)pixels[idx+2]};
+    };
+
+    // Background gradient reference: interpolate between top-left and bottom-left corners
+    // (LSPrePost "fade" bgstyle = vertical gradient)
+    auto bg_tl = getPixel(3, 3);
+    auto bg_bl = getPixel(3, H - 4);
+
+    // Exclusion zones
+    int ex_right = W * 20 / 100;   // legend area
+    int ex_top   = H * 7 / 100;    // title area
+    int axes_w   = W * 12 / 100;   // axes indicator
+    int axes_h   = H * 12 / 100;
+    double threshold = 30.0;
+
+    int x1 = W, y1 = H, x2 = 0, y2 = 0;
+
+    for (int y = ex_top; y < H; y += 2) {
+        // Interpolate background color for this row
+        double t = (double)y / (H - 1);
+        double bg_r = bg_tl[0] + (bg_bl[0] - bg_tl[0]) * t;
+        double bg_g = bg_tl[1] + (bg_bl[1] - bg_tl[1]) * t;
+        double bg_b = bg_tl[2] + (bg_bl[2] - bg_tl[2]) * t;
+
+        for (int x = 0; x < W - ex_right; x += 2) {
+            // Skip axes indicator in bottom-left corner
+            if (x < axes_w && y > H - axes_h) continue;
+
+            auto px = getPixel(x, y);
+            double dr = px[0] - bg_r;
+            double dg = px[1] - bg_g;
+            double db = px[2] - bg_b;
+            double dist = std::sqrt(dr*dr + dg*dg + db*db);
+
+            if (dist > threshold) {
+                if (x < x1) x1 = x;
+                if (y < y1) y1 = y;
+                if (x > x2) x2 = x;
+                if (y > y2) y2 = y;
+            }
+        }
+    }
+
+    if (x2 <= x1 || y2 <= y1) return std::nullopt;
+    return PixelBBox{x1, y1, x2, y2};
+}
+
+/// Detect "warm" fringe pixels (non-blue fringe colors: red/orange/yellow/green/cyan).
+/// Used to locate the target part when per-part fringe range makes it stand out.
+/// Falls back to full model bbox if no warm pixels found.
+static std::optional<PixelBBox> detectFringePixelBBox(const std::string& video_path) {
+    namespace fs = std::filesystem;
+
+    // Extract a frame at ~10% into the animation (not first frame which may be undeformed)
+    static std::atomic<int> s_fringe_counter{0};
+    std::string tmp_ppm = "/tmp/kood3plot_fringe_" + std::to_string(getpid()) + "_" +
+                          std::to_string(s_fringe_counter.fetch_add(1)) + ".ppm";
+    {
+        std::ostringstream cmd;
+        // Use select filter to pick frame 50 (or last if shorter)
+        cmd << "ffmpeg -y -i \"" << video_path << "\" -vf \"select=eq(n\\,50)\" -frames:v 1 \""
+            << tmp_ppm << "\" >/dev/null 2>&1";
+        if (std::system(cmd.str().c_str()) != 0) {
+            // Fallback: just use first frame
+            std::ostringstream cmd2;
+            cmd2 << "ffmpeg -y -i \"" << video_path << "\" -vframes 1 \""
+                 << tmp_ppm << "\" >/dev/null 2>&1";
+            if (std::system(cmd2.str().c_str()) != 0) return std::nullopt;
+        }
+    }
+
+    std::ifstream f(tmp_ppm, std::ios::binary);
+    if (!f) return std::nullopt;
+
+    std::string magic;
+    f >> magic;
+    while (f.peek() == '\n' || f.peek() == '\r') f.get();
+    while (f.peek() == '#') {
+        f.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+    int W, H, maxval;
+    f >> W >> H >> maxval;
+    f.get();
+
+    if (magic != "P6" || W < 100 || H < 100) {
+        std::remove(tmp_ppm.c_str());
+        return std::nullopt;
+    }
+
+    std::vector<uint8_t> pixels(W * H * 3);
+    f.read(reinterpret_cast<char*>(pixels.data()), pixels.size());
+    f.close();
+    std::remove(tmp_ppm.c_str());
+
+    // Exclusion zones (same as detectModelPixelBBox)
+    int ex_right = W * 20 / 100;
+    int ex_top   = H * 7 / 100;
+    int axes_w   = W * 12 / 100;
+    int axes_h   = H * 12 / 100;
+
+    // Background gradient reference
+    auto bg_tl = std::array<double,3>{(double)pixels[9], (double)pixels[10], (double)pixels[11]};
+    size_t bl_idx = ((size_t)(H-4) * W + 3) * 3;
+    auto bg_bl = std::array<double,3>{(double)pixels[bl_idx], (double)pixels[bl_idx+1], (double)pixels[bl_idx+2]};
+
+    int x1 = W, y1 = H, x2 = 0, y2 = 0;
+
+    for (int y = ex_top; y < H; y += 2) {
+        double t = (double)y / (H - 1);
+        double bg_r = bg_tl[0] + (bg_bl[0] - bg_tl[0]) * t;
+        double bg_g = bg_tl[1] + (bg_bl[1] - bg_tl[1]) * t;
+        double bg_b = bg_tl[2] + (bg_bl[2] - bg_tl[2]) * t;
+
+        for (int x = 0; x < W - ex_right; x += 2) {
+            if (x < axes_w && y > H - axes_h) continue;
+
+            size_t idx = ((size_t)y * W + x) * 3;
+            double r = pixels[idx], g = pixels[idx+1], b = pixels[idx+2];
+
+            // Check if this pixel is background
+            double dr = r - bg_r, dg = g - bg_g, db = b - bg_b;
+            if (std::sqrt(dr*dr + dg*dg + db*db) < 30.0) continue;
+
+            // Check if this pixel is a "warm" fringe color (not pure dark blue).
+            // In rainbow colormap: blue(0,0,255) → cyan(0,255,255) → green(0,255,0)
+            //   → yellow(255,255,0) → red(255,0,0)
+            // Dark blue (bottom of range) is similar to background; skip it.
+            // We want pixels where R > 30 OR G > 100 (cyan/green/yellow/red region)
+            bool is_warm = (r > 50) || (g > 120 && b < 200);
+            if (is_warm) {
+                if (x < x1) x1 = x;
+                if (y < y1) y1 = y;
+                if (x > x2) x2 = x;
+                if (y > y2) y2 = y;
+            }
+        }
+    }
+
+    if (x2 <= x1 || y2 <= y1) return std::nullopt;
+    return PixelBBox{x1, y1, x2, y2};
+}
+
 } // anonymous namespace
 #endif
 
@@ -188,6 +381,10 @@ bool UnifiedAnalyzer::processRenderJobs(
         render::RenderOptions options;
         render::SectionPlane plane;  // Used for non-animation section view
         bool is_animation;
+        // For ffmpeg post-crop (camera centering alternative)
+        render::BoundingBox model_bbox;
+        render::BoundingBox part_bbox;
+        bool need_crop = false;     // true when highlight_parts is set
     };
     std::vector<RenderTask> tasks;
 
@@ -309,6 +506,8 @@ bool UnifiedAnalyzer::processRenderJobs(
 
             double abs_position = bbox.min[axis] + section_spec.position * (bbox.max[axis] - bbox.min[axis]);
 
+            // (debug bbox removed - confirmed working)
+
             RenderTask task;
             task.plane.point = bbox.center;
             task.plane.point[axis] = abs_position;
@@ -339,7 +538,13 @@ bool UnifiedAnalyzer::processRenderJobs(
             if (!job.view_str.empty()) {
                 task.options.view = parseView(job.view_str);
             } else {
-                task.options.view = render::ViewOrientation::TOP;
+                // Auto-select view based on section axis:
+                // X-section (normal=1,0,0) → view from RIGHT
+                // Y-section (normal=0,1,0) → view from FRONT
+                // Z-section (normal=0,0,1) → view from TOP
+                if (axis == 0)      task.options.view = render::ViewOrientation::RIGHT;
+                else if (axis == 1) task.options.view = render::ViewOrientation::FRONT;
+                else                task.options.view = render::ViewOrientation::TOP;
             }
 
             task.options.image_width = job.output.resolution[0];
@@ -368,8 +573,12 @@ bool UnifiedAnalyzer::processRenderJobs(
                 task.options.highlight_parts = std::vector<int>(target_parts.begin(), target_parts.end());
                 task.options.context_parts = context_parts;
 
-                bool is_z_axis = (axis == 2);
-                if (!is_z_axis && task.options.auto_fringe_range) {
+                // Store bbox info for ffmpeg post-crop
+                task.model_bbox = model_bbox;
+                task.part_bbox = bbox;
+                task.need_crop = true;
+
+                if (task.options.auto_fringe_range) {
                     size_t total_states = reader.get_num_states();
                     auto [fmin, fmax] = computePartFringeRange(reader, target_parts, total_states);
                     if (fmax > 0.0) {
@@ -417,6 +626,14 @@ bool UnifiedAnalyzer::processRenderJobs(
 
     // ── Phase 2: Execute render tasks (sequential or parallel) ──
     int render_threads = std::max(1, config.render_threads);
+#ifndef _WIN32
+    // If xvfb-run is not available, force single-thread to avoid segfaults
+    // from concurrent Mesa/LSPrePost instances sharing global state
+    if (render_threads > 1 && std::system("which xvfb-run >/dev/null 2>&1") != 0) {
+        if (callback) callback("  WARNING: xvfb-run not found, forcing render_threads=1");
+        render_threads = 1;
+    }
+#endif
     bool all_success = true;
     std::mutex mtx;
 
@@ -452,6 +669,91 @@ bool UnifiedAnalyzer::processRenderJobs(
             } else {
                 if (callback) callback("    Created: " + task.output_file);
             }
+        }
+
+        // Post-process: ffmpeg crop for per-part zoom
+        // Uses image-based fringe color detection (camera-angle independent)
+        if (success && task.need_crop) {
+            int W = task.options.image_width;
+            int H = task.options.image_height;
+
+            // Find rendered video file (LSPrePost adds extension)
+            std::string src_file = task.output_file;
+            for (const auto& ext : {".mp4", ".avi"}) {
+                if (fs::exists(src_file + ext)) {
+                    src_file = src_file + ext;
+                    break;
+                }
+            }
+            if (!fs::exists(src_file)) goto skip_crop;
+
+            {
+                // Output file: add "_zoom" suffix
+                std::string zoomed_file = task.output_file;
+                auto dot = zoomed_file.rfind('.');
+                if (dot == std::string::npos) {
+                    zoomed_file += "_zoom";
+                    auto sdot = src_file.rfind('.');
+                    if (sdot != std::string::npos) zoomed_file += src_file.substr(sdot);
+                } else {
+                    zoomed_file.insert(dot, "_zoom");
+                }
+
+                // Detect target part via fringe color pixels (warm colors in rainbow map)
+                auto fringe_bbox = detectFringePixelBBox(src_file);
+                double px, py;
+                int fringe_w = 0, fringe_h = 0;
+
+                if (fringe_bbox) {
+                    px = (fringe_bbox->x1 + fringe_bbox->x2) / 2.0;
+                    py = (fringe_bbox->y1 + fringe_bbox->y2) / 2.0;
+                    fringe_w = fringe_bbox->x2 - fringe_bbox->x1;
+                    fringe_h = fringe_bbox->y2 - fringe_bbox->y1;
+                } else {
+                    // Fallback: use full model bbox detection and center
+                    auto model_pbbox = detectModelPixelBBox(src_file);
+                    if (model_pbbox) {
+                        px = (model_pbbox->x1 + model_pbbox->x2) / 2.0;
+                        py = (model_pbbox->y1 + model_pbbox->y2) / 2.0;
+                    } else {
+                        px = W / 2.0;
+                        py = H / 2.0;
+                    }
+                }
+
+                // Crop size: 1.3x fringe extent, min W/5, max W*2/3
+                int fringe_max = std::max(fringe_w, fringe_h);
+                int crop_from_fringe = std::max(1, (int)(fringe_max * 1.3));
+                int min_crop = W / 5;
+                int max_crop = W * 2 / 3;
+                int crop_px = std::max(min_crop, std::min(max_crop, crop_from_fringe));
+                crop_px = (crop_px / 2) * 2;
+                int crop_py = (int)(crop_px * ((double)H / W));
+                crop_py = (crop_py / 2) * 2;
+
+                // Clamp crop center to video bounds
+                int cx = std::max(crop_px / 2, std::min(W - crop_px / 2, (int)px));
+                int cy = std::max(crop_py / 2, std::min(H - crop_py / 2, (int)py));
+
+                std::ostringstream cmd;
+                cmd << "ffmpeg -y -i \"" << src_file << "\" -vf \"crop="
+                    << crop_px << ":" << crop_py << ":"
+                    << (cx - crop_px / 2) << ":" << (cy - crop_py / 2)
+                    << "\" -c:v libx264 -crf 18 \""
+                    << zoomed_file << "\" >/dev/null 2>&1";
+
+                int ret = std::system(cmd.str().c_str());
+                {
+                    std::lock_guard<std::mutex> lock(mtx);
+                    if (ret == 0 && callback) {
+                        callback("    Cropped: " + zoomed_file +
+                                 " (crop=" + std::to_string(crop_px) + "x" + std::to_string(crop_py) +
+                                 " at " + std::to_string(cx - crop_px / 2) + "," +
+                                 std::to_string(cy - crop_py / 2) + ")");
+                    }
+                }
+            }
+            skip_crop:;
         }
 
         return success;

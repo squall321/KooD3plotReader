@@ -12,7 +12,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <filesystem>
-
+#include <set>
+#include <atomic>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -27,10 +28,14 @@ namespace render {
 // PIMPL Implementation
 // ============================================================
 
+// Global counter for unique worker IDs (thread-safe)
+static std::atomic<int> g_worker_counter{0};
+
 struct LSPrePostRenderer::Impl {
     std::string lsprepost_path = "lsprepost";
     std::string last_error;
     std::string last_output;
+    int worker_id = g_worker_counter.fetch_add(1);  // unique per instance
 };
 
 // ============================================================
@@ -128,15 +133,13 @@ bool LSPrePostRenderer::renderImage(
 
     bool success = executeLSPrePost(script_path.string(), working_dir);
 
-    // Keep script for debugging
-#ifdef _WIN32
-    std::filesystem::path debug_cfile = std::filesystem::temp_directory_path() / "last_render.cfile";
-#else
-    std::filesystem::path debug_cfile = "/tmp/last_render.cfile";
-#endif
-    std::error_code ec;
-    std::filesystem::copy_file(script_path, debug_cfile,
-        std::filesystem::copy_options::overwrite_existing, ec);
+    if (!success) {
+        // Keep failed script for debugging
+        std::filesystem::path fail_cfile = "/tmp/last_failed_render.cfile";
+        std::error_code ec;
+        std::filesystem::copy_file(script_path, fail_cfile,
+            std::filesystem::copy_options::overwrite_existing, ec);
+    }
     // Clean up temporary script
     std::filesystem::remove(script_path);
 
@@ -213,129 +216,43 @@ std::string LSPrePostRenderer::generateScript(
     script << "ac\n";
     script << "bgstyle fade\n\n";
 
-    // Part visibility: highlight_parts takes priority over part_id
     int fringe_code = fringeTypeToCode(options.fringe_type);
-    if (!options.highlight_parts.empty()) {
-        // Highlight mode (per-part render):
-        // Common: selectpart isolation → view → fit → zout → selectpart restore (camera centering)
-        // Then axis-specific fringe: Z→drawcut+genselect, X/Y→global fringe
 
-        bool has_drawcut = false;
-        for (const auto& plane : options.section_planes) {
-            if (std::abs(plane.normal[2]) > 0.9) { has_drawcut = true; break; }
-        }
+    // Set view orientation FIRST (view commands reset camera position)
+    script << "$# Set view orientation\n";
+    std::string view_str = viewOrientationToString(options.view);
+    script << view_str << "\n";
+    script << "ac\n\n";
 
-        script << "$# Highlight mode: per-part section render\n\n";
-
-        // Step 1: Isolate target parts and fit camera (BEFORE drawcut/fringe)
-        script << "$# Isolate target parts for camera fitting\n";
-        script << "selectpart all off\n";
-        for (int pid : options.highlight_parts) {
-            script << "selectpart on " << pid << "/0\n";
-        }
-        script << "ac\n\n";
-
-        // Step 2: Set view and fit camera to isolated target
-        script << "$# Camera fit to target parts\n";
-        std::string view_str = viewOrientationToString(options.view);
-        script << view_str << "\n";
-        script << "fit\n";
-        script << "zout 1.500000\n";
-        script << "ac\n\n";
-
-        // Step 3: Restore all parts (camera stays centered on target)
-        script << "$# Restore all parts\n";
-        script << "selectpart all on\n";
-        script << "ac\n\n";
-
-        // Step 4: Section planes
-        if (!options.section_planes.empty()) {
-            script << "$# Section planes\n";
-            for (size_t i = 0; i < options.section_planes.size(); ++i) {
-                const auto& plane = options.section_planes[i];
-                if (i == 0) script << "splane linewidth 1\n";
-                script << "splane dep0 "
-                       << plane.point[0] << " " << plane.point[1] << " " << plane.point[2] << " "
-                       << plane.normal[0] << " " << plane.normal[1] << " " << plane.normal[2] << "\n";
-                // drawcut only for Z-axis sections (Mesa bug: X/Y drawcut hides model)
-                if (std::abs(plane.normal[2]) > 0.9) script << "splane drawcut\n";
-            }
-            script << "ac\n\n";
-        }
-
-        // Step 5: Apply fringe
-        if (has_drawcut && !options.context_parts.empty()) {
-            // Z-section: selective fringe via genselect (target=colored, context=mesh)
-            script << "$# Selective fringe via genselect\n";
-            script << "genselect target part\n";
-            script << "selectpart select 1\n";
-            for (int pid : options.context_parts) {
-                script << "genselect part remove part " << pid << "/0\n";
-            }
-            script << "selectpart select 0\n";
-            script << "fringe " << fringe_code << "\n";
-            script << "pfringe\n";
-            if (!options.auto_fringe_range) {
-                script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
-            }
-            script << "postmodel off\n";
-            script << "postmodel on\n";
-            script << "ac\n\n";
-        } else {
-            // X/Y section or no section: global fringe
-            script << "$# Global fringe\n";
-            script << "fringe " << fringe_code << "\n";
-            script << "pfringe\n";
-            if (!options.auto_fringe_range) {
-                script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
-            }
-            script << "ac\n\n";
-        }
-
-    } else if (options.part_id > 0) {
-        script << "$# Filter to show specific part\n";
-        script << "ponly " << options.part_id << "\n";
-        script << "ac\n\n";
-    }
-
-    // Apply section planes (non-highlight mode only; highlight mode handles above)
-    if (options.highlight_parts.empty() && !options.section_planes.empty()) {
+    // Apply section planes
+    // drawcut + projectview: smooth cut on ALL axes (X/Y/Z) in Mesa batch mode
+    // projectview auto-rotates camera perpendicular to the section plane
+    // NOTE: -m part isolation breaks drawcut (empty screen), so we render all parts
+    // and use per-part fringe range to highlight the target part instead
+    if (!options.section_planes.empty()) {
         script << "$# Apply section planes (" << options.section_planes.size() << " planes)\n";
         for (size_t i = 0; i < options.section_planes.size(); ++i) {
             const auto& plane = options.section_planes[i];
-            if (i == 0) script << "splane linewidth 1\n";
             script << "splane dep0 "
                    << plane.point[0] << " " << plane.point[1] << " " << plane.point[2] << " "
                    << plane.normal[0] << " " << plane.normal[1] << " " << plane.normal[2] << "\n";
-            bool is_z_section = (std::abs(plane.normal[2]) > 0.9);
-            if (is_z_section) script << "splane drawcut\n";
+            script << "splane projectview\n";
+            script << "splane drawcut\n";
         }
         script << "ac\n\n";
     }
 
-    // Apply fringe (non-highlight mode only)
-    if (options.highlight_parts.empty()) {
-        script << "fringe " << fringe_code << "\n";
-        script << "pfringe\n";
-        if (!options.auto_fringe_range) {
-            script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
-        }
-        script << "\n";
+    // Apply fringe with optional per-part range
+    script << "fringe " << fringe_code << "\n";
+    script << "pfringe\n";
+    if (!options.auto_fringe_range) {
+        script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
     }
-
-    // Set view orientation (non-highlight mode only; highlight mode handles view+fit internally)
-    if (options.highlight_parts.empty()) {
-        script << "$# Set view orientation\n";
-        std::string view_str = viewOrientationToString(options.view);
-        script << view_str << "\n";
-        script << "ac\n";
-
-        if (options.zoom_factor != 1.0) {
-            script << "zoom " << options.zoom_factor << "\n";
-        }
-    }
-
     script << "\n";
+
+    // NOTE: drawcut + projectview renders smooth section cuts on all axes.
+    // Per-part fringe range highlights target part (no -m isolation needed).
+    // Camera centering: ac (auto-center) works; zoom/fit do not.
 
     // Generate animation (LSPrePost batch mode only supports movie output, not single images)
     script << "$# Generate movie output\n";
@@ -392,8 +309,24 @@ bool LSPrePostRenderer::executeLSPrePost(
     const std::string& script_path,
     const std::string& working_dir)
 {
-    // Build command
+    // LSPrePost batch mode: -nographics is the only reliable mode.
+    // Camera/visibility commands (ponly, genselect, fit, zoom) are all ignored
+    // in batch mode regardless of Xvfb/display. Camera centering is handled
+    // by ffmpeg post-crop in UnifiedAnalyzerRender.cpp instead.
     std::ostringstream cmd;
+#ifndef _WIN32
+    // Use xvfb-run to give each instance its own virtual display.
+    // -a auto-selects a free display number, preventing conflicts
+    // when multiple LSPrePost instances run in parallel.
+    // Fallback: if xvfb-run is not available, run directly (single-thread only).
+    static int xvfb_available = -1;  // -1=unknown, 0=no, 1=yes
+    if (xvfb_available == -1) {
+        xvfb_available = (std::system("which xvfb-run >/dev/null 2>&1") == 0) ? 1 : 0;
+    }
+    if (xvfb_available == 1) {
+        cmd << "xvfb-run -a ";
+    }
+#endif
     cmd << "\"" << pImpl->lsprepost_path << "\" -nographics c=\"" << script_path << "\"";
 
 #ifdef _WIN32
@@ -449,6 +382,12 @@ bool LSPrePostRenderer::executeLSPrePost(
             chdir(working_dir.c_str());
         }
 
+        // Isolate $HOME per worker to prevent lsppconf write conflicts
+        // when multiple LSPrePost instances run in parallel
+        std::string fake_home = "/tmp/lspp_worker_" + std::to_string(pImpl->worker_id);
+        std::filesystem::create_directories(fake_home);
+        setenv("HOME", fake_home.c_str(), 1);
+
         // Execute LSPrePost (Mesa wrapper handles all environment setup)
         execl("/bin/sh", "sh", "-c", cmd.str().c_str(), nullptr);
         _exit(1);  // exec failed
@@ -458,7 +397,17 @@ bool LSPrePostRenderer::executeLSPrePost(
     int status;
     waitpid(pid, &status, 0);
 
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    if (!WIFEXITED(status)) {
+        pImpl->last_error = "LSPrePost process terminated abnormally (signal)";
+        return false;
+    }
+    int exit_code = WEXITSTATUS(status);
+    if (exit_code != 0) {
+        pImpl->last_error = "LSPrePost exited with code " + std::to_string(exit_code)
+                          + " (cmd: " + cmd.str().substr(0, 200) + ")";
+        return false;
+    }
+    return true;
 #endif
 }
 
