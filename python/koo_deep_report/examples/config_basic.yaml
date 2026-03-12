@@ -1,0 +1,46 @@
+# koo_deep_report 기본 설정 예제
+# 사용법: koo_deep_report --config config_basic.yaml
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+  json: true
+  csv: true
+
+performance:
+  threads: 4
+  render_threads: 1
+  verbose: true
+  cache_geometry: true
+
+# ── Design Criteria ──────────────────────────────────────
+# 우선순위: per-part > per-material > keyword 자동추출 > global fallback
+# keyword 파일의 *MAT_ 카드에서 항복응력/파단변형률을 자동 추출합니다.
+# 아래 값은 keyword 데이터가 없을 때 적용되는 글로벌 기본값입니다.
+design_criteria:
+  global_stress_limit: 0.0    # MPa (0 = keyword 자동 추출)
+  global_strain_limit: 0.002  # 기본 0.2% (keyword에 FAIL 없을 때)
+  # material_overrides:        # 재료별 오버라이드 (MID 번호 또는 MAT 타입명)
+  #   ELASTIC:
+  #     strain_limit: 0.001
+  #   2:                        # MID=2인 재료
+  #     stress_limit: 150.0
+  # overrides:                  # 파트별 오버라이드 (최고 우선순위)
+  #   1:
+  #     stress_limit: 350.0
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+
+  - name: "Effective Plastic Strain"
+    type: eff_plastic_strain
+    output_prefix: "strain"
+
+  - name: "Part Motion"
+    type: part_motion
+    output_prefix: "motion"

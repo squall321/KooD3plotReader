@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "koo_deep_report"
+version = "1.0.0"
+description = "Deep single-simulation analysis and HTML report for LS-DYNA"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+koo_deep_report = "koo_deep_report.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
