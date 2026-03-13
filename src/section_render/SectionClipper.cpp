@@ -17,8 +17,28 @@ namespace kood3plot {
 namespace section_render {
 
 // ============================================================
-// Hex8 edge table: 12 edges, each as pair of local node indices (0-7)
+// Element edge tables (local node index pairs)
 // ============================================================
+
+// Tet4: 4 nodes, 6 edges
+static const int TET4_EDGES[6][2] = {
+    {0,1}, {0,2}, {0,3}, {1,2}, {1,3}, {2,3}
+};
+
+// Penta6 (wedge): 6 nodes, 9 edges
+static const int PENTA6_EDGES[9][2] = {
+    {0,1}, {1,2}, {2,0},          // bottom tri
+    {3,4}, {4,5}, {5,3},          // top tri
+    {0,3}, {1,4}, {2,5}           // lateral
+};
+
+// Pyram5: 5 nodes, 8 edges
+static const int PYRAM5_EDGES[8][2] = {
+    {0,1}, {1,2}, {2,3}, {3,0},   // base quad
+    {0,4}, {1,4}, {2,4}, {3,4}    // lateral to apex
+};
+
+// Hex8: 8 nodes, 12 edges
 static const int HEX8_EDGES[12][2] = {
     {0,1}, {1,2}, {2,3}, {3,0},   // bottom face
     {4,5}, {5,6}, {6,7}, {7,4},   // top face
@@ -137,20 +157,20 @@ void SectionClipper::clip(const data::StateData& state,
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
             if (!poly.empty()) {
                 pushBg(std::move(poly), 1.0f);
-            } else if (fade_distance > 0.0 && elem.node_ids.size() >= 8) {
-                // Near-plane fade: gather node positions and distances
-                Vec3   pos[8]; double dist[8]; double val[8];
-                for (int i = 0; i < 8; ++i) {
+            } else if (fade_distance > 0.0) {
+                int nn = static_cast<int>(std::min(elem.node_ids.size(), size_t(8)));
+                Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
+                for (int i = 0; i < nn; ++i) {
                     int32_t idx = nodeIndex(elem.node_ids[i]);
                     pos[i]  = nodePos(state, idx);
                     dist[i] = plane_.signedDistance(pos[i]);
                     val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
                 }
                 double min_d = std::abs(dist[0]);
-                for (int i = 1; i < 8; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+                for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
                 if (min_d <= fade_distance) {
                     float alpha = static_cast<float>(1.0 - min_d / fade_distance);
-                    pushBg(projectHex8(pos, dist, val, pid), alpha);
+                    pushBg(projectNNode(pos, dist, val, nn, pid), alpha);
                 }
             }
         }
@@ -173,19 +193,20 @@ void SectionClipper::clip(const data::StateData& state,
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
             if (!poly.empty()) {
                 pushBg(std::move(poly), 1.0f);
-            } else if (fade_distance > 0.0 && elem.node_ids.size() >= 8) {
-                Vec3 pos[8]; double dist[8]; double val[8];
-                for (int i = 0; i < 8; ++i) {
+            } else if (fade_distance > 0.0) {
+                int nn = static_cast<int>(std::min(elem.node_ids.size(), size_t(8)));
+                Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
+                for (int i = 0; i < nn; ++i) {
                     int32_t idx = nodeIndex(elem.node_ids[i]);
                     pos[i]  = nodePos(state, idx);
                     dist[i] = plane_.signedDistance(pos[i]);
                     val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
                 }
                 double min_d = std::abs(dist[0]);
-                for (int i = 1; i < 8; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+                for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
                 if (min_d <= fade_distance) {
                     float alpha = static_cast<float>(1.0 - min_d / fade_distance);
-                    pushBg(projectHex8(pos, dist, val, pid), alpha);
+                    pushBg(projectNNode(pos, dist, val, nn, pid), alpha);
                 }
             }
         }
@@ -231,7 +252,7 @@ void SectionClipper::clip(const data::StateData& state,
 }
 
 // ============================================================
-// clipHex8 — shared by solid and thick-shell
+// clipSolidElement — handles Tet4, Penta6, Pyram5, Hex8
 // ============================================================
 
 ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
@@ -239,31 +260,49 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
                                       const NodalAverager& averager,
                                       int32_t part_id) const
 {
-    if (nids.size() < 8) return {};
+    int nn = static_cast<int>(nids.size());
+    if (nn < 4) return {};
 
-    Vec3   pos[8];
-    double dist[8];
-    double val[8];
-    for (int i = 0; i < 8; ++i) {
+    // Select edge table by node count
+    const int (*edges)[2] = nullptr;
+    int ne = 0;
+    if      (nn >= 8) { edges = HEX8_EDGES;   ne = 12; nn = 8; }
+    else if (nn == 6) { edges = PENTA6_EDGES;  ne =  9; }
+    else if (nn == 5) { edges = PYRAM5_EDGES;  ne =  8; }
+    else              { edges = TET4_EDGES;    ne =  6; nn = 4; }
+
+    Vec3   pos[8] = {};
+    double dist[8] = {};
+    double val[8]  = {};
+    for (int i = 0; i < nn; ++i) {
         int32_t idx = nodeIndex(nids[i]);
         pos[i]  = nodePos(state, idx);
         dist[i] = plane_.signedDistance(pos[i]);
         val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
     }
 
+    // Quick reject: all nodes on same side of the plane
+    bool anyPos = false, anyNeg = false;
+    for (int i = 0; i < nn; ++i) {
+        double d = (slab_half_ > 0.0 && std::abs(dist[i]) <= slab_half_) ? 0.0 : dist[i];
+        if (d > 0.0) anyPos = true;
+        if (d < 0.0) anyNeg = true;
+    }
+    if (!anyPos || !anyNeg) return {};
+
     std::vector<ClipVertex> verts;
-    verts.reserve(6);
+    verts.reserve(ne);
 
     constexpr double CLAMP_EPS = 1e-9;
-    for (int e = 0; e < 12; ++e) {
-        int a = HEX8_EDGES[e][0], b = HEX8_EDGES[e][1];
-        // Apply slab: treat nodes within ±slab_half as if they sit on the plane
+    for (int e = 0; e < ne; ++e) {
+        int a = edges[e][0], b = edges[e][1];
         double da = (slab_half_ > 0.0 && std::abs(dist[a]) <= slab_half_) ? 0.0 : dist[a];
         double db = (slab_half_ > 0.0 && std::abs(dist[b]) <= slab_half_) ? 0.0 : dist[b];
+        // Only crossed edges produce an intersection
+        if ((da >= 0.0) == (db >= 0.0)) continue;
         double denom = da - db;
         if (std::abs(denom) < 1e-12) continue;
         double t = da / denom;
-        if (t < -CLAMP_EPS || t > 1.0 + CLAMP_EPS) continue;
         t = std::max(0.0, std::min(1.0, t));
 
         Vec3 ipos{
@@ -286,10 +325,16 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
 ClipPolygon SectionClipper::projectHex8(const Vec3 pos[8], const double dist[8],
                                          const double val[8], int32_t part_id) const
 {
+    return projectNNode(pos, dist, val, 8, part_id);
+}
+
+ClipPolygon SectionClipper::projectNNode(const Vec3* pos, const double* dist,
+                                          const double* val, int nn, int32_t part_id) const
+{
     const Vec3& n = plane_.normal();
     std::vector<ClipVertex> verts;
-    verts.reserve(8);
-    for (int i = 0; i < 8; ++i) {
+    verts.reserve(nn);
+    for (int i = 0; i < nn; ++i) {
         Vec3 proj{
             pos[i].x - dist[i]*n.x,
             pos[i].y - dist[i]*n.y,

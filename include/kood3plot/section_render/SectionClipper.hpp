@@ -100,6 +100,10 @@ private:
     ClipPolygon projectHex8(const Vec3 pos[8], const double dist[8],
                              const double val[8], int32_t part_id) const;
 
+    /** Project N nodes onto the plane — general version for tet4/penta6/hex8 */
+    ClipPolygon projectNNode(const Vec3* pos, const double* dist,
+                              const double* val, int nn, int32_t part_id) const;
+
     /** Project shell nodes onto the plane (for fade-mode near-plane elements) */
     ClipPolygon projectShell(const Vec3* pos, const double* dist,
                               const double* val, int nc, int32_t part_id) const;
