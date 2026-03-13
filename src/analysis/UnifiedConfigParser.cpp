@@ -944,8 +944,8 @@ bool UnifiedConfigParser::validate(const UnifiedConfig& config) {
         return false;
     }
 
-    if (config.analysis_jobs.empty() && config.render_jobs.empty()) {
-        last_error_ = "At least one analysis_job or render_job is required";
+    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty()) {
+        last_error_ = "At least one analysis_job, render_job, or section_view is required";
         return false;
     }
 

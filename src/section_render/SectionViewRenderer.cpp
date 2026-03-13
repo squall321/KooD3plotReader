@@ -234,8 +234,15 @@ std::string SectionViewRenderer::assembleMp4(const std::string& frame_pattern,
 {
     // Determine frame count padding from the pattern
     std::ostringstream cmd;
+    // drawtext watermark: bottom-right "Smart Twin Cluster"
+    // fontsize ~2% of video height; shadow for visibility on any background
     cmd << "ffmpeg -y -framerate " << fps
         << " -i \"" << frame_pattern << "\""
+        << " -vf \"drawtext=text='Smart Twin Cluster'"
+        << ":fontsize=h/36"
+        << ":fontcolor=white"
+        << ":shadowcolor=black@0.6:shadowx=1:shadowy=1"
+        << ":x=w-tw-12:y=h-th-10\""
         << " -c:v libx264 -pix_fmt yuv420p"
         << " -crf 18 -preset fast"
         << " \"" << output_path << "\""

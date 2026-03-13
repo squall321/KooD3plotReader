@@ -96,10 +96,12 @@ def _add_single_args(p: argparse.ArgumentParser) -> None:
                    help="unified_analyzer 출력 표시")
     # Section view rendering (software-rasterized, VTK-free)
     p.add_argument("--section-view", action="store_true",
-                   help="소프트웨어 단면뷰 렌더링 활성화 (VTK 불필요)")
-    p.add_argument("--section-view-axes", nargs="+", default=["z"],
+                   help="소프트웨어 단면뷰 렌더링 활성화 (VTK 불필요, LSPrePost 단면 렌더 대체)")
+    p.add_argument("--section-view-per-part", action="store_true",
+                   help="파트별 단면뷰 렌더링 활성화")
+    p.add_argument("--section-view-axes", nargs="+", default=["x", "y", "z"],
                    choices=["x", "y", "z"], metavar="AXIS",
-                   help="단면 축 목록 (기본: z). 예: --section-view-axes x y z")
+                   help="단면 축 목록 (기본: x y z). 예: --section-view-axes x y z")
     p.add_argument("--section-view-field", default="von_mises",
                    choices=["von_mises", "eps", "displacement"],
                    help="단면뷰 스칼라 필드 (기본: von_mises)")
@@ -403,11 +405,12 @@ def run_single(args: argparse.Namespace) -> None:
     if getattr(args, "section_view", False):
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
-            axes=getattr(args, "section_view_axes", ["z"]),
+            axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_field=getattr(args, "section_view_field", "von_mises"),
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),
+            per_part_render=getattr(args, "section_view_per_part", False),
         )
 
     print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'}"
@@ -565,11 +568,12 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
     if getattr(args, "section_view", False):
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
-            axes=getattr(args, "section_view_axes", ["z"]),
+            axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_field=getattr(args, "section_view_field", "von_mises"),
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),
+            per_part_render=getattr(args, "section_view_per_part", False),
         )
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,

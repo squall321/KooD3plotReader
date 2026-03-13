@@ -8,12 +8,13 @@ from pathlib import Path
 class SectionViewRenderConfig:
     """Configuration for software-rasterized section view rendering (VTK-free)."""
     enabled: bool = True
-    axes: list[str] = field(default_factory=lambda: ["z"])       # x | y | z
+    axes: list[str] = field(default_factory=lambda: ["x", "y", "z"])  # x | y | z
     scalar_field: str = "von_mises"                              # von_mises | eps | displacement
     target_part_ids: list[int] = field(default_factory=list)     # [] = all parts as target
     target_patterns: list[str] = field(default_factory=list)     # e.g. ["*PKG*", "*CELL*"]
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
     global_range: bool = True    # true = consistent red=max/blue=min across all states
+    per_part_render: bool = False  # True = also generate per-part section views
     width: int = 1280
     height: int = 720
     fps: int = 24
@@ -21,23 +22,17 @@ class SectionViewRenderConfig:
     png_frames: bool = False
 
 
-def build_section_view_yaml_entries(
+def _sv_yaml_block(
+    axis: str,
     output_dir: str,
     config: SectionViewRenderConfig,
-) -> list[tuple[str, str]]:
-    """Return list of (name, yaml_block) tuples for section_views: YAML entries.
-
-    Each yaml_block is the body of one SectionViewJobSpec (no surrounding name/header).
-    The output MP4 files land in renders/ (root level = "Overview" in the gallery).
-    """
-    if not config.enabled:
-        return []
-
-    renders_dir = str(Path(output_dir) / "renders")
-    entries: list[tuple[str, str]] = []
-
-    # Build target_parts block
-    if config.target_part_ids:
+    target_ids: list[int] | None = None,
+) -> str:
+    """Build a single section_view YAML block body."""
+    if target_ids is not None:
+        ids_str = "[" + ", ".join(str(i) for i in target_ids) + "]"
+        target_block = f"target_parts:\n  ids: {ids_str}"
+    elif config.target_part_ids:
         ids_str = "[" + ", ".join(str(i) for i in config.target_part_ids) + "]"
         target_block = f"target_parts:\n  ids: {ids_str}"
     elif config.target_patterns:
@@ -46,33 +41,59 @@ def build_section_view_yaml_entries(
     else:
         target_block = "target_parts:\n  ids: []"
 
+    return (
+        f"plane:\n"
+        f"  axis: {axis}\n"
+        f"  point: [0.0, 0.0, 0.0]\n"
+        f"auto_center: true\n"
+        f"{target_block}\n"
+        f"background_parts:\n"
+        f'  patterns: ["*"]\n'
+        f"field: {config.scalar_field}\n"
+        f"colormap: rainbow\n"
+        f"global_range: {'true' if config.global_range else 'false'}\n"
+        f"scale_factor: 1.2\n"
+        f"supersampling: {config.supersampling}\n"
+        f"fade_distance: {config.fade_distance}\n"
+        f"output:\n"
+        f"  width: {config.width}\n"
+        f"  height: {config.height}\n"
+        f"  png_frames: {'true' if config.png_frames else 'false'}\n"
+        f"  mp4: true\n"
+        f"  fps: {config.fps}\n"
+        f'  output_dir: "{output_dir}"\n'
+    )
+
+
+def build_section_view_yaml_entries(
+    output_dir: str,
+    config: SectionViewRenderConfig,
+    part_ids: list[int] | None = None,
+) -> list[tuple[str, str]]:
+    """Return list of (name, yaml_block) tuples for section_views: YAML entries.
+
+    Overview: one entry per axis, all parts as fringe target.
+    Per-part: one entry per (part, axis) when per_part_render=True and part_ids given.
+    """
+    if not config.enabled:
+        return []
+
+    renders_dir = str(Path(output_dir) / "renders")
+    entries: list[tuple[str, str]] = []
+
+    # Overview entries (all parts)
     for axis in config.axes:
         name = f"section_view_{axis}"
-        # Each axis needs its own subdirectory; renderer always writes "section_view.mp4"
         axis_dir = str(Path(renders_dir) / name)
-        yaml_block = (
-            f"plane:\n"
-            f"  axis: {axis}\n"
-            f"  point: [0.0, 0.0, 0.0]\n"
-            f"auto_center: true\n"
-            f"{target_block}\n"
-            f"background_parts:\n"
-            f'  patterns: ["*"]\n'
-            f"field: {config.scalar_field}\n"
-            f"colormap: rainbow\n"
-            f"global_range: {'true' if config.global_range else 'false'}\n"
-            f"scale_factor: 1.2\n"
-            f"supersampling: {config.supersampling}\n"
-            f"fade_distance: {config.fade_distance}\n"
-            f"output:\n"
-            f"  width: {config.width}\n"
-            f"  height: {config.height}\n"
-            f"  png_frames: {'true' if config.png_frames else 'false'}\n"
-            f"  mp4: true\n"
-            f"  fps: {config.fps}\n"
-            f'  output_dir: "{axis_dir}"\n'
-        )
-        entries.append((name, yaml_block))
+        entries.append((name, _sv_yaml_block(axis, axis_dir, config)))
+
+    # Per-part entries
+    if config.per_part_render and part_ids:
+        for pid in part_ids:
+            for axis in config.axes:
+                name = f"section_view_part_{pid}_{axis}"
+                part_dir = str(Path(renders_dir) / name)
+                entries.append((name, _sv_yaml_block(axis, part_dir, config, target_ids=[pid])))
 
     return entries
 

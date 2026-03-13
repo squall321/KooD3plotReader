@@ -1382,10 +1382,16 @@ function _mediaCard(relPath, label) {
 }
 
 function _axisLabel(relPath) {
-  const m = relPath.match(/_([xyz])(?:_final)?\./i);
-  if (!m) return relPath.replace(/\.\w+$/, '');
-  const ax = m[1].toUpperCase();
-  return relPath.includes('final') ? ax + '축 (최종)' : ax + '축';
+  // Try filename-based axis first (e.g. overview_z.mp4, part_4_x.mp4)
+  const mFile = relPath.match(/_([xyz])(?:_final)?\.\w+$/i);
+  if (mFile) {
+    const ax = mFile[1].toUpperCase();
+    return relPath.includes('final') ? ax + '축 (최종)' : ax + '축';
+  }
+  // Fall back to folder-based axis (e.g. section_view_z/section_view.mp4)
+  const mFolder = relPath.match(/^(?:.*\/)?[^/]*_([xyz])\/[^/]+$/i);
+  if (mFolder) return mFolder[1].toUpperCase() + '축';
+  return relPath.replace(/\.\w+$/, '');
 }
 
 function _folderHtml(folderId, title, subtitle, renders, openByDefault) {
@@ -1437,24 +1443,48 @@ function renderGallery() {
     html += _folderHtml('overview', '전체 모델 단면', 'Overview', overviewRenders, true);
   }
 
-  const folderKeys = Object.keys(groups).sort();
+  // Collect section_view overview folders (section_view_x/y/z) as one group
+  const svOverviewFolders = Object.keys(groups).filter(f => /^section_view_[xyz]$/i.test(f)).sort();
+  if (svOverviewFolders.length) {
+    const svOverviewRenders = svOverviewFolders.flatMap(f => groups[f]);
+    html += _folderHtml('sv_overview', '전체 모델 단면뷰', '소프트웨어 렌더', svOverviewRenders, true);
+  }
+
+  // Collect section_view_part_N_axis folders, group by part N
+  const svPartMap = {};
+  for (const folder of Object.keys(groups)) {
+    const m = folder.match(/^section_view_part_(\d+)_([xyz])$/i);
+    if (m) {
+      const pid = m[1];
+      if (!svPartMap[pid]) svPartMap[pid] = [];
+      svPartMap[pid].push(...groups[folder]);
+    }
+  }
+  const svPartIds = Object.keys(svPartMap).map(Number).sort((a,b) => a-b);
+  for (const pid of svPartIds) {
+    const pname = nameMap['part_' + pid] ? ' — ' + nameMap['part_' + pid] : '';
+    html += _folderHtml(`sv_part_${pid}`, `Part ${pid}${pname}`, 'X · Y · Z 단면뷰', svPartMap[pid], false);
+  }
+
+  // Remaining folders (LSPrePost part renders, unknown)
+  const handled = new Set([
+    ...svOverviewFolders,
+    ...Object.keys(groups).filter(f => /^section_view_part_/.test(f)),
+  ]);
+  const folderKeys = Object.keys(groups).filter(f => !handled.has(f)).sort();
   for (const folder of folderKeys) {
     const partM = folder.match(/^part_(\d+)$/);
-    const svM   = folder.match(/^section_view_([xyz])$/i);
     let title, subtitle;
     if (partM) {
       const pid = partM[1];
       const pname = nameMap['part_' + pid] ? ' — ' + nameMap['part_' + pid] : '';
       title = `Part ${pid}${pname}`;
       subtitle = 'X · Y · Z 단면';
-    } else if (svM) {
-      title = `단면뷰 — ${svM[1].toUpperCase()}축`;
-      subtitle = '소프트웨어 렌더';
     } else {
       title = folder;
       subtitle = '단면';
     }
-    html += _folderHtml(folder, title, subtitle, groups[folder], svM != null);
+    html += _folderHtml(folder, title, subtitle, groups[folder], false);
   }
 
   return html;

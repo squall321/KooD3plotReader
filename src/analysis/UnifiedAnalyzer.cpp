@@ -41,7 +41,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         return result;
     }
 
-    if (config.analysis_jobs.empty() && config.render_jobs.empty()) {
+    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty()) {
         last_error_ = "No analysis or render jobs defined";
         return result;
     }

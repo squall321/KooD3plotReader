@@ -72,25 +72,37 @@ def run_analysis(
     if ua is None:
         raise RuntimeError("unified_analyzer not found. Build it first: cd build && make -j4 unified_analyzer")
 
-    # Determine if we need a 2nd render pass for per-part rendering
-    from ..render.job_builder import RenderConfig as RC
-    needs_second_pass = (
-        render_config is not None
+    import copy
+    from ..render.job_builder import RenderConfig as RC, SectionViewRenderConfig as SVC
+
+    # Determine if we need a 2nd pass for per-part rendering
+    sv_needs_second_pass = (
+        section_view_config is not None
+        and section_view_config.enabled
+        and section_view_config.per_part_render
+        and part_ids is None
+    )
+    lsp_needs_second_pass = (
+        not (section_view_config and section_view_config.enabled)
+        and render_config is not None
         and isinstance(render_config, RC)
         and render_config.enabled
         and render_config.per_part_render
         and part_ids is None
     )
-
-    import copy
+    needs_second_pass = sv_needs_second_pass or lsp_needs_second_pass
 
     # First pass: analysis + overview renders (no per-part IDs yet)
+    sv_first = section_view_config
     rc_first = render_config
-    if needs_second_pass:
+    if sv_needs_second_pass:
+        sv_first = copy.copy(section_view_config)
+        sv_first.per_part_render = False  # skip per-part for 1st pass
+    if lsp_needs_second_pass:
         rc_first = copy.copy(render_config)
-        rc_first.per_part_render = False  # skip per-part for 1st pass
+        rc_first.per_part_render = False
 
-    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=section_view_config)
+    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first)
     _run_ua(ua, yaml_content, verbose)
 
     result = _parse_outputs(output_dir)
@@ -99,15 +111,23 @@ def run_analysis(
     if needs_second_pass:
         extracted_ids = _extract_part_ids(result)
         if extracted_ids:
-            rc_per_part = copy.copy(render_config)
-            rc_per_part.section_z_center = False  # overview already done in 1st pass
-            rc_per_part.final_snapshot = False
-            yaml2 = _build_yaml(
-                d3plot_path, output_dir, rc_per_part,
-                extracted_ids, threads, render_threads, verbose,
-                render_only=True,
-                install_dir=install_dir,
-            )
+            if sv_needs_second_pass:
+                sv_per_part = copy.copy(section_view_config)
+                yaml2 = _build_yaml(
+                    d3plot_path, output_dir, None,
+                    extracted_ids, threads, render_threads, verbose,
+                    render_only=True,
+                    install_dir=install_dir,
+                    section_view_config=sv_per_part,
+                )
+            else:
+                rc_per_part = copy.copy(render_config)
+                yaml2 = _build_yaml(
+                    d3plot_path, output_dir, rc_per_part,
+                    extracted_ids, threads, render_threads, verbose,
+                    render_only=True,
+                    install_dir=install_dir,
+                )
             try:
                 _run_ua(ua, yaml2, verbose)
             except RuntimeError:
@@ -218,8 +238,8 @@ def _build_yaml(
                 '    output_prefix: "quality/all"',
             ]
 
-    # render_jobs
-    if render_config and render_config.enabled:
+    # render_jobs (LSPrePost) — skip when section_view_config is active
+    if render_config and render_config.enabled and not (section_view_config and section_view_config.enabled):
         from ..render.job_builder import build_render_jobs
         jobs = build_render_jobs(
             str(d3plot_path),
@@ -232,10 +252,10 @@ def _build_yaml(
             for job in jobs:
                 lines.append(_dict_to_yaml(job, indent=2))
 
-    # section_views (software-rasterized, VTK-free)
+    # section_views (software-rasterized, VTK-free) — replaces LSPrePost section renders
     if section_view_config and section_view_config.enabled:
         from ..render.job_builder import build_section_view_yaml_entries
-        sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config)
+        sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config, part_ids)
         if sv_entries:
             lines.append("section_views:")
             for name, yaml_block in sv_entries:
@@ -368,12 +388,15 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
             szx=t.get("szx", []),
         ))
 
-    # renders/
+    # renders/ — exclude intermediate frame_NNNN.png files from software renderer
     render_files: list[Path] = []
     renders_dir = output_dir / "renders"
     if renders_dir.exists():
-        for ext in ("*.mp4", "*.png", "*.gif"):
-            render_files.extend(sorted(renders_dir.rglob(ext)))
+        render_files.extend(sorted(renders_dir.rglob("*.mp4")))
+        render_files.extend(sorted(renders_dir.rglob("*.gif")))
+        for p in sorted(renders_dir.rglob("*.png")):
+            if not p.name.startswith("frame_"):
+                render_files.append(p)
 
     return D3plotResult(
         metadata=metadata,
