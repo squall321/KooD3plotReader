@@ -221,6 +221,19 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
         if (!err.empty()) return err;
     }
 
+    // ---- 9. Clean up frame PNGs unless png_frames is requested ----
+    if (!config.png_frames) {
+        namespace fs = std::filesystem;
+        for (const auto& entry : fs::directory_iterator(out_dir)) {
+            if (entry.path().extension() == ".png") {
+                const std::string fname = entry.path().filename().string();
+                if (fname.substr(0, 6) == "frame_") {
+                    fs::remove(entry.path());
+                }
+            }
+        }
+    }
+
     return "";  // success
 }
 
