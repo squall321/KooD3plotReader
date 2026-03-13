@@ -904,5 +904,22 @@ bool UnifiedAnalyzer::processRenderJobs(
 }
 #endif
 
+// Note: processSectionViews is implemented in UnifiedAnalyzerSectionRender.cpp
+// when KOOD3PLOT_HAS_SECTION_RENDER is defined.
+#ifndef KOOD3PLOT_HAS_SECTION_RENDER
+bool UnifiedAnalyzer::processSectionViews(
+    D3plotReader& /* reader */,
+    const UnifiedConfig& config,
+    UnifiedProgressCallback callback
+) {
+    if (config.section_views.empty()) {
+        return true;
+    }
+    if (callback) callback("  Section view jobs skipped: software renderer not available");
+    if (callback) callback("  Build with KOOD3PLOT_BUILD_SECTION_RENDER=ON to enable");
+    return false;
+}
+#endif
+
 } // namespace analysis
 } // namespace kood3plot

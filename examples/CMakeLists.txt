@@ -173,10 +173,27 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
     target_compile_definitions(unified_analyzer PRIVATE KOOD3PLOT_HAS_RENDER)
 endif()
 
+# Link with section render library if enabled (for section_views support)
+if(KOOD3PLOT_BUILD_SECTION_RENDER)
+    target_link_libraries(unified_analyzer PRIVATE kood3plot_section_render)
+    target_compile_definitions(unified_analyzer PRIVATE KOOD3PLOT_HAS_SECTION_RENDER)
+endif()
+
 # Install unified analyzer to main bin directory (primary analysis tool)
 install(TARGETS unified_analyzer
     RUNTIME DESTINATION bin
 )
+
+# ============================================================
+# Section View Example (software-rasterized, VTK-free)
+# ============================================================
+if(KOOD3PLOT_BUILD_SECTION_RENDER)
+    add_executable(section_view_example section_view_example.cpp)
+    target_link_libraries(section_view_example PRIVATE kood3plot_section_render kood3plot)
+    install(TARGETS section_view_example
+        RUNTIME DESTINATION bin/examples
+    )
+endif()
 
 # ============================================================
 # Full Extraction Example (demonstrates ALL data extraction features)

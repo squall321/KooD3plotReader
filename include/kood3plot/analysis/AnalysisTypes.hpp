@@ -675,6 +675,24 @@ struct ExtendedAnalysisResult : public AnalysisResult {
 };
 
 // ============================================================
+// Section View Jobs (software-rasterized, VTK-free)
+// ============================================================
+
+/**
+ * @brief A single software-rasterized section view job.
+ *
+ * The configuration is stored verbatim as a YAML block string so that
+ * the core library (libkood3plot) does not need to include the
+ * section_render headers.  The real parser lives in
+ * kood3plot_section_render (SectionViewConfig::loadFromString).
+ */
+struct SectionViewJobSpec {
+    std::string name;          ///< Human-readable job name
+    bool        enabled = true;
+    std::string yaml_block;    ///< Raw YAML text (indented, no "section_render:" header)
+};
+
+// ============================================================
 // Unified Configuration
 // ============================================================
 
@@ -712,6 +730,9 @@ struct UnifiedConfig {
     // Render jobs
     std::vector<RenderJob> render_jobs;
 
+    // Section view jobs (software-rasterized, VTK-free)
+    std::vector<SectionViewJobSpec> section_views;
+
     /**
      * @brief Check if any analysis jobs exist
      */
@@ -721,6 +742,11 @@ struct UnifiedConfig {
      * @brief Check if any render jobs exist
      */
     bool hasRenderJobs() const { return !render_jobs.empty(); }
+
+    /**
+     * @brief Check if any section view jobs exist
+     */
+    bool hasSectionViews() const { return !section_views.empty(); }
 
     /**
      * @brief Check if stress data is needed by any job

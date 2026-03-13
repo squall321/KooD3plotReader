@@ -297,10 +297,13 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     std::string current_section;
     bool in_analysis_jobs = false;
     bool in_render_jobs = false;
+    bool in_section_views = false;
     AnalysisJob current_analysis_job;
     RenderJob current_render_job;
+    SectionViewJobSpec current_sv;
     bool has_current_analysis_job = false;
     bool has_current_render_job = false;
+    bool has_current_sv = false;
 
     // Sub-section tracking
     std::string sub_section;  // "surface", "output", "section", "fringe_range"
@@ -321,6 +324,14 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         current_render_job = RenderJob();
         has_current_render_job = false;
         sub_section.clear();
+    };
+
+    auto flush_sv = [&]() {
+        if (has_current_sv) {
+            config.section_views.push_back(current_sv);
+        }
+        current_sv = SectionViewJobSpec();
+        has_current_sv = false;
     };
 
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -361,18 +372,47 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         if (indent == 0) {
             if (in_analysis_jobs) flush_analysis_job();
             if (in_render_jobs) flush_render_job();
+            if (in_section_views) flush_sv();
 
             in_analysis_jobs = false;
             in_render_jobs = false;
+            in_section_views = false;
             current_section = key;
 
             if (key == "analysis_jobs") {
                 in_analysis_jobs = true;
             } else if (key == "render_jobs") {
                 in_render_jobs = true;
+            } else if (key == "section_views") {
+                in_section_views = true;
             } else if (key == "version") {
                 config.version = value;
             }
+            continue;
+        }
+
+        // Handle section_views list items
+        if (in_section_views && is_list_item && indent <= 2) {
+            flush_sv();
+            has_current_sv = true;
+            if (key == "name") current_sv.name = value;
+            continue;
+        }
+
+        // Accumulate section_view job content into yaml_block
+        if (in_section_views && has_current_sv) {
+            if (key == "name") {
+                current_sv.name = value;
+            } else if (key == "enabled") {
+                current_sv.enabled = parseBool(value);
+            }
+            // Append the raw line with indent normalised to 0
+            // (list items sit at indent 2, so sub-keys start at indent 4)
+            const size_t sv_base = 4;
+            std::string norm = (raw_line.size() > sv_base)
+                               ? raw_line.substr(sv_base)
+                               : trimmed;
+            current_sv.yaml_block += norm + "\n";
             continue;
         }
 
@@ -579,6 +619,7 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     // Flush remaining jobs
     if (in_analysis_jobs) flush_analysis_job();
     if (in_render_jobs) flush_render_job();
+    if (in_section_views) flush_sv();
 
     return true;
 }
@@ -697,6 +738,22 @@ bool UnifiedConfigParser::saveToYAML(const std::string& file_path, const Unified
             ofs << "      filename: \"" << job.output.filename << "\"\n";
             ofs << "      fps: " << job.output.fps << "\n";
             ofs << "      resolution: [" << job.output.resolution[0] << ", " << job.output.resolution[1] << "]\n\n";
+        }
+    }
+
+    // Section view jobs
+    if (!config.section_views.empty()) {
+        ofs << "section_views:\n";
+        for (const auto& sv : config.section_views) {
+            ofs << "  - name: \"" << sv.name << "\"\n";
+            if (!sv.enabled) ofs << "    enabled: false\n";
+            // Write the yaml_block lines indented by 4 spaces
+            std::istringstream iss(sv.yaml_block);
+            std::string ln;
+            while (std::getline(iss, ln)) {
+                if (!ln.empty()) ofs << "    " << ln << "\n";
+            }
+            ofs << "\n";
         }
     }
 
@@ -824,6 +881,32 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "    output:\n";
     oss << "      format: png\n";
     oss << "      filename: \"final_strain.png\"\n";
+
+    oss << "\n";
+    oss << "# ============================================================\n";
+    oss << "# Section View Jobs (Software-Rasterized, VTK-free)\n";
+    oss << "# ============================================================\n";
+    oss << "section_views:\n";
+    oss << "  - name: \"Z-Section Contour\"\n";
+    oss << "    plane:\n";
+    oss << "      axis: z\n";
+    oss << "      point: [0.0, 0.0, 0.0]\n";
+    oss << "    target_parts:\n";
+    oss << "      ids: [1, 2, 3]\n";
+    oss << "    background_parts:\n";
+    oss << "      patterns: [\"*\"]\n";
+    oss << "    field: von_mises\n";
+    oss << "    colormap: rainbow\n";
+    oss << "    global_range: false\n";
+    oss << "    scale_factor: 1.2\n";
+    oss << "    supersampling: 2\n";
+    oss << "    output:\n";
+    oss << "      width: 1920\n";
+    oss << "      height: 1080\n";
+    oss << "      png_frames: true\n";
+    oss << "      mp4: true\n";
+    oss << "      fps: 24\n";
+    oss << "      output_dir: \"section_views\"\n";
 
     return oss.str();
 }

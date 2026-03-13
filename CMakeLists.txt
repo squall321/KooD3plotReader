@@ -420,6 +420,77 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
 endif()
 
 # ============================================================
+# Section Render Library (VTK-Free, libpng-based)
+# ============================================================
+option(KOOD3PLOT_BUILD_SECTION_RENDER "Build VTK-Free Software Section View Renderer" OFF)
+
+if(KOOD3PLOT_BUILD_SECTION_RENDER)
+    message(STATUS "Building Section Render System (VTK-Free)")
+
+    find_package(PNG REQUIRED)
+
+    set(KOOD3PLOT_SECTION_RENDER_SOURCES
+        src/section_render/SectionPlane.cpp
+        src/section_render/PartMatcher.cpp
+        src/section_render/ColorMap.cpp
+        src/section_render/NodalAverager.cpp
+        src/section_render/SectionClipper.cpp
+        src/section_render/SectionCamera.cpp
+        src/section_render/SoftwareRasterizer.cpp
+        src/section_render/SectionViewRenderer.cpp
+        src/section_render/SectionViewConfig.cpp
+        # UnifiedAnalyzer integration (provides processSectionViews())
+        src/analysis/UnifiedAnalyzerSectionRender.cpp
+    )
+
+    add_library(kood3plot_section_render ${KOOD3PLOT_SECTION_RENDER_SOURCES})
+
+    target_include_directories(kood3plot_section_render
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    target_link_libraries(kood3plot_section_render
+        PUBLIC
+            kood3plot
+            PNG::PNG
+    )
+
+    if(yaml-cpp_FOUND)
+        target_link_libraries(kood3plot_section_render PUBLIC yaml-cpp)
+        target_compile_definitions(kood3plot_section_render PRIVATE HAS_YAML_CPP)
+    endif()
+
+    if(KOOD3PLOT_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
+        target_link_libraries(kood3plot_section_render PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+
+    target_compile_definitions(kood3plot_section_render
+        PUBLIC KOOD3PLOT_HAS_SECTION_RENDER
+    )
+
+    # Also mark the base library so the stub in UnifiedAnalyzer.cpp is not compiled
+    target_compile_definitions(kood3plot PUBLIC KOOD3PLOT_HAS_SECTION_RENDER)
+
+    install(TARGETS kood3plot_section_render
+        EXPORT KooD3plotTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+
+    install(DIRECTORY include/kood3plot/section_render
+        DESTINATION include/kood3plot
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+
+    message(STATUS "Section Render library configured")
+endif()
+
+# ============================================================
 # V2 Writer System Library (D3plot Writer)
 # ============================================================
 option(KOOD3PLOT_BUILD_V2_WRITER "Build V2 D3plot Writer System" ON)

@@ -10,7 +10,7 @@ from .core.sim_detector import find_files
 from .core.glstat_reader import parse_glstat
 from .core.d3plot_reader import run_analysis
 from .core.binout_reader import parse_binout
-from .render.job_builder import RenderConfig
+from .render.job_builder import RenderConfig, SectionViewRenderConfig
 from .report.models import SingleResult, PartSummary
 from .report.html_report import generate_html
 
@@ -94,6 +94,21 @@ def _add_single_args(p: argparse.ArgumentParser) -> None:
                    help="설치 디렉토리 (unified_analyzer, lsprepost 자동 탐색 기준)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="unified_analyzer 출력 표시")
+    # Section view rendering (software-rasterized, VTK-free)
+    p.add_argument("--section-view", action="store_true",
+                   help="소프트웨어 단면뷰 렌더링 활성화 (VTK 불필요)")
+    p.add_argument("--section-view-axes", nargs="+", default=["z"],
+                   choices=["x", "y", "z"], metavar="AXIS",
+                   help="단면 축 목록 (기본: z). 예: --section-view-axes x y z")
+    p.add_argument("--section-view-field", default="von_mises",
+                   choices=["von_mises", "eps", "displacement"],
+                   help="단면뷰 스칼라 필드 (기본: von_mises)")
+    p.add_argument("--section-view-target-ids", nargs="+", type=int, default=None, metavar="ID",
+                   help="단면뷰 타겟 파트 ID 목록 (미지정=전체)")
+    p.add_argument("--section-view-target-patterns", nargs="+", default=None, metavar="PAT",
+                   help="단면뷰 타겟 파트 패턴 (예: \"*PKG*\")")
+    p.add_argument("--section-view-fade", type=float, default=0.0, metavar="DIST",
+                   help="비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)")
 
 
 def _load_design_overrides(path_str: str) -> dict[int, dict] | None:
@@ -383,7 +398,20 @@ def run_single(args: argparse.Namespace) -> None:
     # install_dir: 명시 > 스크립트 위치 자동 탐색
     install_dir = _resolve_install_dir(getattr(args, "install_dir", ""))
 
-    print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'})")
+    # Section view rendering config
+    sv_cfg = None
+    if getattr(args, "section_view", False):
+        sv_cfg = SectionViewRenderConfig(
+            enabled=True,
+            axes=getattr(args, "section_view_axes", ["z"]),
+            scalar_field=getattr(args, "section_view_field", "von_mises"),
+            target_part_ids=getattr(args, "section_view_target_ids", None) or [],
+            target_patterns=getattr(args, "section_view_target_patterns", None) or [],
+            fade_distance=getattr(args, "section_view_fade", 0.0),
+        )
+
+    print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'}"
+          f"{' | 단면뷰ON' if sv_cfg else ''})")
     try:
         d3plot_result = run_analysis(
             d3plot_path=sim_info.d3plot,
@@ -395,6 +423,7 @@ def run_single(args: argparse.Namespace) -> None:
             verbose=args.verbose,
             element_quality=getattr(args, "element_quality", False),
             install_dir=install_dir,
+            section_view_config=sv_cfg,
         )
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -532,6 +561,16 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         part_pattern=getattr(args, "part_pattern", "") or "",
     )
     install_dir = _resolve_install_dir(getattr(args, "install_dir", ""))
+    sv_cfg = None
+    if getattr(args, "section_view", False):
+        sv_cfg = SectionViewRenderConfig(
+            enabled=True,
+            axes=getattr(args, "section_view_axes", ["z"]),
+            scalar_field=getattr(args, "section_view_field", "von_mises"),
+            target_part_ids=getattr(args, "section_view_target_ids", None) or [],
+            target_patterns=getattr(args, "section_view_target_patterns", None) or [],
+            fade_distance=getattr(args, "section_view_fade", 0.0),
+        )
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,
         output_dir=output_dir,
@@ -542,6 +581,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         verbose=False,
         element_quality=getattr(args, "element_quality", False),
         install_dir=install_dir,
+        section_view_config=sv_cfg,
     )
     result = _aggregate(
         sim_info=sim_info,

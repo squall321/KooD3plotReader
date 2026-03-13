@@ -480,6 +480,19 @@ bool runSingleAnalysis(const fs::path& d3plot_path,
         }
     }
 
+    // Run section view jobs if not analysis_only
+    if (!analysis_only && base_config.hasSectionViews()) {
+        D3plotReader sv_reader(d3plot_path.string());
+        auto error = sv_reader.open();
+        if (error == ErrorCode::SUCCESS) {
+            UnifiedAnalyzer sv_analyzer;
+            sv_analyzer.processSectionViews(sv_reader, base_config,
+                [](const std::string& msg) {
+                    std::cout << "  " << msg << "\n";
+                });
+        }
+    }
+
     // Save metadata
     saveAnalysisMetadata(result_dir, d3plot_path, config_path);
 
@@ -835,6 +848,29 @@ int main(int argc, char* argv[]) {
                 std::cout << "\n[RENDER] All render jobs completed successfully.\n";
             } else {
                 std::cerr << "\n[RENDER] Some render jobs failed.\n";
+            }
+        }
+    }
+
+    // Run section view jobs (software-rasterized, no LSPrePost)
+    if (!analysis_only && config.hasSectionViews()) {
+        std::cout << "\n[SECTION_VIEW] Processing " << config.section_views.size() << " section view job(s)...\n";
+
+        D3plotReader sv_reader(config.d3plot_path);
+        auto error = sv_reader.open();
+        if (error != ErrorCode::SUCCESS) {
+            std::cerr << "Failed to open d3plot for section view jobs\n";
+        } else {
+            UnifiedAnalyzer sv_analyzer;
+            bool sv_success = sv_analyzer.processSectionViews(sv_reader, config,
+                [](const std::string& msg) {
+                    std::cout << msg << "\n";
+                });
+
+            if (sv_success) {
+                std::cout << "\n[SECTION_VIEW] All section view jobs completed successfully.\n";
+            } else {
+                std::cerr << "\n[SECTION_VIEW] Some section view jobs failed.\n";
             }
         }
     }

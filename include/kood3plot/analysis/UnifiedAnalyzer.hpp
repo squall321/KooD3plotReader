@@ -168,6 +168,19 @@ public:
         const UnifiedConfig& config,
         UnifiedProgressCallback callback
     );
+
+    /**
+     * @brief Run all section_views jobs (software rasterizer, no LSPrePost).
+     *
+     * Real implementation lives in UnifiedAnalyzerSectionRender.cpp and is
+     * compiled only when KOOD3PLOT_HAS_SECTION_RENDER is defined.
+     * A no-op stub is compiled when the module is disabled.
+     */
+    bool processSectionViews(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        UnifiedProgressCallback callback
+    );
 };
 
 } // namespace analysis

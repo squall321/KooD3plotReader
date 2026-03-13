@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from ..report.models import D3plotResult, ElementQualityData, ElementTensorHistory, MotionData, PartTimeSeries
 
 if TYPE_CHECKING:
-    from ..render.job_builder import RenderConfig
+    from ..render.job_builder import RenderConfig, SectionViewRenderConfig
 
 
 # unified_analyzer 바이너리 탐색: install_dir → 패키지 상대 경로 → PATH
@@ -53,6 +53,7 @@ def run_analysis(
     verbose: bool = False,
     element_quality: bool = False,
     install_dir: Path | None = None,
+    section_view_config: "SectionViewRenderConfig | None" = None,
 ) -> D3plotResult:
     """
     1. analysis_jobs + render_jobs 통합 YAML 생성
@@ -89,7 +90,7 @@ def run_analysis(
         rc_first = copy.copy(render_config)
         rc_first.per_part_render = False  # skip per-part for 1st pass
 
-    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir)
+    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=section_view_config)
     _run_ua(ua, yaml_content, verbose)
 
     result = _parse_outputs(output_dir)
@@ -165,6 +166,7 @@ def _build_yaml(
     render_only: bool = False,
     element_quality: bool = False,
     install_dir: Path | None = None,
+    section_view_config: "SectionViewRenderConfig | None" = None,
 ) -> str:
     parts_list = part_ids if part_ids else []
 
@@ -229,6 +231,18 @@ def _build_yaml(
             lines.append("render_jobs:")
             for job in jobs:
                 lines.append(_dict_to_yaml(job, indent=2))
+
+    # section_views (software-rasterized, VTK-free)
+    if section_view_config and section_view_config.enabled:
+        from ..render.job_builder import build_section_view_yaml_entries
+        sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config)
+        if sv_entries:
+            lines.append("section_views:")
+            for name, yaml_block in sv_entries:
+                lines.append(f'  - name: "{name}"')
+                for bl in yaml_block.splitlines():
+                    if bl.strip():
+                        lines.append(f"    {bl}")
 
     return "\n".join(lines) + "\n"
 

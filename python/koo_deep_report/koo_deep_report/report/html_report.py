@@ -1439,11 +1439,22 @@ function renderGallery() {
 
   const folderKeys = Object.keys(groups).sort();
   for (const folder of folderKeys) {
-    const m = folder.match(/^part_(\d+)$/);
-    const pid = m ? m[1] : null;
-    const name = pid && nameMap['part_' + pid] ? nameMap['part_' + pid] : '';
-    const title = pid ? `Part ${pid}${name ? ' — ' + name : ''}` : folder;
-    html += _folderHtml(folder, title, 'X · Y · Z 단면', groups[folder], false);
+    const partM = folder.match(/^part_(\d+)$/);
+    const svM   = folder.match(/^section_view_([xyz])$/i);
+    let title, subtitle;
+    if (partM) {
+      const pid = partM[1];
+      const pname = nameMap['part_' + pid] ? ' — ' + nameMap['part_' + pid] : '';
+      title = `Part ${pid}${pname}`;
+      subtitle = 'X · Y · Z 단면';
+    } else if (svM) {
+      title = `단면뷰 — ${svM[1].toUpperCase()}축`;
+      subtitle = '소프트웨어 렌더';
+    } else {
+      title = folder;
+      subtitle = '단면';
+    }
+    html += _folderHtml(folder, title, subtitle, groups[folder], svM != null);
   }
 
   return html;
