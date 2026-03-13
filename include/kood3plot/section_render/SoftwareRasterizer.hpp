@@ -57,6 +57,14 @@ public:
                              const SectionCamera& camera);
 
     /**
+     * @brief Filled polygon with Gouraud shading + alpha blending (target fade)
+     */
+    void drawPolygonContourAlpha(const ClipPolygon& polygon,
+                                  const ColorMap& cmap,
+                                  const SectionCamera& camera,
+                                  float alpha);
+
+    /**
      * @brief Filled polygon with uniform flat color (for background parts)
      *
      * polygon.size() must be >= 3.

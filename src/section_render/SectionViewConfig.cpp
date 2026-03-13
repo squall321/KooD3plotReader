@@ -194,6 +194,7 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "scale_factor")   { try { scale_factor = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "supersampling")  { try { supersampling = std::stoi(value); } catch(...) {} section = ""; continue; }
             if (key == "auto_center")    { auto_center = parseBool(value); section = ""; continue; }
+            if (key == "auto_slab")      { auto_slab = parseBool(value); section = ""; continue; }
             if (key == "slab_thickness") { try { slab_thickness = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "fade_distance")  { try { fade_distance  = std::stod(value); } catch(...) {} section = ""; continue; }
         }
@@ -293,7 +294,8 @@ std::string SectionViewConfig::exampleYaml()
     # normal: [0.0, 0.0, 1.0]
     point: [0.0, 0.0, 0.0]    # cut plane passes through this point
   auto_center: true            # auto-move cut point to mesh AABB center along cut axis
-  slab_thickness: 0.0          # +-margin (model units); 0=exact, e.g. 2.0 to widen capture
+  auto_slab: true              # auto-compute slab_thickness from element edge lengths (state 0)
+  slab_thickness: 0.0          # +-margin (model units); 0=exact, auto_slab overrides if > 0
   target_parts:
     ids: [1, 2, 3]             # contour coloring (field value -> colormap)
     # patterns: ["*battery*"]
@@ -301,7 +303,7 @@ std::string SectionViewConfig::exampleYaml()
   background_parts:            # flat categorical color per part
     ids: []                    # empty = auto (all non-target parts become background)
   field: von_mises             # von_mises | eps | displacement | pressure | max_shear
-  colormap: rainbow            # rainbow | jet | coolwarm | grayscale
+  colormap: fringe             # fringe | rainbow | jet | coolwarm | grayscale
   global_range: true           # red=global max, blue=global min (false=per-frame scale)
   scale_factor: 1.2
   supersampling: 2

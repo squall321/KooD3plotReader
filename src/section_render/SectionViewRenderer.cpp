@@ -125,14 +125,80 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
         return std::string("Cannot create output directory: ") + e.what();
     }
 
-    // ---- 4. Build pipeline objects ----
+    // ---- 4. Auto-slab: compute average edge length near cutting plane ----
+    double effective_slab = config.slab_thickness;
+    double effective_fade = config.fade_distance;
+    if (config.auto_slab && config.slab_thickness == 0.0) {
+        // Sample edge lengths of target solid elements near the cutting plane
+        data::StateData state0 = reader.read_state(0);
+        double sum_edge = 0.0;
+        int    count = 0;
+        for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+            int32_t pid = (ei < mesh.solid_parts.size()) ? mesh.solid_parts[ei] : 0;
+            if (!config.target_parts.empty() && !config.target_parts.matches(pid, ""))
+                continue;
+            const auto& nids = mesh.solids[ei].node_ids;
+            // Deduplicate to get unique nodes
+            int32_t uniq[8]; int nn = 0;
+            for (int i = 0; i < static_cast<int>(std::min(nids.size(), size_t(8))); ++i) {
+                bool dup = false;
+                for (int j = 0; j < nn; ++j) { if (nids[i] == uniq[j]) { dup = true; break; } }
+                if (!dup && nn < 8) uniq[nn++] = nids[i];
+            }
+            if (nn < 4) continue;
+
+            Vec3 positions[8];
+            for (int i = 0; i < nn; ++i) {
+                // Find node index from node_id
+                int32_t ni = -1;
+                if (!mesh.real_node_ids.empty()) {
+                    for (size_t k = 0; k < mesh.real_node_ids.size(); ++k) {
+                        if (mesh.real_node_ids[k] == uniq[i]) { ni = static_cast<int32_t>(k); break; }
+                    }
+                } else {
+                    ni = uniq[i] - 1;  // 1-based to 0-based
+                }
+                if (ni < 0 || ni >= static_cast<int32_t>(mesh.nodes.size())) continue;
+                const auto& nd = mesh.nodes[ni];
+                double dx = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
+                    ? state0.node_displacements[ni*3+0] : 0.0;
+                double dy = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
+                    ? state0.node_displacements[ni*3+1] : 0.0;
+                double dz = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
+                    ? state0.node_displacements[ni*3+2] : 0.0;
+                positions[i] = {nd.x + dx, nd.y + dy, nd.z + dz};
+            }
+            // Sample first 3 edges for average length
+            for (int i = 0; i < nn && i < 4; ++i) {
+                for (int j = i+1; j < nn && j < 4; ++j) {
+                    double ex = positions[i].x - positions[j].x;
+                    double ey = positions[i].y - positions[j].y;
+                    double ez = positions[i].z - positions[j].z;
+                    double elen = std::sqrt(ex*ex + ey*ey + ez*ez);
+                    if (elen > 1e-12) { sum_edge += elen; ++count; }
+                }
+            }
+            if (count > 200) break;  // enough samples
+        }
+        if (count > 0) {
+            double avg_edge = sum_edge / count;
+            effective_slab = 0.5 * avg_edge;
+            if (effective_fade == 0.0) {
+                effective_fade = avg_edge;  // auto-set fade to 1x avg edge length
+            }
+            std::fprintf(stderr, "[section_view] auto_slab: avg_edge=%.4f  slab=%.4f  fade=%.4f\n",
+                         avg_edge, effective_slab, effective_fade);
+        }
+    }
+
+    // ---- 5. Build pipeline objects ----
     NodalAverager     averager(mesh, ctrl);
-    SectionClipper    clipper(mesh, ctrl, plane, config.slab_thickness);
+    SectionClipper    clipper(mesh, ctrl, plane, effective_slab);
     SoftwareRasterizer rasterizer(config.width, config.height, config.supersampling);
     SectionCamera     camera;
     ColorMap          cmap(config.colormap);
 
-    // ---- 5. Camera setup: use state 0 ----
+    // ---- 6. Camera setup: use state 0 ----
     {
         data::StateData state0 = reader.read_state(0);
         averager.compute(state0, config.field, config.target_parts);
@@ -147,7 +213,7 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
         camera.setup(plane, bbox, config.scale_factor, config.width, config.height);
     }
 
-    // ---- 6. Global range scan (2-pass) ----
+    // ---- 7. Global range scan (2-pass) ----
     if (config.global_range) {
         double gmin = 1e300, gmax = -1e300;
         for (size_t si = 0; si < num_states; ++si) {
@@ -160,7 +226,7 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
         cmap.setGlobalRange(gmin, gmax);
     }
 
-    // ---- 7. Per-state render loop ----
+    // ---- 8. Per-state render loop ----
     std::string frame_pattern = out_dir + "/frame_%04d.png";  // for ffmpeg
 
     for (size_t si = 0; si < num_states; ++si) {
@@ -176,11 +242,12 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
 
         // c) Section clipping
         std::vector<ClipPolygon> tgt_polys, bg_polys;
-        std::vector<float> bg_alphas;
+        std::vector<float> bg_alphas, tgt_alphas;
         clipper.clip(state, averager,
                      config.target_parts, config.background_parts,
                      tgt_polys, bg_polys, bg_alphas,
-                     config.fade_distance);
+                     effective_fade,
+                     &tgt_alphas);
 
         // d) Rasterize
         rasterizer.clear({255, 255, 255, 255});  // white background
@@ -198,10 +265,16 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
             }
         }
 
-        // Target parts (contour)
-        for (const auto& poly : tgt_polys) {
+        // Target parts (contour, with optional alpha for faded near-plane elements)
+        for (size_t ti = 0; ti < tgt_polys.size(); ++ti) {
+            const auto& poly = tgt_polys[ti];
+            float alpha = (ti < tgt_alphas.size()) ? tgt_alphas[ti] : 1.0f;
             if (poly.size() >= 3) {
-                rasterizer.drawPolygonContour(poly, cmap, camera);
+                if (alpha >= 1.0f) {
+                    rasterizer.drawPolygonContour(poly, cmap, camera);
+                } else {
+                    rasterizer.drawPolygonContourAlpha(poly, cmap, camera, alpha);
+                }
             } else if (poly.size() == 2) {
                 rasterizer.drawEdge(poly, cmap, camera, 2);
             }
@@ -214,14 +287,14 @@ std::string SectionViewRenderer::render(D3plotReader& reader,
         if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;
     }
 
-    // ---- 8. Assemble MP4 ----
+    // ---- 9. Assemble MP4 ----
     if (config.mp4) {
         std::string mp4_path = out_dir + "/section_view.mp4";
         std::string err = assembleMp4(frame_pattern, mp4_path, config.fps);
         if (!err.empty()) return err;
     }
 
-    // ---- 9. Clean up frame PNGs unless png_frames is requested ----
+    // ---- 10. Clean up frame PNGs unless png_frames is requested ----
     if (!config.png_frames) {
         namespace fs = std::filesystem;
         for (const auto& entry : fs::directory_iterator(out_dir)) {

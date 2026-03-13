@@ -58,7 +58,8 @@ public:
               std::vector<ClipPolygon>& target_result,
               std::vector<ClipPolygon>& bg_result,
               std::vector<float>& bg_alphas,
-              double fade_distance = 0.0);
+              double fade_distance = 0.0,
+              std::vector<float>* target_alphas = nullptr);
 
 private:
     const data::Mesh&        mesh_;

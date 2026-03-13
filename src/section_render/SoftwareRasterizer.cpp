@@ -140,6 +140,46 @@ void rasterizeTriangleAlpha(
     }
 }
 
+/// Gouraud-shaded triangle with alpha blending (contour colors + alpha)
+void rasterizeTriangleContourAlpha(
+    double ax, double ay, RGBA ca,
+    double bx, double by, RGBA cb,
+    double cx, double cy, RGBA cc,
+    float alpha,
+    std::vector<uint8_t>& buf, int32_t W, int32_t H)
+{
+    if (alpha <= 0.0f) return;
+    if (alpha >= 1.0f) {
+        rasterizeTriangle(ax,ay,ca, bx,by,cb, cx,cy,cc, buf,W,H);
+        return;
+    }
+    int xmin = std::max(0,   static_cast<int>(std::min({ax,bx,cx})));
+    int xmax = std::min(W-1, static_cast<int>(std::max({ax,bx,cx})) + 1);
+    int ymin = std::max(0,   static_cast<int>(std::min({ay,by,cy})));
+    int ymax = std::min(H-1, static_cast<int>(std::max({ay,by,cy})) + 1);
+
+    for (int y = ymin; y <= ymax; ++y) {
+        for (int x = xmin; x <= xmax; ++x) {
+            double l0, l1, l2;
+            if (!baryWeights(x+0.5, y+0.5, ax,ay, bx,by, cx,cy, l0,l1,l2)) continue;
+            if (l0 < 0 || l1 < 0 || l2 < 0) continue;
+
+            RGBA src{
+                static_cast<uint8_t>(l0*ca.r + l1*cb.r + l2*cc.r),
+                static_cast<uint8_t>(l0*ca.g + l1*cb.g + l2*cc.g),
+                static_cast<uint8_t>(l0*ca.b + l1*cb.b + l2*cc.b),
+                255
+            };
+            size_t idx = (static_cast<size_t>(y)*W + x)*4;
+            float inv = 1.0f - alpha;
+            buf[idx+0] = static_cast<uint8_t>(alpha*src.r + inv*buf[idx+0]);
+            buf[idx+1] = static_cast<uint8_t>(alpha*src.g + inv*buf[idx+1]);
+            buf[idx+2] = static_cast<uint8_t>(alpha*src.b + inv*buf[idx+2]);
+            buf[idx+3] = 255;
+        }
+    }
+}
+
 } // anonymous namespace
 
 // ============================================================
@@ -170,6 +210,39 @@ void SoftwareRasterizer::drawPolygonContour(const ClipPolygon& polygon,
             sx[0], sy[0], sc[0],
             sx[i], sy[i], sc[i],
             sx[i+1], sy[i+1], sc[i+1],
+            buffer_, ss_width_, ss_height_);
+    }
+}
+
+// ============================================================
+// drawPolygonContourAlpha — Gouraud shading + alpha blending
+// ============================================================
+
+void SoftwareRasterizer::drawPolygonContourAlpha(const ClipPolygon& polygon,
+                                                   const ColorMap& cmap,
+                                                   const SectionCamera& camera,
+                                                   float alpha)
+{
+    if (polygon.size() < 3) return;
+    if (alpha >= 1.0f) { drawPolygonContour(polygon, cmap, camera); return; }
+    if (alpha <= 0.0f) return;
+
+    int n = static_cast<int>(polygon.size());
+    std::vector<double> sx(n), sy(n);
+    std::vector<RGBA>   sc(n);
+    for (int i = 0; i < n; ++i) {
+        Vec2 p = camera.project(polygon[i].position);
+        sx[i] = p.x * ss_factor_;
+        sy[i] = p.y * ss_factor_;
+        sc[i] = cmap.map(polygon[i].value);
+    }
+
+    for (int i = 1; i < n-1; ++i) {
+        rasterizeTriangleContourAlpha(
+            sx[0], sy[0], sc[0],
+            sx[i], sy[i], sc[i],
+            sx[i+1], sy[i+1], sc[i+1],
+            alpha,
             buffer_, ss_width_, ss_height_);
     }
 }

@@ -105,11 +105,13 @@ void SectionClipper::clip(const data::StateData& state,
                            std::vector<ClipPolygon>& target_result,
                            std::vector<ClipPolygon>& bg_result,
                            std::vector<float>& bg_alphas,
-                           double fade_distance)
+                           double fade_distance,
+                           std::vector<float>* target_alphas)
 {
     target_result.clear();
     bg_result.clear();
     bg_alphas.clear();
+    if (target_alphas) target_alphas->clear();
 
     std::unordered_set<int32_t> del_solids(
         state.deleted_solids.begin(), state.deleted_solids.end());
@@ -139,6 +141,13 @@ void SectionClipper::clip(const data::StateData& state,
         bg_alphas.push_back(alpha);
     };
 
+    // Helper: push target polygon with alpha
+    auto pushTgt = [&](ClipPolygon poly, float alpha) {
+        if (poly.empty()) return;
+        target_result.push_back(std::move(poly));
+        if (target_alphas) target_alphas->push_back(alpha);
+    };
+
     // ---- Solid elements ----
     for (size_t ei = 0; ei < mesh_.solids.size(); ++ei) {
         const auto& elem = mesh_.solids[ei];
@@ -149,29 +158,44 @@ void SectionClipper::clip(const data::StateData& state,
         classify(pid, is_tgt, is_bg);
         if (!is_tgt && !is_bg) continue;
 
+        // Lambda to handle fade for near-plane solid elements
+        auto fadeSolid = [&](const auto& nids, int32_t p,
+                             auto pushFn) {
+            int32_t uniq[8]; int nn = 0;
+            for (int i = 0; i < static_cast<int>(std::min(nids.size(), size_t(8))); ++i) {
+                bool dup = false;
+                for (int j = 0; j < nn; ++j) { if (nids[i] == uniq[j]) { dup = true; break; } }
+                if (!dup && nn < 8) uniq[nn++] = nids[i];
+            }
+            if (nn < 4) return;
+            Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
+            for (int i = 0; i < nn; ++i) {
+                int32_t idx = nodeIndex(uniq[i]);
+                pos[i]  = nodePos(state, idx);
+                dist[i] = plane_.signedDistance(pos[i]);
+                val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
+            }
+            double min_d = std::abs(dist[0]);
+            for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+            if (min_d <= fade_distance) {
+                float alpha = static_cast<float>(1.0 - min_d / fade_distance);
+                pushFn(projectNNode(pos, dist, val, nn, p), alpha);
+            }
+        };
+
         if (is_tgt) {
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
-            if (!poly.empty()) target_result.push_back(std::move(poly));
+            if (!poly.empty()) {
+                pushTgt(std::move(poly), 1.0f);
+            } else if (fade_distance > 0.0) {
+                fadeSolid(elem.node_ids, pid, pushTgt);
+            }
         } else {
-            // Try exact intersection first
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
             if (!poly.empty()) {
                 pushBg(std::move(poly), 1.0f);
             } else if (fade_distance > 0.0) {
-                int nn = static_cast<int>(std::min(elem.node_ids.size(), size_t(8)));
-                Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
-                for (int i = 0; i < nn; ++i) {
-                    int32_t idx = nodeIndex(elem.node_ids[i]);
-                    pos[i]  = nodePos(state, idx);
-                    dist[i] = plane_.signedDistance(pos[i]);
-                    val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
-                }
-                double min_d = std::abs(dist[0]);
-                for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
-                if (min_d <= fade_distance) {
-                    float alpha = static_cast<float>(1.0 - min_d / fade_distance);
-                    pushBg(projectNNode(pos, dist, val, nn, pid), alpha);
-                }
+                fadeSolid(elem.node_ids, pid, pushBg);
             }
         }
     }
@@ -188,25 +212,57 @@ void SectionClipper::clip(const data::StateData& state,
 
         if (is_tgt) {
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
-            if (!poly.empty()) target_result.push_back(std::move(poly));
+            if (!poly.empty()) {
+                pushTgt(std::move(poly), 1.0f);
+            } else if (fade_distance > 0.0) {
+                // Reuse fadeSolid lambda from solid loop — inline equivalent
+                int32_t uniq[8]; int nn = 0;
+                for (int i = 0; i < static_cast<int>(std::min(elem.node_ids.size(), size_t(8))); ++i) {
+                    bool dup = false;
+                    for (int j = 0; j < nn; ++j) { if (elem.node_ids[i] == uniq[j]) { dup = true; break; } }
+                    if (!dup && nn < 8) uniq[nn++] = elem.node_ids[i];
+                }
+                if (nn >= 4) {
+                    Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
+                    for (int i = 0; i < nn; ++i) {
+                        int32_t idx = nodeIndex(uniq[i]);
+                        pos[i]  = nodePos(state, idx);
+                        dist[i] = plane_.signedDistance(pos[i]);
+                        val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
+                    }
+                    double min_d = std::abs(dist[0]);
+                    for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+                    if (min_d <= fade_distance) {
+                        float alpha = static_cast<float>(1.0 - min_d / fade_distance);
+                        pushTgt(projectNNode(pos, dist, val, nn, pid), alpha);
+                    }
+                }
+            }
         } else {
             ClipPolygon poly = clipHex8(elem.node_ids, state, averager, pid);
             if (!poly.empty()) {
                 pushBg(std::move(poly), 1.0f);
             } else if (fade_distance > 0.0) {
-                int nn = static_cast<int>(std::min(elem.node_ids.size(), size_t(8)));
-                Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
-                for (int i = 0; i < nn; ++i) {
-                    int32_t idx = nodeIndex(elem.node_ids[i]);
-                    pos[i]  = nodePos(state, idx);
-                    dist[i] = plane_.signedDistance(pos[i]);
-                    val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
+                int32_t uniq[8]; int nn = 0;
+                for (int i = 0; i < static_cast<int>(std::min(elem.node_ids.size(), size_t(8))); ++i) {
+                    bool dup = false;
+                    for (int j = 0; j < nn; ++j) { if (elem.node_ids[i] == uniq[j]) { dup = true; break; } }
+                    if (!dup && nn < 8) uniq[nn++] = elem.node_ids[i];
                 }
-                double min_d = std::abs(dist[0]);
-                for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
-                if (min_d <= fade_distance) {
-                    float alpha = static_cast<float>(1.0 - min_d / fade_distance);
-                    pushBg(projectNNode(pos, dist, val, nn, pid), alpha);
+                if (nn >= 4) {
+                    Vec3 pos[8] = {}; double dist[8] = {}; double val[8] = {};
+                    for (int i = 0; i < nn; ++i) {
+                        int32_t idx = nodeIndex(uniq[i]);
+                        pos[i]  = nodePos(state, idx);
+                        dist[i] = plane_.signedDistance(pos[i]);
+                        val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
+                    }
+                    double min_d = std::abs(dist[0]);
+                    for (int i = 1; i < nn; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+                    if (min_d <= fade_distance) {
+                        float alpha = static_cast<float>(1.0 - min_d / fade_distance);
+                        pushBg(projectNNode(pos, dist, val, nn, pid), alpha);
+                    }
                 }
             }
         }
@@ -222,30 +278,39 @@ void SectionClipper::clip(const data::StateData& state,
         classify(pid, is_tgt, is_bg);
         if (!is_tgt && !is_bg) continue;
 
+        // Shell fade helper (shared by target & background)
+        auto fadeShell = [&](int32_t eidx, int32_t p, auto pushFn) {
+            const auto& nids = mesh_.shells[eidx].node_ids;
+            int nc = std::min(static_cast<int>(nids.size()), 4);
+            if (nc < 3) return;
+            Vec3 pos[4]; double dist[4]; double val[4];
+            for (int i = 0; i < nc; ++i) {
+                int32_t idx = nodeIndex(nids[i]);
+                pos[i]  = nodePos(state, idx);
+                dist[i] = plane_.signedDistance(pos[i]);
+                val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
+            }
+            double min_d = std::abs(dist[0]);
+            for (int i = 1; i < nc; ++i) min_d = std::min(min_d, std::abs(dist[i]));
+            if (min_d <= fade_distance) {
+                float alpha = static_cast<float>(1.0 - min_d / fade_distance);
+                pushFn(projectShell(pos, dist, val, nc, p), alpha);
+            }
+        };
+
         if (is_tgt) {
             ClipPolygon poly = clipShell(state, averager, static_cast<int32_t>(ei), pid);
-            if (!poly.empty()) target_result.push_back(std::move(poly));
+            if (!poly.empty()) {
+                pushTgt(std::move(poly), 1.0f);
+            } else if (fade_distance > 0.0) {
+                fadeShell(static_cast<int32_t>(ei), pid, pushTgt);
+            }
         } else {
             ClipPolygon poly = clipShell(state, averager, static_cast<int32_t>(ei), pid);
             if (!poly.empty()) {
                 pushBg(std::move(poly), 1.0f);
             } else if (fade_distance > 0.0) {
-                const auto& nids = elem.node_ids;
-                int nc = std::min(static_cast<int>(nids.size()), 4);
-                if (nc < 3) continue;
-                Vec3 pos[4]; double dist[4]; double val[4];
-                for (int i = 0; i < nc; ++i) {
-                    int32_t idx = nodeIndex(nids[i]);
-                    pos[i]  = nodePos(state, idx);
-                    dist[i] = plane_.signedDistance(pos[i]);
-                    val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
-                }
-                double min_d = std::abs(dist[0]);
-                for (int i = 1; i < nc; ++i) min_d = std::min(min_d, std::abs(dist[i]));
-                if (min_d <= fade_distance) {
-                    float alpha = static_cast<float>(1.0 - min_d / fade_distance);
-                    pushBg(projectShell(pos, dist, val, nc, pid), alpha);
-                }
+                fadeShell(static_cast<int32_t>(ei), pid, pushBg);
             }
         }
     }
@@ -260,13 +325,28 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
                                       const NodalAverager& averager,
                                       int32_t part_id) const
 {
-    int nn = static_cast<int>(nids.size());
+    int raw_nn = static_cast<int>(nids.size());
+    if (raw_nn < 4) return {};
+
+    // Deduplicate node IDs to detect collapsed elements
+    // (LS-DYNA d3plot stores all solids with 8 nodes; tet4 repeats node 4 four times)
+    int32_t unique_nid[8];
+    int nn = 0;
+    for (int i = 0; i < raw_nn && i < 8; ++i) {
+        bool dup = false;
+        for (int j = 0; j < nn; ++j) {
+            if (nids[i] == unique_nid[j]) { dup = true; break; }
+        }
+        if (!dup && nn < 8) {
+            unique_nid[nn++] = nids[i];
+        }
+    }
     if (nn < 4) return {};
 
-    // Select edge table by node count
+    // Select edge table by unique node count
     const int (*edges)[2] = nullptr;
     int ne = 0;
-    if      (nn >= 8) { edges = HEX8_EDGES;   ne = 12; nn = 8; }
+    if      (nn >= 7) { edges = HEX8_EDGES;   ne = 12; nn = std::min(nn, 8); }
     else if (nn == 6) { edges = PENTA6_EDGES;  ne =  9; }
     else if (nn == 5) { edges = PYRAM5_EDGES;  ne =  8; }
     else              { edges = TET4_EDGES;    ne =  6; nn = 4; }
@@ -275,7 +355,7 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
     double dist[8] = {};
     double val[8]  = {};
     for (int i = 0; i < nn; ++i) {
-        int32_t idx = nodeIndex(nids[i]);
+        int32_t idx = nodeIndex(unique_nid[i]);
         pos[i]  = nodePos(state, idx);
         dist[i] = plane_.signedDistance(pos[i]);
         val[i]  = (idx >= 0) ? averager.nodeValue(idx) : 0.0;
@@ -293,7 +373,6 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
     std::vector<ClipVertex> verts;
     verts.reserve(ne);
 
-    constexpr double CLAMP_EPS = 1e-9;
     for (int e = 0; e < ne; ++e) {
         int a = edges[e][0], b = edges[e][1];
         double da = (slab_half_ > 0.0 && std::abs(dist[a]) <= slab_half_) ? 0.0 : dist[a];

@@ -19,7 +19,7 @@
  *     ids: []
  *     patterns: ["*"]    # empty = show all non-target parts
  *   field: von_mises     # von_mises | eps | displacement | pressure | max_shear
- *   colormap: rainbow    # rainbow | jet | coolwarm | grayscale
+ *   colormap: fringe     # fringe | rainbow | jet | coolwarm | grayscale
  *   global_range: false  # true = 2-pass (collect global min/max first)
  *   scale_factor: 1.2    # viewport extent relative to target bbox
  *   supersampling: 2     # 1 or 2
@@ -49,8 +49,9 @@ struct SectionViewConfig {
     Vec3        normal      = {0,0,1};   ///< Custom normal (when use_axis==false)
     Vec3        point        = {0,0,0};   ///< A point on the plane
     bool        auto_center  = false;    ///< Auto-set cut point to mesh AABB center
+    bool        auto_slab        = true; ///< Auto-compute slab_thickness from element edge lengths at state 0
     double      slab_thickness  = 0.0;  ///< Half-slab: nodes within ±slab_thickness/2 treated as on-plane (0=exact)
-    double      fade_distance   = 0.0;  ///< Background fade: non-target parts within this dist get alpha 0→1 (0=disabled)
+    double      fade_distance   = 0.0;  ///< Fade: near-plane elements get alpha 0→1 (0=disabled, applies to both target & background)
 
     // Part selection
     PartMatcher target_parts;
@@ -58,7 +59,7 @@ struct SectionViewConfig {
 
     // Rendering settings
     FieldSelector field       = FieldSelector::VonMises;
-    ColorMapType  colormap    = ColorMapType::Rainbow;
+    ColorMapType  colormap    = ColorMapType::Fringe;
     bool          global_range = true;   ///< true = consistent color scale (red=global max, blue=global min)
     double        scale_factor = 1.2;
     int32_t       supersampling = 2;

@@ -73,8 +73,9 @@ RGBA ColorMap::map(double value) const
         case ColorMapType::Jet:       return mapJet(t);
         case ColorMapType::CoolWarm:  return mapCoolWarm(t);
         case ColorMapType::Grayscale: return mapGrayscale(t);
+        case ColorMapType::Fringe:    return mapFringe(t);
     }
-    return mapRainbow(t);
+    return mapFringe(t);
 }
 
 // ============================================================
@@ -156,6 +157,46 @@ RGBA ColorMap::mapGrayscale(double t) const
     return { v, v, v };
 }
 
+// LSPrePost-style 16-level discrete fringe colormap
+// Piecewise-linear through 16 control points with sharp band boundaries
+RGBA ColorMap::mapFringe(double t) const
+{
+    // 16-level color table matching LSPrePost's default stress fringe
+    // Each level spans 1/16 of [0,1] with interpolation between adjacent stops
+    static const uint8_t LUT[16][3] = {
+        {  0,   0, 170},  //  0: dark blue
+        {  0,   0, 255},  //  1: blue
+        {  0,  85, 255},  //  2: blue-cyan
+        {  0, 170, 255},  //  3: cyan-blue
+        {  0, 255, 255},  //  4: cyan
+        {  0, 255, 170},  //  5: cyan-green
+        {  0, 255,  85},  //  6: green-cyan
+        {  0, 255,   0},  //  7: green
+        { 85, 255,   0},  //  8: green-yellow
+        {170, 255,   0},  //  9: yellow-green
+        {255, 255,   0},  // 10: yellow
+        {255, 200,   0},  // 11: yellow-orange
+        {255, 140,   0},  // 12: orange
+        {255,  80,   0},  // 13: red-orange
+        {255,   0,   0},  // 14: red
+        {170,   0,   0},  // 15: dark red
+    };
+    constexpr int N = 16;
+
+    // Map t to float index in [0, N-1]
+    double fi = t * (N - 1);
+    int lo = static_cast<int>(fi);
+    if (lo < 0) lo = 0;
+    if (lo >= N - 1) return {LUT[N-1][0], LUT[N-1][1], LUT[N-1][2]};
+    double f = fi - lo;
+
+    return {
+        static_cast<uint8_t>(LUT[lo][0] + f * (LUT[lo+1][0] - LUT[lo][0]) + 0.5),
+        static_cast<uint8_t>(LUT[lo][1] + f * (LUT[lo+1][1] - LUT[lo][1]) + 0.5),
+        static_cast<uint8_t>(LUT[lo][2] + f * (LUT[lo+1][2] - LUT[lo][2]) + 0.5)
+    };
+}
+
 // ============================================================
 // partColor — categorical color palette
 // ============================================================
@@ -191,8 +232,9 @@ ColorMapType ColorMap::parseType(const std::string& name)
     if (lower == "jet")                              return ColorMapType::Jet;
     if (lower == "coolwarm" || lower == "cool_warm") return ColorMapType::CoolWarm;
     if (lower == "grayscale" || lower == "gray")     return ColorMapType::Grayscale;
+    if (lower == "fringe" || lower == "lsprepost")   return ColorMapType::Fringe;
 
-    return ColorMapType::Rainbow;  // default
+    return ColorMapType::Fringe;  // default — matches LSPrePost
 }
 
 } // namespace section_render

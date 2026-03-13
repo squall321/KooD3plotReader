@@ -34,7 +34,8 @@ enum class ColorMapType {
     Rainbow,    ///< HSV-based rainbow (blue→cyan→green→yellow→red)
     Jet,        ///< Matlab-style jet
     CoolWarm,   ///< Blue→white→red diverging
-    Grayscale   ///< Black→white
+    Grayscale,  ///< Black→white
+    Fringe      ///< LSPrePost-style 16-level discrete fringe (default for section views)
 };
 
 // ============================================================
@@ -111,6 +112,7 @@ private:
     RGBA mapJet      (double t) const;
     RGBA mapCoolWarm (double t) const;
     RGBA mapGrayscale(double t) const;
+    RGBA mapFringe   (double t) const;
 
     static uint8_t clamp255(double v);
 };
