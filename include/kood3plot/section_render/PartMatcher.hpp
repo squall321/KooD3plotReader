@@ -54,9 +54,17 @@ public:
     /** True if no criteria have been registered (matches nothing) */
     bool empty() const;
 
+    /** True if at least one numeric ID was registered (not just patterns/keywords) */
+    bool hasSpecificIds() const { return !ids_.empty(); }
+
     // ----------------------------------------------------------------
     // Query
     // ----------------------------------------------------------------
+
+    /**
+     * @brief Test whether a part is accepted by ID only (ignores patterns/keywords)
+     */
+    bool matches(int32_t part_id) const { return ids_.count(part_id) > 0; }
 
     /**
      * @brief Test whether a part is accepted

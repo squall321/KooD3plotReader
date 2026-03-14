@@ -121,16 +121,12 @@ void SectionClipper::clip(const data::StateData& state,
         state.deleted_shells.begin(), state.deleted_shells.end());
 
     auto classify = [&](int32_t pid, bool& is_tgt, bool& is_bg) {
-        is_bg = !background.empty() && background.matches(pid, "");
-        if (!is_bg) {
-            if (target.empty() || target.matches(pid, "")) {
-                is_tgt = true;
-            } else {
-                is_bg  = true;
-                is_tgt = false;
-            }
+        // Target takes priority over background
+        is_tgt = target.empty() || target.matches(pid, "");
+        if (is_tgt) {
+            is_bg = false;
         } else {
-            is_tgt = false;
+            is_bg = background.empty() || background.matches(pid, "");
         }
     };
 
@@ -362,13 +358,29 @@ ClipPolygon SectionClipper::clipHex8(const std::vector<int32_t>& nids,
     }
 
     // Quick reject: all nodes on same side of the plane
-    bool anyPos = false, anyNeg = false;
+    bool anyPos = false, anyNeg = false, anyOnPlane = false;
     for (int i = 0; i < nn; ++i) {
         double d = (slab_half_ > 0.0 && std::abs(dist[i]) <= slab_half_) ? 0.0 : dist[i];
         if (d > 0.0) anyPos = true;
-        if (d < 0.0) anyNeg = true;
+        else if (d < 0.0) anyNeg = true;
+        else anyOnPlane = true;
     }
-    if (!anyPos || !anyNeg) return {};
+    // If all nodes are within slab (all d=0), element is fully on-plane → include it
+    // Otherwise, need nodes on both sides of the plane
+    if (!anyOnPlane && (!anyPos || !anyNeg)) return {};
+    if (anyOnPlane && !anyPos && !anyNeg) {
+        // All nodes within slab — project the whole element as a cross-section polygon
+        // Use the element face that best faces the plane normal
+        ClipPolygon poly;
+        for (int i = 0; i < nn; ++i) {
+            ClipVertex v;
+            v.position = pos[i];
+            v.value    = val[i];
+            v.part_id  = part_id;
+            poly.push_back(v);
+        }
+        return poly;
+    }
 
     std::vector<ClipVertex> verts;
     verts.reserve(ne);

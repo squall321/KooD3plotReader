@@ -101,6 +101,13 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
 {tab_buttons}
 </div>
 
+<div class="filter-bar">
+  <label for="part-filter">파트 필터:</label>
+  <input type="text" id="part-filter" placeholder="키워드를 콤마로 구분 (예: PKG, PCB, Motor)" />
+  <button id="filter-clear" onclick="clearFilter()">초기화</button>
+  <span id="filter-count"></span>
+</div>
+
 <div class="content">
 {tab_panels}
 </div>
@@ -351,6 +358,17 @@ a { color: var(--accent2); }
            white-space: nowrap; transition: all .2s; }
 .tab-btn:hover { color: var(--fg); }
 .tab-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+.filter-bar { background: var(--bg2); padding: 8px 16px; display: flex; align-items: center;
+              gap: 10px; border-bottom: 1px solid var(--border); }
+.filter-bar label { color: var(--fg2); font-size: 0.85rem; white-space: nowrap; }
+.filter-bar input { flex: 1; max-width: 500px; padding: 6px 10px; border-radius: 4px;
+                    border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+                    font-size: 0.85rem; }
+.filter-bar input::placeholder { color: var(--fg2); opacity: 0.6; }
+.filter-bar button { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border);
+                     background: var(--bg); color: var(--fg2); cursor: pointer; font-size: 0.8rem; }
+.filter-bar button:hover { background: var(--bg2); color: var(--fg); }
+#filter-count { color: var(--fg2); font-size: 0.8rem; }
 
 .content { padding: 20px 24px; }
 .tab-panel { display: none; }
@@ -488,6 +506,69 @@ function fmt(v, dec=2) {
 }
 function fmtPct(v, dec=1) { return v === null ? '—' : fmt(v*100, dec) + '%'; }
 
+// ── Part filter ───────────────────────────────────────────────────────
+let _filterKeywords = [];
+
+function partMatchesFilter(pid, partObj) {
+  if (_filterKeywords.length === 0) return true;
+  const haystack = ('Part ' + pid + ' ' + (partObj?.name || '')).toLowerCase();
+  return _filterKeywords.every(kw => haystack.includes(kw));
+}
+
+function filteredParts() {
+  return Object.entries(DATA.parts).filter(([pid, p]) => partMatchesFilter(pid, p));
+}
+
+function applyFilter() {
+  const input = document.getElementById('part-filter');
+  const raw = input.value.trim();
+  _filterKeywords = raw ? raw.split(',').map(s => s.trim().toLowerCase()).filter(s => s) : [];
+
+  // Re-render all already-rendered tabs
+  _rendered = {};
+  TABS.forEach(tid => {
+    const el = document.getElementById('panel-' + tid);
+    if (el) el.innerHTML = '';
+  });
+  const activeBtn = document.querySelector('.tab-btn.active');
+  const activeTid = activeBtn ? activeBtn.dataset.tab : TABS[0];
+  switchTab(activeTid);
+
+  // Update count
+  const total = Object.keys(DATA.parts).length;
+  const shown = filteredParts().length;
+  const countEl = document.getElementById('filter-count');
+  if (countEl) {
+    countEl.textContent = _filterKeywords.length > 0 ? `${shown} / ${total} 파트` : '';
+  }
+}
+
+function clearFilter() {
+  const input = document.getElementById('part-filter');
+  input.value = '';
+  applyFilter();
+}
+
+// Debounce filter input
+(function() {
+  let timer;
+  document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('part-filter');
+    if (input) input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(applyFilter, 300);
+    });
+  });
+  // Also fire if DOM already loaded
+  if (document.readyState !== 'loading') {
+    const input = document.getElementById('part-filter');
+    if (input) input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(applyFilter, 300);
+    });
+  }
+})();
+
 // ── Tab switching ──────────────────────────────────────────────────────
 let _rendered = {};
 function switchTab(tid) {
@@ -572,7 +653,7 @@ function renderOverview() {
   </div>`;
 
   // Top 5 stress parts
-  const parts = Object.entries(DATA.parts)
+  const parts = filteredParts()
     .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
     .slice(0, 5);
   const maxStress = parts[0]?.[1].peak_stress || 1;
@@ -593,7 +674,7 @@ function renderOverview() {
 
 // ── Stress & Strain ──────────────────────────────────────────────────
 function renderStress() {
-  const parts = Object.entries(DATA.parts).sort((a,b) => b[1].peak_stress - a[1].peak_stress);
+  const parts = filteredParts().sort((a,b) => b[1].peak_stress - a[1].peak_stress);
   const maxS = parts[0]?.[1].peak_stress || 1;
 
   const stressBars = parts.map(([pid, p]) => {
@@ -621,7 +702,7 @@ function renderStress() {
     }).join('');
 
   // Max principal stress ranking
-  const maxPrincipalParts = Object.entries(DATA.parts).filter(([,p]) => p.peak_max_principal !== 0)
+  const maxPrincipalParts = filteredParts().filter(([,p]) => p.peak_max_principal !== 0)
     .sort((a,b) => b[1].peak_max_principal - a[1].peak_max_principal);
   const maxP1 = maxPrincipalParts[0]?.[1].peak_max_principal || 1;
   const maxPrincipalBars = maxPrincipalParts.map(([pid, p]) => {
@@ -634,7 +715,7 @@ function renderStress() {
   }).join('');
 
   // Min principal stress ranking (most compressive = most negative)
-  const minPrincipalParts = Object.entries(DATA.parts).filter(([,p]) => p.peak_min_principal !== 0)
+  const minPrincipalParts = filteredParts().filter(([,p]) => p.peak_min_principal !== 0)
     .sort((a,b) => a[1].peak_min_principal - b[1].peak_min_principal);
   const minP3 = Math.abs(minPrincipalParts[0]?.[1].peak_min_principal) || 1;
   const minPrincipalBars = minPrincipalParts.map(([pid, p]) => {
@@ -647,7 +728,7 @@ function renderStress() {
   }).join('');
 
   // Max principal strain ranking (conditional — only when strain tensor data exists)
-  const maxPrincipalStrainParts = Object.entries(DATA.parts).filter(([,p]) => p.peak_max_principal_strain !== 0)
+  const maxPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_max_principal_strain !== 0)
     .sort((a,b) => b[1].peak_max_principal_strain - a[1].peak_max_principal_strain);
   const maxPE1 = maxPrincipalStrainParts[0]?.[1].peak_max_principal_strain || 1;
   const maxPrincipalStrainBars = maxPrincipalStrainParts.map(([pid, p]) => {
@@ -659,7 +740,7 @@ function renderStress() {
     </div>`;
   }).join('');
 
-  const minPrincipalStrainParts = Object.entries(DATA.parts).filter(([,p]) => p.peak_min_principal_strain !== 0)
+  const minPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_min_principal_strain !== 0)
     .sort((a,b) => a[1].peak_min_principal_strain - b[1].peak_min_principal_strain);
   const minPE3 = Math.abs(minPrincipalStrainParts[0]?.[1].peak_min_principal_strain) || 1;
   const minPrincipalStrainBars = minPrincipalStrainParts.map(([pid, p]) => {
@@ -673,7 +754,7 @@ function renderStress() {
 
   const hasPrincipalStrain = maxPrincipalStrainParts.length > 0 || minPrincipalStrainParts.length > 0;
 
-  const opts = Object.entries(DATA.parts)
+  const opts = filteredParts()
     .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
     .map(([pid, p]) => `<option value="${pid}">${partLabel(pid, p)}</option>`).join('');
 
@@ -1036,6 +1117,7 @@ function lodeAngle(s1,s2,s3) {
 // ── Motion ────────────────────────────────────────────────────────────
 function renderMotion() {
   const mEntries = Object.entries(DATA.motion)
+    .filter(([pid]) => partMatchesFilter(pid, DATA.parts[pid]))
     .sort((a,b) => b[1].peak_disp_mag - a[1].peak_disp_mag);
   const maxD = mEntries[0]?.[1].peak_disp_mag || 1;
 
@@ -1105,7 +1187,7 @@ function updateMotionChart() {
 
 // ── Deep Dive ─────────────────────────────────────────────────────────
 function renderDeepDive() {
-  const opts = Object.entries(DATA.parts)
+  const opts = filteredParts()
     .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
     .map(([pid, p]) => `<option value="${pid}">${partLabel(pid, p)}</option>`).join('');
   return `
@@ -1290,7 +1372,9 @@ function renderContact() {
   if (bn.matsum) {
     const ms = bn.matsum;
     const opts = ms.part_ids.map((pid, i) =>
-      `<option value="${i}">Part ${pid}${ms.part_names[i] ? ' (' + ms.part_names[i] + ')' : ''}</option>`).join('');
+      `<option value="${i}" ${partMatchesFilter(pid, {name: ms.part_names[i]}) ? '' : 'hidden'}>Part ${pid}${ms.part_names[i] ? ' (' + ms.part_names[i] + ')' : ''}</option>`)
+      .filter((_, i) => partMatchesFilter(ms.part_ids[i], {name: ms.part_names[i]}))
+      .join('');
     html += `
 <div class="sec-title">재료별 내부 에너지 (matsum)</div>
 <div class="part-selector">
@@ -1433,7 +1517,7 @@ function renderGallery() {
 
   // Name map from DATA.parts
   const nameMap = {};
-  if (DATA.parts) Object.entries(DATA.parts).forEach(([pid, p]) => {
+  if (DATA.parts) filteredParts().forEach(([pid, p]) => {
     nameMap['part_' + pid] = p.name && p.name !== 'Part_' + pid ? p.name : null;
   });
 

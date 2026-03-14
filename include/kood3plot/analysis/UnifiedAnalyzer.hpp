@@ -89,9 +89,13 @@ public:
      */
     bool wasSuccessful() const { return success_; }
 
+    /** @brief True if section views were already processed inside analyze() */
+    bool sectionViewsDone() const { return section_views_done_; }
+
 private:
     std::string last_error_;
     bool success_ = false;
+    bool section_views_done_ = false;
 
     // Internal analysis methods
     void processStressJobs(
@@ -179,6 +183,20 @@ public:
     bool processSectionViews(
         D3plotReader& reader,
         const UnifiedConfig& config,
+        UnifiedProgressCallback callback
+    );
+
+    /**
+     * @brief Run section_views with pre-loaded state data (zero-copy shared).
+     *
+     * Uses pre-loaded mesh/ctrl/states from the analysis phase — avoids
+     * re-reading d3plot files. Multiple section view specs run in parallel
+     * threads, each sharing the same const state data.
+     */
+    bool processSectionViews(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        const std::vector<data::StateData>& all_states,
         UnifiedProgressCallback callback
     );
 };

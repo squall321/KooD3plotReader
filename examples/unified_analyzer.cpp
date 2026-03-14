@@ -480,13 +480,14 @@ bool runSingleAnalysis(const fs::path& d3plot_path,
         }
     }
 
-    // Run section view jobs if not analysis_only
-    if (!analysis_only && base_config.hasSectionViews()) {
+    // Run section view jobs if not analysis_only and not already done in analyze()
+    if (!analysis_only && base_config.hasSectionViews() && !analyzer.sectionViewsDone()) {
         D3plotReader sv_reader(d3plot_path.string());
         auto error = sv_reader.open();
         if (error == ErrorCode::SUCCESS) {
+            auto sv_states = sv_reader.read_all_states_parallel(base_config.num_threads);
             UnifiedAnalyzer sv_analyzer;
-            sv_analyzer.processSectionViews(sv_reader, base_config,
+            sv_analyzer.processSectionViews(sv_reader, base_config, sv_states,
                 [](const std::string& msg) {
                     std::cout << "  " << msg << "\n";
                 });
@@ -804,6 +805,7 @@ int main(int argc, char* argv[]) {
 
     // Run analysis
     auto start_time = std::chrono::high_resolution_clock::now();
+    bool sv_done_in_analyze = false;
 
     if (!render_only && config.hasAnalysisJobs()) {
         UnifiedAnalyzer analyzer;
@@ -817,6 +819,8 @@ int main(int argc, char* argv[]) {
             std::cerr << "Analysis failed: " << analyzer.getLastError() << "\n";
             return 1;
         }
+
+        sv_done_in_analyze = analyzer.sectionViewsDone();
 
         // Export results
         exportResults(result, config);
@@ -832,7 +836,6 @@ int main(int argc, char* argv[]) {
     if (!analysis_only && config.hasRenderJobs()) {
         std::cout << "\n[RENDER] Processing " << config.render_jobs.size() << " render job(s)...\n";
 
-        // Open d3plot for render jobs
         D3plotReader render_reader(config.d3plot_path);
         auto error = render_reader.open();
         if (error != ErrorCode::SUCCESS) {
@@ -852,17 +855,23 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Run section view jobs (software-rasterized, no LSPrePost)
-    if (!analysis_only && config.hasSectionViews()) {
-        std::cout << "\n[SECTION_VIEW] Processing " << config.section_views.size() << " section view job(s)...\n";
+    // Run section view jobs — only if not already done inside analyze()
+    if (!analysis_only && config.hasSectionViews() && !sv_done_in_analyze) {
+        std::cout << "\n[SECTION_VIEW] Processing " << config.section_views.size()
+                  << " section view job(s) with shared state data...\n";
 
         D3plotReader sv_reader(config.d3plot_path);
         auto error = sv_reader.open();
         if (error != ErrorCode::SUCCESS) {
             std::cerr << "Failed to open d3plot for section view jobs\n";
         } else {
+            // Read all states once, then run all section views in parallel
+            std::cout << "[SECTION_VIEW] Reading all states...\n";
+            auto sv_states = sv_reader.read_all_states_parallel(config.num_threads);
+            std::cout << "[SECTION_VIEW] " << sv_states.size() << " states loaded\n";
+
             UnifiedAnalyzer sv_analyzer;
-            bool sv_success = sv_analyzer.processSectionViews(sv_reader, config,
+            bool sv_success = sv_analyzer.processSectionViews(sv_reader, config, sv_states,
                 [](const std::string& msg) {
                     std::cout << msg << "\n";
                 });

@@ -15,6 +15,7 @@ class SectionViewRenderConfig:
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
     global_range: bool = True    # true = consistent red=max/blue=min across all states
     per_part_render: bool = False  # True = also generate per-part section views
+    sv_threads: int = 2           # Parallel section view renderers (default 2)
     width: int = 1280
     height: int = 720
     fps: int = 24
@@ -52,7 +53,7 @@ def _sv_yaml_block(
         f"field: {config.scalar_field}\n"
         f"colormap: rainbow\n"
         f"global_range: {'true' if config.global_range else 'false'}\n"
-        f"scale_factor: 1.2\n"
+        f"scale_factor: 3.0\n"
         f"supersampling: {config.supersampling}\n"
         f"fade_distance: {config.fade_distance}\n"
         f"output:\n"

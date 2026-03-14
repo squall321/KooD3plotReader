@@ -111,6 +111,8 @@ def _add_single_args(p: argparse.ArgumentParser) -> None:
                    help="단면뷰 타겟 파트 패턴 (예: \"*PKG*\")")
     p.add_argument("--section-view-fade", type=float, default=0.0, metavar="DIST",
                    help="비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)")
+    p.add_argument("--sv-threads", type=int, default=2, metavar="N",
+                   help="병렬 단면뷰 렌더러 수 (default 2)")
 
 
 def _load_design_overrides(path_str: str) -> dict[int, dict] | None:
@@ -411,6 +413,7 @@ def run_single(args: argparse.Namespace) -> None:
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=getattr(args, "section_view_per_part", False),
+            sv_threads=getattr(args, "sv_threads", 2),
         )
 
     print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'}"
@@ -574,6 +577,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=getattr(args, "section_view_per_part", False),
+            sv_threads=getattr(args, "sv_threads", 2),
         )
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,

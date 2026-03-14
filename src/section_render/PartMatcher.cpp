@@ -100,19 +100,19 @@ bool PartMatcher::matches(int32_t part_id, const std::string& part_name) const
     // 1. Exact ID match (O(1))
     if (ids_.count(part_id)) return true;
 
-    // 2. Name-based matching (only when name is non-empty)
-    if (!part_name.empty()) {
-        std::string lower_name = toLower(part_name);
+    // 2. Name-based matching
+    std::string lower_name = part_name.empty() ? "" : toLower(part_name);
 
-        // Keyword substring
+    // Keyword substring (requires non-empty name)
+    if (!lower_name.empty()) {
         for (const auto& kw : keywords_) {
             if (lower_name.find(kw) != std::string::npos) return true;
         }
+    }
 
-        // Glob patterns
-        for (const auto& pat : patterns_) {
-            if (globMatch(pat, lower_name)) return true;
-        }
+    // Glob patterns (allow "*" to match empty name = "match all parts")
+    for (const auto& pat : patterns_) {
+        if (globMatch(pat, lower_name)) return true;
     }
 
     return false;

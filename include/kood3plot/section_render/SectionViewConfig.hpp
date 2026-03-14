@@ -61,7 +61,7 @@ struct SectionViewConfig {
     FieldSelector field       = FieldSelector::VonMises;
     ColorMapType  colormap    = ColorMapType::Fringe;
     bool          global_range = true;   ///< true = consistent color scale (red=global max, blue=global min)
-    double        scale_factor = 1.2;
+    double        scale_factor = 3.0;    ///< viewport extent relative to target bbox (clamped to full model)
     int32_t       supersampling = 2;
 
     // Output settings

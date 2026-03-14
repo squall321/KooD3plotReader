@@ -154,6 +154,13 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         processElementQualityJobs(reader, quality_jobs, all_states, result, callback);
     }
 
+    // Section view jobs — run here to share all_states (no d3plot re-read)
+    if (config.hasSectionViews()) {
+        if (callback) callback("Processing section view jobs (shared state data)...");
+        processSectionViews(reader, config, all_states, callback);
+        section_views_done_ = true;
+    }
+
     // Fill metadata
     fillMetadata(reader, config, all_states, result);
 
@@ -917,6 +924,19 @@ bool UnifiedAnalyzer::processSectionViews(
     }
     if (callback) callback("  Section view jobs skipped: software renderer not available");
     if (callback) callback("  Build with KOOD3PLOT_BUILD_SECTION_RENDER=ON to enable");
+    return false;
+}
+
+bool UnifiedAnalyzer::processSectionViews(
+    D3plotReader& /* reader */,
+    const UnifiedConfig& config,
+    const std::vector<data::StateData>& /* all_states */,
+    UnifiedProgressCallback callback
+) {
+    if (config.section_views.empty()) {
+        return true;
+    }
+    if (callback) callback("  Section view jobs skipped: software renderer not available");
     return false;
 }
 #endif

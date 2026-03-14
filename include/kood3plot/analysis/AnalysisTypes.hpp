@@ -713,6 +713,7 @@ struct UnifiedConfig {
     // Performance
     int num_threads = 0;  ///< 0 = auto (analysis/read threads)
     int render_threads = 1;  ///< Parallel LSPrePost instances (default 1, separate from analysis)
+    int sv_threads = 2;  ///< Parallel section view renderers (default 2)
     bool verbose = true;
     bool cache_geometry = true;
 

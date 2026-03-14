@@ -191,10 +191,14 @@ def _build_yaml(
     parts_list = part_ids if part_ids else []
 
     lsprepost = _resolve_lsprepost(render_config, install_dir)
+    sv_threads = 2
+    if section_view_config and hasattr(section_view_config, 'sv_threads'):
+        sv_threads = section_view_config.sv_threads
     perf_lines = [
         "performance:",
         f"  threads: {threads}",
         f"  render_threads: {render_threads}",
+        f"  sv_threads: {sv_threads}",
         f"  verbose: {'true' if verbose else 'false'}",
     ]
     if lsprepost:
