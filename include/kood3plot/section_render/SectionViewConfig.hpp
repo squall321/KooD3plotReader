@@ -18,7 +18,7 @@
  *   background_parts:
  *     ids: []
  *     patterns: ["*"]    # empty = show all non-target parts
- *   field: von_mises     # von_mises | eps | displacement | pressure | max_shear
+ *   field: von_mises     # von_mises | eps | strain | displacement | pressure | max_shear
  *   colormap: fringe     # fringe | rainbow | jet | coolwarm | grayscale
  *   global_range: false  # true = 2-pass (collect global min/max first)
  *   scale_factor: 1.2    # viewport extent relative to target bbox

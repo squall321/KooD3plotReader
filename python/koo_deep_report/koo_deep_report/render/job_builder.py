@@ -9,7 +9,8 @@ class SectionViewRenderConfig:
     """Configuration for software-rasterized section view rendering (VTK-free)."""
     enabled: bool = True
     axes: list[str] = field(default_factory=lambda: ["x", "y", "z"])  # x | y | z
-    scalar_field: str = "von_mises"                              # von_mises | eps | displacement
+    scalar_fields: list[str] = field(default_factory=lambda: ["von_mises", "strain"])  # 복수 필드
+    scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
     target_part_ids: list[int] = field(default_factory=list)     # [] = all parts as target
     target_patterns: list[str] = field(default_factory=list)     # e.g. ["*PKG*", "*CELL*"]
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
@@ -22,12 +23,20 @@ class SectionViewRenderConfig:
     supersampling: int = 2
     png_frames: bool = False
 
+    @property
+    def effective_fields(self) -> list[str]:
+        """Return the list of fields to render."""
+        if self.scalar_field:
+            return [self.scalar_field]
+        return self.scalar_fields
+
 
 def _sv_yaml_block(
     axis: str,
     output_dir: str,
     config: SectionViewRenderConfig,
     target_ids: list[int] | None = None,
+    field_name: str = "",
 ) -> str:
     """Build a single section_view YAML block body."""
     if target_ids is not None:
@@ -42,6 +51,8 @@ def _sv_yaml_block(
     else:
         target_block = "target_parts:\n  ids: []"
 
+    actual_field = field_name or config.scalar_field or "von_mises"
+
     return (
         f"plane:\n"
         f"  axis: {axis}\n"
@@ -50,7 +61,7 @@ def _sv_yaml_block(
         f"{target_block}\n"
         f"background_parts:\n"
         f'  patterns: ["*"]\n'
-        f"field: {config.scalar_field}\n"
+        f"field: {actual_field}\n"
         f"colormap: rainbow\n"
         f"global_range: {'true' if config.global_range else 'false'}\n"
         f"scale_factor: 3.0\n"
@@ -73,28 +84,39 @@ def build_section_view_yaml_entries(
 ) -> list[tuple[str, str]]:
     """Return list of (name, yaml_block) tuples for section_views: YAML entries.
 
-    Overview: one entry per axis, all parts as fringe target.
-    Per-part: one entry per (part, axis) when per_part_render=True and part_ids given.
+    Overview: one entry per (field, axis), all parts as fringe target.
+    Per-part: one entry per (field, part, axis) when per_part_render=True and part_ids given.
     """
     if not config.enabled:
         return []
 
     renders_dir = str(Path(output_dir) / "renders")
     entries: list[tuple[str, str]] = []
+    fields = config.effective_fields
 
-    # Overview entries (all parts)
-    for axis in config.axes:
-        name = f"section_view_{axis}"
-        axis_dir = str(Path(renders_dir) / name)
-        entries.append((name, _sv_yaml_block(axis, axis_dir, config)))
+    # Overview entries (all parts × all fields)
+    for fld in fields:
+        for axis in config.axes:
+            # single field → no field suffix (backward compat)
+            if len(fields) == 1:
+                name = f"section_view_{axis}"
+            else:
+                name = f"section_view_{fld}_{axis}"
+            axis_dir = str(Path(renders_dir) / name)
+            entries.append((name, _sv_yaml_block(axis, axis_dir, config, field_name=fld)))
 
     # Per-part entries
     if config.per_part_render and part_ids:
-        for pid in part_ids:
-            for axis in config.axes:
-                name = f"section_view_part_{pid}_{axis}"
-                part_dir = str(Path(renders_dir) / name)
-                entries.append((name, _sv_yaml_block(axis, part_dir, config, target_ids=[pid])))
+        for fld in fields:
+            for pid in part_ids:
+                for axis in config.axes:
+                    if len(fields) == 1:
+                        name = f"section_view_part_{pid}_{axis}"
+                    else:
+                        name = f"section_view_{fld}_part_{pid}_{axis}"
+                    part_dir = str(Path(renders_dir) / name)
+                    entries.append((name, _sv_yaml_block(axis, part_dir, config,
+                                                         target_ids=[pid], field_name=fld)))
 
     return entries
 

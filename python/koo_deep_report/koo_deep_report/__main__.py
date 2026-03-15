@@ -102,9 +102,10 @@ def _add_single_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--section-view-axes", nargs="+", default=["x", "y", "z"],
                    choices=["x", "y", "z"], metavar="AXIS",
                    help="단면 축 목록 (기본: x y z). 예: --section-view-axes x y z")
-    p.add_argument("--section-view-field", default="von_mises",
-                   choices=["von_mises", "eps", "displacement"],
-                   help="단면뷰 스칼라 필드 (기본: von_mises)")
+    p.add_argument("--section-view-fields", nargs="+", default=None,
+                   choices=["von_mises", "eps", "strain", "displacement", "pressure", "max_shear"],
+                   metavar="FIELD",
+                   help="단면뷰 스칼라 필드 (기본: von_mises strain). strain=변위기반 총변형률, eps=소성변형률")
     p.add_argument("--section-view-target-ids", nargs="+", type=int, default=None, metavar="ID",
                    help="단면뷰 타겟 파트 ID 목록 (미지정=전체)")
     p.add_argument("--section-view-target-patterns", nargs="+", default=None, metavar="PAT",
@@ -405,10 +406,11 @@ def run_single(args: argparse.Namespace) -> None:
     # Section view rendering config
     sv_cfg = None
     if getattr(args, "section_view", False):
+        sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
-            scalar_field=getattr(args, "section_view_field", "von_mises"),
+            scalar_fields=sv_fields,
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),
@@ -569,10 +571,11 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
     install_dir = _resolve_install_dir(getattr(args, "install_dir", ""))
     sv_cfg = None
     if getattr(args, "section_view", False):
+        sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
-            scalar_field=getattr(args, "section_view_field", "von_mises"),
+            scalar_fields=sv_fields,
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
             target_patterns=getattr(args, "section_view_target_patterns", None) or [],
             fade_distance=getattr(args, "section_view_fade", 0.0),

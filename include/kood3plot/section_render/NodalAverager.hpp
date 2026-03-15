@@ -39,6 +39,7 @@ enum class FieldSelector {
     DisplacementMagnitude,   ///< |u| from node_displacements
     PressureStress,          ///< Hydrostatic pressure
     MaxShearStress,          ///< Maximum shear stress
+    TotalStrain,             ///< Von Mises equivalent total strain from displacement gradient
 };
 
 class NodalAverager {

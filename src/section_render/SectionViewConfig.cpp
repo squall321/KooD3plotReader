@@ -144,8 +144,11 @@ FieldSelector parseField(const std::string& s)
     std::string lower(s.size(), '\0');
     std::transform(s.begin(), s.end(), lower.begin(),
                    [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-    if (lower == "eps" || lower == "eff_plastic_strain" || lower == "effective_plastic_strain")
+    if (lower == "eps" || lower == "plastic_strain" ||
+        lower == "eff_plastic_strain" || lower == "effective_plastic_strain")
         return FieldSelector::EffectivePlasticStrain;
+    if (lower == "strain" || lower == "total_strain")
+        return FieldSelector::TotalStrain;
     if (lower == "displacement" || lower == "disp")
         return FieldSelector::DisplacementMagnitude;
     if (lower == "pressure")
@@ -302,7 +305,7 @@ std::string SectionViewConfig::exampleYaml()
     # keywords: ["cell"]
   background_parts:            # flat categorical color per part
     ids: []                    # empty = auto (all non-target parts become background)
-  field: von_mises             # von_mises | eps | displacement | pressure | max_shear
+  field: von_mises             # von_mises | eps | strain | displacement | pressure | max_shear
   colormap: fringe             # fringe | rainbow | jet | coolwarm | grayscale
   global_range: true           # red=global max, blue=global min (false=per-frame scale)
   scale_factor: 1.2

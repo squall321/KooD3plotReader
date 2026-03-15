@@ -134,6 +134,29 @@ tbody tr.row-skip {{ opacity: 0.5; font-style: italic; }}
 .fail-list {{ padding: 8px 16px; font-size: 12px; color: var(--fg2); line-height: 1.8; }}
 
 .empty-msg {{ padding: 40px; text-align: center; color: var(--fg2); }}
+
+/* Tab navigation */
+.tab-nav {{ display: flex; gap: 0; margin-top: 24px; border-bottom: 2px solid var(--border); }}
+.tab-btn {{ background: none; border: none; padding: 10px 20px; font-size: 14px; color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }}
+.tab-btn:hover {{ color: var(--fg); }}
+.tab-btn.active {{ color: var(--accent2); border-bottom-color: var(--accent2); font-weight: 600; }}
+.tab-panel {{ display: none; padding-top: 16px; }}
+.tab-panel.active {{ display: block; }}
+
+/* Part filter */
+.part-filter {{ display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }}
+.part-filter input {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--fg); font-size: 13px; width: 320px; }}
+.part-filter .hint {{ font-size: 11px; color: var(--fg2); }}
+.part-filter .clear-btn {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--fg2); cursor: pointer; font-size: 12px; }}
+.part-filter .clear-btn:hover {{ color: var(--fg); border-color: var(--accent); }}
+
+/* Part comparison table */
+.part-table thead th {{ position: sticky; top: 0; z-index: 1; }}
+.part-table .val-stress {{ color: var(--accent2); }}
+.part-table .val-strain {{ color: #7ecfa0; }}
+.part-table .val-disp   {{ color: #d4a0f7; }}
+.part-table .val-warn   {{ color: var(--warn); font-weight: 600; }}
+.part-table .val-danger  {{ color: var(--err); font-weight: 600; }}
 </style>
 </head>
 <body>
@@ -146,58 +169,106 @@ tbody tr.row-skip {{ opacity: 0.5; font-style: italic; }}
 <div class="container">
   <div class="kpi-row" id="kpi-row"></div>
 
-  <div class="toolbar">
-    <input id="search-box" type="text" placeholder="케이스 이름 검색...">
-    <label>Tier:
-      <select id="tier-filter">
-        <option value="">전체</option>
-        <option value="0">T0</option>
-        <option value="1">T1</option>
-        <option value="2">T2</option>
-        <option value="3">T3</option>
-        <option value="4">T4</option>
-      </select>
-    </label>
-    <label>상태:
-      <select id="status-filter">
-        <option value="">전체</option>
-        <option value="ok">성공</option>
-        <option value="fail">실패</option>
-        <option value="skip">스킵</option>
-      </select>
-    </label>
+  <!-- Tab navigation -->
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-overview">케이스 요약</button>
+    <button class="tab-btn" data-tab="tab-parts">파트별 비교</button>
   </div>
 
-  <div class="table-wrap">
-    <table id="cases-table">
-      <thead>
-        <tr>
-          <th data-col="idx">#</th>
-          <th data-col="label">케이스</th>
-          <th data-col="status">상태</th>
-          <th data-col="tier">Tier</th>
-          <th data-col="num_parts">Parts</th>
-          <th data-col="t_end">T end</th>
-          <th data-col="peak_stress">피크 응력 (MPa)</th>
-          <th data-col="peak_strain">피크 변형률</th>
-          <th data-col="peak_disp">피크 변위 (mm)</th>
-          <th data-col="er_min">E-ratio min</th>
-          {'<th data-col="sf">Safety Factor</th>' if yield_stress > 0 else ''}
-          <th>리포트</th>
-        </tr>
-      </thead>
-      <tbody id="table-body"></tbody>
-    </table>
-  </div>
-
-  <div class="charts-row">
-    <div class="chart-card">
-      <div class="chart-title">케이스별 피크 Von Mises 응력 (MPa)</div>
-      <div id="chart-stress" style="height:300px"></div>
+  <div id="tab-overview" class="tab-panel active">
+    <div class="toolbar">
+      <input id="search-box" type="text" placeholder="케이스 이름 검색...">
+      <label>Tier:
+        <select id="tier-filter">
+          <option value="">전체</option>
+          <option value="0">T0</option>
+          <option value="1">T1</option>
+          <option value="2">T2</option>
+          <option value="3">T3</option>
+          <option value="4">T4</option>
+        </select>
+      </label>
+      <label>상태:
+        <select id="status-filter">
+          <option value="">전체</option>
+          <option value="ok">성공</option>
+          <option value="fail">실패</option>
+          <option value="skip">스킵</option>
+        </select>
+      </label>
     </div>
-    <div class="chart-card">
-      <div class="chart-title">케이스별 에너지 비율 (min)</div>
-      <div id="chart-energy" style="height:300px"></div>
+
+    <div class="table-wrap">
+      <table id="cases-table">
+        <thead>
+          <tr>
+            <th data-col="idx">#</th>
+            <th data-col="label">케이스</th>
+            <th data-col="status">상태</th>
+            <th data-col="tier">Tier</th>
+            <th data-col="num_parts">Parts</th>
+            <th data-col="t_end">T end</th>
+            <th data-col="peak_stress">피크 응력 (MPa)</th>
+            <th data-col="peak_strain">피크 변형률</th>
+            <th data-col="peak_disp">피크 변위 (mm)</th>
+            <th data-col="er_min">E-ratio min</th>
+            {'<th data-col="sf">Safety Factor</th>' if yield_stress > 0 else ''}
+            <th>리포트</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">케이스별 피크 Von Mises 응력 (MPa)</div>
+        <div id="chart-stress" style="height:300px"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">케이스별 에너지 비율 (min)</div>
+        <div id="chart-energy" style="height:300px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-parts" class="tab-panel">
+    <div class="part-filter">
+      <input id="part-filter-input" type="text" placeholder="파트 이름 필터 (콤마 구분, 예: PKG, CELL, BOARD)">
+      <button class="clear-btn" onclick="clearPartFilter()">초기화</button>
+      <span class="hint">콤마로 키워드 구분 — 대소문자 무관, 부분 매칭</span>
+    </div>
+    <div class="part-filter">
+      <label style="font-size:13px;color:var(--fg2);">정렬 기준:
+        <select id="part-sort-field" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--fg);font-size:13px;">
+          <option value="peak_stress">피크 응력</option>
+          <option value="peak_strain">피크 변형률</option>
+          <option value="peak_disp_mag">피크 변위</option>
+          <option value="stress_ratio">응력 비율</option>
+          <option value="strain_ratio">변형률 비율</option>
+        </select>
+      </label>
+      <label style="font-size:13px;color:var(--fg2);">표시:
+        <select id="part-metric-select" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--fg);font-size:13px;">
+          <option value="peak_stress">피크 응력 (MPa)</option>
+          <option value="peak_strain">피크 변형률</option>
+          <option value="peak_disp_mag">피크 변위 (mm)</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
+      <table class="part-table" id="part-compare-table">
+        <thead id="part-thead"></thead>
+        <tbody id="part-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="charts-row" style="margin-top:16px">
+      <div class="chart-card" style="min-width:100%">
+        <div class="chart-title">파트별 크로스-케이스 비교</div>
+        <div id="chart-part-compare" style="height:400px"></div>
+      </div>
     </div>
   </div>
 
@@ -463,6 +534,166 @@ document.querySelectorAll('thead th[data-col]').forEach(th => {{
 document.getElementById('search-box').addEventListener('input', applyFilter);
 document.getElementById('tier-filter').addEventListener('change', applyFilter);
 document.getElementById('status-filter').addEventListener('change', applyFilter);
+
+// ============================================================
+// Tab switching
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'tab-parts') renderPartComparison();
+  }});
+}});
+
+// ============================================================
+// Part comparison
+// ============================================================
+// Build ALL_PARTS: {{ part_name -> {{ pid, cases: {{ case_label -> part_data }} }} }}
+const ALL_PARTS = {{}};
+for (const r of RESULTS) {{
+  const caseLabel = r.label || (r.metadata || {{}}).project_name || '?';
+  const parts = r.parts || {{}};
+  for (const [pid, pdata] of Object.entries(parts)) {{
+    const pname = pdata.name || `Part ${{pid}}`;
+    const key = pname;
+    if (!ALL_PARTS[key]) ALL_PARTS[key] = {{ pid: parseInt(pid), cases: {{}} }};
+    ALL_PARTS[key].cases[caseLabel] = pdata;
+  }}
+}}
+const CASE_LABELS = RESULTS.map(r => r.label || (r.metadata || {{}}).project_name || '?');
+
+let _partFilterKeywords = [];
+
+function partMatchesFilter(partName) {{
+  if (_partFilterKeywords.length === 0) return true;
+  const lower = partName.toLowerCase();
+  return _partFilterKeywords.some(kw => lower.includes(kw));
+}}
+
+function getFilteredParts() {{
+  const sortField = document.getElementById('part-sort-field').value;
+  let entries = Object.entries(ALL_PARTS).filter(([name]) => partMatchesFilter(name));
+
+  // Sort by max value across all cases
+  entries.sort((a, b) => {{
+    const aMax = Math.max(...Object.values(a[1].cases).map(c => c[sortField] || 0));
+    const bMax = Math.max(...Object.values(b[1].cases).map(c => c[sortField] || 0));
+    return bMax - aMax;
+  }});
+  return entries;
+}}
+
+function valClass(pdata, field) {{
+  if (!pdata) return '';
+  if (field === 'peak_stress') {{
+    if (pdata.stress_warning === 'OVER') return 'val-danger';
+    if (pdata.stress_ratio && pdata.stress_ratio > 0.85) return 'val-warn';
+    return 'val-stress';
+  }}
+  if (field === 'peak_strain') {{
+    if (pdata.strain_warning === 'OVER') return 'val-danger';
+    if (pdata.strain_ratio && pdata.strain_ratio > 0.85) return 'val-warn';
+    return 'val-strain';
+  }}
+  return 'val-disp';
+}}
+
+function fmtVal(v, field) {{
+  if (v == null || v === 0) return '—';
+  if (field === 'peak_strain') return Number(v).toFixed(4);
+  return Number(v).toFixed(2);
+}}
+
+function renderPartComparison() {{
+  const metric = document.getElementById('part-metric-select').value;
+  const parts = getFilteredParts();
+
+  // Table header: Part Name | Case1 | Case2 | ... | Max
+  const thead = document.getElementById('part-thead');
+  thead.innerHTML = `<tr>
+    <th style="min-width:160px">파트</th>
+    ${{CASE_LABELS.map(c => `<th style="min-width:90px">${{c}}</th>`).join('')}}
+    <th style="min-width:80px">최대</th>
+  </tr>`;
+
+  const tbody = document.getElementById('part-tbody');
+  if (!parts.length) {{
+    tbody.innerHTML = '<tr><td colspan="100" class="empty-msg">매칭되는 파트 없음</td></tr>';
+    renderPartChart([], metric);
+    return;
+  }}
+
+  tbody.innerHTML = parts.map(([name, info]) => {{
+    const vals = CASE_LABELS.map(cl => {{
+      const pd = info.cases[cl];
+      const v = pd ? pd[metric] : null;
+      return `<td class="${{valClass(pd, metric)}}">${{fmtVal(v, metric)}}</td>`;
+    }});
+    const maxVal = Math.max(...Object.values(info.cases).map(c => c[metric] || 0));
+    return `<tr>
+      <td style="font-weight:600">${{name}}</td>
+      ${{vals.join('')}}
+      <td style="font-weight:700">${{fmtVal(maxVal, metric)}}</td>
+    </tr>`;
+  }}).join('');
+
+  renderPartChart(parts, metric);
+}}
+
+function renderPartChart(parts, metric) {{
+  const labels = {{ peak_stress: '피크 응력 (MPa)', peak_strain: '피크 변형률', peak_disp_mag: '피크 변위 (mm)' }};
+  const colors = ['#4f8ef7','#7ecfff','#f5a623','#4caf6f','#e05555','#d4a0f7','#ff9cf5','#8fde7e','#ffcc00','#ff6b6b',
+                  '#6bdfff','#c78fff','#ff9e6b','#6bff9e','#ff6bdf','#9eff6b','#6b9eff','#dfff6b','#ff6b9e','#6bffdf'];
+
+  if (!parts.length) {{
+    Plotly.purge('chart-part-compare');
+    return;
+  }}
+
+  // Show top 15 parts max for readability
+  const topParts = parts.slice(0, 15);
+  const traces = topParts.map(([name, info], i) => ({{
+    type: 'bar',
+    name: name,
+    x: CASE_LABELS,
+    y: CASE_LABELS.map(cl => {{
+      const pd = info.cases[cl];
+      return pd ? (pd[metric] || 0) : 0;
+    }}),
+    marker: {{ color: colors[i % colors.length] }},
+    hovertemplate: `${{name}}<br>%{{x}}: %{{y:.3f}}<extra></extra>`,
+  }})));
+
+  Plotly.newPlot('chart-part-compare', traces, {{
+    ...PLOT_LAYOUT,
+    barmode: 'group',
+    margin: {{ l: 60, r: 20, t: 30, b: 100 }},
+    yaxis: {{ ...PLOT_LAYOUT.yaxis, title: labels[metric] || metric }},
+    legend: {{ font: {{ color: '#9ba3b5', size: 11 }}, bgcolor: 'rgba(0,0,0,0)' }},
+  }}, PLOT_CONFIG);
+}}
+
+function clearPartFilter() {{
+  document.getElementById('part-filter-input').value = '';
+  _partFilterKeywords = [];
+  renderPartComparison();
+}}
+
+// Part filter input (debounced)
+let _partFilterTimer = null;
+document.getElementById('part-filter-input').addEventListener('input', (e) => {{
+  clearTimeout(_partFilterTimer);
+  _partFilterTimer = setTimeout(() => {{
+    const raw = e.target.value.trim();
+    _partFilterKeywords = raw ? raw.split(',').map(k => k.trim().toLowerCase()).filter(k => k) : [];
+    renderPartComparison();
+  }}, 300);
+}});
+document.getElementById('part-sort-field').addEventListener('change', renderPartComparison);
+document.getElementById('part-metric-select').addEventListener('change', renderPartComparison);
 
 // Init
 applyFilter();

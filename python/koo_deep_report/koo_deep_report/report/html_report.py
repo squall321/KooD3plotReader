@@ -1527,33 +1527,91 @@ function renderGallery() {
     html += _folderHtml('overview', '전체 모델 단면', 'Overview', overviewRenders, true);
   }
 
-  // Collect section_view overview folders (section_view_x/y/z) as one group
-  const svOverviewFolders = Object.keys(groups).filter(f => /^section_view_[xyz]$/i.test(f)).sort();
-  if (svOverviewFolders.length) {
-    const svOverviewRenders = svOverviewFolders.flatMap(f => groups[f]);
-    html += _folderHtml('sv_overview', '전체 모델 단면뷰', '소프트웨어 렌더', svOverviewRenders, true);
-  }
+  // Collect section_view overview folders, grouped by field
+  // Patterns: section_view_x (legacy), section_view_von_mises_x, section_view_strain_z, etc.
+  const FIELD_LABELS = {
+    'von_mises': '응력 (Von Mises)',
+    'strain': '변형률 (Total Strain)',
+    'eps': '소성 변형률 (EPS)',
+    'displacement': '변위',
+    'pressure': '정수압',
+    'max_shear': '최대 전단응력',
+  };
 
-  // Collect section_view_part_N_axis folders, group by part N
-  const svPartMap = {};
+  const svOverviewByField = {};  // field -> [renders]
+  const svOverviewFolders = [];
   for (const folder of Object.keys(groups)) {
-    const m = folder.match(/^section_view_part_(\d+)_([xyz])$/i);
-    if (m) {
-      const pid = m[1];
-      if (!svPartMap[pid]) svPartMap[pid] = [];
-      svPartMap[pid].push(...groups[folder]);
+    // Legacy: section_view_x (no field name → von_mises)
+    const mLeg = folder.match(/^section_view_([xyz])$/i);
+    if (mLeg) {
+      const fld = 'von_mises';
+      if (!svOverviewByField[fld]) svOverviewByField[fld] = [];
+      svOverviewByField[fld].push(...groups[folder]);
+      svOverviewFolders.push(folder);
+      continue;
+    }
+    // New: section_view_{field}_{axis}
+    const mNew = folder.match(/^section_view_([a-z_]+)_([xyz])$/i);
+    if (mNew && !folder.match(/^section_view_part_/)) {
+      const fld = mNew[1];
+      if (!svOverviewByField[fld]) svOverviewByField[fld] = [];
+      svOverviewByField[fld].push(...groups[folder]);
+      svOverviewFolders.push(folder);
     }
   }
-  const svPartIds = Object.keys(svPartMap).map(Number).sort((a,b) => a-b);
-  for (const pid of svPartIds) {
-    const pname = nameMap['part_' + pid] ? ' — ' + nameMap['part_' + pid] : '';
-    html += _folderHtml(`sv_part_${pid}`, `Part ${pid}${pname}`, 'X · Y · Z 단면뷰', svPartMap[pid], false);
+  const fieldOrder = ['von_mises', 'strain', 'eps', 'displacement', 'pressure', 'max_shear'];
+  const sortedFields = Object.keys(svOverviewByField).sort((a, b) =>
+    (fieldOrder.indexOf(a) === -1 ? 99 : fieldOrder.indexOf(a)) -
+    (fieldOrder.indexOf(b) === -1 ? 99 : fieldOrder.indexOf(b))
+  );
+  for (const fld of sortedFields) {
+    const label = FIELD_LABELS[fld] || fld;
+    const isFirst = fld === sortedFields[0];
+    html += _folderHtml(`sv_${fld}`, `단면뷰 — ${label}`, '소프트웨어 렌더', svOverviewByField[fld], isFirst);
+  }
+
+  // Collect section_view_part folders, grouped by field then part
+  // Patterns: section_view_part_N_axis (legacy), section_view_{field}_part_N_axis (new)
+  const svPartByFieldPart = {};  // "field|pid" -> [renders]
+  for (const folder of Object.keys(groups)) {
+    const mLeg = folder.match(/^section_view_part_(\d+)_([xyz])$/i);
+    if (mLeg) {
+      const key = `von_mises|${mLeg[1]}`;
+      if (!svPartByFieldPart[key]) svPartByFieldPart[key] = [];
+      svPartByFieldPart[key].push(...groups[folder]);
+      svOverviewFolders.push(folder);
+      continue;
+    }
+    const mNew = folder.match(/^section_view_([a-z_]+)_part_(\d+)_([xyz])$/i);
+    if (mNew) {
+      const key = `${mNew[1]}|${mNew[2]}`;
+      if (!svPartByFieldPart[key]) svPartByFieldPart[key] = [];
+      svPartByFieldPart[key].push(...groups[folder]);
+      svOverviewFolders.push(folder);
+    }
+  }
+  // Group by field, then by part
+  const svPartFields = [...new Set(Object.keys(svPartByFieldPart).map(k => k.split('|')[0]))];
+  svPartFields.sort((a, b) =>
+    (fieldOrder.indexOf(a) === -1 ? 99 : fieldOrder.indexOf(a)) -
+    (fieldOrder.indexOf(b) === -1 ? 99 : fieldOrder.indexOf(b))
+  );
+  for (const fld of svPartFields) {
+    const label = FIELD_LABELS[fld] || fld;
+    const partKeys = Object.keys(svPartByFieldPart)
+      .filter(k => k.startsWith(fld + '|'))
+      .map(k => parseInt(k.split('|')[1]))
+      .sort((a, b) => a - b);
+    for (const pid of partKeys) {
+      const pname = nameMap['part_' + pid] ? ' — ' + nameMap['part_' + pid] : '';
+      html += _folderHtml(`sv_${fld}_part_${pid}`, `Part ${pid}${pname}`, `${label} 단면뷰`, svPartByFieldPart[`${fld}|${pid}`], false);
+    }
   }
 
   // Remaining folders (LSPrePost part renders, unknown)
   const handled = new Set([
     ...svOverviewFolders,
-    ...Object.keys(groups).filter(f => /^section_view_part_/.test(f)),
+    ...Object.keys(groups).filter(f => /^section_view_part_/.test(f) || /^section_view_[a-z_]+_part_/.test(f)),
   ]);
   const folderKeys = Object.keys(groups).filter(f => !handled.has(f)).sort();
   for (const folder of folderKeys) {
