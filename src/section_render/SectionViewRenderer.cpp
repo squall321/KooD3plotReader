@@ -29,6 +29,12 @@
 #include <sstream>
 #include <stdexcept>
 
+// MSVC uses _popen/_pclose instead of popen/pclose
+#ifdef _WIN32
+#define popen  _popen
+#define pclose _pclose
+#endif
+
 namespace fs = std::filesystem;
 
 namespace kood3plot {

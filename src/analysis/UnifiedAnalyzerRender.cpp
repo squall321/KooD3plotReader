@@ -20,7 +20,25 @@
 #include <optional>
 #include <set>
 #include <thread>
+
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
 #include <unistd.h>
+#endif
+
+namespace {
+std::string tmpDir() {
+#ifdef _WIN32
+    const char* t = std::getenv("TEMP");
+    if (!t) t = std::getenv("TMP");
+    return t ? std::string(t) : "C:\\Temp";
+#else
+    return "/tmp";
+#endif
+}
+} // anon
 
 #ifdef KOOD3PLOT_HAS_RENDER
 #include "kood3plot/render/LSPrePostRenderer.h"
@@ -124,7 +142,7 @@ static std::optional<PixelBBox> detectModelPixelBBox(const std::string& video_pa
     namespace fs = std::filesystem;
 
     // Extract first frame as PPM (simple binary format, easy to parse)
-    std::string tmp_ppm = "/tmp/kood3plot_detect_" + std::to_string(getpid()) + ".ppm";
+    std::string tmp_ppm = tmpDir() + "/kood3plot_detect_" + std::to_string(getpid()) + ".ppm";
     {
         std::ostringstream cmd;
         cmd << "ffmpeg -y -i \"" << video_path << "\" -vframes 1 \""
@@ -214,7 +232,7 @@ static std::optional<PixelBBox> detectFringePixelBBox(const std::string& video_p
 
     // Extract a frame at ~10% into the animation (not first frame which may be undeformed)
     static std::atomic<int> s_fringe_counter{0};
-    std::string tmp_ppm = "/tmp/kood3plot_fringe_" + std::to_string(getpid()) + "_" +
+    std::string tmp_ppm = tmpDir() + "/kood3plot_fringe_" + std::to_string(getpid()) + "_" +
                           std::to_string(s_fringe_counter.fetch_add(1)) + ".ppm";
     {
         std::ostringstream cmd;
