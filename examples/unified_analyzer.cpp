@@ -20,6 +20,8 @@
 #include <filesystem>
 #include <iomanip>
 #include <chrono>
+#include <ctime>
+#include <sstream>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -667,7 +669,62 @@ void printSummary(const ExtendedAnalysisResult& result, const UnifiedConfig& con
     std::cout << "=============================================================\n";
 }
 
+// ============================================================
+// Build-time expiry check (Windows builds only)
+// ============================================================
+#ifdef _WIN32
+namespace {
+bool checkBuildExpiry() {
+    // __DATE__ format: "Mar 16 2026"
+    const char* build_date_str = __DATE__;
+    const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                            "Jul","Aug","Sep","Oct","Nov","Dec"};
+    char mon_str[4] = {};
+    int day = 0, year = 0;
+    std::sscanf(build_date_str, "%3s %d %d", mon_str, &day, &year);
+    int mon = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (std::strncmp(mon_str, months[i], 3) == 0) { mon = i; break; }
+    }
+
+    // Build date as time_t
+    std::tm build_tm = {};
+    build_tm.tm_year = year - 1900;
+    build_tm.tm_mon  = mon;
+    build_tm.tm_mday = day;
+    std::time_t build_time = std::mktime(&build_tm);
+
+    // Expiry = build_time + 365 days
+    std::time_t expiry_time = build_time + 365 * 24 * 3600;
+    std::time_t now = std::time(nullptr);
+
+    if (now > expiry_time) {
+        std::tm* exp_tm = std::localtime(&expiry_time);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d", exp_tm);
+        std::cerr << "=============================================================\n"
+                  << " This build has expired on " << buf << ".\n"
+                  << " Please obtain an updated build.\n"
+                  << " Build date: " << build_date_str << "\n"
+                  << "=============================================================\n";
+        return false;
+    }
+
+    // Show remaining days as info
+    int remaining = static_cast<int>((expiry_time - now) / (24 * 3600));
+    if (remaining <= 30) {
+        std::cerr << "[WARNING] This build expires in " << remaining << " day(s).\n";
+    }
+    return true;
+}
+} // anon
+#endif
+
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    if (!checkBuildExpiry()) return 1;
+#endif
+
     // Parse command line arguments
     std::string config_file;
     std::string recursive_dir;
