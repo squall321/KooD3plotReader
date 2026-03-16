@@ -1,21 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for koo_deep_report GUI executable."""
-
-import sys
-from pathlib import Path
+"""PyInstaller spec for koo_deep_report CLI-only executable (no GUI deps)."""
 
 block_cipher = None
-
-# Collect customtkinter data files (themes, assets)
-import importlib
-ctk_path = Path(importlib.import_module("customtkinter").__file__).parent
-ctk_datas = [(str(ctk_path), "customtkinter")]
 
 a = Analysis(
     ["entry_point.py"],
     pathex=["."],
     binaries=[],
-    datas=ctk_datas,
+    datas=[],
     hiddenimports=[
         "koo_deep_report",
         "koo_deep_report.core",
@@ -30,14 +22,14 @@ a = Analysis(
         "koo_deep_report.report.models",
         "koo_deep_report.report.html_report",
         "koo_deep_report.report.batch_report",
-        "koo_deep_report.gui",
-        "koo_deep_report.gui.app",
-        "customtkinter",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["matplotlib", "numpy", "scipy", "pandas", "PIL", "cv2"],
+    excludes=[
+        "matplotlib", "numpy", "scipy", "pandas", "PIL", "cv2",
+        "customtkinter", "tkinter", "koo_deep_report.gui",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -52,11 +44,11 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="koo_deep_report_gui",
+    name="koo_deep_report",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,  # console=True so CLI mode also works; GUI launches tkinter window
+    console=True,
     icon=None,
 )

@@ -222,6 +222,51 @@ echo endlocal
 
 echo   Python package installed.
 echo   Wrapper: %PREFIX%\bin\koo_deep_report.bat
+
+REM ── PyInstaller exe builds ──
+echo.
+echo   Building standalone executables (PyInstaller)...
+
+pip install --quiet pyinstaller 2>nul
+if errorlevel 1 pip install --quiet --user pyinstaller 2>nul
+
+where pyinstaller >nul 2>&1
+if errorlevel 1 (
+    echo   [WARN] pyinstaller not found - skipping exe builds
+    goto :done_exe
+)
+
+cd /d "%PY_SRC%"
+
+REM CLI exe (lightweight, no GUI)
+echo   Building koo_deep_report CLI exe...
+pyinstaller --noconfirm --distpath "%PREFIX%\bin" koo_deep_report_cli.spec > "%BUILD_DIR%\pyinstaller_cli.log" 2>&1
+if errorlevel 1 (
+    echo   [WARN] CLI exe build failed. See %BUILD_DIR%\pyinstaller_cli.log
+) else (
+    echo   koo_deep_report.exe built.
+)
+
+REM GUI exe (with customtkinter)
+python -c "import customtkinter" 2>nul
+if errorlevel 1 (
+    echo   [WARN] customtkinter not installed - skipping GUI exe
+    echo   Install with: pip install customtkinter
+) else (
+    echo   Building koo_deep_report_gui exe...
+    pyinstaller --noconfirm --distpath "%PREFIX%\bin" koo_deep_report.spec > "%BUILD_DIR%\pyinstaller_gui.log" 2>&1
+    if errorlevel 1 (
+        echo   [WARN] GUI exe build failed. See %BUILD_DIR%\pyinstaller_gui.log
+    ) else (
+        echo   koo_deep_report_gui.exe built.
+    )
+)
+
+REM Clean PyInstaller temp
+if exist "%PY_SRC%\build" rmdir /s /q "%PY_SRC%\build"
+
+:done_exe
+cd /d "%SCRIPT_DIR%"
 echo.
 goto :done_py
 
@@ -279,8 +324,18 @@ if exist "%PREFIX%\bin\unified_analyzer.exe" (
     echo.
 )
 if exist "%PREFIX%\bin\koo_deep_report.bat" (
-    echo   Python CLI:
+    echo   Python CLI (wrapper^):
     echo     %PREFIX%\bin\koo_deep_report.bat
+    echo.
+)
+if exist "%PREFIX%\bin\koo_deep_report.exe" (
+    echo   Standalone CLI exe:
+    echo     %PREFIX%\bin\koo_deep_report.exe
+    echo.
+)
+if exist "%PREFIX%\bin\koo_deep_report_gui.exe" (
+    echo   GUI exe:
+    echo     %PREFIX%\bin\koo_deep_report_gui.exe
     echo.
 )
 echo   Quick start:

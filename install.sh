@@ -192,6 +192,45 @@ WRAPPER
     chmod +x "${PREFIX}/bin/koo_deep_report"
 
     ok "koo_deep_report CLI wrapper created"
+
+    # ── PyInstaller exe builds ──
+    if command -v pip3 &>/dev/null || command -v pip &>/dev/null; then
+        PIP_CMD=$(command -v pip3 || command -v pip)
+
+        log "Building standalone executables (PyInstaller)..."
+        $PIP_CMD install --quiet pyinstaller 2>/dev/null || $PIP_CMD install --quiet --user pyinstaller 2>/dev/null || true
+
+        if command -v pyinstaller &>/dev/null; then
+            cd "${PY_SRC}"
+
+            # CLI exe (lightweight, no GUI dependencies)
+            log "  Building koo_deep_report CLI exe..."
+            pyinstaller --noconfirm --distpath "${PREFIX}/bin" koo_deep_report_cli.spec > /tmp/pyinstaller_cli.log 2>&1 \
+                && ok "koo_deep_report CLI exe built" \
+                || warn "CLI exe build failed (see /tmp/pyinstaller_cli.log)"
+
+            # GUI exe (with customtkinter)
+            if python3 -c "import customtkinter" 2>/dev/null; then
+                log "  Building koo_deep_report_gui exe..."
+                pyinstaller --noconfirm --distpath "${PREFIX}/bin" koo_deep_report.spec > /tmp/pyinstaller_gui.log 2>&1 \
+                    && ok "koo_deep_report_gui exe built" \
+                    || warn "GUI exe build failed (see /tmp/pyinstaller_gui.log)"
+            else
+                warn "customtkinter not installed — skipping GUI exe"
+                warn "Install with: pip install customtkinter"
+            fi
+
+            # Clean PyInstaller temp
+            rm -rf "${PY_SRC}/build" "${PY_SRC}/__pycache__"
+
+            cd "${SCRIPT_DIR}"
+        else
+            warn "pyinstaller not found — skipping exe builds"
+        fi
+    else
+        warn "pip not found — skipping exe builds"
+    fi
+
     echo ""
 fi
 
@@ -276,8 +315,22 @@ fi
 
 if [ -f "${PREFIX}/bin/koo_deep_report" ]; then
     echo ""
-    echo "  Python CLI:"
+    echo "  Python CLI (wrapper):"
     echo "    ${PREFIX}/bin/koo_deep_report"
+fi
+
+if [ -f "${PREFIX}/bin/koo_deep_report" ] && file "${PREFIX}/bin/koo_deep_report" | grep -q ELF 2>/dev/null; then
+    EXE_SIZE=$(du -sh "${PREFIX}/bin/koo_deep_report" | cut -f1)
+    echo ""
+    echo "  Standalone CLI exe:"
+    echo "    ${PREFIX}/bin/koo_deep_report (${EXE_SIZE})"
+fi
+
+if [ -f "${PREFIX}/bin/koo_deep_report_gui" ]; then
+    GUI_SIZE=$(du -sh "${PREFIX}/bin/koo_deep_report_gui" | cut -f1)
+    echo ""
+    echo "  GUI exe:"
+    echo "    ${PREFIX}/bin/koo_deep_report_gui (${GUI_SIZE})"
 fi
 
 echo ""

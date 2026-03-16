@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -27,7 +28,18 @@ def find_unified_analyzer(install_dir: Path | None = None) -> Path | None:
             if cand.exists():
                 return cand
 
-    # 1) 패키지와 함께 배포된 bin/ 디렉토리
+    # 1) PyInstaller frozen exe: same directory as the executable
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).resolve().parent
+        cand = exe_dir / exe
+        if cand.exists():
+            return cand
+        # Also check parent/bin/ in case exe is in a subdirectory
+        cand = exe_dir.parent / "bin" / exe
+        if cand.exists():
+            return cand
+
+    # 2) 패키지와 함께 배포된 bin/ 디렉토리
     pkg_dir = Path(__file__).resolve().parent.parent.parent.parent  # koo_deep_report/ root
     for rel in [
         Path("bin") / exe,                              # 배포 패키지: bin/unified_analyzer
