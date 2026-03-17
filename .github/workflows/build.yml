@@ -65,35 +65,27 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --build-config Release --output-on-failure --timeout 120
 
-      - name: Build single_analyzer executable (PyInstaller)
+      - name: Build koo_deep_report CLI exe (PyInstaller)
         shell: bash
         run: |
-          pip install pyinstaller customtkinter
-          cd python/single_analyzer
-          pyinstaller single_analyzer.spec --noconfirm 2>&1 || {
-            echo "::warning::PyInstaller failed (likely missing tkinter). Retrying without GUI..."
-            # Retry with tkinter excluded
-            pyinstaller entry_point.py \
-              --onefile --name single_analyzer --noconfirm \
-              --exclude-module tkinter \
-              --exclude-module _tkinter \
-              --exclude-module customtkinter \
-              --exclude-module matplotlib \
-              --exclude-module numpy \
-              --exclude-module scipy \
-              --hidden-import single_analyzer \
-              --hidden-import single_analyzer.core.sim_detector \
-              --hidden-import single_analyzer.core.glstat_reader \
-              --hidden-import single_analyzer.core.d3plot_reader \
-              --hidden-import single_analyzer.core.binout_reader \
-              --hidden-import single_analyzer.core.keyword_parser \
-              --hidden-import single_analyzer.render.job_builder \
-              --hidden-import single_analyzer.report.models \
-              --hidden-import single_analyzer.report.html_report \
-              --hidden-import single_analyzer.report.batch_report
+          pip install pyinstaller
+          cd python/koo_deep_report
+          pyinstaller koo_deep_report_cli.spec --noconfirm 2>&1 || {
+            echo "::warning::PyInstaller CLI build failed"
           }
           echo "PyInstaller output:"
-          ls -lh dist/
+          ls -lh dist/ 2>/dev/null || echo "(no dist output)"
+
+      - name: Build koo_deep_report GUI exe (PyInstaller)
+        shell: bash
+        run: |
+          pip install customtkinter
+          cd python/koo_deep_report
+          pyinstaller koo_deep_report.spec --noconfirm 2>&1 || {
+            echo "::warning::PyInstaller GUI build failed (likely missing tkinter)"
+          }
+          echo "PyInstaller GUI output:"
+          ls -lh dist/ 2>/dev/null || echo "(no dist output)"
 
       - name: Package distribution
         shell: bash
@@ -113,27 +105,31 @@ jobs:
             done
           fi
 
-          # PyInstaller-built single_analyzer executable
+          # PyInstaller-built koo_deep_report executables
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp python/single_analyzer/dist/single_analyzer.exe "${DIST}/bin/"
+            [ -f "python/koo_deep_report/dist/koo_deep_report.exe" ] && \
+              cp python/koo_deep_report/dist/koo_deep_report.exe "${DIST}/bin/"
+            [ -f "python/koo_deep_report/dist/koo_deep_report_gui.exe" ] && \
+              cp python/koo_deep_report/dist/koo_deep_report_gui.exe "${DIST}/bin/"
           else
-            cp python/single_analyzer/dist/single_analyzer "${DIST}/bin/"
+            [ -f "python/koo_deep_report/dist/koo_deep_report" ] && \
+              cp python/koo_deep_report/dist/koo_deep_report "${DIST}/bin/"
+            [ -f "python/koo_deep_report/dist/koo_deep_report_gui" ] && \
+              cp python/koo_deep_report/dist/koo_deep_report_gui "${DIST}/bin/"
           fi
 
           # Python source (fallback for users who prefer python -m)
-          mkdir -p "${DIST}/python_single_analyzer"
-          cp -r python/single_analyzer/single_analyzer "${DIST}/python_single_analyzer/"
-          cp python/single_analyzer/entry_point.py "${DIST}/python_single_analyzer/" 2>/dev/null || true
-          cp python/single_analyzer/single_analyzer.spec "${DIST}/python_single_analyzer/" 2>/dev/null || true
+          mkdir -p "${DIST}/python/koo_deep_report"
+          cp -r python/koo_deep_report/koo_deep_report "${DIST}/python/koo_deep_report/"
+          cp python/koo_deep_report/entry_point.py "${DIST}/python/koo_deep_report/" 2>/dev/null || true
+          cp python/koo_deep_report/pyproject.toml "${DIST}/python/koo_deep_report/" 2>/dev/null || true
 
           # Config / YAML examples
-          cp -r config "${DIST}/config"
+          [ -d config ] && cp -r config "${DIST}/config"
 
-          # Scripts
-          mkdir -p "${DIST}/scripts"
-          cp scripts/analyze_and_report.sh "${DIST}/scripts/" 2>/dev/null || true
-          cp scripts/copy_dependencies.bat "${DIST}/scripts/" 2>/dev/null || true
-          cp scripts/copy_dependencies.sh  "${DIST}/scripts/" 2>/dev/null || true
+          # Install scripts
+          cp install.sh "${DIST}/" 2>/dev/null || true
+          cp install.bat "${DIST}/" 2>/dev/null || true
 
           echo "Distribution contents:"
           find "${DIST}" -type f | head -50 || true
