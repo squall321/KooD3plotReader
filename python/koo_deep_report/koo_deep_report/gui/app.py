@@ -1061,15 +1061,17 @@ class SingleAnalyzerApp(ctk.CTk):
             self._toggle_all_parts(True)
             return
 
-        import fnmatch
         matched = 0
+        self._sync_pending = True  # block debounced syncs during batch update
 
         for pid, (var, part_name) in self._part_checkboxes.items():
             if self._matches_filter(pid, part_name, filter_str):
                 var.set(True)
                 matched += 1
 
-        self._update_parts_count_label()
+        # Single sync after all changes
+        self._sync_pending = False
+        self._do_sync()
 
         if matched == 0:
             messagebox.showinfo("Filter", f"'{filter_str}'에 해당하는 파트가 없습니다.")
@@ -1134,37 +1136,52 @@ class SingleAnalyzerApp(ctk.CTk):
         start = self._parts_batch_idx
         end = min(start + BATCH, len(parts))
 
+        # Shared font (avoid creating new CTkFont per checkbox)
+        if not hasattr(self, '_parts_font'):
+            self._parts_font = ctk.CTkFont(size=12)
+
         for i in range(start, end):
             pid, part_name, label, is_selected = parts[i]
             var = ctk.BooleanVar(value=is_selected)
             self._part_checkboxes[pid] = (var, part_name)
-            ctk.CTkCheckBox(scroll, text=label, variable=var,
-                           font=ctk.CTkFont(size=12)).pack(anchor="w", pady=1)
+            cb = ctk.CTkCheckBox(scroll, text=label, variable=var, font=self._parts_font)
+            cb.pack(anchor="w", pady=1)
 
         self._parts_batch_idx = end
         if end < len(parts):
-            # Schedule next batch after UI processes events
             self.after(10, self._add_parts_batch)
         else:
-            # All done — now add trace callbacks (deferred to avoid N^2 updates during creation)
+            # All done — use debounced sync instead of per-checkbox trace
+            self._sync_pending = False
             for pid, (var, _) in self._part_checkboxes.items():
-                var.trace_add("write", lambda *_: self._sync_parts_from_checkboxes())
+                var.trace_add("write", lambda *_: self._schedule_sync())
+            self._update_parts_count_label()
 
-    def _toggle_all_parts(self, state: bool) -> None:
-        for var, _ in self._part_checkboxes.values():
-            var.set(state)
-        self._update_parts_count_label()
+    def _schedule_sync(self) -> None:
+        """Debounce checkbox changes — sync once after all changes settle."""
+        if not self._sync_pending:
+            self._sync_pending = True
+            self.after(100, self._do_sync)
 
-    def _sync_parts_from_checkboxes(self) -> None:
-        """Update Part IDs field from checked parts."""
+    def _do_sync(self) -> None:
+        """Actually sync Part IDs field from checkboxes (debounced)."""
+        self._sync_pending = False
         selected = [str(pid) for pid, (var, _) in self._part_checkboxes.items() if var.get()]
         all_checked = len(selected) == len(self._part_checkboxes)
-        # If all selected, leave empty (= all parts)
-        if all_checked:
+        if all_checked or not selected:
             self.var_parts.set("")
         else:
             self.var_parts.set(", ".join(selected))
         self._update_parts_count_label()
+
+    def _toggle_all_parts(self, state: bool) -> None:
+        # Temporarily remove traces to avoid N callbacks
+        self._sync_pending = True  # block scheduled syncs
+        for var, _ in self._part_checkboxes.values():
+            var.set(state)
+        # Single sync after all changes
+        self._sync_pending = False
+        self._do_sync()
 
     # ── Run analysis ──────────────────────────────────────────────────
 
@@ -1264,19 +1281,36 @@ class SingleAnalyzerApp(ctk.CTk):
             self._running = False
             self.after(0, lambda: self.btn_run.configure(state="normal", text="   Run Analysis   "))
 
-    # ── Logging ───────────────────────────────────────────────────────
+    # ── Logging (batched to prevent UI freeze) ────────────────────────
 
     def _log(self, msg: str) -> None:
-        def _append():
-            self.log_text.configure(state="normal")
-            self.log_text.insert("end", msg + "\n")
-            self.log_text.see("end")
-            self.log_text.configure(state="disabled")
+        if not hasattr(self, '_log_buffer'):
+            self._log_buffer: list[str] = []
+            self._log_flush_pending = False
+
+        self._log_buffer.append(msg)
 
         if threading.current_thread() is threading.main_thread():
-            _append()
-        else:
-            self.after(0, _append)
+            self._flush_log()
+        elif not self._log_flush_pending:
+            self._log_flush_pending = True
+            self.after(50, self._flush_log)  # batch: flush every 50ms max
+
+    def _flush_log(self) -> None:
+        """Flush buffered log lines to the text widget in one batch."""
+        self._log_flush_pending = False
+        if not self._log_buffer:
+            return
+        text = "\n".join(self._log_buffer) + "\n"
+        self._log_buffer.clear()
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", text)
+        # Keep only last 2000 lines to prevent memory bloat
+        line_count = int(self.log_text.index("end-1c").split(".")[0])
+        if line_count > 2000:
+            self.log_text.delete("1.0", f"{line_count - 2000}.0")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
 
 
 # ---------------------------------------------------------------------------
