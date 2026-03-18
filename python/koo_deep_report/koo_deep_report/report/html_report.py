@@ -474,6 +474,29 @@ a { color: var(--accent2); }
 .sf-warn { color: var(--warn); }
 .sf-fail { color: var(--err); }
 
+/* Section view config panel */
+.sv-config { background: var(--card); border: 1px solid var(--accent2); border-radius: var(--radius);
+             padding: 16px; margin-bottom: 20px; }
+.sv-config-title { font-size: 0.95rem; font-weight: 600; color: var(--accent2); margin-bottom: 12px; }
+.sv-config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.sv-field { display: flex; flex-direction: column; gap: 4px; }
+.sv-field label { font-size: 0.78rem; color: var(--fg2); text-transform: uppercase; letter-spacing: .5px; }
+.sv-field select, .sv-field input[type="text"], .sv-field input[type="number"] {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px; font-size: 0.85rem; }
+.sv-field .sv-checkboxes { display: flex; gap: 12px; align-items: center; }
+.sv-field .sv-checkboxes label { text-transform: none; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.sv-actions { display: flex; gap: 10px; margin-top: 14px; }
+.sv-actions button { padding: 7px 16px; border-radius: 4px; border: 1px solid var(--border);
+                     cursor: pointer; font-size: 0.83rem; font-weight: 500; }
+.sv-btn-primary { background: var(--accent2); color: #1a1b26; border-color: var(--accent2) !important; }
+.sv-btn-primary:hover { opacity: .85; }
+.sv-btn-secondary { background: var(--bg); color: var(--fg2); }
+.sv-btn-secondary:hover { background: var(--bg2); color: var(--fg); }
+.sv-output { background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+             padding: 10px; margin-top: 10px; font-family: monospace; font-size: 0.8rem;
+             color: var(--fg2); white-space: pre-wrap; display: none; max-height: 200px; overflow-y: auto; }
+
 @media (max-width: 600px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .content { padding: 12px; }
@@ -1499,9 +1522,159 @@ function _folderHtml(folderId, title, subtitle, renders, openByDefault) {
   </div>`;
 }
 
+function _svConfigPanel() {
+  const partIds = DATA.parts ? Object.keys(DATA.parts).sort((a,b) => +a - +b) : [];
+  const partOpts = partIds.map(pid => {
+    const p = DATA.parts[pid];
+    const nm = p && p.name ? ` (${p.name})` : '';
+    return `<option value="${pid}">Part ${pid}${nm}</option>`;
+  }).join('');
+
+  return `
+<div class="sv-config">
+  <div class="sv-config-title">단면뷰 렌더 설정</div>
+  <div class="sv-config-grid">
+    <div class="sv-field">
+      <label>뷰 모드</label>
+      <select id="sv-mode">
+        <option value="section" selected>section (2D 단면)</option>
+        <option value="section_3d">section_3d (3D 반절단)</option>
+      </select>
+    </div>
+    <div class="sv-field">
+      <label>축</label>
+      <div class="sv-checkboxes">
+        <label><input type="checkbox" id="sv-ax-x" checked> X</label>
+        <label><input type="checkbox" id="sv-ax-y" checked> Y</label>
+        <label><input type="checkbox" id="sv-ax-z" checked> Z</label>
+      </div>
+    </div>
+    <div class="sv-field">
+      <label>스칼라 필드</label>
+      <select id="sv-field" multiple size="3" style="min-height:70px">
+        <option value="von_mises" selected>Von Mises 응력</option>
+        <option value="strain" selected>변형률 (Total Strain)</option>
+        <option value="eps">소성 변형률 (EPS)</option>
+        <option value="displacement">변위</option>
+        <option value="pressure">정수압</option>
+        <option value="max_shear">최대 전단응력</option>
+      </select>
+    </div>
+    <div class="sv-field">
+      <label>타겟 파트</label>
+      <select id="sv-target-parts" multiple size="4" style="min-height:80px">
+        ${partOpts}
+      </select>
+      <span style="font-size:0.72rem;color:var(--fg2)">미선택 = 전체</span>
+    </div>
+    <div class="sv-field">
+      <label>Fade 거리</label>
+      <input type="number" id="sv-fade" value="0.0" step="0.1" min="0" style="width:100px">
+      <span style="font-size:0.72rem;color:var(--fg2)">0 = 단색, >0 = 거리별 반투명</span>
+    </div>
+    <div class="sv-field">
+      <label>파트별 단면</label>
+      <div class="sv-checkboxes">
+        <label><input type="checkbox" id="sv-per-part"> 활성화</label>
+      </div>
+    </div>
+  </div>
+  <div class="sv-actions">
+    <button class="sv-btn-primary" onclick="svGenCli()">CLI 명령 생성</button>
+    <button class="sv-btn-secondary" onclick="svGenYaml()">YAML 생성</button>
+    <button class="sv-btn-secondary" onclick="svCopyOutput()">복사</button>
+  </div>
+  <pre class="sv-output" id="sv-output"></pre>
+</div>`;
+}
+
+function svGenCli() {
+  const mode = document.getElementById('sv-mode').value;
+  const axes = ['x','y','z'].filter(a => document.getElementById('sv-ax-'+a).checked);
+  const fields = [...document.getElementById('sv-field').selectedOptions].map(o => o.value);
+  const targets = [...document.getElementById('sv-target-parts').selectedOptions].map(o => o.value);
+  const fade = parseFloat(document.getElementById('sv-fade').value) || 0;
+  const perPart = document.getElementById('sv-per-part').checked;
+
+  let cmd = 'python3 -m koo_deep_report <d3plot_path> --section-view';
+  cmd += ` --section-view-mode ${mode}`;
+  if (axes.length < 3) cmd += ` --section-view-axes ${axes.join(' ')}`;
+  if (fields.length) cmd += ` --section-view-fields ${fields.join(' ')}`;
+  if (targets.length) cmd += ` --section-view-target-ids ${targets.join(' ')}`;
+  if (fade > 0) cmd += ` --section-view-fade ${fade}`;
+  if (perPart) cmd += ' --section-view-per-part';
+
+  const out = document.getElementById('sv-output');
+  out.textContent = cmd;
+  out.style.display = 'block';
+}
+
+function svGenYaml() {
+  const mode = document.getElementById('sv-mode').value;
+  const axes = ['x','y','z'].filter(a => document.getElementById('sv-ax-'+a).checked);
+  const fields = [...document.getElementById('sv-field').selectedOptions].map(o => o.value);
+  const targets = [...document.getElementById('sv-target-parts').selectedOptions].map(o => o.value);
+  const fade = parseFloat(document.getElementById('sv-fade').value) || 0;
+  const perPart = document.getElementById('sv-per-part').checked;
+
+  let yaml = 'section_views:\n';
+  for (const fld of fields) {
+    for (const ax of axes) {
+      yaml += `  - name: "section_view_${fld}_${ax}"\n`;
+      yaml += `    view_mode: ${mode}\n`;
+      yaml += `    plane:\n      axis: ${ax}\n`;
+      yaml += '    auto_center: true\n    auto_slab: true\n';
+      if (targets.length) yaml += `    target_parts:\n      ids: [${targets.join(', ')}]\n`;
+      yaml += `    field: ${fld}\n`;
+      yaml += '    colormap: fringe\n    global_range: true\n';
+      if (fade > 0) yaml += `    target_fade_distance: ${fade}\n`;
+      yaml += '    supersampling: 2\n';
+      yaml += '    output:\n      width: 1280\n      height: 720\n';
+      yaml += '      png_frames: true\n      mp4: true\n      fps: 24\n';
+      yaml += `      output_dir: "renders/section_view_${fld}_${ax}"\n\n`;
+    }
+  }
+  if (perPart && targets.length) {
+    for (const fld of fields) {
+      for (const pid of targets) {
+        for (const ax of axes) {
+          yaml += `  - name: "section_view_${fld}_part_${pid}_${ax}"\n`;
+          yaml += `    view_mode: ${mode}\n`;
+          yaml += `    plane:\n      axis: ${ax}\n`;
+          yaml += '    auto_center: true\n    auto_slab: true\n';
+          yaml += `    target_parts:\n      ids: [${pid}]\n`;
+          yaml += `    field: ${fld}\n`;
+          yaml += '    colormap: fringe\n    global_range: true\n';
+          yaml += '    supersampling: 2\n';
+          yaml += '    output:\n      width: 1280\n      height: 720\n';
+          yaml += '      png_frames: true\n      mp4: true\n      fps: 24\n';
+          yaml += `      output_dir: "renders/section_view_${fld}_part_${pid}_${ax}"\n\n`;
+        }
+      }
+    }
+  }
+
+  const out = document.getElementById('sv-output');
+  out.textContent = yaml;
+  out.style.display = 'block';
+}
+
+function svCopyOutput() {
+  const out = document.getElementById('sv-output');
+  if (out.textContent) {
+    navigator.clipboard.writeText(out.textContent).then(() => {
+      const btn = event.target;
+      btn.textContent = '복사됨!';
+      setTimeout(() => { btn.textContent = '복사'; }, 1500);
+    });
+  }
+}
+
 function renderGallery() {
+  let galleryHtml = _svConfigPanel();
+
   if (!DATA.renders || !DATA.renders.length) {
-    return '<div class="warn-box">렌더 파일 없음</div>';
+    return galleryHtml + '<div class="warn-box">렌더 파일 없음</div>';
   }
 
   const overviewRenders = DATA.renders.filter(r => !r.includes('/'));
@@ -1629,7 +1802,7 @@ function renderGallery() {
     html += _folderHtml(folder, title, subtitle, groups[folder], false);
   }
 
-  return html;
+  return galleryHtml + html;
 }
 
 function toggleFolder(id) {
@@ -1779,4 +1952,27 @@ function renderSysInfo() {
 <div class="sec-title">파일 목록</div>
 <div class="chart-box"><div class="file-list">${fileList}</div></div>`;
 }
+
+// ── Plotly auto-resize when charts scroll into view ──
+(function() {
+  if (!window.IntersectionObserver) return;
+  const resized = new WeakSet();
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting && !resized.has(entry.target)) {
+        resized.add(entry.target);
+        try { Plotly.Plots.resize(entry.target); } catch(e) {}
+      }
+    });
+  }, { threshold: 0.1 });
+  const _origSwitchTab = switchTab;
+  switchTab = function(tid) {
+    _origSwitchTab(tid);
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.plotly-chart, [class*="js-plotly-plot"], [id$="-chart"]').forEach(el => {
+        observer.observe(el);
+      });
+    });
+  };
+})();
 """
