@@ -232,6 +232,157 @@ class SectionCard(ctk.CTkFrame):
 
 
 # ---------------------------------------------------------------------------
+# Virtual scrolling part list (renders only visible rows)
+# ---------------------------------------------------------------------------
+class VirtualPartList(ctk.CTkFrame):
+    """A virtualized checkbox list that only renders visible rows.
+
+    Handles 1000+ parts without creating thousands of widgets.
+    Uses a plain tkinter Canvas + Scrollbar for performance.
+    """
+
+    ROW_HEIGHT = 26  # pixels per row
+
+    def __init__(self, master, height: int = 160, **kw):
+        super().__init__(master, **kw)
+
+        # Data: list of (pid, label, checked)
+        self._items: list[dict] = []  # {pid, label, checked}
+        self._font = ctk.CTkFont(size=12)
+        self._check_color = _ACCENT
+        self._on_change_cb = None  # external callback
+
+        # Canvas + scrollbar (plain tkinter for speed)
+        self._canvas = tk.Canvas(self, height=height, bg=self._get_bg(),
+                                  highlightthickness=0, borderwidth=0)
+        self._scrollbar = ctk.CTkScrollbar(self, command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+
+        self._canvas.pack(side="left", fill="both", expand=True)
+        self._scrollbar.pack(side="right", fill="y")
+
+        self._canvas.bind("<Configure>", lambda e: self._render())
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind("<Button-4>", lambda e: self._canvas.yview_scroll(-3, "units"))
+        self._canvas.bind("<Button-5>", lambda e: self._canvas.yview_scroll(3, "units"))
+        self._canvas.bind("<Button-1>", self._on_click)
+
+        # Track appearance mode for bg color
+        self._last_mode = ctk.get_appearance_mode()
+
+    def _get_bg(self) -> str:
+        return "#232323" if ctk.get_appearance_mode() == "Dark" else "#EAEAEA"
+
+    def _get_fg(self) -> str:
+        return "#DCE4EE" if ctk.get_appearance_mode() == "Dark" else "#1A1A1A"
+
+    def _get_check_bg(self) -> str:
+        return "#333333" if ctk.get_appearance_mode() == "Dark" else "#FFFFFF"
+
+    def set_items(self, items: list[dict]) -> None:
+        """Set items: list of {pid: int, label: str, checked: bool}."""
+        self._items = items
+        self._update_scroll_region()
+        self._canvas.yview_moveto(0)
+        self._render()
+
+    def set_on_change(self, cb) -> None:
+        """Set callback when selection changes: cb()."""
+        self._on_change_cb = cb
+
+    def get_checked_pids(self) -> list[int]:
+        return [item["pid"] for item in self._items if item["checked"]]
+
+    def get_all_items(self) -> list[dict]:
+        return self._items
+
+    def check_pids(self, pids: set[int]) -> None:
+        """Check given pids (accumulative)."""
+        for item in self._items:
+            if item["pid"] in pids:
+                item["checked"] = True
+        self._render()
+        if self._on_change_cb:
+            self._on_change_cb()
+
+    def set_all(self, state: bool) -> None:
+        for item in self._items:
+            item["checked"] = state
+        self._render()
+        if self._on_change_cb:
+            self._on_change_cb()
+
+    def count_checked(self) -> int:
+        return sum(1 for item in self._items if item["checked"])
+
+    def _update_scroll_region(self) -> None:
+        total_h = len(self._items) * self.ROW_HEIGHT
+        self._canvas.configure(scrollregion=(0, 0, 1, max(total_h, 1)))
+
+    def _render(self) -> None:
+        """Redraw only the visible rows."""
+        self._canvas.delete("all")
+        if not self._items:
+            return
+
+        w = self._canvas.winfo_width()
+        if w <= 1:
+            return
+
+        # Determine visible range
+        top = self._canvas.canvasy(0)
+        bottom = self._canvas.canvasy(self._canvas.winfo_height())
+
+        first = max(0, int(top // self.ROW_HEIGHT))
+        last = min(len(self._items), int(bottom // self.ROW_HEIGHT) + 1)
+
+        bg = self._get_bg()
+        fg = self._get_fg()
+        check_bg = self._get_check_bg()
+        font = (self._font.cget("family"), self._font.cget("size"))
+
+        for i in range(first, last):
+            item = self._items[i]
+            y = i * self.ROW_HEIGHT
+            cy = y + self.ROW_HEIGHT // 2
+
+            # Checkbox square
+            bx = 8
+            bs = 14  # box size
+            if item["checked"]:
+                self._canvas.create_rectangle(bx, cy - bs//2, bx + bs, cy + bs//2,
+                                               fill=self._check_color, outline=self._check_color,
+                                               tags=f"row_{i}")
+                # Checkmark
+                self._canvas.create_line(bx + 3, cy, bx + 6, cy + 4, bx + 11, cy - 4,
+                                          fill="white", width=2, tags=f"row_{i}")
+            else:
+                self._canvas.create_rectangle(bx, cy - bs//2, bx + bs, cy + bs//2,
+                                               fill=check_bg, outline="gray50",
+                                               tags=f"row_{i}")
+
+            # Label
+            self._canvas.create_text(bx + bs + 8, cy, text=item["label"],
+                                      anchor="w", fill=fg, font=font, tags=f"row_{i}")
+
+    def _on_click(self, event) -> None:
+        """Toggle checkbox on click."""
+        cy = self._canvas.canvasy(event.y)
+        idx = int(cy // self.ROW_HEIGHT)
+        if 0 <= idx < len(self._items):
+            self._items[idx]["checked"] = not self._items[idx]["checked"]
+            self._render()
+            if self._on_change_cb:
+                self._on_change_cb()
+
+    def _on_mousewheel(self, event) -> None:
+        # Windows/Mac: event.delta, Linux: Button-4/5
+        if event.delta:
+            self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
+        self._render()
+
+
+# ---------------------------------------------------------------------------
 # Main Application
 # ---------------------------------------------------------------------------
 class SingleAnalyzerApp(ctk.CTk):
@@ -342,9 +493,9 @@ class SingleAnalyzerApp(ctk.CTk):
         self.var_parts = ctk.StringVar()
         self.var_part_pattern = ctk.StringVar()
 
-        # Part picker (scrollable checkbox list — initially hidden)
+        # Part picker (virtual scrolling list — initially hidden)
         self._part_picker_frame = ctk.CTkFrame(params, fg_color="transparent")
-        self._part_checkboxes: dict[int, tuple[ctk.BooleanVar, str]] = {}  # pid → (var, name)
+        self._part_list: VirtualPartList | None = None
         self._all_parts_data: list[tuple[int, str]] = []  # (pid, part_name) — full list for filtering
 
         # Surface params
@@ -1006,18 +1157,22 @@ class SingleAnalyzerApp(ctk.CTk):
             messagebox.showinfo("Parts", "키워드 파일에서 파트 정보를 찾을 수 없습니다.")
             return
 
-        # Clear old checkboxes
+        # Clear old widgets
         for w in self._part_picker_frame.winfo_children():
             w.destroy()
-        self._part_checkboxes.clear()
 
         # Store full parts data for filtering
         mat_map = kw.materials
         self._all_parts_data = []
         sorted_pids = sorted(kw.parts)
+        items = []
         for pid in sorted_pids:
             part = kw.parts[pid]
             self._all_parts_data.append((pid, part.name or ""))
+            mat = mat_map.get(part.mid)
+            mat_label = f" ({mat.mat_type})" if mat and mat.mat_type else ""
+            label = f"Part {pid}: {part.name}{mat_label}" if part.name else f"Part {pid}{mat_label}"
+            items.append({"pid": pid, "label": label, "checked": False})
 
         # Show filter row and part picker frame
         self._filter_frame.pack(fill="x", padx=8, pady=(2, 4))
@@ -1033,50 +1188,34 @@ class SingleAnalyzerApp(ctk.CTk):
         ctk.CTkButton(hdr, text="None", width=40, height=24,
                        command=lambda: self._toggle_all_parts(False)).pack(side="left", padx=2)
 
-        # Scrollable checkbox list
-        scroll = ctk.CTkScrollableFrame(self._part_picker_frame, height=160,
-                                         fg_color=("gray92", "gray14"))
-        scroll.pack(fill="x", pady=2)
-
-        # Build all part checkboxes (all unchecked by default)
-        self._pending_parts = []
-        for pid, part_name in self._all_parts_data:
-            part = kw.parts[pid]
-            mat = mat_map.get(part.mid)
-            mat_label = f" ({mat.mat_type})" if mat and mat.mat_type else ""
-            label = f"Part {pid}: {part_name}{mat_label}" if part_name else f"Part {pid}{mat_label}"
-            self._pending_parts.append((pid, part_name, label, False))  # all unchecked
-
-        self._parts_scroll = scroll
-        self._parts_batch_idx = 0
-        self._add_parts_batch()
+        # Virtual scrolling part list (handles 1000+ parts efficiently)
+        self._part_list = VirtualPartList(self._part_picker_frame, height=200,
+                                           fg_color=("gray92", "gray14"), corner_radius=6)
+        self._part_list.pack(fill="x", pady=2)
+        self._part_list.set_items(items)
+        self._part_list.set_on_change(self._on_part_selection_changed)
 
         self._update_parts_count_label()
 
     def _add_filtered_parts(self) -> None:
         """Check parts matching the filter pattern. Accumulative — adds to existing selection."""
         filter_str = self.var_part_filter.get().strip()
-        if not filter_str or not self._part_checkboxes:
-            # No filter → check all
+        if not self._part_list:
+            return
+        if not filter_str:
             self._toggle_all_parts(True)
             return
 
-        matched = 0
-        self._sync_pending = True  # block debounced syncs during batch update
-
-        for pid, (var, part_name) in self._part_checkboxes.items():
+        matched_pids: set[int] = set()
+        for pid, part_name in self._all_parts_data:
             if self._matches_filter(pid, part_name, filter_str):
-                var.set(True)
-                matched += 1
+                matched_pids.add(pid)
 
-        # Single sync after all changes
-        self._sync_pending = False
-        self._do_sync()
-
-        if matched == 0:
+        if not matched_pids:
             messagebox.showinfo("Filter", f"'{filter_str}'에 해당하는 파트가 없습니다.")
         else:
-            self.var_part_filter.set("")  # clear filter after adding
+            self._part_list.check_pids(matched_pids)
+            self.var_part_filter.set("")
 
     def _matches_filter(self, pid: int, part_name: str, filter_str: str) -> bool:
         """Check if a part matches the filter expression.
@@ -1121,67 +1260,28 @@ class SingleAnalyzerApp(ctk.CTk):
 
     def _update_parts_count_label(self) -> None:
         """Update the selected/total parts count label."""
-        if not self._part_checkboxes:
+        if not self._part_list:
             self._lbl_parts_count.configure(text="")
             return
-        total = len(self._part_checkboxes)
-        selected = sum(1 for var, _ in self._part_checkboxes.values() if var.get())
+        total = len(self._part_list.get_all_items())
+        selected = self._part_list.count_checked()
         self._lbl_parts_count.configure(text=f"{selected}/{total} selected")
 
-    def _add_parts_batch(self) -> None:
-        """Add part checkboxes in batches of 50 to keep UI responsive."""
-        BATCH = 50
-        parts = self._pending_parts
-        scroll = self._parts_scroll
-        start = self._parts_batch_idx
-        end = min(start + BATCH, len(parts))
-
-        # Shared font (avoid creating new CTkFont per checkbox)
-        if not hasattr(self, '_parts_font'):
-            self._parts_font = ctk.CTkFont(size=12)
-
-        for i in range(start, end):
-            pid, part_name, label, is_selected = parts[i]
-            var = ctk.BooleanVar(value=is_selected)
-            self._part_checkboxes[pid] = (var, part_name)
-            cb = ctk.CTkCheckBox(scroll, text=label, variable=var, font=self._parts_font)
-            cb.pack(anchor="w", pady=1)
-
-        self._parts_batch_idx = end
-        if end < len(parts):
-            self.after(10, self._add_parts_batch)
-        else:
-            # All done — use debounced sync instead of per-checkbox trace
-            self._sync_pending = False
-            for pid, (var, _) in self._part_checkboxes.items():
-                var.trace_add("write", lambda *_: self._schedule_sync())
-            self._update_parts_count_label()
-
-    def _schedule_sync(self) -> None:
-        """Debounce checkbox changes — sync once after all changes settle."""
-        if not self._sync_pending:
-            self._sync_pending = True
-            self.after(100, self._do_sync)
-
-    def _do_sync(self) -> None:
-        """Actually sync Part IDs field from checkboxes (debounced)."""
-        self._sync_pending = False
-        selected = [str(pid) for pid, (var, _) in self._part_checkboxes.items() if var.get()]
-        all_checked = len(selected) == len(self._part_checkboxes)
-        if all_checked or not selected:
-            self.var_parts.set("")
-        else:
-            self.var_parts.set(", ".join(selected))
+    def _on_part_selection_changed(self) -> None:
+        """Called by VirtualPartList when selection changes."""
         self._update_parts_count_label()
+        # Sync var_parts for _run_analysis
+        if self._part_list:
+            checked = self._part_list.get_checked_pids()
+            total = len(self._part_list.get_all_items())
+            if len(checked) == total or len(checked) == 0:
+                self.var_parts.set("")
+            else:
+                self.var_parts.set(", ".join(str(p) for p in checked))
 
     def _toggle_all_parts(self, state: bool) -> None:
-        # Temporarily remove traces to avoid N callbacks
-        self._sync_pending = True  # block scheduled syncs
-        for var, _ in self._part_checkboxes.values():
-            var.set(state)
-        # Single sync after all changes
-        self._sync_pending = False
-        self._do_sync()
+        if self._part_list:
+            self._part_list.set_all(state)
 
     # ── Run analysis ──────────────────────────────────────────────────
 
@@ -1259,11 +1359,15 @@ class SingleAnalyzerApp(ctk.CTk):
         try:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
+                bufsize=0,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
-            for line in proc.stdout:  # type: ignore[union-attr]
-                self._log(line.rstrip("\n"))
+            for raw_line in proc.stdout:  # type: ignore[union-attr]
+                try:
+                    line = raw_line.decode("utf-8")
+                except UnicodeDecodeError:
+                    line = raw_line.decode("utf-8", errors="replace")
+                self._log(line.rstrip("\n\r"))
             proc.wait()
             rc = proc.returncode
             if rc == 0:
