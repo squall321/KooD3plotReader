@@ -309,26 +309,43 @@ class SingleAnalyzerApp(ctk.CTk):
         params = ctk.CTkFrame(sec.body, fg_color=("gray90", "gray17"), corner_radius=8)
         params.pack(fill="x", pady=4)
 
+        # Row 1: Load Parts button
         pf = ctk.CTkFrame(params, fg_color="transparent")
-        pf.pack(fill="x", padx=8, pady=6)
+        pf.pack(fill="x", padx=8, pady=(6, 2))
 
-        ctk.CTkLabel(pf, text="Part IDs:").pack(side="left")
-        self.var_parts = ctk.StringVar()
-        ctk.CTkEntry(pf, textvariable=self.var_parts, width=120,
-                     placeholder_text="e.g. 1,2,5").pack(side="left", padx=(4, 12))
-
-        ctk.CTkLabel(pf, text="Pattern:").pack(side="left")
-        self.var_part_pattern = ctk.StringVar()
-        ctk.CTkEntry(pf, textvariable=self.var_part_pattern, width=120,
-                     placeholder_text="e.g. PKG*").pack(side="left", padx=(4, 12))
-
-        self._btn_load_parts = ctk.CTkButton(pf, text="Load Parts", width=90, height=28,
+        self._btn_load_parts = ctk.CTkButton(pf, text="Load Parts", width=100, height=28,
                                               command=self._load_parts)
-        self._btn_load_parts.pack(side="left", padx=4)
+        self._btn_load_parts.pack(side="left", padx=(0, 8))
+
+        self._lbl_parts_count = ctk.CTkLabel(pf, text="", text_color="gray50")
+        self._lbl_parts_count.pack(side="left")
+
+        # Row 2: Filter + Add (initially hidden, shown after Load Parts)
+        self._filter_frame = ctk.CTkFrame(params, fg_color="transparent")
+        # Not packed yet — shown after parts are loaded
+
+        ctk.CTkLabel(self._filter_frame, text="Filter:").pack(side="left")
+        self.var_part_filter = ctk.StringVar()
+        self._entry_filter = ctk.CTkEntry(self._filter_frame, textvariable=self.var_part_filter, width=200,
+                     placeholder_text="e.g. PKG*  or  1,2,5  or  1000-10000")
+        self._entry_filter.pack(side="left", padx=(4, 8))
+        # Enter key triggers Add
+        self._entry_filter.bind("<Return>", lambda e: self._add_filtered_parts())
+
+        ctk.CTkButton(self._filter_frame, text="Add", width=50, height=28,
+                       fg_color=_GREEN, hover_color=_GREEN_HOVER,
+                       command=self._add_filtered_parts).pack(side="left", padx=2)
+        ctk.CTkButton(self._filter_frame, text="Clear", width=50, height=28,
+                       command=lambda: self._toggle_all_parts(False)).pack(side="left", padx=2)
+
+        # Hidden var for backward compat (used in _run_analysis)
+        self.var_parts = ctk.StringVar()
+        self.var_part_pattern = ctk.StringVar()
 
         # Part picker (scrollable checkbox list — initially hidden)
         self._part_picker_frame = ctk.CTkFrame(params, fg_color="transparent")
         self._part_checkboxes: dict[int, tuple[ctk.BooleanVar, str]] = {}  # pid → (var, name)
+        self._all_parts_data: list[tuple[int, str]] = []  # (pid, part_name) — full list for filtering
 
         # Surface params
         surf = ctk.CTkFrame(sec.body, fg_color="transparent")
@@ -994,10 +1011,19 @@ class SingleAnalyzerApp(ctk.CTk):
             w.destroy()
         self._part_checkboxes.clear()
 
-        # Show the frame
+        # Store full parts data for filtering
+        mat_map = kw.materials
+        self._all_parts_data = []
+        sorted_pids = sorted(kw.parts)
+        for pid in sorted_pids:
+            part = kw.parts[pid]
+            self._all_parts_data.append((pid, part.name or ""))
+
+        # Show filter row and part picker frame
+        self._filter_frame.pack(fill="x", padx=8, pady=(2, 4))
         self._part_picker_frame.pack(fill="x", padx=8, pady=(0, 6))
 
-        # Header row: Select All / Deselect All
+        # Header row: All / None
         hdr = ctk.CTkFrame(self._part_picker_frame, fg_color="transparent")
         hdr.pack(fill="x", pady=(2, 4))
         ctk.CTkLabel(hdr, text=f"Parts ({len(kw.parts)}):",
@@ -1008,35 +1034,97 @@ class SingleAnalyzerApp(ctk.CTk):
                        command=lambda: self._toggle_all_parts(False)).pack(side="left", padx=2)
 
         # Scrollable checkbox list
-        scroll = ctk.CTkScrollableFrame(self._part_picker_frame, height=120,
+        scroll = ctk.CTkScrollableFrame(self._part_picker_frame, height=160,
                                          fg_color=("gray92", "gray14"))
         scroll.pack(fill="x", pady=2)
 
-        # Pre-selected parts from Part IDs field
-        parts_str = self.var_parts.get().strip()
-        selected: set[int] = set()
-        if parts_str:
-            for x in parts_str.split(","):
-                x = x.strip()
-                if x.isdigit():
-                    selected.add(int(x))
-
-        # Get material info for display
-        mat_map = kw.materials
-
-        # Build all part data first, then create widgets in batches to avoid UI freeze
-        sorted_pids = sorted(kw.parts)
+        # Build all part checkboxes (all unchecked by default)
         self._pending_parts = []
-        for pid in sorted_pids:
+        for pid, part_name in self._all_parts_data:
             part = kw.parts[pid]
             mat = mat_map.get(part.mid)
             mat_label = f" ({mat.mat_type})" if mat and mat.mat_type else ""
-            label = f"Part {pid}: {part.name}{mat_label}" if part.name else f"Part {pid}{mat_label}"
-            self._pending_parts.append((pid, part.name, label, pid in selected if selected else True))
+            label = f"Part {pid}: {part_name}{mat_label}" if part_name else f"Part {pid}{mat_label}"
+            self._pending_parts.append((pid, part_name, label, False))  # all unchecked
 
         self._parts_scroll = scroll
         self._parts_batch_idx = 0
         self._add_parts_batch()
+
+        self._update_parts_count_label()
+
+    def _add_filtered_parts(self) -> None:
+        """Check parts matching the filter pattern. Accumulative — adds to existing selection."""
+        filter_str = self.var_part_filter.get().strip()
+        if not filter_str or not self._part_checkboxes:
+            # No filter → check all
+            self._toggle_all_parts(True)
+            return
+
+        import fnmatch
+        matched = 0
+
+        for pid, (var, part_name) in self._part_checkboxes.items():
+            if self._matches_filter(pid, part_name, filter_str):
+                var.set(True)
+                matched += 1
+
+        self._update_parts_count_label()
+
+        if matched == 0:
+            messagebox.showinfo("Filter", f"'{filter_str}'에 해당하는 파트가 없습니다.")
+        else:
+            self.var_part_filter.set("")  # clear filter after adding
+
+    def _matches_filter(self, pid: int, part_name: str, filter_str: str) -> bool:
+        """Check if a part matches the filter expression.
+
+        Supports:
+          - ID list: "1, 2, 5"
+          - ID range: "1000-10000"
+          - Name pattern: "PKG*" (glob/fnmatch style)
+          - Mixed (comma-separated): "PKG*, 1-100, 5"
+        """
+        import fnmatch
+
+        for token in filter_str.split(","):
+            token = token.strip()
+            if not token:
+                continue
+
+            # ID range: "1000-10000"
+            if "-" in token and not token.startswith("-"):
+                parts = token.split("-", 1)
+                try:
+                    lo, hi = int(parts[0].strip()), int(parts[1].strip())
+                    if lo <= pid <= hi:
+                        return True
+                    continue
+                except ValueError:
+                    pass  # not a range, try as pattern
+
+            # Single ID: "5"
+            try:
+                if pid == int(token):
+                    return True
+                continue
+            except ValueError:
+                pass
+
+            # Name pattern: "PKG*", "*HOUSING*"
+            if fnmatch.fnmatch(part_name.upper(), token.upper()):
+                return True
+
+        return False
+
+    def _update_parts_count_label(self) -> None:
+        """Update the selected/total parts count label."""
+        if not self._part_checkboxes:
+            self._lbl_parts_count.configure(text="")
+            return
+        total = len(self._part_checkboxes)
+        selected = sum(1 for var, _ in self._part_checkboxes.values() if var.get())
+        self._lbl_parts_count.configure(text=f"{selected}/{total} selected")
 
     def _add_parts_batch(self) -> None:
         """Add part checkboxes in batches of 50 to keep UI responsive."""
@@ -1065,6 +1153,7 @@ class SingleAnalyzerApp(ctk.CTk):
     def _toggle_all_parts(self, state: bool) -> None:
         for var, _ in self._part_checkboxes.values():
             var.set(state)
+        self._update_parts_count_label()
 
     def _sync_parts_from_checkboxes(self) -> None:
         """Update Part IDs field from checked parts."""
@@ -1075,6 +1164,7 @@ class SingleAnalyzerApp(ctk.CTk):
             self.var_parts.set("")
         else:
             self.var_parts.set(", ".join(selected))
+        self._update_parts_count_label()
 
     # ── Run analysis ──────────────────────────────────────────────────
 
