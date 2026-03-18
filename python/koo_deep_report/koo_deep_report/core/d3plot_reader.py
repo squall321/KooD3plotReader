@@ -161,8 +161,11 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> None:
         f.write(yaml_content)
         yaml_path = Path(f.name)
     # Keep a debug copy
-    debug_yaml = Path("/tmp/last_ua_config.yaml")
-    debug_yaml.write_text(yaml_content, encoding="utf-8")
+    debug_yaml = Path(tempfile.gettempdir()) / "last_ua_config.yaml"
+    try:
+        debug_yaml.write_text(yaml_content, encoding="utf-8")
+    except OSError:
+        pass  # best-effort debug copy
     try:
         proc = subprocess.run(
             [str(ua), "--config", str(yaml_path)],
