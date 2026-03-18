@@ -6,6 +6,10 @@
 #include <numeric>
 #include <sstream>
 #include <limits>
+#include <atomic>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace kood3plot {
 namespace analysis {
@@ -372,39 +376,125 @@ std::vector<PartTimeHistory> PartAnalyzer::analyze_with_states_progress(
         return histories;
     }
 
-    histories.resize(parts_.size());
-    size_t num_states = states.size();
+    const size_t num_parts = parts_.size();
+    const size_t num_states = states.size();
+    histories.resize(num_parts);
 
-    // Initialize all histories
-    for (size_t p = 0; p < parts_.size(); ++p) {
+    // Initialize all histories with pre-allocated storage
+    for (size_t p = 0; p < num_parts; ++p) {
         histories[p].part_id = parts_[p].part_id;
         histories[p].part_name = parts_[p].name;
-        histories[p].times.reserve(num_states);
-        histories[p].max_values.reserve(num_states);
-        histories[p].min_values.reserve(num_states);
-        histories[p].avg_values.reserve(num_states);
-        histories[p].max_elem_ids.reserve(num_states);
+        histories[p].times.resize(num_states);
+        histories[p].max_values.resize(num_states);
+        histories[p].min_values.resize(num_states);
+        histories[p].avg_values.resize(num_states);
+        histories[p].max_elem_ids.resize(num_states);
     }
 
-    // Process each state (using pre-loaded data - no file I/O!)
+    // Cache nv3d to avoid recomputation per call
+    const int nv3d = get_nv3d();
+
+    // Build direct part index → element indices mapping for fast access
+    // (avoids get_part_by_id hash lookup per state per part)
+    struct PartWork {
+        size_t part_idx;
+        const std::vector<size_t>* elem_indices;
+        size_t num_elements;
+    };
+    std::vector<PartWork> work(num_parts);
+    for (size_t p = 0; p < num_parts; ++p) {
+        work[p].part_idx = p;
+        work[p].elem_indices = &parts_[p].element_indices;
+        work[p].num_elements = parts_[p].num_elements;
+    }
+
+#ifdef _OPENMP
+    // Parallel over states — each state is independent
+    std::atomic<size_t> completed{0};
+
+    #pragma omp parallel for schedule(dynamic, 1)
+    for (int64_t s = 0; s < static_cast<int64_t>(num_states); ++s) {
+        const auto& state = states[s];
+        const auto& solid_data = state.solid_data;
+
+        for (size_t p = 0; p < num_parts; ++p) {
+            const auto& elems = *work[p].elem_indices;
+            size_t n_elems = work[p].num_elements;
+
+            double sum = 0.0;
+            double max_val = -std::numeric_limits<double>::max();
+            double min_val = std::numeric_limits<double>::max();
+            int32_t max_elem = 0;
+
+            for (size_t elem_idx : elems) {
+                size_t base = elem_idx * nv3d;
+                double val = 0.0;
+
+                if (component == StressComponent::EFF_PLASTIC) {
+                    val = (base + 6 < solid_data.size()) ? solid_data[base + 6] : 0.0;
+                } else if (component == StressComponent::VON_MISES) {
+                    if (base + 5 < solid_data.size()) {
+                        double sxx = solid_data[base + 0];
+                        double syy = solid_data[base + 1];
+                        double szz = solid_data[base + 2];
+                        double sxy = solid_data[base + 3];
+                        double syz = solid_data[base + 4];
+                        double szx = solid_data[base + 5];
+                        double d1 = sxx - syy, d2 = syy - szz, d3 = szz - sxx;
+                        val = std::sqrt(0.5 * (d1*d1 + d2*d2 + d3*d3) + 3.0 * (sxy*sxy + syz*syz + szx*szx));
+                    }
+                } else {
+                    val = extract_stress(solid_data, elem_idx, component);
+                }
+
+                sum += val;
+                if (val > max_val) {
+                    max_val = val;
+                    max_elem = mesh_.real_solid_ids.empty() ?
+                               static_cast<int32_t>(elem_idx + 1) :
+                               mesh_.real_solid_ids[elem_idx];
+                }
+                if (val < min_val) {
+                    min_val = val;
+                }
+            }
+
+            histories[p].times[s] = state.time;
+            histories[p].max_values[s] = (n_elems > 0) ? max_val : 0.0;
+            histories[p].min_values[s] = (n_elems > 0) ? min_val : 0.0;
+            histories[p].avg_values[s] = (n_elems > 0) ? sum / n_elems : 0.0;
+            histories[p].max_elem_ids[s] = max_elem;
+        }
+
+        if (callback) {
+            size_t count = ++completed;
+            if (count % 20 == 0 || count == num_states) {
+                #pragma omp critical
+                {
+                    callback(count, num_states, "Processing states (parallel)");
+                }
+            }
+        }
+    }
+#else
+    // Sequential fallback
     for (size_t s = 0; s < num_states; ++s) {
         const auto& state = states[s];
 
-        if (callback && s % 100 == 0) {
-            callback(s, num_states, "Processing state " + std::to_string(s));
+        if (callback && (s % 20 == 0 || s == num_states - 1)) {
+            callback(s + 1, num_states, "Processing state " + std::to_string(s + 1));
         }
 
-        // Analyze each part for this state
-        for (size_t p = 0; p < parts_.size(); ++p) {
+        for (size_t p = 0; p < num_parts; ++p) {
             auto stats = analyze_state(parts_[p].part_id, state, component);
-
-            histories[p].times.push_back(state.time);
-            histories[p].max_values.push_back(stats.stress_max);
-            histories[p].min_values.push_back(stats.stress_min);
-            histories[p].avg_values.push_back(stats.stress_avg);
-            histories[p].max_elem_ids.push_back(stats.max_element_id);
+            histories[p].times[s] = state.time;
+            histories[p].max_values[s] = stats.stress_max;
+            histories[p].min_values[s] = stats.stress_min;
+            histories[p].avg_values[s] = stats.stress_avg;
+            histories[p].max_elem_ids[s] = stats.max_element_id;
         }
     }
+#endif
 
     if (callback) callback(num_states, num_states, "Analysis complete");
 

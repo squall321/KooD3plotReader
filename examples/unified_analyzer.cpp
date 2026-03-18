@@ -880,7 +880,9 @@ int main(int argc, char* argv[]) {
         sv_done_in_analyze = analyzer.sectionViewsDone();
 
         // Export results
+        std::cout << "\n[EXPORT] Writing results (JSON + CSV)...\n";
         exportResults(result, config);
+        std::cout << "[EXPORT] Done.\n";
 
         auto end_time = std::chrono::high_resolution_clock::now();
         double elapsed = std::chrono::duration<double>(end_time - start_time).count();

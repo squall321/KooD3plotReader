@@ -115,53 +115,74 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         }
     }
 
-    // Process each category
-    if (!stress_jobs.empty()) {
-        if (callback) callback("Processing stress analysis jobs...");
-        processStressJobs(reader, stress_jobs, all_states, result, callback);
-    }
+    // Count total analysis steps for progress reporting
+    int total_steps = 0;
+    if (!stress_jobs.empty()) total_steps++;
+    if (!strain_jobs.empty()) total_steps++;
+    if (!motion_jobs.empty()) total_steps++;
+    if (!surface_stress_jobs.empty()) total_steps++;
+    if (!surface_strain_jobs.empty()) total_steps++;
 
-    if (!strain_jobs.empty()) {
-        if (callback) callback("Processing strain analysis jobs...");
-        processStrainJobs(reader, strain_jobs, all_states, result, callback);
-    }
-
-    if (!motion_jobs.empty()) {
-        if (callback) callback("Processing motion analysis jobs...");
-        processMotionJobs(reader, motion_jobs, all_states, result, callback);
-    }
-
-    if (!surface_stress_jobs.empty()) {
-        if (callback) callback("Processing surface stress analysis jobs...");
-        processSurfaceStressJobs(reader, surface_stress_jobs, all_states, result, callback);
-    }
-
-    if (!surface_strain_jobs.empty()) {
-        if (callback) callback("Processing surface strain analysis jobs...");
-        processSurfaceStrainJobs(reader, surface_strain_jobs, all_states, result, callback);
-    }
-
-    // Element quality jobs
     std::vector<AnalysisJob> quality_jobs;
     for (const auto& job : config.analysis_jobs) {
         if (job.type == AnalysisJobType::ELEMENT_QUALITY) {
             quality_jobs.push_back(job);
         }
     }
+    if (!quality_jobs.empty()) total_steps++;
+    if (config.hasSectionViews()) total_steps++;
+    total_steps++; // metadata
+
+    int current_step = 0;
+
+    // Process each category
+    if (!stress_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Stress analysis (" + std::to_string(all_states.size()) + " states x " + std::to_string(stress_jobs.size()) + " jobs)...");
+        processStressJobs(reader, stress_jobs, all_states, result, callback);
+    }
+
+    if (!strain_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Strain analysis (" + std::to_string(all_states.size()) + " states x " + std::to_string(strain_jobs.size()) + " jobs)...");
+        processStrainJobs(reader, strain_jobs, all_states, result, callback);
+    }
+
+    if (!motion_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Motion analysis (" + std::to_string(all_states.size()) + " states x " + std::to_string(motion_jobs.size()) + " jobs)...");
+        processMotionJobs(reader, motion_jobs, all_states, result, callback);
+    }
+
+    if (!surface_stress_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Surface stress analysis...");
+        processSurfaceStressJobs(reader, surface_stress_jobs, all_states, result, callback);
+    }
+
+    if (!surface_strain_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Surface strain analysis...");
+        processSurfaceStrainJobs(reader, surface_strain_jobs, all_states, result, callback);
+    }
 
     if (!quality_jobs.empty()) {
-        if (callback) callback("Processing element quality jobs...");
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Element quality analysis...");
         processElementQualityJobs(reader, quality_jobs, all_states, result, callback);
     }
 
     // Section view jobs — run here to share all_states (no d3plot re-read)
     if (config.hasSectionViews()) {
-        if (callback) callback("Processing section view jobs (shared state data)...");
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Section view rendering...");
         processSectionViews(reader, config, all_states, callback);
         section_views_done_ = true;
     }
 
     // Fill metadata
+    current_step++;
+    if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Collecting metadata...");
     fillMetadata(reader, config, all_states, result);
 
     // Note: render jobs are processed separately in unified_analyzer.cpp main,
@@ -187,10 +208,15 @@ void UnifiedAnalyzer::processStressJobs(
         return;
     }
 
-    if (callback) callback("  Analyzing Von Mises stress...");
+    if (callback) callback("  Analyzing Von Mises stress (" + std::to_string(all_states.size()) + " states)...");
 
-    // Use analyze_with_states to avoid re-reading d3plot files
-    auto histories = analyzer.analyze_with_states(all_states, StressComponent::VON_MISES);
+    // Use analyze_with_states_progress to show per-state progress
+    auto histories = analyzer.analyze_with_states_progress(all_states, StressComponent::VON_MISES,
+        [&callback](size_t current, size_t total, const std::string&) {
+            if (callback && (current % 20 == 0 || current == total)) {
+                callback("    Von Mises: state " + std::to_string(current) + "/" + std::to_string(total));
+            }
+        });
 
     // Collect part IDs from jobs (empty means all, or use part_pattern)
     std::vector<int32_t> requested_parts;
@@ -247,14 +273,19 @@ void UnifiedAnalyzer::processStressJobs(
     if (callback) callback("  Stress analysis complete: " + std::to_string(result.stress_history.size()) + " parts");
 
     // Run SinglePassAnalyzer for principal stress + tensor history
-    if (callback) callback("  Analyzing principal stress and tensor history...");
+    if (callback) callback("  Analyzing principal stress and tensor history (" + std::to_string(all_states.size()) + " states)...");
     SinglePassAnalyzer sp_analyzer(reader);
     AnalysisConfig sp_config;
     sp_config.analyze_stress = true;
     sp_config.analyze_strain = false;
     sp_config.part_ids = want_all ? std::vector<int32_t>{} : requested_parts;
 
-    auto sp_result = sp_analyzer.analyzeWithStates(sp_config, all_states);
+    auto sp_result = sp_analyzer.analyzeWithStates(sp_config, all_states,
+        [&callback](size_t current, size_t total, const std::string&) {
+            if (callback && (current % 20 == 0 || current == total)) {
+                callback("    Principal stress: state " + std::to_string(current) + "/" + std::to_string(total));
+            }
+        });
 
     // Move principal stress results
     result.max_principal_history = std::move(sp_result.max_principal_history);
@@ -287,10 +318,15 @@ void UnifiedAnalyzer::processStrainJobs(
         return;
     }
 
-    if (callback) callback("  Analyzing effective plastic strain...");
+    if (callback) callback("  Analyzing effective plastic strain (" + std::to_string(all_states.size()) + " states)...");
 
-    // Use analyze_with_states to avoid re-reading d3plot files
-    auto histories = analyzer.analyze_with_states(all_states, StressComponent::EFF_PLASTIC);
+    // Use analyze_with_states_progress to show per-state progress
+    auto histories = analyzer.analyze_with_states_progress(all_states, StressComponent::EFF_PLASTIC,
+        [&callback](size_t current, size_t total, const std::string&) {
+            if (callback && (current % 20 == 0 || current == total)) {
+                callback("    Eff. plastic strain: state " + std::to_string(current) + "/" + std::to_string(total));
+            }
+        });
 
     // Collect part IDs from jobs (empty means all, or use part_pattern)
     std::vector<int32_t> requested_parts;
@@ -395,8 +431,8 @@ void UnifiedAnalyzer::processMotionJobs(
     for (size_t i = 0; i < all_states.size(); ++i) {
         analyzer.processState(all_states[i]);
 
-        if (callback && (i == 0 || i == all_states.size() - 1 || (i + 1) % 100 == 0)) {
-            callback("  Motion: state " + std::to_string(i + 1) + "/" + std::to_string(all_states.size()));
+        if (callback && (i == 0 || i == all_states.size() - 1 || (i + 1) % 20 == 0)) {
+            callback("    Motion: state " + std::to_string(i + 1) + "/" + std::to_string(all_states.size()));
         }
     }
 
@@ -458,7 +494,8 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
         stats.num_faces = static_cast<int32_t>(filtered.size());
 
         // Process each state using SurfaceStressAnalyzer
-        for (const auto& state : all_states) {
+        for (size_t si = 0; si < all_states.size(); ++si) {
+            const auto& state = all_states[si];
             // Use the analyzeState method that takes faces and state
             SurfaceStressStats stress_stats = surf_analyzer.analyzeState(filtered, state);
 
@@ -473,6 +510,10 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
             tp.shear_stress_max_element_id = stress_stats.shear_stress_max_element;
 
             stats.data.push_back(tp);
+
+            if (callback && (si == 0 || si == all_states.size() - 1 || (si + 1) % 20 == 0)) {
+                callback("    Surface stress [" + job.name + "]: state " + std::to_string(si + 1) + "/" + std::to_string(all_states.size()));
+            }
         }
 
         result.surface_analysis.push_back(stats);
@@ -513,8 +554,8 @@ void UnifiedAnalyzer::processSurfaceStrainJobs(
     for (size_t i = 0; i < all_states.size(); ++i) {
         analyzer.processState(all_states[i]);
 
-        if (callback && (i == 0 || i == all_states.size() - 1 || (i + 1) % 100 == 0)) {
-            callback("  Surface strain: state " + std::to_string(i + 1) + "/" + std::to_string(all_states.size()));
+        if (callback && (i == 0 || i == all_states.size() - 1 || (i + 1) % 20 == 0)) {
+            callback("    Surface strain: state " + std::to_string(i + 1) + "/" + std::to_string(all_states.size()));
         }
     }
 
@@ -751,8 +792,9 @@ void UnifiedAnalyzer::processElementQualityJobs(
         size_t state_idx = sample_indices[si];
         const auto& state = all_states[state_idx];
 
-        if (callback && (si == 0 || si == sample_indices.size() - 1)) {
-            callback("  Quality: state " + std::to_string(state_idx + 1) + "/" + std::to_string(n_states));
+        if (callback) {
+            callback("    Quality: sample " + std::to_string(si + 1) + "/" + std::to_string(sample_indices.size()) +
+                     " (state " + std::to_string(state_idx + 1) + "/" + std::to_string(n_states) + ")");
         }
 
         for (auto& [pid, elems] : part_elements) {

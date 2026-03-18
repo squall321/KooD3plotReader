@@ -1,10 +1,21 @@
 """koo_deep_report CLI entry point."""
 from __future__ import annotations
 import argparse
+import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
+
+# Force UTF-8 stdout/stderr on Windows (prevents cp949 UnicodeEncodeError)
+if sys.platform == "win32":
+    for _stream_name in ("stdout", "stderr"):
+        _stream = getattr(sys, _stream_name)
+        if _stream and hasattr(_stream, "buffer"):
+            setattr(sys, _stream_name,
+                    io.TextIOWrapper(_stream.buffer, encoding="utf-8",
+                                     errors="replace", line_buffering=True))
 
 from .core.sim_detector import find_files
 from .core.glstat_reader import parse_glstat
@@ -752,9 +763,9 @@ def _aggregate(
 
 
 def _print_summary(result: SingleResult) -> None:
-    warn_icon = {"ok": "  ", "warn": "⚠ ", "crit": "❌", "none": "  "}
+    warn_icon = {"ok": "  ", "warn": "!! ", "crit": "[X]", "none": "  "}
 
-    print("\n── 요약 ─────────────────────────────────────")
+    print("\n-- Summary ------------------------------------------")
     print(f"  Tier         : {result.sim_info.tier_label}")
     print(f"  종료 상태    : {'정상' if result.sim_info.normal_termination else ('오류' if result.sim_info.normal_termination is False else '불명')}")
     peak_part_name = result.parts.get(result.peak_stress_part_id, None)
@@ -775,7 +786,7 @@ def _print_summary(result: SingleResult) -> None:
     # Per-part design criteria warnings
     warnings = [(ps, ps.worst_warning) for ps in result.parts.values() if ps.worst_warning in ("warn", "crit")]
     if warnings:
-        print("\n── 설계 기준 경고 ───────────────────────────")
+        print("\n-- Design Criteria Warnings -------------------------")
         for ps, level in sorted(warnings, key=lambda x: ("crit", "warn").index(x[1]) if x[1] in ("crit", "warn") else 2):
             icon = warn_icon[level]
             details = []
@@ -787,7 +798,7 @@ def _print_summary(result: SingleResult) -> None:
             if ps.mat_type:
                 print(f"       MAT: {ps.mat_type} | source: σ={ps.stress_source}, ε={ps.strain_source}")
 
-    print("─────────────────────────────────────────────")
+    print("---------------------------------------------")
 
 
 if __name__ == "__main__":
