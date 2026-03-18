@@ -69,6 +69,46 @@ public:
      */
     Vec2 project(const Vec3& world_point) const;
 
+    /**
+     * @brief Set up an isometric 3D camera for half-model rendering
+     *
+     * The camera views the model from an oblique angle that shows 3D depth.
+     * For axis-aligned cuts, it rotates ~45° azimuth and ~35° elevation
+     * from the cut plane normal, giving good visibility of both the
+     * cut face and the 3D exterior surface.
+     *
+     * @param plane         The section plane (provides normal and basis vectors)
+     * @param bbox          Bounding box of the visible half-model (in world space)
+     * @param scale_factor  Viewport = bbox extent × scale_factor (default 1.2)
+     * @param img_width     Output image width  in pixels
+     * @param img_height    Output image height in pixels
+     */
+    void setupIsometric(const SectionPlane& plane,
+                        const AABB3& bbox,
+                        double scale_factor,
+                        int32_t img_width,
+                        int32_t img_height);
+
+    /**
+     * @brief Project a 3D world point to 2D pixel coordinates + depth
+     *
+     * Like project(), but also returns a depth value for Z-buffer testing.
+     * Depth is the signed distance along the view direction from the camera.
+     * Smaller depth = closer to camera.
+     *
+     * @param world_point  3D world coordinates
+     * @param depth        Output: depth value (smaller = closer)
+     * @return             Pixel coordinates (px, py), (0,0) is top-left
+     */
+    Vec2 project3D(const Vec3& world_point, double& depth) const;
+
+    /** @brief Get the view direction (camera looks along -view_dir) */
+    const Vec3& viewDirection() const { return view_dir_; }
+
+    /** @brief Camera right axis (u) and up axis (v) */
+    const Vec3& axisU() const { return axis_u_; }
+    const Vec3& axisV() const { return axis_v_; }
+
     int32_t imageWidth()  const { return img_width_;  }
     int32_t imageHeight() const { return img_height_; }
 
@@ -76,6 +116,7 @@ private:
     Vec3    origin_;      ///< Centre of the viewport in world space
     Vec3    axis_u_;      ///< Right direction (plane basis u)
     Vec3    axis_v_;      ///< Up direction    (plane basis v, points toward pixel row 0)
+    Vec3    view_dir_;    ///< View direction (camera looks along -view_dir_)
 
     double  half_w_;      ///< Half world-space width  of viewport
     double  half_h_;      ///< Half world-space height of viewport

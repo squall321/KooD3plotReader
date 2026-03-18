@@ -61,6 +61,12 @@ public:
                        const SectionViewConfig& config);
 
 private:
+    /** 3D half-model rendering pipeline (Section3D mode) */
+    std::string render3D(const data::Mesh& mesh,
+                         const data::ControlData& ctrl,
+                         const std::vector<data::StateData>& all_states,
+                         const SectionViewConfig& config);
+
     // Sub-steps (all return error string or "")
     std::string writePng(const std::vector<uint8_t>& rgba,
                           int32_t width, int32_t height,

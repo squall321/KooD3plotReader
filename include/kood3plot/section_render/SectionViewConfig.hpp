@@ -42,7 +42,16 @@
 namespace kood3plot {
 namespace section_render {
 
+/** Section view rendering mode */
+enum class SectionViewMode {
+    Section2D,    ///< Default: 2D cross-section view (camera perpendicular to cut plane)
+    Section3D     ///< 3D half-model: isometric view with cut face + 3D exterior
+};
+
 struct SectionViewConfig {
+    // View mode
+    SectionViewMode view_mode = SectionViewMode::Section2D;   ///< "section" (default) or "section_3d"
+
     // Plane definition
     bool        use_axis    = true;       ///< true=axis-aligned, false=arbitrary normal
     char        axis        = 'z';        ///< 'x','y','z' (when use_axis==true)

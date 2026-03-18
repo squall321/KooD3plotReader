@@ -8,6 +8,7 @@ from pathlib import Path
 class SectionViewRenderConfig:
     """Configuration for software-rasterized section view rendering (VTK-free)."""
     enabled: bool = True
+    view_mode: str = "section"  # "section" (2D) or "section_3d" (3D half-model)
     axes: list[str] = field(default_factory=lambda: ["x", "y", "z"])  # x | y | z
     scalar_fields: list[str] = field(default_factory=lambda: ["von_mises", "strain"])  # 복수 필드
     scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
@@ -53,7 +54,10 @@ def _sv_yaml_block(
 
     actual_field = field_name or config.scalar_field or "von_mises"
 
+    view_mode_line = f"view_mode: {config.view_mode}\n" if config.view_mode != "section" else ""
+
     return (
+        f"{view_mode_line}"
         f"plane:\n"
         f"  axis: {axis}\n"
         f"  point: [0.0, 0.0, 0.0]\n"

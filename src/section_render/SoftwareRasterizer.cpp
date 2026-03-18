@@ -8,6 +8,8 @@
  * Edge rendering: Xiaolin Wu thick-line approximation (integer Bresenham
  * with per-pixel circle stamp for thickness).
  *
+ * 3D mode: Z-buffered triangle rasterizer for half-model section views.
+ *
  * PNG output: libpng RGBA write (linked via PNG::PNG in CMakeLists).
  */
 
@@ -16,13 +18,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <stdexcept>
 
 namespace kood3plot {
 namespace section_render {
 
 // ============================================================
-// Constructor / clear / pixel ops (already existed, kept as-is)
+// Constructor / clear / pixel ops
 // ============================================================
 
 SoftwareRasterizer::SoftwareRasterizer(int32_t width, int32_t height, int32_t ss_factor)
@@ -30,6 +33,8 @@ SoftwareRasterizer::SoftwareRasterizer(int32_t width, int32_t height, int32_t ss
     , ss_width_(width * ss_factor), ss_height_(height * ss_factor)
 {
     buffer_.assign(static_cast<size_t>(ss_width_) * ss_height_ * 4, 0);
+    zbuffer_.assign(static_cast<size_t>(ss_width_) * ss_height_,
+                    std::numeric_limits<float>::max());
 }
 
 void SoftwareRasterizer::clear(RGBA color)
@@ -37,6 +42,19 @@ void SoftwareRasterizer::clear(RGBA color)
     for (int32_t y = 0; y < ss_height_; ++y)
         for (int32_t x = 0; x < ss_width_; ++x)
             setPixel(x, y, color);
+
+    if (depth_test_) {
+        std::fill(zbuffer_.begin(), zbuffer_.end(), std::numeric_limits<float>::max());
+    }
+}
+
+void SoftwareRasterizer::enableDepthTest(bool enable)
+{
+    depth_test_ = enable;
+    if (enable && zbuffer_.size() != static_cast<size_t>(ss_width_) * ss_height_) {
+        zbuffer_.assign(static_cast<size_t>(ss_width_) * ss_height_,
+                        std::numeric_limits<float>::max());
+    }
 }
 
 void SoftwareRasterizer::setPixel(int32_t x, int32_t y, RGBA color)
@@ -54,14 +72,23 @@ RGBA SoftwareRasterizer::getPixel(int32_t x, int32_t y) const
     return { buffer_[idx], buffer_[idx+1], buffer_[idx+2], buffer_[idx+3] };
 }
 
+bool SoftwareRasterizer::testAndSetDepth(int32_t x, int32_t y, float depth)
+{
+    if (x < 0 || x >= ss_width_ || y < 0 || y >= ss_height_) return false;
+    size_t idx = static_cast<size_t>(y) * ss_width_ + x;
+    if (depth < zbuffer_[idx]) {
+        zbuffer_[idx] = depth;
+        return true;
+    }
+    return false;
+}
+
 // ============================================================
-// Triangle rasterizer (used by both contour and flat fills)
+// Triangle rasterizer helpers (2D — no depth test)
 // ============================================================
 
 namespace {
 
-// Barycentric weights for point P inside triangle (v0,v1,v2)
-// Returns false if area is degenerate
 bool baryWeights(double px, double py,
                   double x0, double y0,
                   double x1, double y1,
@@ -106,7 +133,6 @@ void rasterizeTriangle(
     }
 }
 
-/// Alpha-blending variant: src_color over existing pixel
 void rasterizeTriangleAlpha(
     double ax, double ay,
     double bx, double by,
@@ -140,7 +166,6 @@ void rasterizeTriangleAlpha(
     }
 }
 
-/// Gouraud-shaded triangle with alpha blending (contour colors + alpha)
 void rasterizeTriangleContourAlpha(
     double ax, double ay, RGBA ca,
     double bx, double by, RGBA cb,
@@ -192,19 +217,16 @@ void SoftwareRasterizer::drawPolygonContour(const ClipPolygon& polygon,
 {
     if (polygon.size() < 3) return;
 
-    // Project vertices and look up per-vertex color
     int n = static_cast<int>(polygon.size());
     std::vector<double> sx(n), sy(n);
     std::vector<RGBA>   sc(n);
     for (int i = 0; i < n; ++i) {
         Vec2 p = camera.project(polygon[i].position);
-        // Scale to supersampled resolution
         sx[i] = p.x * ss_factor_;
         sy[i] = p.y * ss_factor_;
         sc[i] = cmap.map(polygon[i].value);
     }
 
-    // Fan triangulation: (0, i, i+1) for i in [1, n-2]
     for (int i = 1; i < n-1; ++i) {
         rasterizeTriangle(
             sx[0], sy[0], sc[0],
@@ -307,14 +329,12 @@ void SoftwareRasterizer::drawEdge(const ClipPolygon& segment,
         double t = static_cast<double>(s) / static_cast<double>(steps);
         double px = ax + t*dx;
         double py = ay + t*dy;
-        // Interpolate color
         RGBA c{
             static_cast<uint8_t>((1-t)*ca.r + t*cb.r),
             static_cast<uint8_t>((1-t)*ca.g + t*cb.g),
             static_cast<uint8_t>((1-t)*ca.b + t*cb.b),
             255
         };
-        // Stamp a small circle of radius = half_t for thickness
         for (int ty = -half_t; ty <= half_t; ++ty)
             for (int tx = -half_t; tx <= half_t; ++tx)
                 if (tx*tx + ty*ty <= half_t*half_t)
@@ -354,6 +374,106 @@ void SoftwareRasterizer::drawEdgeFlat(const ClipPolygon& segment,
             for (int tx = -half_t; tx <= half_t; ++tx)
                 if (tx*tx + ty*ty <= half_t*half_t)
                     setPixel(static_cast<int32_t>(px)+tx, static_cast<int32_t>(py)+ty, color);
+    }
+}
+
+// ============================================================
+// 3D Z-buffered triangle — flat shading
+// ============================================================
+
+void SoftwareRasterizer::drawTriangle3D(
+    double p0x, double p0y, double z0,
+    double p1x, double p1y, double z1,
+    double p2x, double p2y, double z2,
+    RGBA color)
+{
+    int xmin = std::max(0,   static_cast<int>(std::min({p0x,p1x,p2x})));
+    int xmax = std::min(ss_width_-1,  static_cast<int>(std::max({p0x,p1x,p2x})) + 1);
+    int ymin = std::max(0,   static_cast<int>(std::min({p0y,p1y,p2y})));
+    int ymax = std::min(ss_height_-1, static_cast<int>(std::max({p0y,p1y,p2y})) + 1);
+
+    for (int y = ymin; y <= ymax; ++y) {
+        for (int x = xmin; x <= xmax; ++x) {
+            double l0, l1, l2;
+            if (!baryWeights(x+0.5, y+0.5, p0x,p0y, p1x,p1y, p2x,p2y, l0,l1,l2)) continue;
+            if (l0 < -1e-4 || l1 < -1e-4 || l2 < -1e-4) continue;
+
+            float depth = static_cast<float>(l0*z0 + l1*z1 + l2*z2);
+            if (testAndSetDepth(x, y, depth)) {
+                setPixel(x, y, color);
+            }
+        }
+    }
+}
+
+// ============================================================
+// 3D Z-buffered triangle — Gouraud (per-vertex color)
+// ============================================================
+
+void SoftwareRasterizer::drawTriangle3DContour(
+    double p0x, double p0y, double z0, RGBA c0,
+    double p1x, double p1y, double z1, RGBA c1,
+    double p2x, double p2y, double z2, RGBA c2)
+{
+    int xmin = std::max(0,   static_cast<int>(std::min({p0x,p1x,p2x})));
+    int xmax = std::min(ss_width_-1,  static_cast<int>(std::max({p0x,p1x,p2x})) + 1);
+    int ymin = std::max(0,   static_cast<int>(std::min({p0y,p1y,p2y})));
+    int ymax = std::min(ss_height_-1, static_cast<int>(std::max({p0y,p1y,p2y})) + 1);
+
+    for (int y = ymin; y <= ymax; ++y) {
+        for (int x = xmin; x <= xmax; ++x) {
+            double l0, l1, l2;
+            if (!baryWeights(x+0.5, y+0.5, p0x,p0y, p1x,p1y, p2x,p2y, l0,l1,l2)) continue;
+            if (l0 < -1e-4 || l1 < -1e-4 || l2 < -1e-4) continue;
+
+            float depth = static_cast<float>(l0*z0 + l1*z1 + l2*z2);
+            if (testAndSetDepth(x, y, depth)) {
+                RGBA color{
+                    static_cast<uint8_t>(std::min(255.0, l0*c0.r + l1*c1.r + l2*c2.r)),
+                    static_cast<uint8_t>(std::min(255.0, l0*c0.g + l1*c1.g + l2*c2.g)),
+                    static_cast<uint8_t>(std::min(255.0, l0*c0.b + l1*c1.b + l2*c2.b)),
+                    255
+                };
+                setPixel(x, y, color);
+            }
+        }
+    }
+}
+
+// ============================================================
+// 3D Z-buffered line (mesh edge wireframe)
+// ============================================================
+
+void SoftwareRasterizer::drawLine3D(
+    double ax, double ay, double az,
+    double bx, double by, double bz,
+    RGBA color, int32_t thickness)
+{
+    double dx = bx - ax, dy = by - ay;
+    double len = std::sqrt(dx*dx + dy*dy);
+    if (len < 0.5) return;
+
+    int steps = static_cast<int>(len) + 1;
+    int half_t = thickness / 2;
+
+    for (int s = 0; s <= steps; ++s) {
+        double t = static_cast<double>(s) / static_cast<double>(steps);
+        double px = ax + t*dx;
+        double py = ay + t*dy;
+        float depth = static_cast<float>(az + t*(bz - az));
+
+        // Bias depth slightly closer to camera so edges draw on top of faces
+        depth -= 0.001f;
+
+        for (int ty = -half_t; ty <= half_t; ++ty)
+            for (int tx = -half_t; tx <= half_t; ++tx)
+                if (tx*tx + ty*ty <= half_t*half_t) {
+                    int32_t ix = static_cast<int32_t>(px) + tx;
+                    int32_t iy = static_cast<int32_t>(py) + ty;
+                    if (testAndSetDepth(ix, iy, depth)) {
+                        setPixel(ix, iy, color);
+                    }
+                }
     }
 }
 
@@ -421,7 +541,6 @@ std::string SoftwareRasterizer::savePng(const std::string& filepath) const
                   PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
 
-    // Write row by row
     for (int32_t y = 0; y < height_; ++y) {
         png_bytep row = const_cast<png_bytep>(pixels.data() + static_cast<size_t>(y)*width_*4);
         png_write_row(png, row);
@@ -430,11 +549,82 @@ std::string SoftwareRasterizer::savePng(const std::string& filepath) const
     png_write_end(png, nullptr);
     png_destroy_write_struct(&png, &info);
     fclose(fp);
-    return "";  // success
+    return "";
 }
 
 // ============================================================
-// Legacy stubs (kept for interface compatibility)
+// Screen-space edge detection (Z-buffer discontinuity)
+// ============================================================
+
+void SoftwareRasterizer::applyDepthEdgeDetection(double depth_threshold,
+                                                   double darken_factor)
+{
+    if (!depth_test_) return;
+
+    const float bg_depth = std::numeric_limits<float>::max();
+
+    // Pass 1: compute per-pixel edge strength
+    std::vector<float> edge_strength(static_cast<size_t>(ss_width_) * ss_height_, 0.0f);
+
+    for (int32_t y = 1; y < ss_height_ - 1; ++y) {
+        for (int32_t x = 1; x < ss_width_ - 1; ++x) {
+            size_t idx = static_cast<size_t>(y) * ss_width_ + x;
+            float d = zbuffer_[idx];
+            if (d >= bg_depth * 0.5f) continue;  // background pixel
+
+            // Sample 4 neighbors
+            float dl = zbuffer_[idx - 1];
+            float dr = zbuffer_[idx + 1];
+            float du = zbuffer_[idx - ss_width_];
+            float dd = zbuffer_[idx + ss_width_];
+
+            // Maximum absolute depth difference with neighbors
+            float max_diff = 0.0f;
+            auto check = [&](float dn) {
+                if (dn >= bg_depth * 0.5f) {
+                    // Neighbor is background → strong edge (silhouette)
+                    max_diff = 1.0f;
+                } else {
+                    float diff = std::abs(d - dn);
+                    if (diff > max_diff) max_diff = diff;
+                }
+            };
+            check(dl); check(dr); check(du); check(dd);
+
+            // Normalize by depth magnitude to get relative difference
+            float rel = (max_diff >= 1.0f) ? 1.0f
+                        : (std::abs(d) > 1e-6f ? max_diff / std::abs(d) : 0.0f);
+
+            if (rel > static_cast<float>(depth_threshold)) {
+                // Clamp edge strength to [0, 1]
+                float strength = std::min(1.0f,
+                    (rel - static_cast<float>(depth_threshold))
+                    / static_cast<float>(depth_threshold) * 2.0f);
+                edge_strength[idx] = strength;
+            }
+        }
+    }
+
+    // Pass 2: darken edge pixels
+    float df = static_cast<float>(darken_factor);
+    for (int32_t y = 0; y < ss_height_; ++y) {
+        for (int32_t x = 0; x < ss_width_; ++x) {
+            size_t idx = static_cast<size_t>(y) * ss_width_ + x;
+            float s = edge_strength[idx];
+            if (s <= 0.0f) continue;
+
+            // Blend: pixel *= darken_factor^strength
+            float factor = 1.0f - s * (1.0f - df);
+            size_t pidx = idx * 4;
+            buffer_[pidx + 0] = static_cast<uint8_t>(buffer_[pidx + 0] * factor);
+            buffer_[pidx + 1] = static_cast<uint8_t>(buffer_[pidx + 1] * factor);
+            buffer_[pidx + 2] = static_cast<uint8_t>(buffer_[pidx + 2] * factor);
+        }
+    }
+}
+
+// ============================================================
+// Legacy stubs
 // ============================================================
 
 void SoftwareRasterizer::scanlineFill(const std::vector<Vec2>& /*verts*/,

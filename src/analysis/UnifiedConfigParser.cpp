@@ -892,6 +892,7 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "# ============================================================\n";
     oss << "section_views:\n";
     oss << "  - name: \"Z-Section Contour\"\n";
+    oss << "    view_mode: section           # section (2D) | section_3d (3D half-model)\n";
     oss << "    plane:\n";
     oss << "      axis: z\n";
     oss << "      point: [0.0, 0.0, 0.0]\n";

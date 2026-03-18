@@ -196,6 +196,17 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "global_range")   { global_range = parseBool(value); section = ""; continue; }
             if (key == "scale_factor")   { try { scale_factor = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "supersampling")  { try { supersampling = std::stoi(value); } catch(...) {} section = ""; continue; }
+            if (key == "view_mode") {
+                std::string lower(value.size(), '\0');
+                std::transform(value.begin(), value.end(), lower.begin(),
+                               [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+                if (lower == "section_3d" || lower == "3d" || lower == "half_model")
+                    view_mode = SectionViewMode::Section3D;
+                else
+                    view_mode = SectionViewMode::Section2D;
+                section = "";
+                continue;
+            }
             if (key == "auto_center")    { auto_center = parseBool(value); section = ""; continue; }
             if (key == "auto_slab")      { auto_slab = parseBool(value); section = ""; continue; }
             if (key == "slab_thickness") { try { slab_thickness = std::stod(value); } catch(...) {} section = ""; continue; }
@@ -292,6 +303,7 @@ bool SectionViewConfig::loadFromYaml(const void* yaml_node)
 std::string SectionViewConfig::exampleYaml()
 {
     return R"(section_render:
+  view_mode: section           # section (2D cross-section) | section_3d (3D half-model with contour)
   plane:
     axis: z                    # x | y | z  (or use normal: for arbitrary cut)
     # normal: [0.0, 0.0, 1.0]
