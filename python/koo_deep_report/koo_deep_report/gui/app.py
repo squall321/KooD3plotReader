@@ -322,8 +322,9 @@ class SingleAnalyzerApp(ctk.CTk):
         ctk.CTkEntry(pf, textvariable=self.var_part_pattern, width=120,
                      placeholder_text="e.g. PKG*").pack(side="left", padx=(4, 12))
 
-        ctk.CTkButton(pf, text="Load Parts", width=90, height=28,
-                       command=self._load_parts).pack(side="left", padx=4)
+        self._btn_load_parts = ctk.CTkButton(pf, text="Load Parts", width=90, height=28,
+                                              command=self._load_parts)
+        self._btn_load_parts.pack(side="left", padx=4)
 
         # Part picker (scrollable checkbox list — initially hidden)
         self._part_picker_frame = ctk.CTkFrame(params, fg_color="transparent")
@@ -963,15 +964,27 @@ class SingleAnalyzerApp(ctk.CTk):
     # ── Part picker ──────────────────────────────────────────────────
 
     def _load_parts(self) -> None:
-        """Load part list from keyword file near d3plot path."""
+        """Load part list from keyword file near d3plot path (background thread)."""
         d3plot = self.inp_d3plot.get().strip()
         if not d3plot:
             messagebox.showwarning("No d3plot", "먼저 d3plot 경로를 지정하세요.")
             return
 
-        from ..core.keyword_parser import find_and_parse_keyword
+        # Disable button and show progress
+        self._btn_load_parts.configure(state="disabled", text="Loading...")
+        self.update_idletasks()
 
-        kw = find_and_parse_keyword(d3plot)
+        def _parse_in_background():
+            from ..core.keyword_parser import find_and_parse_keyword
+            kw = find_and_parse_keyword(d3plot)
+            self.after(0, lambda: self._populate_parts(kw))
+
+        threading.Thread(target=_parse_in_background, daemon=True).start()
+
+    def _populate_parts(self, kw) -> None:
+        """Populate part picker UI from parsed keyword data (runs on main thread)."""
+        self._btn_load_parts.configure(state="normal", text="Load Parts")
+
         if kw is None or not kw.parts:
             messagebox.showinfo("Parts", "키워드 파일에서 파트 정보를 찾을 수 없습니다.")
             return
@@ -1011,18 +1024,43 @@ class SingleAnalyzerApp(ctk.CTk):
         # Get material info for display
         mat_map = kw.materials
 
-        for pid in sorted(kw.parts):
+        # Build all part data first, then create widgets in batches to avoid UI freeze
+        sorted_pids = sorted(kw.parts)
+        self._pending_parts = []
+        for pid in sorted_pids:
             part = kw.parts[pid]
             mat = mat_map.get(part.mid)
             mat_label = f" ({mat.mat_type})" if mat and mat.mat_type else ""
             label = f"Part {pid}: {part.name}{mat_label}" if part.name else f"Part {pid}{mat_label}"
+            self._pending_parts.append((pid, part.name, label, pid in selected if selected else True))
 
-            var = ctk.BooleanVar(value=(pid in selected) if selected else True)
-            var.trace_add("write", lambda *_: self._sync_parts_from_checkboxes())
-            self._part_checkboxes[pid] = (var, part.name)
+        self._parts_scroll = scroll
+        self._parts_batch_idx = 0
+        self._add_parts_batch()
 
+    def _add_parts_batch(self) -> None:
+        """Add part checkboxes in batches of 50 to keep UI responsive."""
+        BATCH = 50
+        parts = self._pending_parts
+        scroll = self._parts_scroll
+        start = self._parts_batch_idx
+        end = min(start + BATCH, len(parts))
+
+        for i in range(start, end):
+            pid, part_name, label, is_selected = parts[i]
+            var = ctk.BooleanVar(value=is_selected)
+            self._part_checkboxes[pid] = (var, part_name)
             ctk.CTkCheckBox(scroll, text=label, variable=var,
                            font=ctk.CTkFont(size=12)).pack(anchor="w", pady=1)
+
+        self._parts_batch_idx = end
+        if end < len(parts):
+            # Schedule next batch after UI processes events
+            self.after(10, self._add_parts_batch)
+        else:
+            # All done — now add trace callbacks (deferred to avoid N^2 updates during creation)
+            for pid, (var, _) in self._part_checkboxes.items():
+                var.trace_add("write", lambda *_: self._sync_parts_from_checkboxes())
 
     def _toggle_all_parts(self, state: bool) -> None:
         for var, _ in self._part_checkboxes.values():
