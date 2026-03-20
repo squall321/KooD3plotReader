@@ -67,103 +67,159 @@ def _build_html(
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 :root {{
-  --bg: #111317; --bg2: #1a1d23; --bg3: #22262e;
-  --fg: #e8eaf0; --fg2: #9ba3b5; --border: #2e3340;
-  --accent: #4f8ef7; --accent2: #7ecfff;
-  --ok: #4caf6f; --warn: #f5a623; --err: #e05555;
-  --font: 'Segoe UI', system-ui, sans-serif;
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+  --fg: #e6edf3; --fg2: #8b949e; --border: #30363d;
+  --accent: #58a6ff; --accent2: #79c0ff;
+  --ok: #3fb950; --warn: #d29922; --err: #f85149;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --radius: 10px;
 }}
 *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; }}
+body {{ background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.5; }}
 a {{ color: var(--accent2); text-decoration: none; }}
 a:hover {{ text-decoration: underline; }}
+::selection {{ background: var(--accent); color: #fff; }}
 
-header {{ background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }}
-header h1 {{ font-size: 1.2rem; font-weight: 700; color: var(--fg); }}
-header .sub {{ font-size: 0.85rem; color: var(--fg2); }}
+header {{
+  background: linear-gradient(135deg, var(--bg2) 0%, #1a2332 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 20px 28px;
+  display: flex; align-items: center; gap: 16px;
+}}
+header h1 {{ font-size: 1.3rem; font-weight: 700; color: var(--fg); letter-spacing: -0.02em; }}
+header .sub {{ font-size: 0.8rem; color: var(--fg2); margin-top: 2px; }}
+header .logo {{
+  width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent) 0%, #a371f7 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 16px; color: #fff; flex-shrink: 0;
+}}
 
-.container {{ max-width: 1400px; margin: 0 auto; padding: 20px 24px; }}
+.container {{ max-width: 1440px; margin: 0 auto; padding: 24px 28px; }}
 
 /* KPI cards */
-.kpi-row {{ display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }}
-.kpi-card {{ background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 20px; min-width: 140px; flex: 1; }}
-.kpi-label {{ font-size: 0.75rem; color: var(--fg2); margin-bottom: 4px; }}
-.kpi-value {{ font-size: 1.5rem; font-weight: 700; }}
+.kpi-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }}
+.kpi-card {{
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 20px; position: relative; overflow: hidden;
+}}
+.kpi-card::before {{
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--accent); border-radius: var(--radius) var(--radius) 0 0;
+}}
+.kpi-card.kpi-ok::before {{ background: var(--ok); }}
+.kpi-card.kpi-warn::before {{ background: var(--warn); }}
+.kpi-card.kpi-err::before {{ background: var(--err); }}
+.kpi-label {{ font-size: 0.72rem; color: var(--fg2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }}
+.kpi-value {{ font-size: 1.6rem; font-weight: 700; }}
 .kpi-ok   {{ color: var(--ok); }}
 .kpi-warn {{ color: var(--warn); }}
 .kpi-err  {{ color: var(--err); }}
-.kpi-unit {{ font-size: 0.75rem; color: var(--fg2); margin-top: 2px; }}
+.kpi-unit {{ font-size: 0.72rem; color: var(--fg2); margin-top: 4px; }}
 
 /* Toolbar */
-.toolbar {{ display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }}
-.toolbar input {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 13px; width: 220px; }}
-.toolbar select {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 13px; }}
+.toolbar {{ display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }}
+.toolbar input {{
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; color: var(--fg); font-size: 13px; width: 240px;
+  transition: border-color 0.2s;
+}}
+.toolbar input:focus {{ border-color: var(--accent); outline: none; }}
+.toolbar select {{
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; color: var(--fg); font-size: 13px;
+  transition: border-color 0.2s;
+}}
+.toolbar select:focus {{ border-color: var(--accent); outline: none; }}
 .toolbar label {{ font-size: 13px; color: var(--fg2); }}
 
 /* Table */
-.table-wrap {{ overflow-x: auto; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; }}
+.table-wrap {{ overflow-x: auto; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }}
 table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-thead th {{ background: var(--bg3); padding: 10px 12px; text-align: left; color: var(--fg2); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 1px solid var(--border); }}
+thead th {{
+  background: var(--bg3); padding: 11px 14px; text-align: left;
+  color: var(--fg2); font-weight: 600; font-size: 0.78rem;
+  white-space: nowrap; cursor: pointer; user-select: none;
+  border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.03em;
+}}
 thead th:hover {{ color: var(--fg); }}
-thead th.sort-asc::after {{ content: ' ▲'; font-size: 10px; }}
-thead th.sort-desc::after {{ content: ' ▼'; font-size: 10px; }}
-tbody tr {{ border-bottom: 1px solid var(--border); transition: background 0.1s; }}
-tbody tr:hover {{ background: var(--bg3); }}
-tbody td {{ padding: 8px 12px; white-space: nowrap; }}
-tbody tr.row-fail {{ opacity: 0.6; }}
-tbody tr.row-skip {{ opacity: 0.5; font-style: italic; }}
+thead th.sort-asc::after {{ content: ' ▲'; font-size: 9px; }}
+thead th.sort-desc::after {{ content: ' ▼'; font-size: 9px; }}
+tbody tr {{ border-bottom: 1px solid var(--border); transition: background 0.15s; }}
+tbody tr:hover {{ background: rgba(88, 166, 255, 0.06); }}
+tbody td {{ padding: 9px 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }}
+tbody tr.row-fail {{ opacity: 0.55; }}
+tbody tr.row-skip {{ opacity: 0.45; font-style: italic; }}
 
-.badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }}
-.badge-ok   {{ background: #1e3b2a; color: var(--ok); }}
-.badge-fail {{ background: #3b1e1e; color: var(--err); }}
-.badge-skip {{ background: #2e2e1e; color: var(--warn); }}
-.badge-t0 {{ background: #3b1e1e; color: var(--err); }}
-.badge-t1 {{ background: #1e2b3b; color: var(--accent2); }}
-.badge-t2 {{ background: #1e2b3b; color: var(--accent2); }}
-.badge-t3 {{ background: #1e2b3b; color: var(--accent); }}
-.badge-t4 {{ background: #1e2b3b; color: var(--accent); }}
+.badge {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }}
+.badge-ok   {{ background: rgba(63,185,80,0.15); color: var(--ok); }}
+.badge-fail {{ background: rgba(248,81,73,0.15); color: var(--err); }}
+.badge-skip {{ background: rgba(210,153,34,0.15); color: var(--warn); }}
+.badge-t0 {{ background: rgba(248,81,73,0.15); color: var(--err); }}
+.badge-t1 {{ background: rgba(88,166,255,0.15); color: var(--accent2); }}
+.badge-t2 {{ background: rgba(88,166,255,0.12); color: var(--accent2); }}
+.badge-t3 {{ background: rgba(88,166,255,0.10); color: var(--accent); }}
+.badge-t4 {{ background: rgba(88,166,255,0.08); color: var(--accent); }}
 
 /* Charts */
-.charts-row {{ display: flex; gap: 16px; margin-top: 20px; flex-wrap: wrap; }}
-.chart-card {{ background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; flex: 1; min-width: 320px; }}
-.chart-title {{ font-size: 0.85rem; font-weight: 600; color: var(--fg2); margin-bottom: 8px; }}
+.charts-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-top: 24px; }}
+.chart-card {{
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; min-height: 280px;
+}}
+.chart-title {{ font-size: 0.82rem; font-weight: 600; color: var(--fg2); margin-bottom: 10px; }}
 
 /* Failed/Skipped */
-.fail-section {{ margin-top: 16px; }}
-.fail-section summary {{ cursor: pointer; color: var(--err); font-weight: 600; padding: 8px 0; }}
+.fail-section {{ margin-top: 20px; }}
+.fail-section summary {{ cursor: pointer; color: var(--err); font-weight: 600; padding: 10px 0; }}
 .fail-list {{ padding: 8px 16px; font-size: 12px; color: var(--fg2); line-height: 1.8; }}
 
-.empty-msg {{ padding: 40px; text-align: center; color: var(--fg2); }}
+.empty-msg {{ padding: 48px; text-align: center; color: var(--fg2); font-size: 0.9rem; }}
 
 /* Tab navigation */
-.tab-nav {{ display: flex; gap: 0; margin-top: 24px; border-bottom: 2px solid var(--border); }}
-.tab-btn {{ background: none; border: none; padding: 10px 20px; font-size: 14px; color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }}
-.tab-btn:hover {{ color: var(--fg); }}
+.tab-nav {{ display: flex; gap: 0; margin-top: 28px; border-bottom: 2px solid var(--border); }}
+.tab-btn {{
+  background: none; border: none; padding: 12px 24px; font-size: 14px;
+  color: var(--fg2); cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: all 0.2s; font-weight: 500;
+}}
+.tab-btn:hover {{ color: var(--fg); background: rgba(255,255,255,0.03); }}
 .tab-btn.active {{ color: var(--accent2); border-bottom-color: var(--accent2); font-weight: 600; }}
-.tab-panel {{ display: none; padding-top: 16px; }}
-.tab-panel.active {{ display: block; }}
+.tab-panel {{ display: none; padding-top: 20px; }}
+.tab-panel.active {{ display: block; animation: fadeIn 0.2s ease; }}
+@keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
 
 /* Part filter */
-.part-filter {{ display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }}
-.part-filter input {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--fg); font-size: 13px; width: 320px; }}
+.part-filter {{ display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }}
+.part-filter input {{
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; color: var(--fg); font-size: 13px; width: 340px;
+  transition: border-color 0.2s;
+}}
+.part-filter input:focus {{ border-color: var(--accent); outline: none; }}
 .part-filter .hint {{ font-size: 11px; color: var(--fg2); }}
-.part-filter .clear-btn {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--fg2); cursor: pointer; font-size: 12px; }}
-.part-filter .clear-btn:hover {{ color: var(--fg); border-color: var(--accent); }}
+.part-filter .clear-btn {{
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 12px; color: var(--fg2); cursor: pointer; font-size: 12px;
+  transition: all 0.15s;
+}}
+.part-filter .clear-btn:hover {{ color: var(--fg); border-color: var(--accent); background: rgba(88,166,255,0.08); }}
 
 /* Part comparison table */
 .part-table thead th {{ position: sticky; top: 0; z-index: 1; }}
 .part-table .val-stress {{ color: var(--accent2); }}
-.part-table .val-strain {{ color: #7ecfa0; }}
-.part-table .val-disp   {{ color: #d4a0f7; }}
+.part-table .val-strain {{ color: #7ee787; }}
+.part-table .val-disp   {{ color: #d2a8ff; }}
 .part-table .val-warn   {{ color: var(--warn); font-weight: 600; }}
 .part-table .val-danger  {{ color: var(--err); font-weight: 600; }}
 </style>
 </head>
 <body>
 <header>
+  <div class="logo">K</div>
   <div>
     <h1>Batch Analysis Report</h1>
-    <div class="sub">koo_deep_report — {output_root}</div>
+    <div class="sub">{output_root}</div>
   </div>
 </header>
 <div class="container">
@@ -293,10 +349,10 @@ const YIELD_STRESS = {yield_stress};
 const PLOT_LAYOUT = {{
   paper_bgcolor: 'rgba(0,0,0,0)',
   plot_bgcolor:  'rgba(0,0,0,0)',
-  font: {{ color: '#9ba3b5', size: 12 }},
+  font: {{ color: '#8b949e', size: 12, family: '-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif' }},
   margin: {{ l: 60, r: 20, t: 20, b: 100 }},
-  xaxis: {{ gridcolor: '#2e3340', tickangle: -40 }},
-  yaxis: {{ gridcolor: '#2e3340' }},
+  xaxis: {{ gridcolor: '#21262d', tickangle: -40, linecolor: '#30363d' }},
+  yaxis: {{ gridcolor: '#21262d', linecolor: '#30363d' }},
 }};
 const PLOT_CONFIG = {{ displayModeBar: false, responsive: true }};
 
@@ -355,15 +411,15 @@ function renderKPIs() {{
       <div class="kpi-label">전체 케이스</div>
       <div class="kpi-value">${{n_tot}}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card kpi-ok">
       <div class="kpi-label">성공</div>
       <div class="kpi-value kpi-ok">${{n_ok}}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card ${{n_fail>0?'kpi-err':''}}">
       <div class="kpi-label">실패</div>
       <div class="kpi-value ${{n_fail>0?'kpi-err':''}}">${{n_fail}}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card ${{n_skip>0?'kpi-warn':''}}">
       <div class="kpi-label">스킵</div>
       <div class="kpi-value ${{n_skip>0?'kpi-warn':''}}">${{n_skip}}</div>
     </div>
@@ -377,7 +433,7 @@ function renderKPIs() {{
       <div class="kpi-value">${{fmt(avgStr)}}</div>
       <div class="kpi-unit">MPa</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card ${{erMin!==null&&erMin>1.1?'kpi-err':erMin!==null&&erMin>1.05?'kpi-warn':''}}">
       <div class="kpi-label">에너지 비율 (최소)</div>
       <div class="kpi-value ${{erMin!==null&&erMin>1.1?'kpi-err':erMin!==null&&erMin>1.05?'kpi-warn':''}}">${{fmt(erMin,4)}}</div>
     </div>
@@ -531,7 +587,11 @@ document.querySelectorAll('thead th[data-col]').forEach(th => {{
   }});
 }});
 
-document.getElementById('search-box').addEventListener('input', applyFilter);
+let _searchTimer = null;
+document.getElementById('search-box').addEventListener('input', () => {{
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(applyFilter, 250);
+}});
 document.getElementById('tier-filter').addEventListener('change', applyFilter);
 document.getElementById('status-filter').addEventListener('change', applyFilter);
 
