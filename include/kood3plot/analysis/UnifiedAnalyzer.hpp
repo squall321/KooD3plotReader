@@ -98,17 +98,12 @@ private:
     bool section_views_done_ = false;
 
     // Internal analysis methods
-    void processStressJobs(
-        D3plotReader& reader,
-        const std::vector<AnalysisJob>& jobs,
-        const std::vector<data::StateData>& all_states,
-        ExtendedAnalysisResult& result,
-        UnifiedProgressCallback callback
-    );
 
-    void processStrainJobs(
+    /** @brief Single-pass solid element analysis (stress + strain + principal in one loop) */
+    void processSolidJobs(
         D3plotReader& reader,
-        const std::vector<AnalysisJob>& jobs,
+        const std::vector<AnalysisJob>& stress_jobs,
+        const std::vector<AnalysisJob>& strain_jobs,
         const std::vector<data::StateData>& all_states,
         ExtendedAnalysisResult& result,
         UnifiedProgressCallback callback

@@ -117,8 +117,8 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
 
     // Count total analysis steps for progress reporting
     int total_steps = 0;
-    if (!stress_jobs.empty()) total_steps++;
-    if (!strain_jobs.empty()) total_steps++;
+    bool has_solid_jobs = !stress_jobs.empty() || !strain_jobs.empty();
+    if (has_solid_jobs) total_steps++;  // single pass for stress + strain
     if (!motion_jobs.empty()) total_steps++;
     if (!surface_stress_jobs.empty()) total_steps++;
     if (!surface_strain_jobs.empty()) total_steps++;
@@ -135,17 +135,11 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
 
     int current_step = 0;
 
-    // Process each category
-    if (!stress_jobs.empty()) {
+    // Single-pass solid element analysis: stress + strain + principal in one loop
+    if (has_solid_jobs) {
         current_step++;
-        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Stress analysis (" + std::to_string(all_states.size()) + " states x " + std::to_string(stress_jobs.size()) + " jobs)...");
-        processStressJobs(reader, stress_jobs, all_states, result, callback);
-    }
-
-    if (!strain_jobs.empty()) {
-        current_step++;
-        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Strain analysis (" + std::to_string(all_states.size()) + " states x " + std::to_string(strain_jobs.size()) + " jobs)...");
-        processStrainJobs(reader, strain_jobs, all_states, result, callback);
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Solid analysis (" + std::to_string(all_states.size()) + " states, single pass)...");
+        processSolidJobs(reader, stress_jobs, strain_jobs, all_states, result, callback);
     }
 
     if (!motion_jobs.empty()) {
@@ -194,193 +188,92 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     return result;
 }
 
-void UnifiedAnalyzer::processStressJobs(
+void UnifiedAnalyzer::processSolidJobs(
     D3plotReader& reader,
-    const std::vector<AnalysisJob>& jobs,
+    const std::vector<AnalysisJob>& stress_jobs,
+    const std::vector<AnalysisJob>& strain_jobs,
     const std::vector<data::StateData>& all_states,
     ExtendedAnalysisResult& result,
     UnifiedProgressCallback callback
 ) {
-    // Use PartAnalyzer with pre-loaded states (no redundant file I/O!)
-    PartAnalyzer analyzer(reader);
-    if (!analyzer.initialize()) {
-        if (callback) callback("  Stress: Failed to initialize PartAnalyzer");
-        return;
-    }
+    bool do_stress = !stress_jobs.empty();
+    bool do_strain = !strain_jobs.empty();
 
-    if (callback) callback("  Analyzing Von Mises stress (" + std::to_string(all_states.size()) + " states)...");
-
-    // Use analyze_with_states_progress to show per-state progress
-    auto histories = analyzer.analyze_with_states_progress(all_states, StressComponent::VON_MISES,
-        [&callback](size_t current, size_t total, const std::string&) {
-            if (callback && (current % 20 == 0 || current == total)) {
-                callback("    Von Mises: state " + std::to_string(current) + "/" + std::to_string(total));
-            }
-        });
-
-    // Collect part IDs from jobs (empty means all, or use part_pattern)
+    // Collect requested part IDs from both stress and strain jobs
     std::vector<int32_t> requested_parts;
     bool want_all = false;
-    for (const auto& job : jobs) {
-        if (job.part_ids.empty() && job.part_pattern.empty()) {
-            want_all = true;
-            break;
-        }
-        // Add explicit part IDs
-        for (int32_t pid : job.part_ids) {
-            if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
-                requested_parts.push_back(pid);
+
+    auto collect_parts = [&](const std::vector<AnalysisJob>& jobs) {
+        for (const auto& job : jobs) {
+            if (job.part_ids.empty() && job.part_pattern.empty()) {
+                want_all = true;
+                return;
             }
-        }
-        // Add parts matching pattern
-        if (!job.part_pattern.empty()) {
-            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
-            for (int32_t pid : pattern_parts) {
+            for (int32_t pid : job.part_ids) {
                 if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
                     requested_parts.push_back(pid);
                 }
             }
+            if (!job.part_pattern.empty()) {
+                auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+                for (int32_t pid : pattern_parts) {
+                    if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
+                        requested_parts.push_back(pid);
+                    }
+                }
+            }
         }
+    };
+
+    collect_parts(stress_jobs);
+    if (!want_all) collect_parts(strain_jobs);
+
+    // Single-pass: Von Mises + Principal stress + Eff. plastic strain + Principal strain
+    if (callback) {
+        std::string desc;
+        if (do_stress && do_strain) desc = "stress + strain";
+        else if (do_stress) desc = "stress";
+        else desc = "strain";
+        callback("  Single-pass solid analysis: " + desc + " (" + std::to_string(all_states.size()) + " states)...");
     }
 
-    // Convert to PartTimeSeriesStats
-    for (const auto& history : histories) {
-        // Filter by requested parts
-        if (!want_all && std::find(requested_parts.begin(), requested_parts.end(), history.part_id) == requested_parts.end()) {
-            continue;
-        }
-
-        PartTimeSeriesStats stats;
-        stats.part_id = history.part_id;
-        stats.part_name = "Part_" + std::to_string(history.part_id);
-        stats.quantity = "von_mises";
-        stats.unit = "MPa";
-
-        for (size_t i = 0; i < history.times.size(); ++i) {
-            TimePointStats tp;
-            tp.time = history.times[i];
-            tp.max_value = history.max_values[i];
-            tp.min_value = history.min_values[i];
-            tp.avg_value = history.avg_values[i];
-            tp.max_element_id = i < history.max_elem_ids.size() ? history.max_elem_ids[i] : 0;
-            tp.min_element_id = 0;  // Not tracked in PartTimeHistory
-            stats.data.push_back(tp);
-        }
-
-        result.stress_history.push_back(stats);
-    }
-
-    if (callback) callback("  Stress analysis complete: " + std::to_string(result.stress_history.size()) + " parts");
-
-    // Run SinglePassAnalyzer for principal stress + tensor history
-    if (callback) callback("  Analyzing principal stress and tensor history (" + std::to_string(all_states.size()) + " states)...");
     SinglePassAnalyzer sp_analyzer(reader);
     AnalysisConfig sp_config;
-    sp_config.analyze_stress = true;
-    sp_config.analyze_strain = false;
+    sp_config.analyze_stress = do_stress;
+    sp_config.analyze_strain = do_strain;
     sp_config.part_ids = want_all ? std::vector<int32_t>{} : requested_parts;
 
     auto sp_result = sp_analyzer.analyzeWithStates(sp_config, all_states,
         [&callback](size_t current, size_t total, const std::string&) {
             if (callback && (current % 20 == 0 || current == total)) {
-                callback("    Principal stress: state " + std::to_string(current) + "/" + std::to_string(total));
+                callback("    Solid analysis: state " + std::to_string(current) + "/" + std::to_string(total));
             }
         });
 
-    // Move principal stress results
-    result.max_principal_history = std::move(sp_result.max_principal_history);
-    result.min_principal_history = std::move(sp_result.min_principal_history);
+    // Move stress results (Von Mises + principal stress + tensors)
+    if (do_stress) {
+        result.stress_history = std::move(sp_result.stress_history);
+        result.max_principal_history = std::move(sp_result.max_principal_history);
+        result.min_principal_history = std::move(sp_result.min_principal_history);
+        result.peak_element_tensors = std::move(sp_result.peak_element_tensors);
 
-    // Move principal strain results (conditional - only when strain tensor exists in d3plot)
-    result.max_principal_strain_history = std::move(sp_result.max_principal_strain_history);
-    result.min_principal_strain_history = std::move(sp_result.min_principal_strain_history);
-
-    // Move peak element tensor histories
-    result.peak_element_tensors = std::move(sp_result.peak_element_tensors);
-
-    if (callback) {
-        callback("  Principal stress: " + std::to_string(result.max_principal_history.size()) + " parts, " +
-                 "Tensors: " + std::to_string(result.peak_element_tensors.size()) + " elements");
-    }
-}
-
-void UnifiedAnalyzer::processStrainJobs(
-    D3plotReader& reader,
-    const std::vector<AnalysisJob>& jobs,
-    const std::vector<data::StateData>& all_states,
-    ExtendedAnalysisResult& result,
-    UnifiedProgressCallback callback
-) {
-    // Use PartAnalyzer with pre-loaded states (no redundant file I/O!)
-    PartAnalyzer analyzer(reader);
-    if (!analyzer.initialize()) {
-        if (callback) callback("  Strain: Failed to initialize PartAnalyzer");
-        return;
-    }
-
-    if (callback) callback("  Analyzing effective plastic strain (" + std::to_string(all_states.size()) + " states)...");
-
-    // Use analyze_with_states_progress to show per-state progress
-    auto histories = analyzer.analyze_with_states_progress(all_states, StressComponent::EFF_PLASTIC,
-        [&callback](size_t current, size_t total, const std::string&) {
-            if (callback && (current % 20 == 0 || current == total)) {
-                callback("    Eff. plastic strain: state " + std::to_string(current) + "/" + std::to_string(total));
-            }
-        });
-
-    // Collect part IDs from jobs (empty means all, or use part_pattern)
-    std::vector<int32_t> requested_parts;
-    bool want_all = false;
-    for (const auto& job : jobs) {
-        if (job.part_ids.empty() && job.part_pattern.empty()) {
-            want_all = true;
-            break;
-        }
-        // Add explicit part IDs
-        for (int32_t pid : job.part_ids) {
-            if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
-                requested_parts.push_back(pid);
-            }
-        }
-        // Add parts matching pattern
-        if (!job.part_pattern.empty()) {
-            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
-            for (int32_t pid : pattern_parts) {
-                if (std::find(requested_parts.begin(), requested_parts.end(), pid) == requested_parts.end()) {
-                    requested_parts.push_back(pid);
-                }
-            }
+        if (callback) {
+            callback("  Stress: " + std::to_string(result.stress_history.size()) + " parts, " +
+                     "Principal: " + std::to_string(result.max_principal_history.size()) + " parts, " +
+                     "Tensors: " + std::to_string(result.peak_element_tensors.size()) + " elements");
         }
     }
 
-    // Convert to PartTimeSeriesStats
-    for (const auto& history : histories) {
-        // Filter by requested parts
-        if (!want_all && std::find(requested_parts.begin(), requested_parts.end(), history.part_id) == requested_parts.end()) {
-            continue;
+    // Move strain results (eff. plastic + principal strain)
+    if (do_strain) {
+        result.strain_history = std::move(sp_result.strain_history);
+        result.max_principal_strain_history = std::move(sp_result.max_principal_strain_history);
+        result.min_principal_strain_history = std::move(sp_result.min_principal_strain_history);
+
+        if (callback) {
+            callback("  Strain: " + std::to_string(result.strain_history.size()) + " parts");
         }
-
-        PartTimeSeriesStats stats;
-        stats.part_id = history.part_id;
-        stats.part_name = "Part_" + std::to_string(history.part_id);
-        stats.quantity = "eff_plastic_strain";
-        stats.unit = "";
-
-        for (size_t i = 0; i < history.times.size(); ++i) {
-            TimePointStats tp;
-            tp.time = history.times[i];
-            tp.max_value = history.max_values[i];
-            tp.min_value = history.min_values[i];
-            tp.avg_value = history.avg_values[i];
-            tp.max_element_id = i < history.max_elem_ids.size() ? history.max_elem_ids[i] : 0;
-            tp.min_element_id = 0;
-            stats.data.push_back(tp);
-        }
-
-        result.strain_history.push_back(stats);
     }
-
-    if (callback) callback("  Strain analysis complete: " + std::to_string(result.strain_history.size()) + " parts");
 }
 
 void UnifiedAnalyzer::processMotionJobs(

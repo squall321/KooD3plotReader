@@ -7,6 +7,10 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <unordered_set>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace kood3plot {
 namespace analysis {
@@ -80,19 +84,20 @@ bool MotionAnalyzer::initialize() {
 void MotionAnalyzer::buildNodeToPartMapping() {
     part_node_indices_.clear();
 
+    // Collect with temporary sets for uniqueness
+    std::unordered_map<int32_t, std::unordered_set<size_t>> temp_sets;
+
     // Build node to part mapping from solid elements
     for (size_t elem_idx = 0; elem_idx < mesh_.solids.size(); ++elem_idx) {
         const auto& elem = mesh_.solids[elem_idx];
         int32_t part_id = mesh_.solid_parts.empty() ? 1 :
                          (elem_idx < mesh_.solid_parts.size() ? mesh_.solid_parts[elem_idx] : 1);
 
-        // Add all nodes of this element to the part
         for (int32_t node_id : elem.node_ids) {
             if (node_id > 0) {
-                // Convert to 0-based index
                 size_t node_idx = static_cast<size_t>(node_id - 1);
                 if (node_idx < num_nodes_) {
-                    part_node_indices_[part_id].insert(node_idx);
+                    temp_sets[part_id].insert(node_idx);
                 }
             }
         }
@@ -108,10 +113,17 @@ void MotionAnalyzer::buildNodeToPartMapping() {
             if (node_id > 0) {
                 size_t node_idx = static_cast<size_t>(node_id - 1);
                 if (node_idx < num_nodes_) {
-                    part_node_indices_[part_id].insert(node_idx);
+                    temp_sets[part_id].insert(node_idx);
                 }
             }
         }
+    }
+
+    // Convert to sorted vectors for cache-friendly sequential access
+    for (auto& [pid, node_set] : temp_sets) {
+        auto& vec = part_node_indices_[pid];
+        vec.assign(node_set.begin(), node_set.end());
+        std::sort(vec.begin(), vec.end());
     }
 }
 
@@ -184,10 +196,14 @@ void MotionAnalyzer::processState(const data::StateData& state) {
         return;
     }
 
-    // Process each part
-    for (size_t i = 0; i < active_parts_.size(); ++i) {
+    // Process each part (parallel — each part is independent within a state)
+    const size_t num_active = active_parts_.size();
+
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static) if(num_active > 4)
+#endif
+    for (int64_t i = 0; i < static_cast<int64_t>(num_active); ++i) {
         int32_t part_id = active_parts_[i];
-        auto& stats = results_[i];
 
         MotionTimePoint point;
         point.time = current_time;
@@ -219,8 +235,8 @@ void MotionAnalyzer::processState(const data::StateData& state) {
             point.avg_acceleration_magnitude = point.avg_acceleration.magnitude();
         }
 
-        // Store this point
-        stats.data.push_back(point);
+        // Store this point (each part writes to its own results_[i])
+        results_[i].data.push_back(point);
 
         // Update previous values
         prev_avg_displacements_[i] = point.avg_displacement;

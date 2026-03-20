@@ -34,7 +34,6 @@
 #include "kood3plot/analysis/VectorMath.hpp"
 #include <vector>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace kood3plot {
 namespace analysis {
@@ -113,8 +112,8 @@ private:
     std::vector<double> initial_coords_; // Initial node coordinates
     size_t num_nodes_ = 0;
 
-    // Node to part mapping
-    std::unordered_map<int32_t, std::unordered_set<size_t>> part_node_indices_;
+    // Node to part mapping (sorted vectors for cache-friendly access)
+    std::unordered_map<int32_t, std::vector<size_t>> part_node_indices_;
 
     // Part information
     std::vector<int32_t> active_parts_;  // Parts actually being analyzed
