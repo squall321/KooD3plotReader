@@ -261,10 +261,11 @@ class VirtualPartList(ctk.CTkFrame):
         self._canvas.pack(side="left", fill="both", expand=True)
         self._scrollbar.pack(side="right", fill="y")
 
-        self._canvas.bind("<Configure>", lambda e: self._render())
+        self._configure_pending = None  # debounce handle
+        self._canvas.bind("<Configure>", self._on_configure)
         self._canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self._canvas.bind("<Button-4>", lambda e: self._canvas.yview_scroll(-3, "units"))
-        self._canvas.bind("<Button-5>", lambda e: self._canvas.yview_scroll(3, "units"))
+        self._canvas.bind("<Button-4>", self._on_scroll_linux_up)
+        self._canvas.bind("<Button-5>", self._on_scroll_linux_down)
         self._canvas.bind("<Button-1>", self._on_click)
 
         # Track appearance mode for bg color
@@ -375,8 +376,22 @@ class VirtualPartList(ctk.CTkFrame):
             if self._on_change_cb:
                 self._on_change_cb()
 
+    def _on_configure(self, event) -> None:
+        """Debounced Configure handler — avoid re-renders during resize storms."""
+        if self._configure_pending is not None:
+            self.after_cancel(self._configure_pending)
+        self._configure_pending = self.after(100, self._render)
+
+    def _on_scroll_linux_up(self, event) -> None:
+        self._canvas.yview_scroll(-3, "units")
+        self._render()
+
+    def _on_scroll_linux_down(self, event) -> None:
+        self._canvas.yview_scroll(3, "units")
+        self._render()
+
     def _on_mousewheel(self, event) -> None:
-        # Windows/Mac: event.delta, Linux: Button-4/5
+        # Windows/Mac: event.delta
         if event.delta:
             self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
         self._render()
@@ -1131,11 +1146,18 @@ class SingleAnalyzerApp(ctk.CTk):
 
     # ── Part picker ──────────────────────────────────────────────────
 
+    _keyword_cache: dict = {}  # class-level cache: d3plot_path -> parsed keyword
+
     def _load_parts(self) -> None:
-        """Load part list from keyword file near d3plot path (background thread)."""
+        """Load part list from keyword file near d3plot path (background thread, cached)."""
         d3plot = self.inp_d3plot.get().strip()
         if not d3plot:
             messagebox.showwarning("No d3plot", "먼저 d3plot 경로를 지정하세요.")
+            return
+
+        # Return cached result if same path
+        if d3plot in self._keyword_cache:
+            self._populate_parts(self._keyword_cache[d3plot])
             return
 
         # Disable button and show progress
@@ -1145,6 +1167,7 @@ class SingleAnalyzerApp(ctk.CTk):
         def _parse_in_background():
             from ..core.keyword_parser import find_and_parse_keyword
             kw = find_and_parse_keyword(d3plot)
+            self._keyword_cache[d3plot] = kw
             self.after(0, lambda: self._populate_parts(kw))
 
         threading.Thread(target=_parse_in_background, daemon=True).start()
@@ -1391,18 +1414,25 @@ class SingleAnalyzerApp(ctk.CTk):
         if not hasattr(self, '_log_buffer'):
             self._log_buffer: list[str] = []
             self._log_flush_pending = False
+            self._log_last_flush = 0.0
 
         self._log_buffer.append(msg)
 
         if threading.current_thread() is threading.main_thread():
             self._flush_log()
         elif not self._log_flush_pending:
+            # Rate-limit: at most one flush every 200ms
+            import time
+            elapsed = time.monotonic() - self._log_last_flush
+            delay = max(10, int(200 - elapsed * 1000))
             self._log_flush_pending = True
-            self.after(50, self._flush_log)  # batch: flush every 50ms max
+            self.after(delay, self._flush_log)
 
     def _flush_log(self) -> None:
         """Flush buffered log lines to the text widget in one batch."""
+        import time
         self._log_flush_pending = False
+        self._log_last_flush = time.monotonic()
         if not self._log_buffer:
             return
         text = "\n".join(self._log_buffer) + "\n"

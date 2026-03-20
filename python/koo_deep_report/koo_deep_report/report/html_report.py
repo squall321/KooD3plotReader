@@ -210,21 +210,23 @@ def _build_js_data(result: SingleResult) -> dict:
         data["peak_element_tensors"] = [{
             "element_id": t.element_id, "part_id": t.part_id,
             "reason": t.reason, "peak_value": t.peak_value, "peak_time": t.peak_time,
-            "time": t.time, "sxx": t.sxx, "syy": t.syy, "szz": t.szz,
-            "sxy": t.sxy, "syz": t.syz, "szx": t.szx,
+            "time": _downsample(t.time), "sxx": _downsample(t.sxx),
+            "syy": _downsample(t.syy), "szz": _downsample(t.szz),
+            "sxy": _downsample(t.sxy), "syz": _downsample(t.syz),
+            "szx": _downsample(t.szx),
         } for t in dr.peak_element_tensors]
         data["motion"] = {
             str(pid): {
                 "part_id": pid,
                 "part_name": md.part_name,
-                "t": md.t,
-                "disp_x": md.disp_x,
-                "disp_y": md.disp_y,
-                "disp_z": md.disp_z,
-                "disp_mag": md.disp_mag,
-                "vel_mag": md.vel_mag,
-                "acc_mag": md.acc_mag,
-                "max_disp_mag": md.max_disp_mag,
+                "t": _downsample(md.t),
+                "disp_x": _downsample(md.disp_x),
+                "disp_y": _downsample(md.disp_y),
+                "disp_z": _downsample(md.disp_z),
+                "disp_mag": _downsample(md.disp_mag),
+                "vel_mag": _downsample(md.vel_mag),
+                "acc_mag": _downsample(md.acc_mag),
+                "max_disp_mag": _downsample(md.max_disp_mag),
                 "peak_disp_mag": md.peak_disp_mag,
                 "peak_vel_mag": md.peak_vel_mag,
                 "peak_acc_mag": md.peak_acc_mag,
@@ -255,13 +257,13 @@ def _build_js_data(result: SingleResult) -> dict:
 
     if gl:
         data["glstat"] = {
-            "t": gl.t,
-            "total_energy": gl.total_energy,
-            "kinetic_energy": gl.kinetic_energy,
-            "internal_energy": gl.internal_energy,
-            "hourglass_energy": gl.hourglass_energy,
-            "energy_ratio": gl.energy_ratio,
-            "mass": gl.mass,
+            "t": _downsample(gl.t),
+            "total_energy": _downsample(gl.total_energy),
+            "kinetic_energy": _downsample(gl.kinetic_energy),
+            "internal_energy": _downsample(gl.internal_energy),
+            "hourglass_energy": _downsample(gl.hourglass_energy),
+            "energy_ratio": _downsample(gl.energy_ratio),
+            "mass": _downsample(gl.mass),
             "energy_ratio_min": gl.energy_ratio_min,
             "energy_ratio_max": gl.energy_ratio_max,
             "has_mass_added": gl.has_mass_added,
@@ -274,18 +276,18 @@ def _build_js_data(result: SingleResult) -> dict:
             "matsum": {
                 "part_ids": bn.matsum.part_ids,
                 "part_names": bn.matsum.part_names,
-                "t": bn.matsum.t,
-                "internal_energy": bn.matsum.internal_energy,
-                "kinetic_energy": bn.matsum.kinetic_energy,
+                "t": _downsample(bn.matsum.t),
+                "internal_energy": [_downsample(e) for e in bn.matsum.internal_energy],
+                "kinetic_energy": [_downsample(e) for e in bn.matsum.kinetic_energy],
             } if bn.matsum else None,
             "rcforc": [
                 {
                     "id": ifc.interface_id,
                     "name": ifc.name,
                     "side": ifc.side,
-                    "t": ifc.t,
-                    "fx": ifc.fx, "fy": ifc.fy, "fz": ifc.fz,
-                    "fmag": ifc.fmag,
+                    "t": _downsample(ifc.t),
+                    "fx": _downsample(ifc.fx), "fy": _downsample(ifc.fy), "fz": _downsample(ifc.fz),
+                    "fmag": _downsample(ifc.fmag),
                     "peak_fmag": ifc.peak_fmag,
                 }
                 for ifc in bn.rcforc
@@ -294,15 +296,25 @@ def _build_js_data(result: SingleResult) -> dict:
                 {
                     "id": ifc.interface_id,
                     "name": ifc.name,
-                    "t": ifc.t,
-                    "total_energy": ifc.total_energy,
-                    "friction_energy": ifc.friction_energy,
+                    "t": _downsample(ifc.t),
+                    "total_energy": _downsample(ifc.total_energy),
+                    "friction_energy": _downsample(ifc.friction_energy),
                 }
                 for ifc in bn.sleout
             ],
         }
 
     return data
+
+
+def _downsample(arr: list, n: int = 500) -> list:
+    """Downsample a list to at most n points, keeping first/last and evenly spaced."""
+    if not arr or len(arr) <= n:
+        return arr
+    step = (len(arr) - 1) / (n - 1)
+    indices = {0, len(arr) - 1}
+    indices.update(int(i * step) for i in range(n))
+    return [arr[i] for i in sorted(indices)]
 
 
 def _series_to_dict(s) -> dict:
@@ -314,9 +326,9 @@ def _series_to_dict(s) -> dict:
         "global_max": s.global_max,
         "global_min": s.global_min,
         "time_of_max": s.time_of_max,
-        "t": s.t,
-        "max_vals": s.max_vals,
-        "avg_vals": s.avg_vals,
+        "t": _downsample(s.t),
+        "max_vals": _downsample(s.max_vals),
+        "avg_vals": _downsample(s.avg_vals),
     }
 
 

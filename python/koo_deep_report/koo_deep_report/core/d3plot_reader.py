@@ -356,14 +356,23 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
     min_principal_strain = [_parse_series(s) for s in raw.get("min_principal_strain_history", [])]
     accel = [_parse_series(s) for s in raw.get("acceleration_history", [])]
 
-    # motion CSVs: motion/part_<id>_motion.csv
+    # motion CSVs: motion/part_<id>_motion.csv (parallel loading)
     motion_dir = output_dir / "motion"
     motion: dict[int, MotionData] = {}
     if motion_dir.exists():
-        for csv_path in sorted(motion_dir.glob("part_*_motion.csv")):
-            md = _parse_motion_csv(csv_path)
-            if md is not None:
-                motion[md.part_id] = md
+        csv_paths = sorted(motion_dir.glob("part_*_motion.csv"))
+        if len(csv_paths) > 8:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(8, len(csv_paths))) as pool:
+                results = pool.map(_parse_motion_csv, csv_paths)
+            for md in results:
+                if md is not None:
+                    motion[md.part_id] = md
+        else:
+            for csv_path in csv_paths:
+                md = _parse_motion_csv(csv_path)
+                if md is not None:
+                    motion[md.part_id] = md
 
     # part_name from stress for motion entries that don't have names
     name_map = {s.part_id: s.part_name for s in stress}
