@@ -1336,11 +1336,7 @@ function drawMollweideContour() {
     svg += `<text x="${cx-rx-4}" y="${(cy-y*scale+3).toFixed(0)}" text-anchor="end" fill="#a9b1d6" font-size="9">${lat}</text>`;
   }
 
-  // Invisible hover zones
-  for (const dp of dataPoints) {
-    const sx = cx + dp.mx*scale, sy = cy - dp.my*scale;
-    svg += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="18" fill="transparent" style="cursor:pointer" onmouseenter="onMollHover(${dp.ri})" onmouseleave="onMollLeave()"/>`;
-  }
+  // Hover handled by mousemove (no per-point SVG circles needed — better for 1000+ points)
   svg += '</svg>';
 
   const cbSvg = buildColorBar(vmin, vmax, vrange, qty, H);
@@ -1412,6 +1408,8 @@ function drawMollweidePoints() {
   }
 
   // Data points with size and color (clipped to ellipse)
+  // Store projected positions for mousemove hit-testing
+  _contourDataPoints = [];
   svg += `<g clip-path="url(#moll-clip)">`;
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri];
@@ -1425,8 +1423,8 @@ function drawMollweidePoints() {
     const n = DATA.results.length;
     const baseR = n > 500 ? 2 : n > 200 ? 4 : n > 50 ? 6 : 8;
     const radius = baseR + norm * baseR;
-    svg += `<circle class="heatmap-cell" cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" data-ri="${ri}"
-      onmouseenter="onMollHover(${ri})" onmouseleave="onMollLeave()"/>`;
+    svg += `<circle class="heatmap-cell" cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" data-ri="${ri}"/>`;
+    _contourDataPoints.push({ mx: x, my: y, ri });
   }
   svg += `</g>`;
 
@@ -1446,6 +1444,26 @@ function drawMollweidePoints() {
 
   const cbSvg = buildColorBar(vmin, vmax, vrange, qty, H);
   wrap.innerHTML = `<div style="display:flex;align-items:flex-start;gap:0;">${svg}${cbSvg}</div>`;
+
+  // Mousemove hover (avoids 1000+ per-element event listeners)
+  const ptsSvg = wrap.querySelector('svg');
+  if (ptsSvg) {
+    ptsSvg.style.cursor = 'crosshair';
+    ptsSvg.addEventListener('mousemove', function(e) {
+      const rect = ptsSvg.getBoundingClientRect();
+      const sx = (e.clientX - rect.left) / rect.width * W;
+      const sy = (e.clientY - rect.top) / rect.height * H;
+      if (!isInsideMollweide(sx, sy, cx, cy, scale)) { onMollLeave(); return; }
+      const qx = (sx - cx)/scale, qy = (cy - sy)/scale;
+      let minD = Infinity, best = -1;
+      for (const dp of _contourDataPoints) {
+        const d = (qx-dp.mx)**2 + (qy-dp.my)**2;
+        if (d < minD) { minD = d; best = dp.ri; }
+      }
+      if (best >= 0) onMollHover(best);
+    });
+    ptsSvg.addEventListener('mouseleave', onMollLeave);
+  }
 }
 
 // Risk-sorted table below the map (virtual scroll for 500+ rows)
@@ -1577,16 +1595,22 @@ function formatValue(v, qty) {
   return v.toFixed(2);
 }
 
+let _hoverDebounce = null;
 function onMollHover(ri) {
   mollweideState.hoveredAngle = ri;
-  const r = DATA.results[ri];
-  update3DDevice(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
-  const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
-  globeState.hoveredRi = ri;
-  rotateGlobeTo(lon, lat);
   updateMollInfo(ri);
+  // Debounce globe rotation to avoid animation stutter on fast mouse moves
+  clearTimeout(_hoverDebounce);
+  _hoverDebounce = setTimeout(() => {
+    const r = DATA.results[ri];
+    update3DDevice(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name);
+    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, r.angle.swap);
+    globeState.hoveredRi = ri;
+    rotateGlobeTo(lon, lat);
+  }, 80);
 }
 function onMollLeave() {
+  clearTimeout(_hoverDebounce);
   mollweideState.hoveredAngle = null;
   globeState.hoveredRi = -1;
   renderGlobe();
