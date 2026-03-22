@@ -63,9 +63,15 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     if ts_points > 0:
         ts_pts = ts_points
     else:
-        ts_pts = 100 if n_results <= 50 else 30 if n_results <= 200 else 20
+        ts_pts = 100 if n_results <= 50 else 30 if n_results <= 200 else 15 if n_results <= 500 else 10
     comp_pts = max(1, ts_pts // 2)  # XYZ components at half resolution
     include_extras = n_results <= 200  # elem IDs, min values only for smaller datasets
+    # Large dataset: skip component time series entirely (acc_ts, disp_comp_ts)
+    include_components = n_results <= 500
+    # Precision: reduce decimal places for large datasets
+    s_prec = 1 if n_results > 500 else 2  # stress precision
+    e_prec = 4 if n_results > 500 else 6  # strain precision
+    t_prec = 6 if n_results > 500 else 7  # time precision
 
     for sr in report.results:
         rd = {
@@ -83,54 +89,55 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
         }
         for pid, pr in sr.parts.items():
             pd = {
-                "peak_stress": round(pr.peak_stress, 2),
-                "peak_strain": round(pr.peak_strain, 6),
+                "peak_stress": round(pr.peak_stress, s_prec),
+                "peak_strain": round(pr.peak_strain, e_prec),
                 "peak_g": round(pr.peak_g, 1),
-                "peak_disp": round(pr.peak_disp, 3),
+                "peak_disp": round(pr.peak_disp, s_prec),
             }
             if pr.stress and pr.stress.times:
                 step = max(1, len(pr.stress.times) // ts_pts)
                 pd["stress_ts"] = {
-                    "t": [round(pr.stress.times[i], 7) for i in range(0, len(pr.stress.times), step)],
-                    "max": [round(pr.stress.max_values[i], 2) for i in range(0, len(pr.stress.max_values), step)],
-                    "avg": [round(pr.stress.avg_values[i], 2) for i in range(0, len(pr.stress.avg_values), step)],
+                    "t": [round(pr.stress.times[i], t_prec) for i in range(0, len(pr.stress.times), step)],
+                    "max": [round(pr.stress.max_values[i], s_prec) for i in range(0, len(pr.stress.max_values), step)],
+                    "avg": [round(pr.stress.avg_values[i], s_prec) for i in range(0, len(pr.stress.avg_values), step)],
                 }
                 if include_extras and pr.stress.min_values:
-                    pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], 2) for i in range(0, len(pr.stress.min_values), step)]
+                    pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], s_prec) for i in range(0, len(pr.stress.min_values), step)]
                 if include_extras and pr.stress.max_element_ids:
                     pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in range(0, len(pr.stress.max_element_ids), step)]
             if pr.strain and pr.strain.times:
                 step = max(1, len(pr.strain.times) // ts_pts)
                 pd["strain_ts"] = {
-                    "t": [round(pr.strain.times[i], 7) for i in range(0, len(pr.strain.times), step)],
-                    "max": [round(pr.strain.max_values[i], 6) for i in range(0, len(pr.strain.max_values), step)],
+                    "t": [round(pr.strain.times[i], t_prec) for i in range(0, len(pr.strain.times), step)],
+                    "max": [round(pr.strain.max_values[i], e_prec) for i in range(0, len(pr.strain.max_values), step)],
                 }
                 if pr.strain.avg_values:
-                    pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], 6) for i in range(0, len(pr.strain.avg_values), step)]
+                    pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in range(0, len(pr.strain.avg_values), step)]
             if pr.motion and pr.motion.times:
                 step = max(1, len(pr.motion.times) // ts_pts)
                 g_factor = 9810.0
                 pd["g_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
+                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
                     "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],
                 }
                 pd["disp_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
-                    "mag": [round(pr.motion.avg_disp_mag[i], 3) for i in range(0, len(pr.motion.avg_disp_mag), step)],
+                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
+                    "mag": [round(pr.motion.avg_disp_mag[i], s_prec) for i in range(0, len(pr.motion.avg_disp_mag), step)],
                 }
-                cs = max(1, len(pr.motion.times) // comp_pts)
-                pd["acc_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), cs)],
-                    "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_x), cs)],
-                    "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_y), cs)],
-                    "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_z), cs)],
-                }
-                pd["disp_comp_ts"] = {
-                    "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), cs)],
-                    "x": [round(pr.motion.avg_disp_x[i], 2) for i in range(0, len(pr.motion.avg_disp_x), cs)],
-                    "y": [round(pr.motion.avg_disp_y[i], 2) for i in range(0, len(pr.motion.avg_disp_y), cs)],
-                    "z": [round(pr.motion.avg_disp_z[i], 2) for i in range(0, len(pr.motion.avg_disp_z), cs)],
-                }
+                if include_components:
+                    cs = max(1, len(pr.motion.times) // comp_pts)
+                    pd["acc_ts"] = {
+                        "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), cs)],
+                        "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_x), cs)],
+                        "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_y), cs)],
+                        "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_z), cs)],
+                    }
+                    pd["disp_comp_ts"] = {
+                        "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), cs)],
+                        "x": [round(pr.motion.avg_disp_x[i], s_prec) for i in range(0, len(pr.motion.avg_disp_x), cs)],
+                        "y": [round(pr.motion.avg_disp_y[i], s_prec) for i in range(0, len(pr.motion.avg_disp_y), cs)],
+                        "z": [round(pr.motion.avg_disp_z[i], s_prec) for i in range(0, len(pr.motion.avg_disp_z), cs)],
+                    }
                 pd["peak_vel"] = round(max(abs(v) for v in pr.motion.avg_vel_mag) if pr.motion.avg_vel_mag else 0.0, 1)
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
@@ -1441,7 +1448,11 @@ function drawMollweidePoints() {
   wrap.innerHTML = `<div style="display:flex;align-items:flex-start;gap:0;">${svg}${cbSvg}</div>`;
 }
 
-// Risk-sorted table below the map
+// Risk-sorted table below the map (virtual scroll for 500+ rows)
+let _riskRows = [];  // cached sorted rows
+const _RISK_ROW_H = 28;  // px per row
+const _RISK_VIRTUAL_THRESHOLD = 200;
+
 function drawRiskTable() {
   const tableEl = document.getElementById('moll-risk-table');
   if (!tableEl) return;
@@ -1451,30 +1462,63 @@ function drawRiskTable() {
   const qtyLabel = qty === 'peak_stress' ? 'Stress (MPa)' : qty === 'peak_strain' ? 'Strain' : qty === 'peak_g' ? 'G-Force (MG)' : qty === 'peak_vel' ? 'Velocity (mm/s)' : qty === 'safety_factor' ? 'Safety Factor' : 'Disp (mm)';
 
   // Build sorted list
-  const rows = [];
+  _riskRows = [];
   for (let ri = 0; ri < DATA.results.length; ri++) {
     const r = DATA.results[ri];
     const pd = r.parts[pid];
     const v = getQtyValue(pd, qty);
-    rows.push({ ri, name: r.angle.name, roll: r.angle.roll, pitch: r.angle.pitch, yaw: r.angle.yaw, category: r.angle.category, value: v });
+    _riskRows.push({ ri, name: r.angle.name, roll: r.angle.roll, pitch: r.angle.pitch, yaw: r.angle.yaw, category: r.angle.category, value: v });
   }
-  rows.sort((a, b) => b.value - a.value);
+  _riskRows.sort((a, b) => b.value - a.value);
 
-  let html = `<table><tr><th>#</th><th>Direction</th><th>Category</th><th>${qtyLabel}</th><th>Roll</th><th>Pitch</th><th>Yaw</th></tr>`;
-  rows.forEach((row, i) => {
-    html += `<tr class="risk-table-row" data-ri="${row.ri}"
+  if (_riskRows.length <= _RISK_VIRTUAL_THRESHOLD) {
+    // Small dataset: render all rows directly
+    let html = `<table><thead><tr><th>#</th><th>Direction</th><th>Category</th><th>${qtyLabel}</th><th>Roll</th><th>Pitch</th><th>Yaw</th></tr></thead><tbody>`;
+    _riskRows.forEach((row, i) => {
+      html += `<tr class="risk-table-row" data-ri="${row.ri}"
+        onmouseenter="onRiskRowHover(this, ${row.ri})" onmouseleave="onRiskRowLeave(this)">
+        <td>${i+1}</td><td style="color:var(--cyan)">${row.name}</td><td>${row.category}</td>
+        <td style="text-align:right;font-weight:bold">${formatValue(row.value, qty)}</td>
+        <td style="text-align:right">${row.roll.toFixed(1)}</td><td style="text-align:right">${row.pitch.toFixed(1)}</td>
+        <td style="text-align:right">${row.yaw.toFixed(1)}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    tableEl.innerHTML = html;
+  } else {
+    // Large dataset: virtual scroll — only render visible rows
+    const visH = Math.min(500, _riskRows.length * _RISK_ROW_H);
+    tableEl.innerHTML = `
+      <table><thead><tr><th>#</th><th>Direction</th><th>Category</th><th>${qtyLabel}</th><th>Roll</th><th>Pitch</th><th>Yaw</th></tr></thead></table>
+      <div id="risk-vscroll" style="height:${visH}px;overflow-y:auto;position:relative">
+        <div id="risk-spacer" style="height:${_riskRows.length * _RISK_ROW_H}px"></div>
+        <table id="risk-vbody" style="position:absolute;top:0;left:0;width:100%"></table>
+      </div>`;
+    const scroller = document.getElementById('risk-vscroll');
+    scroller.addEventListener('scroll', _renderRiskVisible);
+    _renderRiskVisible();
+  }
+}
+
+function _renderRiskVisible() {
+  const scroller = document.getElementById('risk-vscroll');
+  const tbody = document.getElementById('risk-vbody');
+  if (!scroller || !tbody) return;
+  const scrollTop = scroller.scrollTop;
+  const viewH = scroller.clientHeight;
+  const first = Math.max(0, Math.floor(scrollTop / _RISK_ROW_H) - 5);
+  const last = Math.min(_riskRows.length, Math.ceil((scrollTop + viewH) / _RISK_ROW_H) + 5);
+  tbody.style.top = (first * _RISK_ROW_H) + 'px';
+  let html = '';
+  for (let i = first; i < last; i++) {
+    const row = _riskRows[i];
+    html += `<tr class="risk-table-row" data-ri="${row.ri}" style="height:${_RISK_ROW_H}px"
       onmouseenter="onRiskRowHover(this, ${row.ri})" onmouseleave="onRiskRowLeave(this)">
-      <td>${i+1}</td>
-      <td style="color:var(--cyan)">${row.name}</td>
-      <td>${row.category}</td>
-      <td style="text-align:right;font-weight:bold">${formatValue(row.value, qty)}</td>
-      <td style="text-align:right">${row.roll.toFixed(1)}</td>
-      <td style="text-align:right">${row.pitch.toFixed(1)}</td>
-      <td style="text-align:right">${row.yaw.toFixed(1)}</td>
-    </tr>`;
-  });
-  html += '</table>';
-  tableEl.innerHTML = html;
+      <td>${i+1}</td><td style="color:var(--cyan)">${row.name}</td><td>${row.category}</td>
+      <td style="text-align:right;font-weight:bold">${formatValue(row.value, row.qty || mollweideState.quantity)}</td>
+      <td style="text-align:right">${row.roll.toFixed(1)}</td><td style="text-align:right">${row.pitch.toFixed(1)}</td>
+      <td style="text-align:right">${row.yaw.toFixed(1)}</td></tr>`;
+  }
+  tbody.innerHTML = html;
 }
 
 function onRiskRowHover(el, ri) {

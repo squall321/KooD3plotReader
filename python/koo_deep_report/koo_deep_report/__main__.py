@@ -52,7 +52,7 @@ def main() -> None:
             description="디렉토리 내 모든 시뮬 배치 분석",
         )
         parser.add_argument("path", help="배치 분석할 루트 디렉토리")
-        _add_single_args(parser)
+        _add_single_args(parser, add_path=False)
         parser.add_argument("--skip-existing", action="store_true",
                             help="result.json이 이미 있으면 스킵")
         parser.add_argument("--threads", type=int, default=1,
@@ -71,8 +71,9 @@ def main() -> None:
         run_single(args)
 
 
-def _add_single_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("path", nargs="?", help="시뮬 디렉토리 또는 d3plot 파일 경로")
+def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
+    if add_path:
+        p.add_argument("path", nargs="?", help="시뮬 디렉토리 또는 d3plot 파일 경로")
     p.add_argument("--config", "-c", default="", metavar="YAML",
                    help="YAML 설정 파일 (GUI에서 생성. CLI 인수보다 우선)")
     p.add_argument("--output", "-o", default="./single_report",
