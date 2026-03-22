@@ -1133,15 +1133,31 @@ function drawMollweideAll() {
   const activeBtn = document.getElementById(mollweideState.viewMode === 'contour' ? 'btn-contour' : 'btn-points');
   if (activeBtn) activeBtn.classList.add('active');
 
-  if (mollweideState.viewMode === 'contour') {
-    drawMollweideContour();
-  } else {
-    drawMollweidePoints();
+  // For large datasets, show loading indicator and defer heavy work
+  const isLarge = DATA.results.length > 200;
+  const wrap = document.getElementById('moll-map-wrap');
+
+  function doRender() {
+    if (mollweideState.viewMode === 'contour') {
+      drawMollweideContour();
+    } else {
+      drawMollweidePoints();
+    }
+    drawRiskTable();
+    updateGlobeData();
+    renderGlobe();
+    updateMollInfo(null);
   }
-  drawRiskTable();
-  updateGlobeData();
-  renderGlobe();
-  updateMollInfo(null);
+
+  if (isLarge && wrap) {
+    wrap.style.opacity = '0.4';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      doRender();
+      wrap.style.opacity = '1';
+    }));
+  } else {
+    doRender();
+  }
 }
 
 // Shared contour data for mouse interaction
@@ -1220,7 +1236,9 @@ function drawMollweideContour() {
   _contourDataPoints = dataPoints;
 
   // Step 1: Compute IDW on coarse grid using spherical distance
-  const gridStep = 3;
+  // Adaptive grid step: coarser for large datasets to keep interaction smooth
+  const nPts = dataPoints.length;
+  const gridStep = nPts > 500 ? 6 : nPts > 200 ? 4 : 3;
   const gW = Math.ceil(W / gridStep) + 1, gH = Math.ceil(H / gridStep) + 1;
   const gridVals = new Float32Array(gW * gH);
   const pw = 3.5;  // higher power = sharper peaks, max stays at data points
@@ -1234,9 +1252,18 @@ function drawMollweideContour() {
       if (!ll) { gridVals[gy * gW + gx] = 0; continue; }
       const [plon, plat] = ll;
       let wsum = 0, vsum = 0;
+      // For large datasets, use fast Euclidean pre-filter to skip distant points
+      const useFast = nPts > 200;
+      const cutoff = useFast ? 1.2 : Infinity;  // ~69° radius cutoff
       for (const dp of dataPoints) {
+        if (useFast) {
+          const dlon = Math.abs(plon - dp.lon), dlat = Math.abs(plat - dp.lat);
+          if (dlon > 70 && dlon < 290) continue;  // quick reject far longitude
+          if (dlat > 70) continue;
+        }
         const dist = sphericalDist(plon, plat, dp.lon, dp.lat);
         if (dist < 0.02) { vsum = dp.v; wsum = 1; break; }  // ~1.1° snap radius
+        if (dist > cutoff) continue;
         const w = 1 / Math.pow(dist, pw);
         wsum += w;
         vsum += w * dp.v;
