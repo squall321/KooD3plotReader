@@ -143,13 +143,24 @@ public:
 
 private:
     std::string a00_path_;
-    std::string base_path_;         ///< Base path without extension (e.g., "sim/A00" -> "sim/A0")
+    std::string base_path_;         ///< Base path stem (e.g., "tube_crushA")
 
     RadiossHeader header_;
     RadiossMesh mesh_;
 
     std::ifstream file_;
     std::string last_error_;
+
+    // Format metadata (from geometry file header)
+    int32_t flags_[10] = {};
+    int32_t nbNodes_ = 0;
+    int32_t nbFacets_ = 0;
+    int32_t nbParts2D_ = 0;
+    int32_t nbFunc_ = 0;
+    int32_t nbEFunc_ = 0;
+    int32_t nbVect_ = 0;
+    int32_t nbTens_ = 0;
+    int32_t nbSkew_ = 0;
 
     // Parsing functions
     ErrorCode parseHeader();
@@ -161,26 +172,20 @@ private:
     bool stateFileExists(size_t state_index) const;
 
     // Endian handling
-    bool need_swap_ = false;  ///< True if file endian != host endian
+    bool need_swap_ = false;
 
     static void swapBytes(void* data, size_t size);
     static void swapArray(void* data, size_t elem_size, size_t count);
 
     // Binary reading helpers
-    template<typename T>
-    T readBinary();
-
-    template<typename T>
-    T readBinaryFrom(std::ifstream& f);
-
+    template<typename T> T readBinary();
+    template<typename T> T readBinaryFrom(std::ifstream& f);
     void readBinaryArray(void* data, size_t size);
-
-    /**
-     * @brief Read fixed-length string (null-padded)
-     * @param length String length in bytes
-     * @return Parsed string (without null padding)
-     */
     std::string readString(size_t length);
+    void skipBytes(size_t n);
+    void skipBytesFrom(std::ifstream& f, size_t n);
+    void skipInts(size_t count);
+    void skipFloats(size_t count);
 };
 
 } // namespace converter
