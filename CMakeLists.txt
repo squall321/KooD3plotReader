@@ -560,6 +560,7 @@ if(KOOD3PLOT_BUILD_V2_CONVERTER AND KOOD3PLOT_BUILD_V2_WRITER)
         src/converter/RadiossWriter.cpp
         src/converter/RadiossToVtkConverter.cpp
         src/converter/VtkToRadiossConverter.cpp
+        src/converter/RadiossToD3plotConverter.cpp
     )
 
     # V2 Converter System header files
@@ -572,6 +573,7 @@ if(KOOD3PLOT_BUILD_V2_CONVERTER AND KOOD3PLOT_BUILD_V2_WRITER)
         include/kood3plot/converter/RadiossWriter.h
         include/kood3plot/converter/RadiossToVtkConverter.h
         include/kood3plot/converter/VtkToRadiossConverter.h
+        include/kood3plot/converter/RadiossToD3plotConverter.h
     )
 
     # Create V2 Converter System library

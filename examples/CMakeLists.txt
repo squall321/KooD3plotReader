@@ -303,8 +303,12 @@ if(KOOD3PLOT_BUILD_V2_CONVERTER AND KOOD3PLOT_BUILD_V2_WRITER)
     add_executable(converter_full_roundtrip converter/06_full_roundtrip.cpp)
     target_link_libraries(converter_full_roundtrip PRIVATE kood3plot_converter kood3plot_writer kood3plot)
 
+    # Direct Radioss → D3plot converter
+    add_executable(converter_radioss_to_d3plot converter/07_radioss_to_d3plot.cpp)
+    target_link_libraries(converter_radioss_to_d3plot PRIVATE kood3plot_converter kood3plot_writer kood3plot)
+
     # Install V2 Converter examples
-    install(TARGETS converter_basic_test converter_roundtrip_test converter_real_d3plot converter_d3plot_roundtrip converter_radioss_to_vtk converter_full_roundtrip
+    install(TARGETS converter_basic_test converter_roundtrip_test converter_real_d3plot converter_d3plot_roundtrip converter_radioss_to_vtk converter_full_roundtrip converter_radioss_to_d3plot
         RUNTIME DESTINATION bin/examples
     )
 

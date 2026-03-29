@@ -160,9 +160,18 @@ private:
     std::string getStateFilePath(size_t state_index) const;
     bool stateFileExists(size_t state_index) const;
 
+    // Endian handling
+    bool need_swap_ = false;  ///< True if file endian != host endian
+
+    static void swapBytes(void* data, size_t size);
+    static void swapArray(void* data, size_t elem_size, size_t count);
+
     // Binary reading helpers
     template<typename T>
     T readBinary();
+
+    template<typename T>
+    T readBinaryFrom(std::ifstream& f);
 
     void readBinaryArray(void* data, size_t size);
 

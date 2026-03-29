@@ -48,9 +48,14 @@ namespace converter {
 RadiossReader::RadiossReader(const std::string& a00_filepath)
     : a00_path_(a00_filepath)
 {
-    // Extract base path (e.g., "sim/A00" -> "sim/A0")
-    size_t pos = a00_filepath.find_last_of("0123456789");
-    if (pos != std::string::npos && pos >= 2) {
+    // Extract base path: strip trailing digits to get the stem before index
+    // e.g., "tube_crushA001" → "tube_crushA"
+    //        "simA000"       → "simA"
+    size_t pos = a00_filepath.size();
+    while (pos > 0 && a00_filepath[pos - 1] >= '0' && a00_filepath[pos - 1] <= '9') {
+        --pos;
+    }
+    if (pos > 0) {
         base_path_ = a00_filepath.substr(0, pos);
     } else {
         base_path_ = a00_filepath + "_";
@@ -95,7 +100,14 @@ void RadiossReader::close() {
 std::vector<RadiossState> RadiossReader::readAllStates(size_t max_states) {
     std::vector<RadiossState> states;
 
-    size_t state_index = 1;
+    // A001 = geometry (header), state files start from A002
+    // Detect: if A001 was used as geometry, start from index 2
+    size_t state_index = 2;
+    // But if separate A000 was used, states start from A001
+    if (a00_path_.find("A000") != std::string::npos ||
+        a00_path_.find("a000") != std::string::npos) {
+        state_index = 1;
+    }
     size_t count = 0;
 
     while (stateFileExists(state_index)) {
@@ -140,12 +152,37 @@ std::string RadiossReader::readString(size_t length) {
     return std::string(buffer.data(), actual_len);
 }
 
+void RadiossReader::swapBytes(void* data, size_t size) {
+    auto* bytes = reinterpret_cast<uint8_t*>(data);
+    for (size_t i = 0; i < size / 2; ++i) {
+        std::swap(bytes[i], bytes[size - 1 - i]);
+    }
+}
+
+void RadiossReader::swapArray(void* data, size_t elem_size, size_t count) {
+    auto* bytes = reinterpret_cast<uint8_t*>(data);
+    for (size_t i = 0; i < count; ++i) {
+        swapBytes(bytes + i * elem_size, elem_size);
+    }
+}
+
 ErrorCode RadiossReader::parseHeader() {
-    // 1. Read magic number (4 bytes int32)
-    int32_t magic = readBinary<int32_t>();
-    if (magic != 21548) {  // 0x542b
-        last_error_ = "Invalid magic number. Expected 21548, got " + std::to_string(magic);
-        return ErrorCode::INVALID_FORMAT;
+    // 1. Read magic number (4 bytes int32) — auto-detect endianness
+    int32_t magic;
+    file_.read(reinterpret_cast<char*>(&magic), sizeof(int32_t));
+
+    // Valid magic numbers: 0x5426..0x542c (versions 4..10)
+    if (magic >= 0x5426 && magic <= 0x542c) {
+        need_swap_ = false;
+    } else {
+        // Try byte-swapped
+        swapBytes(&magic, sizeof(int32_t));
+        if (magic >= 0x5426 && magic <= 0x542c) {
+            need_swap_ = true;
+        } else {
+            last_error_ = "Invalid magic number (neither endian matched)";
+            return ErrorCode::INVALID_FORMAT;
+        }
     }
 
     // Word size: Radioss uses float32 by default
@@ -301,9 +338,7 @@ ErrorCode RadiossReader::parseStateFile(const std::string& filepath, RadiossStat
     }
 
     // State files start with time value (float32)
-    float time;
-    state_file.read(reinterpret_cast<char*>(&time), sizeof(float));
-    state.time = time;
+    state.time = readBinaryFrom<float>(state_file);
 
     // Read nodal vectors in order (from genani.F VELVEC calls):
     // 1. Velocity (if ANIM_V(1)==1)
@@ -315,27 +350,21 @@ ErrorCode RadiossReader::parseStateFile(const std::string& filepath, RadiossStat
     if (header_.has_velocity) {
         state.node_velocities.resize(vector_size);
         for (size_t i = 0; i < vector_size; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.node_velocities[i] = val;
+            state.node_velocities[i] = readBinaryFrom<float>(state_file);
         }
     }
 
     if (header_.has_displacement) {
         state.node_displacements.resize(vector_size);
         for (size_t i = 0; i < vector_size; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.node_displacements[i] = val;
+            state.node_displacements[i] = readBinaryFrom<float>(state_file);
         }
     }
 
     if (header_.has_acceleration) {
         state.node_accelerations.resize(vector_size);
         for (size_t i = 0; i < vector_size; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.node_accelerations[i] = val;
+            state.node_accelerations[i] = readBinaryFrom<float>(state_file);
         }
     }
 
@@ -346,31 +375,23 @@ ErrorCode RadiossReader::parseStateFile(const std::string& filepath, RadiossStat
     if (header_.has_plastic_strain && header_.num_shells > 0) {
         state.plastic_strain.resize(header_.num_shells);
         for (int32_t i = 0; i < header_.num_shells; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.plastic_strain[i] = val;
+            state.plastic_strain[i] = readBinaryFrom<float>(state_file);
         }
     }
 
     if (header_.has_stress && header_.num_shells > 0) {
-        // Shell stress tensors: 6 components per element (Voigt notation)
         size_t stress_size = header_.num_shells * 6;
         state.shell_stress.resize(stress_size);
         for (size_t i = 0; i < stress_size; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.shell_stress[i] = val;
+            state.shell_stress[i] = readBinaryFrom<float>(state_file);
         }
     }
 
     if (header_.has_stress && header_.num_solids > 0) {
-        // Solid stress tensors: 6 components per element (Voigt notation)
         size_t stress_size = header_.num_solids * 6;
         state.solid_stress.resize(stress_size);
         for (size_t i = 0; i < stress_size; ++i) {
-            float val;
-            state_file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            state.solid_stress[i] = val;
+            state.solid_stress[i] = readBinaryFrom<float>(state_file);
         }
     }
 
@@ -379,18 +400,10 @@ ErrorCode RadiossReader::parseStateFile(const std::string& filepath, RadiossStat
 }
 
 std::string RadiossReader::getStateFilePath(size_t state_index) const {
-    // Format: A01, A02, ..., A09, A10, ..., A99, A100, etc.
-    // For state_index=1: A01
-    // For state_index=42: A42
-
-    std::string index_str;
-    if (state_index < 10) {
-        index_str = "0" + std::to_string(state_index);
-    } else {
-        index_str = std::to_string(state_index);
-    }
-
-    return base_path_ + index_str;
+    // Format: A001, A002, ..., A099, A100, etc. (3-digit zero-padded)
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%03zu", state_index);
+    return base_path_ + buf;
 }
 
 bool RadiossReader::stateFileExists(size_t state_index) const {
@@ -402,6 +415,15 @@ template<typename T>
 T RadiossReader::readBinary() {
     T value;
     file_.read(reinterpret_cast<char*>(&value), sizeof(T));
+    if (need_swap_) swapBytes(&value, sizeof(T));
+    return value;
+}
+
+template<typename T>
+T RadiossReader::readBinaryFrom(std::ifstream& f) {
+    T value;
+    f.read(reinterpret_cast<char*>(&value), sizeof(T));
+    if (need_swap_) swapBytes(&value, sizeof(T));
     return value;
 }
 
