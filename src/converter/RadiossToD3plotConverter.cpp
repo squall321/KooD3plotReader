@@ -113,12 +113,11 @@ void RadiossToD3plotConverter::mapMesh(
     control.NEL2 = static_cast<int32_t>(dst.beams.size());
     control.NELT = 0;
 
-    // Variables per element
-    // NV3D: 6 stress + 1 eff. plastic strain = 7 (base)
-    // If strain tensor available: +6 = 13
-    control.NV3D = header.has_strain ? 13 : 7;
-    control.NV2D = 33;  // Standard shell: 3 integration points × (6 stress + 1 eps) + extras
-    control.NV1D = 6;   // Standard beam variables
+    // Variables per element — only set if elements of that type exist
+    // NV3D/NV2D: always set if elements exist (zero-fill if no stress data)
+    control.NV3D = (control.NEL8 > 0) ? 7 : 0;
+    control.NV2D = (control.NEL4 > 0) ? 33 : 0;
+    control.NV1D = 0;   // Beam results not extracted from Radioss animation
     control.NV3DT = 0;
 
     // Material counts
@@ -127,12 +126,12 @@ void RadiossToD3plotConverter::mapMesh(
     for (auto p : dst.shell_parts) parts.insert(p);
     for (auto p : dst.beam_parts) parts.insert(p);
 
-    control.NUMMAT8 = dst.solids.empty() ? 0 : static_cast<int32_t>(
-        std::set<int32_t>(dst.solid_parts.begin(), dst.solid_parts.end()).size());
-    control.NUMMAT4 = dst.shells.empty() ? 0 : static_cast<int32_t>(
-        std::set<int32_t>(dst.shell_parts.begin(), dst.shell_parts.end()).size());
-    control.NUMMAT2 = dst.beams.empty() ? 0 : static_cast<int32_t>(
-        std::set<int32_t>(dst.beam_parts.begin(), dst.beam_parts.end()).size());
+    control.NUMMAT8 = (control.NEL8 > 0 && !dst.solid_parts.empty()) ?
+        static_cast<int32_t>(std::set<int32_t>(dst.solid_parts.begin(), dst.solid_parts.end()).size()) : 0;
+    control.NUMMAT4 = (control.NEL4 > 0 && !dst.shell_parts.empty()) ?
+        static_cast<int32_t>(std::set<int32_t>(dst.shell_parts.begin(), dst.shell_parts.end()).size()) : 0;
+    control.NUMMAT2 = (control.NEL2 > 0 && !dst.beam_parts.empty()) ?
+        static_cast<int32_t>(std::set<int32_t>(dst.beam_parts.begin(), dst.beam_parts.end()).size()) : 0;
     control.NUMMATT = 0;
     control.NMMAT = static_cast<int32_t>(parts.size());
     if (control.NMMAT == 0) control.NMMAT = 1;
@@ -147,7 +146,7 @@ void RadiossToD3plotConverter::mapMesh(
     control.NGLBV = 6;  // KE, IE, total, X-vel, Y-vel, Z-vel
     control.NARBS = 0;
     control.EXTRA = 0;
-    control.ISTRN = header.has_strain ? 1 : 0;
+    control.ISTRN = 0;  // Radioss animation files don't contain strain tensor
 
     // Compute derived values
     control.compute_derived_values();
