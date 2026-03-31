@@ -864,6 +864,12 @@ if(KOOD3PLOT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
+# Viewer (ImGui + OpenGL desktop app)
+option(KOOD3PLOT_BUILD_VIEWER "Build ImGui desktop viewer" OFF)
+if(KOOD3PLOT_BUILD_VIEWER)
+    add_subdirectory(viewer)
+endif()
+
 # Installation
 install(TARGETS kood3plot
     EXPORT KooD3plotTargets
