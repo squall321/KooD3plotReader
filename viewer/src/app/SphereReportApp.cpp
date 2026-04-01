@@ -115,6 +115,25 @@ void SphereReportApp::run(const std::string& jsonPath) {
             ImGui::DockBuilderFinish(dsId);
         }
 
+        // Keyboard shortcuts
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+                int w, h;
+                glfwGetFramebufferSize(window_, &w, &h);
+                std::vector<unsigned char> pixels(w * h * 3);
+                glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+                std::string path = "screenshot_sphere.ppm";
+                FILE* fp = fopen(path.c_str(), "wb");
+                if (fp) {
+                    fprintf(fp, "P6\n%d %d\n255\n", w, h);
+                    for (int y = h - 1; y >= 0; --y)
+                        fwrite(pixels.data() + y * w * 3, 1, w * 3, fp);
+                    fclose(fp);
+                    std::cout << "[Screenshot] Saved: " << path << "\n";
+                }
+            }
+        }
+
         renderKPIBar();
 
         // Left: Mollweide + Globe
@@ -276,12 +295,23 @@ void SphereReportApp::renderMollweide() {
 
     ImGui::SameLine();
     if (ImGui::Checkbox("Swap R/P", &swapRP_)) {
-        // Recompute lon/lat with swapped axes
         for (auto& r : data_.results) {
             double roll = swapRP_ ? r.angle.pitch : r.angle.roll;
             double pitch = swapRP_ ? r.angle.roll : r.angle.pitch;
             eulerToLonLat(roll, pitch, r.angle.yaw, r.angle.name, r.angle.lon, r.angle.lat);
         }
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Contour", &contourMode_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Manual Scale", &manualScale_);
+    if (manualScale_) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);
+        ImGui::InputFloat("Min", &scaleMin_, 0, 0, "%.0f");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);
+        ImGui::InputFloat("Max", &scaleMax_, 0, 0, "%.0f");
     }
     ImGui::TextColored(COL_DIM, "Click to select/deselect angles. Selected: %d", (int)selectedAngles_.size());
     ImGui::Spacing();
@@ -327,14 +357,50 @@ void SphereReportApp::renderMollweide() {
         }
     }
 
-    // Data points
+    // Compute value range
     double vmin = 1e30, vmax = -1e30;
     for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
         double v = getAngleValue(ri, selectedPartId_, quantity_);
-        vmin = std::min(vmin, v);
-        vmax = std::max(vmax, v);
+        vmin = std::min(vmin, v); vmax = std::max(vmax, v);
     }
+    if (manualScale_ && scaleMax_ > scaleMin_) { vmin = scaleMin_; vmax = scaleMax_; }
     double vrange = std::max(vmax - vmin, 1e-10);
+
+    // IDW Contour mode
+    if (contourMode_) {
+        int gridStep = data_.results.size() > 200 ? 6 : 4;
+        for (int py = 0; py < (int)mapH; py += gridStep) {
+            for (int px = 0; px < (int)mapW; px += gridStep) {
+                float sx = mapPos.x + px, sy = mapPos.y + py;
+                double qx = ((double)px - mapW*0.5) / scale;
+                double qy = (mapH*0.5 - (double)py) / scale;
+                // Check inside ellipse
+                double ex = qx / (2.0*std::sqrt(2.0)), ey = qy / std::sqrt(2.0);
+                if (ex*ex + ey*ey > 1.0) continue;
+
+                // IDW interpolation (spherical distance)
+                double wsum = 0, vsum = 0;
+                for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+                    double mx, my;
+                    mollweideProject(data_.results[ri].angle.lon, data_.results[ri].angle.lat, mx, my);
+                    double dx = qx - mx, dy = qy - my;
+                    double dist = std::sqrt(dx*dx + dy*dy);
+                    if (dist < 0.05) { vsum = getAngleValue(ri, selectedPartId_, quantity_); wsum = 1; break; }
+                    double w = 1.0 / (dist * dist * dist);
+                    wsum += w;
+                    vsum += w * getAngleValue(ri, selectedPartId_, quantity_);
+                }
+                if (wsum > 0) {
+                    double val = vsum / wsum;
+                    double norm = (val - vmin) / vrange;
+                    ImU32 col = valueToColor(norm);
+                    dl->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + gridStep, sy + gridStep), col);
+                }
+            }
+        }
+        // Re-draw ellipse outline on top
+        dl->AddEllipse(ImVec2(cx, cy), ImVec2(rx, ry), IM_COL32(120,125,160,200), 0, 64, 1.5f);
+    }
 
     // Find hovered point
     hoveredAngle_ = -1;
@@ -392,6 +458,13 @@ void SphereReportApp::renderMollweide() {
         mollweideProject(r.angle.lon, r.angle.lat, mx, my);
         float sx = cx + (float)mx * scale, sy = cy - (float)my * scale;
         dl->AddCircle(ImVec2(sx, sy), baseR + 6, IM_COL32(255,255,255,255), 0, 2.5f);
+    }
+
+    // Orientation cube (bottom-left corner)
+    if (hoveredAngle_ >= 0) {
+        drawOrientationCube(dl, ImVec2(mapPos.x + 10, mapPos.y + mapH - 90),
+                            80, data_.results[hoveredAngle_].angle.roll,
+                            data_.results[hoveredAngle_].angle.pitch);
     }
 
     // Colorbar
@@ -1094,4 +1167,73 @@ void SphereReportApp::renderFailureTab() {
         ImGui::TextColored(COL_YELLOW, "! %d parts have LOW safety margin (SF < 1.5)", nLow);
     if (nFail == 0 && nLow == 0)
         ImGui::TextColored(COL_ACCENT, "All parts within acceptable safety margins (SF >= 1.5)");
+}
+
+// ============================================================
+// Orientation Cube — shows device direction for hovered angle
+// ============================================================
+void SphereReportApp::drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size,
+                                           double rollDeg, double pitchDeg) {
+    float cx = pos.x + size * 0.5f, cy = pos.y + size * 0.5f;
+    float s = size * 0.35f;
+
+    double r = rollDeg * M_PI / 180.0, p = pitchDeg * M_PI / 180.0;
+    float cr = (float)std::cos(r), sr = (float)std::sin(r);
+    float cp = (float)std::cos(p), sp = (float)std::sin(p);
+
+    // 3D cube vertices (unit cube centered at origin)
+    float verts[8][3] = {
+        {-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1},
+        {-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1}
+    };
+
+    // Rotate by roll (around X) then pitch (around Y)
+    auto rotate = [&](float x, float y, float z, float& ox, float& oy) {
+        // Rx(roll)
+        float y1 = y*cr - z*sr, z1 = y*sr + z*cr;
+        // Ry(pitch)
+        float x2 = x*cp + z1*sp, z2 = -x*sp + z1*cp;
+        // Isometric projection
+        ox = (x2 - y1) * 0.707f;
+        oy = -(x2 + y1) * 0.408f - z2 * 0.816f;
+    };
+
+    float proj[8][2];
+    for (int i = 0; i < 8; ++i) {
+        rotate(verts[i][0], verts[i][1], verts[i][2], proj[i][0], proj[i][1]);
+        proj[i][0] = cx + proj[i][0] * s;
+        proj[i][1] = cy + proj[i][1] * s;
+    }
+
+    // Background
+    dl->AddRectFilled(pos, ImVec2(pos.x + size, pos.y + size), IM_COL32(20, 22, 35, 200), 6);
+
+    // Draw edges
+    int edges[][2] = {{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
+    for (auto& e : edges) {
+        dl->AddLine(ImVec2(proj[e[0]][0], proj[e[0]][1]),
+                    ImVec2(proj[e[1]][0], proj[e[1]][1]),
+                    IM_COL32(150, 155, 180, 150), 1.2f);
+    }
+
+    // Face labels (approximate center of top face)
+    // Top face = verts 4,5,6,7 (Z+)
+    float topCx = (proj[4][0]+proj[5][0]+proj[6][0]+proj[7][0])/4;
+    float topCy = (proj[4][1]+proj[5][1]+proj[6][1]+proj[7][1])/4;
+    dl->AddText(ImVec2(topCx-4, topCy-6), IM_COL32(78,204,163,255), "T");
+
+    // Front face = verts 0,1,5,4 (Y-)
+    float frCx = (proj[0][0]+proj[1][0]+proj[5][0]+proj[4][0])/4;
+    float frCy = (proj[0][1]+proj[1][1]+proj[5][1]+proj[4][1])/4;
+    dl->AddText(ImVec2(frCx-4, frCy-6), IM_COL32(233,69,96,255), "F");
+
+    // Right face = verts 1,2,6,5 (X+)
+    float rtCx = (proj[1][0]+proj[2][0]+proj[6][0]+proj[5][0])/4;
+    float rtCy = (proj[1][1]+proj[2][1]+proj[6][1]+proj[5][1])/4;
+    dl->AddText(ImVec2(rtCx-4, rtCy-6), IM_COL32(79,192,255,255), "R");
+
+    // Roll/Pitch label
+    char label[64];
+    snprintf(label, sizeof(label), "R:%.0f P:%.0f", rollDeg, pitchDeg);
+    dl->AddText(ImVec2(pos.x + 4, pos.y + size - 14), IM_COL32(150,155,180,200), label);
 }

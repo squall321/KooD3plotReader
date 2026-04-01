@@ -212,6 +212,34 @@ void DeepReportApp::run(const std::string& outputDir) {
             ImGui::DockBuilderFinish(dsId);
         }
 
+        // Keyboard shortcuts
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+                // Toggle fullscreen (not implemented — maximize only)
+                static bool maximized = true;
+                if (maximized) glfwRestoreWindow(window_);
+                else glfwMaximizeWindow(window_);
+                maximized = !maximized;
+            }
+            // Ctrl+S screenshot
+            if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+                int w, h;
+                glfwGetFramebufferSize(window_, &w, &h);
+                std::vector<unsigned char> pixels(w * h * 3);
+                glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+                // Flip vertically and save as PPM
+                std::string path = "screenshot.ppm";
+                FILE* fp = fopen(path.c_str(), "wb");
+                if (fp) {
+                    fprintf(fp, "P6\n%d %d\n255\n", w, h);
+                    for (int y = h - 1; y >= 0; --y)
+                        fwrite(pixels.data() + y * w * 3, 1, w * 3, fp);
+                    fclose(fp);
+                    std::cout << "[Screenshot] Saved: " << path << " (" << w << "x" << h << ")\n";
+                }
+            }
+        }
+
         renderKPIBar();
         renderPartTable();
 

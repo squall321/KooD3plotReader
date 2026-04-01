@@ -40,6 +40,14 @@ private:
     bool globeAutoRotate_ = true;
     bool swapRP_ = false;
 
+    // Mollweide options
+    bool contourMode_ = false;
+    bool manualScale_ = false;
+    float scaleMin_ = 0, scaleMax_ = 0;
+
+    // Orientation cube
+    void drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
+
     // Helpers
     double getAngleValue(int ri, int partId, int qty) const;
     void mollweideProject(double lonDeg, double latDeg, double& x, double& y) const;
