@@ -1,0 +1,581 @@
+#include "app/SphereReportApp.hpp"
+
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+#include <implot.h>
+
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+#include <filesystem>
+
+// Colors
+static const ImVec4 COL_ACCENT = {0.31f, 0.80f, 0.64f, 1.0f};
+static const ImVec4 COL_RED    = {0.91f, 0.27f, 0.38f, 1.0f};
+static const ImVec4 COL_YELLOW = {0.96f, 0.65f, 0.14f, 1.0f};
+static const ImVec4 COL_BLUE   = {0.31f, 0.56f, 1.00f, 1.0f};
+static const ImVec4 COL_PURPLE = {0.48f, 0.41f, 0.93f, 1.0f};
+static const ImVec4 COL_DIM    = {0.55f, 0.55f, 0.62f, 1.0f};
+
+bool SphereReportApp::init(int width, int height) {
+    if (!glfwInit()) return false;
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    window_ = glfwCreateWindow(width, height, "KooViewer — Sphere Report", nullptr, nullptr);
+    if (!window_) { glfwTerminate(); return false; }
+    glfwMakeContextCurrent(window_);
+    glfwMaximizeWindow(window_);
+    glfwSwapInterval(1);
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) return false;
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImPlot::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigErrorRecoveryEnableAssert = false;
+    io.ConfigErrorRecoveryEnableDebugLog = false;
+    io.ConfigErrorRecoveryEnableTooltip = false;
+
+    // Same polished theme as Deep mode
+    ImGui::StyleColorsDark();
+    auto& s = ImGui::GetStyle();
+    s.WindowRounding = 8; s.FrameRounding = 6; s.TabRounding = 6;
+    s.GrabRounding = 4; s.ScrollbarRounding = 6; s.ChildRounding = 6;
+    s.WindowBorderSize = 1; s.ItemSpacing = ImVec2(10,7); s.WindowPadding = ImVec2(14,12);
+    s.FramePadding = ImVec2(8,5);
+    s.Colors[ImGuiCol_WindowBg]       = {0.067f,0.071f,0.106f,1};
+    s.Colors[ImGuiCol_ChildBg]        = {0.082f,0.086f,0.125f,1};
+    s.Colors[ImGuiCol_Border]         = {0.18f,0.19f,0.28f,0.6f};
+    s.Colors[ImGuiCol_FrameBg]        = {0.11f,0.12f,0.18f,1};
+    s.Colors[ImGuiCol_Tab]            = {0.09f,0.10f,0.15f,1};
+    s.Colors[ImGuiCol_TabSelected]    = {0.16f,0.22f,0.38f,1};
+    s.Colors[ImGuiCol_TableHeaderBg]  = {0.08f,0.14f,0.24f,1};
+    s.Colors[ImGuiCol_SliderGrab]     = {0.31f,0.80f,0.64f,0.8f};
+    s.Colors[ImGuiCol_CheckMark]      = {0.31f,0.80f,0.64f,1};
+
+    // Font
+    const char* fontPaths[] = {
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc",
+        "C:\\Windows\\Fonts\\malgun.ttf", nullptr
+    };
+    for (int i = 0; fontPaths[i]; ++i) {
+        if (std::filesystem::exists(fontPaths[i])) {
+            io.Fonts->AddFontFromFileTTF(fontPaths[i], 16.0f, nullptr, io.Fonts->GetGlyphRangesKorean());
+            break;
+        }
+    }
+
+    ImPlot::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window_, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+    return true;
+}
+
+void SphereReportApp::run(const std::string& jsonPath) {
+    std::cout << "[Sphere] Loading: " << jsonPath << "\n";
+    if (!loadSphereData(jsonPath, data_)) {
+        std::cerr << "[Sphere] Failed: " << data_.error << "\n";
+    }
+    std::cout << "[Sphere] Loaded: " << data_.results.size() << " angles, " << data_.parts.size() << " parts\n";
+
+    // Default to first part
+    if (!data_.parts.empty()) selectedPartId_ = data_.parts.begin()->first;
+
+    while (!glfwWindowShouldClose(window_)) {
+        glfwPollEvents();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGuiID dsId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+        static bool firstFrame = true;
+        if (firstFrame) {
+            firstFrame = false;
+            ImGui::DockBuilderRemoveNode(dsId);
+            ImGui::DockBuilderAddNode(dsId, ImGuiDockNodeFlags_DockSpace);
+            int fw, fh; glfwGetWindowSize(window_, &fw, &fh);
+            ImGui::DockBuilderSetNodeSize(dsId, ImVec2((float)fw, (float)fh));
+
+            ImGuiID top, rest;
+            ImGui::DockBuilderSplitNode(dsId, ImGuiDir_Up, 0.10f, &top, &rest);
+            ImGuiID left, right;
+            ImGui::DockBuilderSplitNode(rest, ImGuiDir_Left, 0.40f, &left, &right);
+
+            ImGui::DockBuilderDockWindow("##SphereKPI", top);
+            ImGui::DockBuilderDockWindow("Mollweide", left);
+            ImGui::DockBuilderDockWindow("Analysis", right);
+            ImGui::DockBuilderFinish(dsId);
+        }
+
+        renderKPIBar();
+
+        // Mollweide panel
+        ImGui::Begin("Mollweide");
+        renderMollweide();
+        ImGui::End();
+
+        // Right: tabbed analysis
+        ImGui::Begin("Analysis");
+        if (ImGui::BeginTabBar("SphereTabs")) {
+            if (ImGui::BeginTabItem("Angle Table")) { renderAngleTable(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Part Risk"))   { renderPartRisk(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Selected"))    { renderCompareInfo(); ImGui::EndTabItem(); }
+            ImGui::EndTabBar();
+        }
+        ImGui::End();
+
+        ImGui::Render();
+        int fbW, fbH; glfwGetFramebufferSize(window_, &fbW, &fbH);
+        glViewport(0, 0, fbW, fbH);
+        glClearColor(0.067f, 0.071f, 0.106f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        glfwSwapBuffers(window_);
+    }
+}
+
+void SphereReportApp::shutdown() {
+    ImPlot::DestroyContext();
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    if (window_) glfwDestroyWindow(window_);
+    glfwTerminate();
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+double SphereReportApp::getAngleValue(int ri, int partId, int qty) const {
+    auto it = data_.results[ri].parts.find(partId);
+    if (it == data_.results[ri].parts.end()) return 0;
+    switch (qty) {
+        case 0: return it->second.peak_stress;
+        case 1: return it->second.peak_strain;
+        case 2: return it->second.peak_g;
+        case 3: return it->second.peak_disp;
+    }
+    return 0;
+}
+
+void SphereReportApp::mollweideProject(double lonDeg, double latDeg, double& x, double& y) const {
+    double lon = lonDeg * M_PI / 180.0;
+    double lat = latDeg * M_PI / 180.0;
+    double theta = lat;
+    for (int i = 0; i < 20; ++i) {
+        double f = 2*theta + std::sin(2*theta) - M_PI*std::sin(lat);
+        double fp = 2 + 2*std::cos(2*theta);
+        if (std::abs(fp) < 1e-12) break;
+        double dt = f / fp;
+        if (std::abs(dt) > 0.3) dt = dt > 0 ? 0.3 : -0.3;
+        theta -= dt;
+        if (std::abs(dt) < 1e-7) break;
+    }
+    x = (2.0*std::sqrt(2.0)/M_PI) * lon * std::cos(theta);
+    y = std::sqrt(2.0) * std::sin(theta);
+}
+
+ImU32 SphereReportApp::valueToColor(double norm) const {
+    norm = std::max(0.0, std::min(1.0, norm));
+    float r, g, b;
+    if (norm < 0.25f) { r = 0; g = norm/0.25f; b = 1; }
+    else if (norm < 0.5f) { r = 0; g = 1; b = 1-(norm-0.25f)/0.25f; }
+    else if (norm < 0.75f) { r = (norm-0.5f)/0.25f; g = 1; b = 0; }
+    else { r = 1; g = 1-(norm-0.75f)/0.25f; b = 0; }
+    return IM_COL32((int)(r*255), (int)(g*255), (int)(b*255), 255);
+}
+
+// ============================================================
+// KPI Bar
+// ============================================================
+void SphereReportApp::renderKPIBar() {
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 80), ImVec2(FLT_MAX, 110));
+    ImGui::Begin("##SphereKPI", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
+
+    char buf[64];
+    auto kpi = [&](const char* label, const char* value, const char* unit, ImVec4 col) {
+        ImGui::BeginGroup();
+        ImGui::SmallButton(label);
+        ImGui::PushStyleColor(ImGuiCol_Text, col);
+        ImGui::SetWindowFontScale(1.4f);
+        ImGui::TextUnformatted(value);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleColor();
+        ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
+        ImGui::TextUnformatted(unit);
+        ImGui::PopStyleColor();
+        ImGui::EndGroup();
+    };
+
+    ImGui::Columns(6, nullptr, false);
+    snprintf(buf, sizeof(buf), "%d / %d", data_.successful_runs, data_.total_runs);
+    kpi("CASES", buf, data_.doe_strategy.c_str(), COL_ACCENT);
+    ImGui::NextColumn();
+    snprintf(buf, sizeof(buf), "%.1f", data_.worst_stress);
+    kpi("WORST STRESS", buf, "MPa", COL_RED);
+    ImGui::NextColumn();
+    snprintf(buf, sizeof(buf), "%.1f deg", data_.angular_spacing);
+    kpi("SPACING", buf, "", COL_BLUE);
+    ImGui::NextColumn();
+    snprintf(buf, sizeof(buf), "%.0f%%", data_.sphere_coverage * 100);
+    kpi("COVERAGE", buf, "", COL_PURPLE);
+    ImGui::NextColumn();
+    if (data_.worst_stress_angle >= 0)
+        snprintf(buf, sizeof(buf), "%s", data_.results[data_.worst_stress_angle].angle.name.c_str());
+    else snprintf(buf, sizeof(buf), "--");
+    kpi("WORST ANGLE", buf, "", COL_YELLOW);
+    ImGui::NextColumn();
+    snprintf(buf, sizeof(buf), "%d", (int)data_.parts.size());
+    kpi("PARTS", buf, "", COL_DIM);
+    ImGui::Columns(1);
+
+    ImGui::End();
+}
+
+// ============================================================
+// Mollweide Projection Map
+// ============================================================
+void SphereReportApp::renderMollweide() {
+    // Controls
+    const char* qtyNames[] = {"Stress (MPa)", "Strain", "G-Force", "Displacement (mm)"};
+    ImGui::SetNextItemWidth(200);
+    ImGui::Combo("Quantity", &quantity_, qtyNames, 4);
+    ImGui::SameLine();
+    ImGui::Text("Part:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::BeginCombo("##partSel",
+        (data_.parts.count(selectedPartId_) ?
+         ("Part " + std::to_string(selectedPartId_) + " " + data_.parts[selectedPartId_].name) :
+         "Select").c_str())) {
+        for (auto& [pid, pi] : data_.parts) {
+            char label[128];
+            snprintf(label, sizeof(label), "Part %d — %s", pid, pi.name.c_str());
+            if (ImGui::Selectable(label, selectedPartId_ == pid))
+                selectedPartId_ = pid;
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::TextColored(COL_DIM, "Click to select/deselect angles. Selected: %d", (int)selectedAngles_.size());
+    ImGui::Spacing();
+
+    // Draw Mollweide map
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    float mapW = avail.x;
+    float mapH = std::max(200.0f, avail.y - 10);
+    ImVec2 mapPos = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##mollMap", ImVec2(mapW, mapH));
+    bool mapHovered = ImGui::IsItemHovered();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float cx = mapPos.x + mapW * 0.5f;
+    float cy = mapPos.y + mapH * 0.5f;
+    float scale = std::min(mapW / (4.0f * std::sqrt(2.0f)), mapH / (2.0f * std::sqrt(2.0f))) * 0.9f;
+    float rx = 2.0f * std::sqrt(2.0f) * scale;
+    float ry = std::sqrt(2.0f) * scale;
+
+    // Background
+    dl->AddRectFilled(mapPos, ImVec2(mapPos.x + mapW, mapPos.y + mapH), IM_COL32(15, 17, 26, 255), 6);
+
+    // Ellipse outline
+    dl->AddEllipse(ImVec2(cx, cy), ImVec2(rx, ry), IM_COL32(120,125,160,200), 0, 64, 1.5f);
+
+    // Grid lines
+    for (int lat = -60; lat <= 60; lat += 30) {
+        for (int lon = -175; lon <= 175; lon += 5) {
+            double x1, y1, x2, y2;
+            mollweideProject(lon, lat, x1, y1);
+            mollweideProject(lon + 5, lat, x2, y2);
+            dl->AddLine(ImVec2(cx + x1*scale, cy - y1*scale),
+                       ImVec2(cx + x2*scale, cy - y2*scale), IM_COL32(50, 55, 75, 80), 0.5f);
+        }
+    }
+    for (int lon = -150; lon <= 150; lon += 30) {
+        for (int lat = -88; lat <= 88; lat += 2) {
+            double x1, y1, x2, y2;
+            mollweideProject(lon, lat, x1, y1);
+            mollweideProject(lon, lat + 2, x2, y2);
+            dl->AddLine(ImVec2(cx + x1*scale, cy - y1*scale),
+                       ImVec2(cx + x2*scale, cy - y2*scale), IM_COL32(50, 55, 75, 80), 0.5f);
+        }
+    }
+
+    // Data points
+    double vmin = 1e30, vmax = -1e30;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        double v = getAngleValue(ri, selectedPartId_, quantity_);
+        vmin = std::min(vmin, v);
+        vmax = std::max(vmax, v);
+    }
+    double vrange = std::max(vmax - vmin, 1e-10);
+
+    // Find hovered point
+    hoveredAngle_ = -1;
+    ImVec2 mousePos = ImGui::GetMousePos();
+    double minDist = 1e30;
+
+    int nPts = (int)data_.results.size();
+    float baseR = nPts > 500 ? 3 : nPts > 200 ? 4 : nPts > 50 ? 6 : 8;
+
+    for (int ri = 0; ri < nPts; ++ri) {
+        auto& r = data_.results[ri];
+        double mx, my;
+        mollweideProject(r.angle.lon, r.angle.lat, mx, my);
+        float sx = cx + (float)mx * scale;
+        float sy = cy - (float)my * scale;
+
+        double v = getAngleValue(ri, selectedPartId_, quantity_);
+        double norm = (v - vmin) / vrange;
+        ImU32 col = valueToColor(norm);
+
+        bool isSelected = selectedAngles_.count(ri);
+        float radius = baseR + (float)norm * baseR * 0.5f;
+        if (isSelected) radius += 2;
+
+        dl->AddCircleFilled(ImVec2(sx, sy), radius, col);
+        if (isSelected)
+            dl->AddCircle(ImVec2(sx, sy), radius + 2, IM_COL32(255,255,255,200), 0, 2);
+
+        // Hit test
+        float dx = mousePos.x - sx, dy = mousePos.y - sy;
+        float dist = dx*dx + dy*dy;
+        if (dist < minDist && dist < 400) { minDist = dist; hoveredAngle_ = ri; }
+    }
+
+    // Click to select
+    if (mapHovered && ImGui::IsMouseClicked(0) && hoveredAngle_ >= 0) {
+        if (selectedAngles_.count(hoveredAngle_))
+            selectedAngles_.erase(hoveredAngle_);
+        else
+            selectedAngles_.insert(hoveredAngle_);
+    }
+
+    // Tooltip
+    if (hoveredAngle_ >= 0) {
+        auto& r = data_.results[hoveredAngle_];
+        double v = getAngleValue(hoveredAngle_, selectedPartId_, quantity_);
+        ImGui::BeginTooltip();
+        ImGui::Text("%s", r.angle.name.c_str());
+        ImGui::Text("Roll: %.1f  Pitch: %.1f", r.angle.roll, r.angle.pitch);
+        ImGui::Text("Value: %.2f", v);
+        ImGui::EndTooltip();
+
+        // Highlight on map
+        double mx, my;
+        mollweideProject(r.angle.lon, r.angle.lat, mx, my);
+        float sx = cx + (float)mx * scale, sy = cy - (float)my * scale;
+        dl->AddCircle(ImVec2(sx, sy), baseR + 6, IM_COL32(255,255,255,255), 0, 2.5f);
+    }
+
+    // Colorbar
+    float cbX = mapPos.x + mapW - 30;
+    float cbY = mapPos.y + 20;
+    float cbH = mapH - 40;
+    for (int i = 0; i < (int)cbH; ++i) {
+        float t = 1.0f - (float)i / cbH;
+        dl->AddLine(ImVec2(cbX, cbY + i), ImVec2(cbX + 16, cbY + i), valueToColor(t));
+    }
+    char vminS[32], vmaxS[32];
+    snprintf(vmaxS, sizeof(vmaxS), "%.1f", vmax);
+    snprintf(vminS, sizeof(vminS), "%.1f", vmin);
+    dl->AddText(ImVec2(cbX - 40, cbY - 2), IM_COL32(200,200,210,255), vmaxS);
+    dl->AddText(ImVec2(cbX - 40, cbY + cbH - 10), IM_COL32(200,200,210,255), vminS);
+}
+
+// ============================================================
+// Angle Table
+// ============================================================
+void SphereReportApp::renderAngleTable() {
+    ImGui::TextColored(COL_DIM,
+        "Sorted by selected quantity. Click row to select/deselect on Mollweide map.");
+    ImGui::Spacing();
+
+    const char* qtyNames[] = {"Stress", "Strain", "G-Force", "Disp"};
+
+    if (ImGui::BeginTable("##AngleTable", 7,
+            ImGuiTableFlags_Sortable | ImGuiTableFlags_RowBg |
+            ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp |
+            ImGuiTableFlags_BordersInnerV)) {
+
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30);
+        ImGui::TableSetupColumn("Direction", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthFixed, 70);
+        ImGui::TableSetupColumn("Roll", ImGuiTableColumnFlags_WidthFixed, 55);
+        ImGui::TableSetupColumn("Pitch", ImGuiTableColumnFlags_WidthFixed, 55);
+        ImGui::TableSetupColumn(qtyNames[quantity_], ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 80);
+        ImGui::TableSetupColumn("Sel", ImGuiTableColumnFlags_WidthFixed, 25);
+        ImGui::TableHeadersRow();
+
+        // Sort by value descending
+        std::vector<std::pair<int, double>> sorted;
+        for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            sorted.push_back({ri, getAngleValue(ri, selectedPartId_, quantity_)});
+        }
+        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        ImGuiListClipper clipper;
+        clipper.Begin((int)sorted.size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                int ri = sorted[i].first;
+                auto& r = data_.results[ri];
+                bool isSelected = selectedAngles_.count(ri);
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                char label[16]; snprintf(label, sizeof(label), "%d", i + 1);
+                if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+                    if (isSelected) selectedAngles_.erase(ri);
+                    else selectedAngles_.insert(ri);
+                }
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextColored(COL_ACCENT, "%s", r.angle.name.c_str());
+                ImGui::TableSetColumnIndex(2);
+                ImGui::TextColored(COL_DIM, "%s", r.angle.category.c_str());
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%.1f", r.angle.roll);
+                ImGui::TableSetColumnIndex(4);
+                ImGui::Text("%.1f", r.angle.pitch);
+                ImGui::TableSetColumnIndex(5);
+                ImGui::Text("%.2f", sorted[i].second);
+                ImGui::TableSetColumnIndex(6);
+                ImGui::TextColored(isSelected ? COL_ACCENT : COL_DIM, isSelected ? "V" : "");
+            }
+        }
+        ImGui::EndTable();
+    }
+}
+
+// ============================================================
+// Part Risk Matrix
+// ============================================================
+void SphereReportApp::renderPartRisk() {
+    ImGui::TextColored(COL_DIM,
+        "Part x Angle matrix. Color intensity = relative value. Red = high risk.");
+    ImGui::Spacing();
+
+    if (data_.results.empty() || data_.parts.empty()) return;
+
+    // Top 20 angles by worst stress
+    std::vector<int> topAngles;
+    {
+        std::vector<std::pair<int, double>> sorted;
+        for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            double maxV = 0;
+            for (auto& [pid, pd] : data_.results[ri].parts)
+                maxV = std::max(maxV, pd.peak_stress);
+            sorted.push_back({ri, maxV});
+        }
+        std::sort(sorted.begin(), sorted.end(), [](auto& a, auto& b) { return a.second > b.second; });
+        for (int i = 0; i < std::min(20, (int)sorted.size()); ++i)
+            topAngles.push_back(sorted[i].first);
+    }
+
+    int ncols = 2 + (int)topAngles.size();
+    if (ImGui::BeginTable("##PartRisk", ncols,
+            ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+            ImGuiTableFlags_SizingFixedFit)) {
+
+        ImGui::TableSetupScrollFreeze(2, 1);
+        ImGui::TableSetupColumn("Part", 0, 40);
+        ImGui::TableSetupColumn("Name", 0, 100);
+        for (int ai : topAngles) {
+            ImGui::TableSetupColumn(data_.results[ai].angle.name.c_str(), 0, 55);
+        }
+        ImGui::TableHeadersRow();
+
+        // Find global max for color normalization
+        double globalMax = 1;
+        for (auto& [pid, pi] : data_.parts) {
+            for (int ai : topAngles) {
+                double v = getAngleValue(ai, pid, quantity_);
+                globalMax = std::max(globalMax, v);
+            }
+        }
+
+        for (auto& [pid, pi] : data_.parts) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%d", pid);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(pi.name.c_str());
+
+            for (int ci = 0; ci < (int)topAngles.size(); ++ci) {
+                ImGui::TableSetColumnIndex(ci + 2);
+                double v = getAngleValue(topAngles[ci], pid, quantity_);
+                double norm = v / globalMax;
+                ImU32 bgCol = valueToColor(norm);
+                // Dim the color for background
+                int r = (bgCol >> 0) & 0xFF, g = (bgCol >> 8) & 0xFF, b = (bgCol >> 16) & 0xFF;
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, IM_COL32(r/3, g/3, b/3, 180));
+                ImGui::Text("%.0f", v);
+            }
+        }
+
+        ImGui::EndTable();
+    }
+}
+
+// ============================================================
+// Selected Angles Comparison
+// ============================================================
+void SphereReportApp::renderCompareInfo() {
+    if (selectedAngles_.empty()) {
+        ImGui::TextColored(COL_DIM, "Click angles on Mollweide map or table to compare");
+        return;
+    }
+
+    ImGui::TextColored(COL_ACCENT, "Selected Angles (%d):", (int)selectedAngles_.size());
+
+    // Tags
+    std::vector<int> toRemove;
+    for (int ri : selectedAngles_) {
+        ImGui::SameLine();
+        char tag[64];
+        snprintf(tag, sizeof(tag), "%s X##%d", data_.results[ri].angle.name.c_str(), ri);
+        if (ImGui::SmallButton(tag)) toRemove.push_back(ri);
+    }
+    for (int ri : toRemove) selectedAngles_.erase(ri);
+    ImGui::Spacing();
+
+    // Comparison table
+    if (ImGui::BeginTable("##Compare", 6,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+            ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Direction");
+        ImGui::TableSetupColumn("Category");
+        ImGui::TableSetupColumn("Peak Stress");
+        ImGui::TableSetupColumn("Peak Strain");
+        ImGui::TableSetupColumn("Peak G");
+        ImGui::TableSetupColumn("Peak Disp");
+        ImGui::TableHeadersRow();
+
+        for (int ri : selectedAngles_) {
+            auto& r = data_.results[ri];
+            auto it = r.parts.find(selectedPartId_);
+            if (it == r.parts.end()) continue;
+            auto& pd = it->second;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextColored(COL_ACCENT, "%s", r.angle.name.c_str());
+            ImGui::TableSetColumnIndex(1); ImGui::Text("%s", r.angle.category.c_str());
+            ImGui::TableSetColumnIndex(2); ImGui::Text("%.1f", pd.peak_stress);
+            ImGui::TableSetColumnIndex(3); ImGui::Text("%.4f", pd.peak_strain);
+            ImGui::TableSetColumnIndex(4); ImGui::Text("%.1f", pd.peak_g);
+            ImGui::TableSetColumnIndex(5); ImGui::Text("%.2f", pd.peak_disp);
+        }
+        ImGui::EndTable();
+    }
+}

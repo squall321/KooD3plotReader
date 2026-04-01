@@ -88,6 +88,8 @@ set(VIEWER_SOURCES
     src/scene/Camera.cpp
     src/data/SimData.cpp
     src/data/ReportData.cpp
+    src/data/SphereData.cpp
+    src/app/SphereReportApp.cpp
     src/widgets/VideoPlayer.cpp
 )
 

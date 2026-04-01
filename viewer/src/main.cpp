@@ -1,5 +1,6 @@
 #include "app/App.hpp"
 #include "app/DeepReportApp.hpp"
+#include "app/SphereReportApp.hpp"
 #include <iostream>
 #include <string>
 #include <filesystem>
@@ -23,14 +24,17 @@ int main(int argc, char* argv[]) {
         path = argv[2];
     } else {
         path = argv[1];
-        // Auto-detect: if path has analysis_result.json → deep, if has d3plot → 3d
+        // Auto-detect mode from path contents
         namespace fs = std::filesystem;
-        if (fs::exists(fs::path(path) / "analysis_result.json") || fs::exists(fs::path(path) / "result.json")) {
+        if (fs::exists(fs::path(path) / "report.json") || fs::path(path).extension() == ".json") {
+            // Check if it's a sphere report JSON
+            mode = "sphere";
+        } else if (fs::exists(fs::path(path) / "analysis_result.json") || fs::exists(fs::path(path) / "result.json")) {
             mode = "deep";
         } else if (fs::exists(path) && fs::path(path).filename().string().find("d3plot") != std::string::npos) {
             mode = "3d";
         } else {
-            mode = "deep";  // default
+            mode = "deep";
         }
     }
 
@@ -48,8 +52,24 @@ int main(int argc, char* argv[]) {
         app.run(path);
         app.shutdown();
     } else if (mode == "sphere") {
-        std::cerr << "Sphere mode: coming soon\n";
-        return 1;
+        // Find report.json — either path is the JSON or a directory containing it
+        std::string jsonPath = path;
+        namespace fs = std::filesystem;
+        if (fs::is_directory(path)) {
+            if (fs::exists(fs::path(path) / "report.json"))
+                jsonPath = (fs::path(path) / "report.json").string();
+            else if (fs::exists(fs::path(path) / "sphere_report.json"))
+                jsonPath = (fs::path(path) / "sphere_report.json").string();
+            else {
+                std::cerr << "No report.json found in: " << path << "\n";
+                std::cerr << "Run: koo_sphere_report --format json --json report.json ...\n";
+                return 1;
+            }
+        }
+        SphereReportApp app;
+        if (!app.init(1600, 900)) return 1;
+        app.run(jsonPath);
+        app.shutdown();
     }
 
     return 0;
