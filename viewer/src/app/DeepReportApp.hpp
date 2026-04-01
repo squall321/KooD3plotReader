@@ -1,7 +1,12 @@
 #pragma once
 #include "data/ReportData.hpp"
+#include "data/SimData.hpp"
+#include "gpu/MeshGPU.hpp"
+#include "gpu/Shader.hpp"
+#include "scene/Camera.hpp"
 #include "widgets/VideoPlayer.hpp"
 #include <imgui.h>
+#include <glad/glad.h>
 #include <string>
 #include <memory>
 #include <map>
@@ -26,6 +31,22 @@ private:
     std::string activeVideo_;
     bool videoFullscreen_ = false;
 
+    // 3D viewer
+    SimData sim3d_;
+    MeshGPU meshGPU_;
+    Shader shader3d_;
+    Camera camera3d_;
+    GLuint colormapTex_ = 0;
+    GLuint fbo3d_ = 0, fboTex3d_ = 0, fboDepth3d_ = 0;
+    int fboW_ = 0, fboH_ = 0;
+    int current3DState_ = 0;
+    bool show3DFringe_ = false;
+    bool wireframe3d_ = false;
+    bool playing3d_ = false;
+    float playTimer3d_ = 0;
+    int fringeType_ = 0;  // 0=vonMises, 1=strain, 2=displacement
+    bool mesh3dReady_ = false;
+
     void renderKPIBar();
     void renderWarnings();
     void renderOverview();
@@ -41,4 +62,10 @@ private:
     // Helpers
     void drawBarRanking(const char* title, const std::vector<std::pair<int, double>>& items, ImVec4 color, const char* unit, int decimals = 1);
     void drawTimeSeriesPlot(const char* id, const char* yLabel, const std::vector<PartTimeSeries>& series, bool showAvg = false);
+
+    // 3D viewer
+    void render3DTab();
+    void init3DViewer();
+    void ensureFBO(int w, int h);
+    void setPresetView(int axis);  // 0=front,1=back,2=left,3=right,4=top,5=bottom
 };

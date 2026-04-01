@@ -79,36 +79,61 @@ bool DeepReportApp::init(int width, int height) {
     io.ConfigErrorRecoveryEnableDebugLog = false;
     io.ConfigErrorRecoveryEnableTooltip = false;
 
-    // Custom dark theme
+    // Refined dark theme — inspired by modern CAE tools
     ImGui::StyleColorsDark();
     auto& s = ImGui::GetStyle();
-    s.WindowRounding = 6.0f;
-    s.FrameRounding = 4.0f;
-    s.TabRounding = 4.0f;
-    s.GrabRounding = 3.0f;
-    s.WindowBorderSize = 0.0f;
+    s.WindowRounding = 8.0f;
+    s.FrameRounding = 6.0f;
+    s.TabRounding = 6.0f;
+    s.GrabRounding = 4.0f;
+    s.ScrollbarRounding = 6.0f;
+    s.ChildRounding = 6.0f;
+    s.PopupRounding = 6.0f;
+    s.WindowBorderSize = 1.0f;
     s.FrameBorderSize = 0.0f;
-    s.ItemSpacing = ImVec2(10, 6);
-    s.WindowPadding = ImVec2(12, 10);
+    s.TabBorderSize = 0.0f;
+    s.ItemSpacing = ImVec2(10, 7);
+    s.ItemInnerSpacing = ImVec2(8, 5);
+    s.WindowPadding = ImVec2(14, 12);
+    s.FramePadding = ImVec2(8, 5);
+    s.TabBarBorderSize = 1.0f;
+    s.IndentSpacing = 18;
+    s.ScrollbarSize = 12;
+    s.GrabMinSize = 10;
+    s.SeparatorTextBorderSize = 2;
 
-    s.Colors[ImGuiCol_WindowBg]       = {0.08f, 0.08f, 0.14f, 1.0f};
-    s.Colors[ImGuiCol_ChildBg]        = {0.10f, 0.10f, 0.18f, 1.0f};
-    s.Colors[ImGuiCol_PopupBg]        = {0.10f, 0.10f, 0.18f, 0.95f};
-    s.Colors[ImGuiCol_Border]         = {0.17f, 0.17f, 0.29f, 1.0f};
-    s.Colors[ImGuiCol_FrameBg]        = {0.12f, 0.12f, 0.22f, 1.0f};
-    s.Colors[ImGuiCol_FrameBgHovered] = {0.16f, 0.16f, 0.28f, 1.0f};
-    s.Colors[ImGuiCol_FrameBgActive]  = {0.20f, 0.20f, 0.35f, 1.0f};
-    s.Colors[ImGuiCol_TitleBg]        = {0.08f, 0.08f, 0.14f, 1.0f};
-    s.Colors[ImGuiCol_TitleBgActive]  = {0.10f, 0.12f, 0.22f, 1.0f};
-    s.Colors[ImGuiCol_Tab]            = {0.10f, 0.10f, 0.18f, 1.0f};
-    s.Colors[ImGuiCol_TabSelected]    = {0.15f, 0.20f, 0.35f, 1.0f};
-    s.Colors[ImGuiCol_TabHovered]     = {0.20f, 0.25f, 0.40f, 1.0f};
-    s.Colors[ImGuiCol_Header]         = {0.15f, 0.20f, 0.35f, 1.0f};
-    s.Colors[ImGuiCol_HeaderHovered]  = {0.20f, 0.25f, 0.42f, 1.0f};
-    s.Colors[ImGuiCol_HeaderActive]   = {0.25f, 0.30f, 0.50f, 1.0f};
-    s.Colors[ImGuiCol_TableHeaderBg]  = {0.06f, 0.21f, 0.37f, 1.0f};
+    // Deep blue-gray palette
+    s.Colors[ImGuiCol_WindowBg]       = {0.067f, 0.071f, 0.106f, 1.0f};  // #111224
+    s.Colors[ImGuiCol_ChildBg]        = {0.082f, 0.086f, 0.125f, 1.0f};
+    s.Colors[ImGuiCol_PopupBg]        = {0.090f, 0.094f, 0.137f, 0.97f};
+    s.Colors[ImGuiCol_Border]         = {0.18f, 0.19f, 0.28f, 0.6f};
+    s.Colors[ImGuiCol_FrameBg]        = {0.11f, 0.12f, 0.18f, 1.0f};
+    s.Colors[ImGuiCol_FrameBgHovered] = {0.14f, 0.15f, 0.24f, 1.0f};
+    s.Colors[ImGuiCol_FrameBgActive]  = {0.18f, 0.20f, 0.32f, 1.0f};
+    s.Colors[ImGuiCol_TitleBg]        = {0.067f, 0.071f, 0.106f, 1.0f};
+    s.Colors[ImGuiCol_TitleBgActive]  = {0.09f, 0.10f, 0.16f, 1.0f};
+    s.Colors[ImGuiCol_Tab]            = {0.09f, 0.10f, 0.15f, 1.0f};
+    s.Colors[ImGuiCol_TabSelected]    = {0.16f, 0.22f, 0.38f, 1.0f};
+    s.Colors[ImGuiCol_TabHovered]     = {0.22f, 0.28f, 0.44f, 1.0f};
+    s.Colors[ImGuiCol_Header]         = {0.14f, 0.18f, 0.30f, 1.0f};
+    s.Colors[ImGuiCol_HeaderHovered]  = {0.18f, 0.24f, 0.40f, 1.0f};
+    s.Colors[ImGuiCol_HeaderActive]   = {0.22f, 0.30f, 0.50f, 1.0f};
+    s.Colors[ImGuiCol_Button]         = {0.13f, 0.15f, 0.24f, 1.0f};
+    s.Colors[ImGuiCol_ButtonHovered]  = {0.18f, 0.22f, 0.34f, 1.0f};
+    s.Colors[ImGuiCol_ButtonActive]   = {0.24f, 0.30f, 0.46f, 1.0f};
+    s.Colors[ImGuiCol_SliderGrab]     = {0.31f, 0.80f, 0.64f, 0.8f};
+    s.Colors[ImGuiCol_SliderGrabActive] = {0.31f, 0.80f, 0.64f, 1.0f};
+    s.Colors[ImGuiCol_CheckMark]      = {0.31f, 0.80f, 0.64f, 1.0f};
+    s.Colors[ImGuiCol_TableHeaderBg]  = {0.08f, 0.14f, 0.24f, 1.0f};
     s.Colors[ImGuiCol_TableRowBg]     = {0.0f, 0.0f, 0.0f, 0.0f};
-    s.Colors[ImGuiCol_TableRowBgAlt]  = {0.10f, 0.10f, 0.18f, 0.5f};
+    s.Colors[ImGuiCol_TableRowBgAlt]  = {0.07f, 0.08f, 0.12f, 0.5f};
+    s.Colors[ImGuiCol_TableBorderLight] = {0.15f, 0.16f, 0.24f, 0.4f};
+    s.Colors[ImGuiCol_ScrollbarBg]    = {0.06f, 0.06f, 0.10f, 0.5f};
+    s.Colors[ImGuiCol_ScrollbarGrab]  = {0.20f, 0.22f, 0.32f, 1.0f};
+    s.Colors[ImGuiCol_ScrollbarGrabHovered] = {0.28f, 0.30f, 0.42f, 1.0f};
+    s.Colors[ImGuiCol_Separator]      = {0.18f, 0.19f, 0.28f, 0.6f};
+    s.Colors[ImGuiCol_ResizeGrip]     = {0.31f, 0.80f, 0.64f, 0.2f};
+    s.Colors[ImGuiCol_ResizeGripHovered] = {0.31f, 0.80f, 0.64f, 0.5f};
 
     // ImPlot style
     ImPlot::StyleColorsDark();
@@ -118,22 +143,30 @@ bool DeepReportApp::init(int width, int height) {
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    // Load CJK font for Korean text
+    // Load CJK font — larger size for readability
     {
         const char* fontPaths[] = {
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-DemiLight.ttc",
-            "C:\\Windows\\Fonts\\malgun.ttf",  // Windows fallback
+            "C:\\Windows\\Fonts\\malgun.ttf",
             nullptr
         };
+        bool fontLoaded = false;
         for (int i = 0; fontPaths[i]; ++i) {
             if (std::filesystem::exists(fontPaths[i])) {
-                io.Fonts->AddFontFromFileTTF(fontPaths[i], 15.0f, nullptr,
+                io.Fonts->AddFontFromFileTTF(fontPaths[i], 16.0f, nullptr,
                     io.Fonts->GetGlyphRangesKorean());
                 std::cout << "[DeepReport] Loaded font: " << fontPaths[i] << "\n";
+                fontLoaded = true;
                 break;
             }
+        }
+        if (!fontLoaded) {
+            // Fallback: scale default font slightly larger
+            ImFontConfig cfg;
+            cfg.SizePixels = 16.0f;
+            io.Fonts->AddFontDefault(&cfg);
         }
     }
 
@@ -193,6 +226,7 @@ void DeepReportApp::run(const std::string& outputDir) {
             if (!data_.element_quality.empty()) {
                 if (ImGui::BeginTabItem("Quality")) { renderQualityTab(); ImGui::EndTabItem(); }
             }
+            if (ImGui::BeginTabItem("3D View"))   { render3DTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Renders"))   { renderRenderGalleryTab(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
@@ -293,6 +327,13 @@ void DeepReportApp::renderOverview() {
 
     // Warnings at top
     renderWarnings();
+
+    // Guide text
+    ImGui::TextColored(COL_DIM,
+        "Von Mises stress indicates combined multiaxial stress state.\n"
+        "Values approaching yield stress require attention.\n"
+        "Eff. plastic strain > 0 means permanent deformation has occurred.");
+    ImGui::Spacing();
 
     // Sort parts by peak stress
     std::vector<std::pair<int, const PartSummary*>> sorted;
@@ -589,6 +630,12 @@ void DeepReportApp::renderWarnings() {
 void DeepReportApp::renderStressTab() {
     renderWarnings();
 
+    ImGui::TextColored(COL_DIM,
+        "Von Mises: equivalent uniaxial stress from multiaxial state. SF = yield / peak.\n"
+        "Principal stress: eigenvalues of stress tensor. S1 (max tension), S3 (max compression).\n"
+        "Eff. plastic strain: accumulated irreversible deformation (0 = elastic only).");
+    ImGui::Spacing();
+
     // Von Mises ranking
     {
         std::vector<std::pair<int, double>> items;
@@ -650,6 +697,29 @@ void DeepReportApp::renderStressTab() {
 // ============================================================
 // Tensor Tab: peak element 6-component tensor history
 // ============================================================
+// Principal stress from 3x3 symmetric tensor (Lode angle method)
+static void eigenvalues3x3(double sxx, double syy, double szz,
+                            double sxy, double syz, double szx,
+                            double& s1, double& s2, double& s3) {
+    double I1 = sxx + syy + szz;
+    double mean = I1 / 3.0;
+    double dxx = sxx - mean, dyy = syy - mean, dzz = szz - mean;
+    double J2 = 0.5*(dxx*dxx + dyy*dyy + dzz*dzz + 2*(sxy*sxy + syz*syz + szx*szx));
+    if (J2 < 1e-20) { s1 = s2 = s3 = mean; return; }
+    double J3 = dxx*(dyy*dzz - syz*syz) - sxy*(sxy*dzz - syz*szx) + szx*(sxy*syz - dyy*szx);
+    double r = std::sqrt(J2 / 3.0);
+    double cos3t = J3 / (2.0*r*r*r);
+    cos3t = std::max(-1.0, std::min(1.0, cos3t));
+    double theta = std::acos(cos3t) / 3.0;
+    s1 = mean + 2*r*std::cos(theta);
+    s2 = mean + 2*r*std::cos(theta - 2*M_PI/3);
+    s3 = mean + 2*r*std::cos(theta + 2*M_PI/3);
+    // Sort descending
+    if (s2 > s1) std::swap(s1, s2);
+    if (s3 > s1) std::swap(s1, s3);
+    if (s3 > s2) std::swap(s2, s3);
+}
+
 void DeepReportApp::renderTensorTab() {
     if (data_.tensors.empty()) {
         ImGui::TextColored(COL_DIM, "No peak element tensor data");
@@ -657,6 +727,7 @@ void DeepReportApp::renderTensorTab() {
     }
 
     static int selectedTensor = 0;
+    static int tensorTimeIdx = 0;
     if (selectedTensor >= (int)data_.tensors.size()) selectedTensor = 0;
 
     // Selector
@@ -670,30 +741,184 @@ void DeepReportApp::renderTensorTab() {
             auto& t = data_.tensors[i];
             char label[128];
             snprintf(label, sizeof(label), "Elem %d — Part %d [%s] peak=%.1f", t.element_id, t.part_id, t.reason.c_str(), t.peak_value);
-            if (ImGui::Selectable(label, selectedTensor == i)) selectedTensor = i;
+            if (ImGui::Selectable(label, selectedTensor == i)) {
+                selectedTensor = i;
+                tensorTimeIdx = 0;
+            }
         }
         ImGui::EndCombo();
     }
 
-    auto& t = data_.tensors[selectedTensor];
-    int n = (int)t.time.size();
+    auto& tens = data_.tensors[selectedTensor];
+    int n = (int)tens.time.size();
     if (n == 0) return;
 
-    ImGui::Text("Peak: %.2f MPa at t=%.6f", t.peak_value, t.peak_time);
+    ImGui::TextColored(COL_DIM,
+        "6-component stress tensor (Sxx,Syy,Szz,Sxy,Syz,Szx) at the peak element.\n"
+        "Mohr's circles show shear-normal stress relationship. Larger circle = higher shear.\n"
+        "Stress ellipsoid: 3D shape defined by principal stress magnitudes.");
+    ImGui::Spacing();
+    ImGui::Text("Peak: %.2f MPa at t=%.6f", tens.peak_value, tens.peak_time);
+
+    // Compute principal stresses for all time steps
+    std::vector<double> p1(n), p2(n), p3(n), vm(n);
+    int peakVmIdx = 0;
+    for (int i = 0; i < n; ++i) {
+        eigenvalues3x3(tens.sxx[i], tens.syy[i], tens.szz[i],
+                       tens.sxy[i], tens.syz[i], tens.szx[i],
+                       p1[i], p2[i], p3[i]);
+        double d1 = p1[i]-p2[i], d2 = p2[i]-p3[i], d3 = p3[i]-p1[i];
+        vm[i] = std::sqrt(0.5*(d1*d1 + d2*d2 + d3*d3));
+        if (vm[i] > vm[peakVmIdx]) peakVmIdx = i;
+    }
+
+    // Time slider + Jump to Peak button
+    ImGui::SameLine(300);
+    if (ImGui::Button("Jump to Peak")) tensorTimeIdx = peakVmIdx;
+    ImGui::SetNextItemWidth(-1);
+    ImGui::SliderInt("##tensorTime", &tensorTimeIdx, 0, n - 1);
+    if (tensorTimeIdx >= n) tensorTimeIdx = n - 1;
+    ImGui::Text("t=%.6f | S1=%.1f  S2=%.1f  S3=%.1f  VM=%.1f",
+        tens.time[tensorTimeIdx], p1[tensorTimeIdx], p2[tensorTimeIdx], p3[tensorTimeIdx], vm[tensorTimeIdx]);
     ImGui::Spacing();
 
+    // Layout: left = charts, right = Mohr + Ellipsoid
+    float halfW = ImGui::GetContentRegionAvail().x * 0.5f;
+
+    // ── Left: 6-component + principal stress charts ──
+    ImGui::BeginChild("##TensorCharts", ImVec2(halfW - 5, -1));
+
     // 6-component chart
-    ImVec2 sz(ImGui::GetContentRegionAvail().x, std::max(250.0f, ImGui::GetContentRegionAvail().y * 0.45f));
-    if (ImPlot::BeginPlot("##TensorComponents", sz)) {
+    ImGui::TextColored(COL_ACCENT, "  6-Component Tensor");
+    float ch = std::max(150.0f, (ImGui::GetContentRegionAvail().y - 40) * 0.45f);
+    if (ImPlot::BeginPlot("##TensorComp", ImVec2(-1, ch))) {
         ImPlot::SetupAxes("Time", "Stress (MPa)");
-        if ((int)t.sxx.size() == n) ImPlot::PlotLine("Sxx", t.time.data(), t.sxx.data(), n);
-        if ((int)t.syy.size() == n) ImPlot::PlotLine("Syy", t.time.data(), t.syy.data(), n);
-        if ((int)t.szz.size() == n) ImPlot::PlotLine("Szz", t.time.data(), t.szz.data(), n);
-        if ((int)t.sxy.size() == n) ImPlot::PlotLine("Sxy", t.time.data(), t.sxy.data(), n);
-        if ((int)t.syz.size() == n) ImPlot::PlotLine("Syz", t.time.data(), t.syz.data(), n);
-        if ((int)t.szx.size() == n) ImPlot::PlotLine("Szx", t.time.data(), t.szx.data(), n);
+        if ((int)tens.sxx.size() == n) ImPlot::PlotLine("Sxx", tens.time.data(), tens.sxx.data(), n);
+        if ((int)tens.syy.size() == n) ImPlot::PlotLine("Syy", tens.time.data(), tens.syy.data(), n);
+        if ((int)tens.szz.size() == n) ImPlot::PlotLine("Szz", tens.time.data(), tens.szz.data(), n);
+        if ((int)tens.sxy.size() == n) ImPlot::PlotLine("Sxy", tens.time.data(), tens.sxy.data(), n);
+        if ((int)tens.syz.size() == n) ImPlot::PlotLine("Syz", tens.time.data(), tens.syz.data(), n);
+        if ((int)tens.szx.size() == n) ImPlot::PlotLine("Szx", tens.time.data(), tens.szx.data(), n);
+        // Vertical line at current time
+        double ct = tens.time[tensorTimeIdx];
+        ImPlot::PlotInfLines("##t", &ct, 1);
         ImPlot::EndPlot();
     }
+
+    // Principal stress + Von Mises chart
+    ImGui::TextColored(COL_BLUE, "  Principal Stresses + Von Mises");
+    float ch2 = std::max(150.0f, ImGui::GetContentRegionAvail().y - 5);
+    if (ImPlot::BeginPlot("##PrincipalTS", ImVec2(-1, ch2))) {
+        ImPlot::SetupAxes("Time", "Stress (MPa)");
+        ImPlot::PlotLine("S1 (max)", tens.time.data(), p1.data(), n);
+        ImPlot::PlotLine("S2 (mid)", tens.time.data(), p2.data(), n);
+        ImPlot::PlotLine("S3 (min)", tens.time.data(), p3.data(), n);
+        ImPlot::PlotLine("Von Mises", tens.time.data(), vm.data(), n);
+        double ct = tens.time[tensorTimeIdx];
+        ImPlot::PlotInfLines("##t2", &ct, 1);
+        ImPlot::EndPlot();
+    }
+
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // ── Right: Mohr's Circle + Stress Ellipsoid ──
+    ImGui::BeginChild("##MohrEllipsoid", ImVec2(-1, -1));
+
+    double s1 = p1[tensorTimeIdx], s2 = p2[tensorTimeIdx], s3 = p3[tensorTimeIdx];
+
+    // Mohr's Circles (2D)
+    ImGui::TextColored(COL_RED, "  Mohr's Circles");
+    float mohrH = std::max(200.0f, (ImGui::GetContentRegionAvail().y - 40) * 0.5f);
+    if (ImPlot::BeginPlot("##Mohr", ImVec2(-1, mohrH), ImPlotFlags_Equal)) {
+        ImPlot::SetupAxes("Normal Stress (MPa)", "Shear Stress (MPa)");
+
+        // Draw 3 circles
+        auto drawCircle = [](const char* name, double sa, double sb, int nPts = 100) {
+            double center = (sa + sb) / 2.0;
+            double radius = std::abs(sa - sb) / 2.0;
+            std::vector<double> cx(nPts+1), cy(nPts+1);
+            for (int i = 0; i <= nPts; ++i) {
+                double angle = 2.0 * M_PI * i / nPts;
+                cx[i] = center + radius * std::cos(angle);
+                cy[i] = radius * std::sin(angle);
+            }
+            ImPlot::PlotLine(name, cx.data(), cy.data(), nPts+1);
+        };
+
+        drawCircle("S1-S2", s1, s2);
+        drawCircle("S2-S3", s2, s3);
+        drawCircle("S1-S3", s1, s3);
+
+        // Principal stress markers on sigma axis
+        double pts[] = {s1, s2, s3};
+        double zeros[] = {0, 0, 0};
+        ImPlot::PlotScatter("Principals", pts, zeros, 3);
+
+        ImPlot::EndPlot();
+    }
+
+    // Stress Ellipsoid (wireframe projection via ImDrawList)
+    ImGui::TextColored(COL_PURPLE, "  Stress Ellipsoid");
+    float ellH = std::max(200.0f, ImGui::GetContentRegionAvail().y - 5);
+    ImVec2 ellPos = ImGui::GetCursorScreenPos();
+    ImVec2 ellSize(-1, ellH);
+    ImGui::InvisibleButton("##ell", ImVec2(ImGui::GetContentRegionAvail().x, ellH));
+    float ellW = ImGui::GetContentRegionAvail().x;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float ecx = ellPos.x + ellW * 0.5f;
+    float ecy = ellPos.y + ellH * 0.5f;
+    float maxP = std::max({std::abs(s1), std::abs(s2), std::abs(s3), 1.0});
+    float scale = std::min(ellW, ellH) * 0.35f / (float)maxP;
+
+    // Background
+    dl->AddRectFilled(ellPos, ImVec2(ellPos.x + ellW, ellPos.y + ellH), IM_COL32(15, 15, 25, 255), 4);
+
+    // Axis lines
+    dl->AddLine(ImVec2(ecx - ellW*0.4f, ecy), ImVec2(ecx + ellW*0.4f, ecy), IM_COL32(100,100,120,100), 1);
+    dl->AddLine(ImVec2(ecx, ecy - ellH*0.4f), ImVec2(ecx, ecy + ellH*0.4f), IM_COL32(100,100,120,100), 1);
+
+    // Draw ellipse (isometric projection: x=S1, y=S2, perspective compress S3)
+    float a = std::abs((float)s1) * scale;
+    float b = std::abs((float)s2) * scale;
+    float c = std::abs((float)s3) * scale;
+    if (a < 2) a = 2; if (b < 2) b = 2; if (c < 2) c = 2;
+
+    // Draw 3 orthogonal ellipse wireframes (XY, XZ, YZ planes)
+    auto drawEllipseWire = [&](float ra, float rb, float rotDeg, ImU32 col) {
+        int N = 64;
+        float cosR = std::cos(rotDeg * M_PI / 180.0f);
+        float sinR = std::sin(rotDeg * M_PI / 180.0f);
+        for (int i = 0; i < N; ++i) {
+            float t0 = 2.0f * M_PI * i / N;
+            float t1 = 2.0f * M_PI * (i+1) / N;
+            float x0 = ra*std::cos(t0), y0 = rb*std::sin(t0);
+            float x1 = ra*std::cos(t1), y1 = rb*std::sin(t1);
+            // Rotate
+            float rx0 = x0*cosR - y0*sinR, ry0 = x0*sinR + y0*cosR;
+            float rx1 = x1*cosR - y1*sinR, ry1 = x1*sinR + y1*cosR;
+            dl->AddLine(ImVec2(ecx + rx0, ecy - ry0), ImVec2(ecx + rx1, ecy - ry1), col, 1.5f);
+        }
+    };
+
+    // XY plane (S1-S2)
+    drawEllipseWire(a, b, 0, IM_COL32(231, 76, 60, 200));
+    // XZ plane (S1-S3) rotated 90 deg conceptually shown tilted
+    drawEllipseWire(a, c * 0.7f, 0, IM_COL32(52, 152, 219, 150));
+    // YZ plane (S2-S3)
+    drawEllipseWire(b * 0.7f, c, 90, IM_COL32(46, 204, 113, 150));
+
+    // Labels
+    char s1l[32], s2l[32], s3l[32];
+    snprintf(s1l, sizeof(s1l), "S1=%.1f", s1);
+    snprintf(s2l, sizeof(s2l), "S2=%.1f", s2);
+    snprintf(s3l, sizeof(s3l), "S3=%.1f", s3);
+    dl->AddText(ImVec2(ecx + a + 5, ecy - 10), IM_COL32(231,76,60,255), s1l);
+    dl->AddText(ImVec2(ecx - 20, ecy - b - 15), IM_COL32(46,204,113,255), s2l);
+    dl->AddText(ImVec2(ecx + 5, ecy + c*0.7f + 5), IM_COL32(52,152,219,255), s3l);
+
+    ImGui::EndChild();
 }
 
 // ============================================================
@@ -704,6 +929,12 @@ void DeepReportApp::renderMotionTab() {
         ImGui::TextColored(COL_DIM, "No motion data (no motion/ CSV files)");
         return;
     }
+
+    ImGui::TextColored(COL_DIM,
+        "Displacement: part center-of-mass movement from initial position.\n"
+        "Velocity: time derivative of displacement. Acceleration: time derivative of velocity.\n"
+        "'avg' = average over all nodes in part. 'max' = node with largest displacement magnitude.");
+    ImGui::Spacing();
 
     static int motionQty = 0;
     static bool showXYZ = false;
@@ -770,6 +1001,13 @@ void DeepReportApp::renderEnergyTab() {
         ImGui::TextColored(COL_DIM, "No energy data (no result.json with glstat)");
         return;
     }
+
+    ImGui::TextColored(COL_DIM,
+        "Energy balance: KE + IE + HG should equal Total. Ratio = IE/Total.\n"
+        "Ratio > 1.05 warns of energy generation (numerical instability).\n"
+        "Ratio < 1.0 is normal (dissipation from plasticity, damping, etc.).\n"
+        "Mass increase = mass scaling activated (check timestep stability).");
+    ImGui::Spacing();
 
     // Energy ratio warning
     if (data_.energy_ratio_min > 1.05) {
@@ -845,6 +1083,11 @@ void DeepReportApp::renderQualityTab() {
         ImGui::TextColored(COL_DIM, "No element quality data");
         return;
     }
+
+    ImGui::TextColored(COL_DIM,
+        "Aspect Ratio: edge length ratio (>10 = poor). Jacobian: element shape quality (1.0 = ideal, <0.5 = poor).\n"
+        "Warpage: out-of-plane angle for quads (deg). Skewness: deviation from ideal shape (0 = ideal, 1 = degenerate).");
+    ImGui::Spacing();
 
     ImGui::TextColored(COL_ACCENT, "  Element Quality Metrics");
     ImGui::Separator();
@@ -1067,4 +1310,249 @@ void DeepReportApp::renderRenderGalleryTab() {
             (avail.y - textSize.y) * 0.5f + ImGui::GetCursorPosY()));
         ImGui::TextColored(COL_DIM, "Click a section view above to preview");
     }
+}
+
+// ============================================================
+// 3D Viewer — shaders
+// ============================================================
+static const char* VERT3D = R"(
+#version 330 core
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNorm;
+layout(location=2) in float aFringe;
+uniform mat4 uMVP;
+uniform mat3 uNormalMat;
+out vec3 vNorm;
+out float vFringe;
+void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+    vNorm = normalize(uNormalMat * aNorm);
+    vFringe = aFringe;
+}
+)";
+
+static const char* FRAG3D = R"(
+#version 330 core
+in vec3 vNorm;
+in float vFringe;
+uniform sampler1D uColormap;
+uniform vec3 uLightDir;
+uniform float uAmbient;
+uniform int uUseFringe;
+uniform vec3 uFlatColor;
+out vec4 fragColor;
+void main() {
+    vec3 color;
+    if (uUseFringe == 1)
+        color = texture(uColormap, clamp(vFringe, 0.0, 1.0)).rgb;
+    else
+        color = uFlatColor;
+    vec3 N = normalize(vNorm);
+    float diff = abs(dot(N, uLightDir));
+    color *= uAmbient + (1.0 - uAmbient) * diff;
+    fragColor = vec4(color, 1.0);
+}
+)";
+
+static void buildJetColormap(unsigned char* data) {
+    for (int i = 0; i < 256; ++i) {
+        float t = i / 255.0f;
+        float r, g, b;
+        if (t < 0.25f) { r = 0; g = t/0.25f; b = 1; }
+        else if (t < 0.5f) { r = 0; g = 1; b = 1-(t-0.25f)/0.25f; }
+        else if (t < 0.75f) { r = (t-0.5f)/0.25f; g = 1; b = 0; }
+        else { r = 1; g = 1-(t-0.75f)/0.25f; b = 0; }
+        data[i*3+0] = (unsigned char)(r*255);
+        data[i*3+1] = (unsigned char)(g*255);
+        data[i*3+2] = (unsigned char)(b*255);
+    }
+}
+
+void DeepReportApp::init3DViewer() {
+    if (data_.d3plot_path.empty()) return;
+    if (!sim3d_.loadMesh(data_.d3plot_path)) {
+        std::cout << "[3D] Failed to load mesh: " << sim3d_.loadError << "\n";
+        return;
+    }
+    std::cout << "[3D] Mesh: " << sim3d_.mesh.nodes.size() << " nodes, "
+              << sim3d_.extFaces.size() << " exterior faces\n";
+
+    sim3d_.loadStatesAsync(data_.d3plot_path, 4);
+
+    shader3d_.loadFromString(VERT3D, FRAG3D);
+
+    // Colormap texture
+    glGenTextures(1, &colormapTex_);
+    glBindTexture(GL_TEXTURE_1D, colormapTex_);
+    unsigned char cmapData[256*3];
+    buildJetColormap(cmapData);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, cmapData);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+
+    auto gpuFaces = sim3d_.buildGPUFaces();
+    meshGPU_.build(sim3d_.initialCoords, gpuFaces);
+
+    camera3d_.fitTo(meshGPU_.bboxMin[0], meshGPU_.bboxMin[1], meshGPU_.bboxMin[2],
+                    meshGPU_.bboxMax[0], meshGPU_.bboxMax[1], meshGPU_.bboxMax[2]);
+
+    mesh3dReady_ = true;
+}
+
+void DeepReportApp::ensureFBO(int w, int h) {
+    if (w == fboW_ && h == fboH_ && fbo3d_) return;
+    if (fbo3d_) { glDeleteFramebuffers(1, &fbo3d_); glDeleteTextures(1, &fboTex3d_); glDeleteRenderbuffers(1, &fboDepth3d_); }
+
+    fboW_ = w; fboH_ = h;
+    glGenFramebuffers(1, &fbo3d_);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo3d_);
+
+    glGenTextures(1, &fboTex3d_);
+    glBindTexture(GL_TEXTURE_2D, fboTex3d_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTex3d_, 0);
+
+    glGenRenderbuffers(1, &fboDepth3d_);
+    glBindRenderbuffer(GL_RENDERBUFFER, fboDepth3d_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, fboDepth3d_);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void DeepReportApp::setPresetView(int axis) {
+    camera3d_.fitTo(meshGPU_.bboxMin[0], meshGPU_.bboxMin[1], meshGPU_.bboxMin[2],
+                    meshGPU_.bboxMax[0], meshGPU_.bboxMax[1], meshGPU_.bboxMax[2]);
+    constexpr float PI = 3.14159265f;
+    switch (axis) {
+        case 0: camera3d_.yaw = 0;       camera3d_.pitch = 0;      break;  // Front (-Z)
+        case 1: camera3d_.yaw = PI;      camera3d_.pitch = 0;      break;  // Back (+Z)
+        case 2: camera3d_.yaw = PI/2;    camera3d_.pitch = 0;      break;  // Right (+X)
+        case 3: camera3d_.yaw = -PI/2;   camera3d_.pitch = 0;      break;  // Left (-X)
+        case 4: camera3d_.yaw = 0;       camera3d_.pitch = PI/2-0.01f; break; // Top (+Y)
+        case 5: camera3d_.yaw = 0;       camera3d_.pitch = -PI/2+0.01f; break; // Bottom (-Y)
+    }
+}
+
+void DeepReportApp::render3DTab() {
+    // Lazy init
+    if (!mesh3dReady_ && !data_.d3plot_path.empty()) {
+        static bool initAttempted = false;
+        if (!initAttempted) {
+            initAttempted = true;
+            init3DViewer();
+        }
+    }
+
+    if (!mesh3dReady_) {
+        ImGui::TextColored(COL_DIM, "No d3plot path in result data (need result.json with d3plot_path)");
+        ImGui::TextColored(COL_DIM, "Path: %s", data_.d3plot_path.c_str());
+        return;
+    }
+
+    // Controls row
+    const char* viewNames[] = {"Front", "Back", "Right", "Left", "Top", "Bottom"};
+    for (int i = 0; i < 6; ++i) {
+        if (i > 0) ImGui::SameLine();
+        if (ImGui::Button(viewNames[i])) setPresetView(i);
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Fringe", &show3DFringe_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Wire", &wireframe3d_);
+
+    if (sim3d_.statesLoaded && sim3d_.numStates() > 0) {
+        ImGui::SameLine();
+        if (ImGui::Button(playing3d_ ? "Pause" : "Play")) playing3d_ = !playing3d_;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(200);
+        ImGui::SliderInt("##state3d", &current3DState_, 0, sim3d_.numStates() - 1);
+        ImGui::SameLine();
+        ImGui::Text("t=%.6f", sim3d_.stateTime(current3DState_));
+
+        // Playback
+        if (playing3d_) {
+            playTimer3d_ += ImGui::GetIO().DeltaTime;
+            if (playTimer3d_ > 1.0f / 30.0f) {
+                playTimer3d_ = 0;
+                current3DState_ = (current3DState_ + 1) % sim3d_.numStates();
+            }
+        }
+
+        // Update mesh
+        auto coords = sim3d_.getDeformedCoords(current3DState_);
+        std::vector<float> fringe;
+        if (show3DFringe_) fringe = sim3d_.getVonMisesFringe(current3DState_);
+        meshGPU_.updatePositions(coords, fringe);
+    } else if (!sim3d_.statesLoaded) {
+        ImGui::SameLine();
+        ImGui::TextColored(COL_DIM, "Loading states...");
+    }
+
+    // Render to FBO
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int vpW = std::max(100, (int)avail.x);
+    int vpH = std::max(100, (int)avail.y);
+    ensureFBO(vpW, vpH);
+
+    // Mouse interaction on viewport
+    ImVec2 vpPos = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##3dvp", avail);
+    bool vpHovered = ImGui::IsItemHovered();
+
+    if (vpHovered) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            ImVec2 d = io.MouseDelta;
+            camera3d_.orbit(-d.x * 0.005f, -d.y * 0.005f);
+        }
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+            ImVec2 d = io.MouseDelta;
+            camera3d_.pan(-d.x, d.y);
+        }
+        if (io.MouseWheel != 0)
+            camera3d_.zoom(io.MouseWheel > 0 ? 0.9f : 1.1f);
+    }
+
+    camera3d_.aspect = (float)vpW / vpH;
+    camera3d_.update();
+
+    // Render to FBO
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo3d_);
+    glViewport(0, 0, vpW, vpH);
+    glClearColor(0.08f, 0.08f, 0.14f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+
+    if (wireframe3d_) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    shader3d_.use();
+    shader3d_.setMat4("uMVP", camera3d_.mvp);
+    shader3d_.setMat3("uNormalMat", camera3d_.normalMat);
+    shader3d_.setVec3("uLightDir", 0.3f, 0.8f, 0.5f);
+    shader3d_.setFloat("uAmbient", 0.3f);
+    shader3d_.setInt("uUseFringe", show3DFringe_ ? 1 : 0);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_1D, colormapTex_);
+    shader3d_.setInt("uColormap", 0);
+
+    for (size_t i = 0; i < meshGPU_.partCount(); ++i) {
+        const auto& p = meshGPU_.part(i);
+        if (!p.visible) continue;
+        if (!show3DFringe_)
+            shader3d_.setVec3("uFlatColor", p.color[0], p.color[1], p.color[2]);
+        glBindVertexArray(p.vao);
+        glDrawElements(GL_TRIANGLES, p.indexCount, GL_UNSIGNED_INT, nullptr);
+    }
+
+    if (wireframe3d_) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Draw FBO texture as ImGui image
+    ImGui::SetCursorScreenPos(vpPos);
+    ImGui::Image((ImTextureID)(intptr_t)fboTex3d_, avail, ImVec2(0,1), ImVec2(1,0));
 }
