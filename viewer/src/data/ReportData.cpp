@@ -11,22 +11,25 @@ using json = nlohmann::json;
 
 static PartTimeSeries parseTimeSeries(const json& j) {
     PartTimeSeries ts;
-    ts.part_id = j.value("part_id", 0);
-    ts.part_name = j.value("part_name", "");
-    ts.quantity = j.value("quantity", "");
-    ts.unit = j.value("unit", "");
-    ts.global_max = j.value("global_max", 0.0);
-    ts.global_min = j.value("global_min", 0.0);
-    ts.time_of_max = j.value("time_of_max", 0.0);
+    ts.part_id = j.contains("part_id") ? j["part_id"].get<int>() : 0;
+    ts.part_name = j.contains("part_name") && j["part_name"].is_string() ? j["part_name"].get<std::string>() : "";
+    ts.quantity = j.contains("quantity") && j["quantity"].is_string() ? j["quantity"].get<std::string>() : "";
+    ts.unit = j.contains("unit") && j["unit"].is_string() ? j["unit"].get<std::string>() : "";
+    ts.global_max = j.contains("global_max") ? j["global_max"].get<double>() : 0.0;
+    ts.global_min = j.contains("global_min") ? j["global_min"].get<double>() : 0.0;
+    ts.time_of_max = j.contains("time_of_max") ? j["time_of_max"].get<double>() : 0.0;
 
     if (j.contains("data") && j["data"].is_array()) {
         for (const auto& d : j["data"]) {
             TimePoint tp;
-            tp.time = d.value("time", 0.0);
-            tp.max_value = d.value("max_value", d.value("max", 0.0));
-            tp.min_value = d.value("min_value", d.value("min", 0.0));
-            tp.avg_value = d.value("avg_value", d.value("avg", 0.0));
-            tp.max_element_id = d.value("max_element_id", 0);
+            tp.time = d.contains("time") ? d["time"].get<double>() : 0.0;
+            tp.max_value = d.contains("max_value") ? d["max_value"].get<double>() :
+                           d.contains("max") ? d["max"].get<double>() : 0.0;
+            tp.min_value = d.contains("min_value") ? d["min_value"].get<double>() :
+                           d.contains("min") ? d["min"].get<double>() : 0.0;
+            tp.avg_value = d.contains("avg_value") ? d["avg_value"].get<double>() :
+                           d.contains("avg") ? d["avg"].get<double>() : 0.0;
+            tp.max_element_id = d.contains("max_element_id") ? d["max_element_id"].get<int>() : 0;
             ts.data.push_back(tp);
         }
     }
@@ -34,8 +37,8 @@ static PartTimeSeries parseTimeSeries(const json& j) {
     // Also support t/max_vals/avg_vals format (HTML inline)
     if (j.contains("t") && j["t"].is_array()) {
         auto t = j["t"].get<std::vector<double>>();
-        auto maxv = j.value("max_vals", std::vector<double>{});
-        auto avgv = j.value("avg_vals", std::vector<double>{});
+        auto maxv = j.contains("max_vals") ? j["max_vals"].get<std::vector<double>>() : std::vector<double>{};
+        auto avgv = j.contains("avg_vals") ? j["avg_vals"].get<std::vector<double>>() : std::vector<double>{};
         for (size_t i = 0; i < t.size(); ++i) {
             TimePoint tp;
             tp.time = t[i];
@@ -56,19 +59,26 @@ static void parseMotionCSV(const std::string& path, DeepReportData::MotionSeries
 
     std::string line;
     std::getline(f, line);  // skip header
+    // Header: Time,Avg_Disp_X,Avg_Disp_Y,Avg_Disp_Z,Avg_Disp_Mag,
+    //         Avg_Vel_X,Avg_Vel_Y,Avg_Vel_Z,Avg_Vel_Mag,
+    //         Avg_Acc_X,Avg_Acc_Y,Avg_Acc_Z,Avg_Acc_Mag,Max_Disp_Mag,Max_Disp_Node_ID
 
     while (std::getline(f, line)) {
         std::istringstream ss(line);
         std::string cell;
-        std::vector<double> vals;
+        std::vector<double> v;
         while (std::getline(ss, cell, ',')) {
-            try { vals.push_back(std::stod(cell)); } catch (...) { vals.push_back(0.0); }
+            try { v.push_back(std::stod(cell)); } catch (...) { v.push_back(0.0); }
         }
-        if (vals.size() >= 14) {
-            ms.t.push_back(vals[0]);
-            ms.disp_mag.push_back(vals[4]);   // Avg_Disp_Mag
-            ms.vel_mag.push_back(vals[8]);     // Avg_Vel_Mag
-            ms.acc_mag.push_back(vals[12]);    // Avg_Acc_Mag
+        if (v.size() >= 14) {
+            ms.t.push_back(v[0]);
+            ms.disp_x.push_back(v[1]); ms.disp_y.push_back(v[2]); ms.disp_z.push_back(v[3]);
+            ms.disp_mag.push_back(v[4]);
+            ms.vel_x.push_back(v[5]); ms.vel_y.push_back(v[6]); ms.vel_z.push_back(v[7]);
+            ms.vel_mag.push_back(v[8]);
+            ms.acc_x.push_back(v[9]); ms.acc_y.push_back(v[10]); ms.acc_z.push_back(v[11]);
+            ms.acc_mag.push_back(v[12]);
+            ms.max_disp_mag.push_back(v[13]);
         }
     }
 }
@@ -84,12 +94,16 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
             json j = json::parse(f);
 
             // Metadata
-            if (j.contains("metadata")) {
+            if (j.contains("metadata") && j["metadata"].is_object()) {
                 auto& m = j["metadata"];
-                out.d3plot_path = m.value("d3plot_path", "");
-                out.num_states = m.value("num_states", 0);
-                out.start_time = m.value("start_time", 0.0);
-                out.end_time = m.value("end_time", 0.0);
+                if (m.contains("d3plot_path") && m["d3plot_path"].is_string())
+                    out.d3plot_path = m["d3plot_path"].get<std::string>();
+                if (m.contains("num_states") && m["num_states"].is_number())
+                    out.num_states = m["num_states"].get<int>();
+                if (m.contains("start_time") && m["start_time"].is_number())
+                    out.start_time = m["start_time"].get<double>();
+                if (m.contains("end_time") && m["end_time"].is_number())
+                    out.end_time = m["end_time"].get<double>();
             }
 
             // Stress history
@@ -118,23 +132,48 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
                 }
             }
 
+            // Max/min principal strain
+            if (j.contains("max_principal_strain_history")) {
+                for (const auto& s : j["max_principal_strain_history"])
+                    out.max_principal_strain.push_back(parseTimeSeries(s));
+            }
+            if (j.contains("min_principal_strain_history")) {
+                for (const auto& s : j["min_principal_strain_history"])
+                    out.min_principal_strain.push_back(parseTimeSeries(s));
+            }
+
             // Peak element tensors
             if (j.contains("peak_element_tensors")) {
                 for (const auto& t : j["peak_element_tensors"]) {
                     ElementTensorHistory eth;
-                    eth.element_id = t.value("element_id", 0);
-                    eth.part_id = t.value("part_id", 0);
-                    eth.reason = t.value("reason", "");
-                    eth.peak_value = t.value("peak_value", 0.0);
-                    eth.peak_time = t.value("peak_time", 0.0);
-                    eth.time = t.value("time", std::vector<double>{});
-                    eth.sxx = t.value("sxx", std::vector<double>{});
-                    eth.syy = t.value("syy", std::vector<double>{});
-                    eth.szz = t.value("szz", std::vector<double>{});
-                    eth.sxy = t.value("sxy", std::vector<double>{});
-                    eth.syz = t.value("syz", std::vector<double>{});
-                    eth.szx = t.value("szx", std::vector<double>{});
+                    eth.element_id = t.contains("element_id") ? t["element_id"].get<int>() : 0;
+                    eth.part_id = t.contains("part_id") ? t["part_id"].get<int>() : 0;
+                    eth.reason = t.contains("reason") && t["reason"].is_string() ? t["reason"].get<std::string>() : "";
+                    eth.peak_value = t.contains("peak_value") ? t["peak_value"].get<double>() : 0.0;
+                    eth.peak_time = t.contains("peak_time") ? t["peak_time"].get<double>() : 0.0;
+                    auto getVec = [](const json& j, const char* key) -> std::vector<double> {
+                        return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
+                    };
+                    eth.time = getVec(t, "time");
+                    eth.sxx = getVec(t, "sxx"); eth.syy = getVec(t, "syy"); eth.szz = getVec(t, "szz");
+                    eth.sxy = getVec(t, "sxy"); eth.syz = getVec(t, "syz"); eth.szx = getVec(t, "szx");
                     out.tensors.push_back(std::move(eth));
+                }
+            }
+
+            // Element quality
+            if (j.contains("element_quality") && j["element_quality"].is_array()) {
+                for (const auto& eq : j["element_quality"]) {
+                    DeepReportData::ElemQuality q;
+                    q.part_id = eq.contains("part_id") ? eq["part_id"].get<int>() : 0;
+                    q.part_name = eq.contains("part_name") && eq["part_name"].is_string() ? eq["part_name"].get<std::string>() : "";
+                    q.element_type = eq.contains("element_type") && eq["element_type"].is_string() ? eq["element_type"].get<std::string>() : "";
+                    q.num_elements = eq.contains("num_elements") ? eq["num_elements"].get<int>() : 0;
+                    q.peak_aspect_ratio = eq.contains("peak_aspect_ratio") ? eq["peak_aspect_ratio"].get<double>() : 0;
+                    q.min_jacobian = eq.contains("min_jacobian") ? eq["min_jacobian"].get<double>() : 1;
+                    q.peak_warpage = eq.contains("peak_warpage") ? eq["peak_warpage"].get<double>() : 0;
+                    q.peak_skewness = eq.contains("peak_skewness") ? eq["peak_skewness"].get<double>() : 0;
+                    out.element_quality.push_back(q);
                 }
             }
 
@@ -151,16 +190,38 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
             std::ifstream f(rjPath);
             json j = json::parse(f);
 
-            out.label = j.value("label", "");
-            out.tier = j.value("tier", 0);
+            out.label = j.contains("label") && j["label"].is_string() ? j["label"].get<std::string>() : "";
+            out.tier = j.contains("tier") && j["tier"].is_number() ? j["tier"].get<int>() : 0;
 
-            if (j.contains("summary")) {
+            if (j.contains("summary") && j["summary"].is_object()) {
                 auto& s = j["summary"];
-                out.peak_stress_global = s.value("peak_stress_global", 0.0);
-                out.peak_stress_part_id = s.value("peak_stress_part_id", 0);
-                out.peak_strain_global = s.value("peak_strain_global", 0.0);
-                out.peak_disp_global = s.value("peak_disp_global", 0.0);
-                out.energy_ratio_min = s.value("energy_ratio_min", 1.0);
+                auto sd = [&s](const char* k, double def = 0.0) {
+                    return s.contains(k) && s[k].is_number() ? s[k].get<double>() : def;
+                };
+                out.peak_stress_global = sd("peak_stress_global");
+                out.peak_stress_part_id = s.contains("peak_stress_part_id") && s["peak_stress_part_id"].is_number()
+                    ? s["peak_stress_part_id"].get<int>() : 0;
+                out.peak_strain_global = sd("peak_strain_global");
+                out.peak_disp_global = sd("peak_disp_global");
+                out.energy_ratio_min = sd("energy_ratio_min", 1.0);
+            }
+
+            // Safe getter: returns default for missing or null values
+            auto safeDouble = [](const json& j, const char* key, double def = 0.0) -> double {
+                return j.contains(key) && j[key].is_number() ? j[key].get<double>() : def;
+            };
+            auto safeStr = [](const json& j, const char* key, const std::string& def = "") -> std::string {
+                return j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : def;
+            };
+
+            out.yield_stress = j.contains("yield_stress") && j["yield_stress"].is_number() ? j["yield_stress"].get<double>() : 0;
+
+            if (j.contains("metadata") && j["metadata"].is_object()) {
+                auto& rm = j["metadata"];
+                out.normal_termination = rm.contains("normal_termination") && rm["normal_termination"].is_boolean()
+                    ? rm["normal_termination"].get<bool>() : true;
+                out.termination_source = rm.contains("termination_source") && rm["termination_source"].is_string()
+                    ? rm["termination_source"].get<std::string>() : "";
             }
 
             if (j.contains("parts")) {
@@ -168,29 +229,49 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
                     int pid = std::stoi(key);
                     PartSummary ps;
                     ps.part_id = pid;
-                    ps.name = val.value("name", "Part " + key);
-                    ps.peak_stress = val.value("peak_stress", 0.0);
-                    ps.peak_strain = val.value("peak_strain", 0.0);
-                    ps.peak_disp = val.value("peak_disp_mag", 0.0);
-                    ps.peak_vel = val.value("peak_vel_mag", 0.0);
-                    ps.peak_acc = val.value("peak_acc_mag", 0.0);
-                    ps.safety_factor = val.value("safety_factor", 0.0);
-                    ps.stress_warning = val.value("stress_warning", "ok");
-                    ps.strain_warning = val.value("strain_warning", "ok");
+                    ps.name = safeStr(val, "name", "Part " + key);
+                    ps.peak_stress = safeDouble(val, "peak_stress");
+                    ps.time_of_peak_stress = safeDouble(val, "time_of_peak_stress");
+                    ps.peak_element_id = val.contains("peak_element_id") && val["peak_element_id"].is_number()
+                        ? val["peak_element_id"].get<int>() : 0;
+                    ps.peak_strain = safeDouble(val, "peak_strain");
+                    ps.peak_max_principal = safeDouble(val, "peak_max_principal");
+                    ps.peak_min_principal = safeDouble(val, "peak_min_principal");
+                    ps.peak_max_principal_strain = safeDouble(val, "peak_max_principal_strain");
+                    ps.peak_min_principal_strain = safeDouble(val, "peak_min_principal_strain");
+                    ps.peak_disp = safeDouble(val, "peak_disp_mag");
+                    ps.peak_vel = safeDouble(val, "peak_vel_mag");
+                    ps.peak_acc = safeDouble(val, "peak_acc_mag");
+                    ps.safety_factor = safeDouble(val, "safety_factor");
+                    ps.mat_type = safeStr(val, "mat_type");
+                    ps.stress_limit = safeDouble(val, "stress_limit");
+                    ps.stress_source = safeStr(val, "stress_source");
+                    ps.strain_limit = safeDouble(val, "strain_limit");
+                    ps.strain_source = safeStr(val, "strain_source");
+                    ps.stress_ratio = safeDouble(val, "stress_ratio");
+                    ps.strain_ratio = safeDouble(val, "strain_ratio");
+                    ps.stress_warning = safeStr(val, "stress_warning", "ok");
+                    ps.strain_warning = safeStr(val, "strain_warning", "ok");
                     out.parts[pid] = ps;
                 }
             }
 
             if (j.contains("glstat") && !j["glstat"].is_null()) {
                 auto& g = j["glstat"];
-                out.glstat.t = g.value("t", std::vector<double>{});
-                out.glstat.total_energy = g.value("total_energy", std::vector<double>{});
-                out.glstat.kinetic_energy = g.value("kinetic_energy", std::vector<double>{});
-                out.glstat.internal_energy = g.value("internal_energy", std::vector<double>{});
-                out.glstat.hourglass_energy = g.value("hourglass_energy", std::vector<double>{});
-                out.glstat.energy_ratio = g.value("energy_ratio", std::vector<double>{});
-                out.glstat.energy_ratio_min = g.value("energy_ratio_min", 1.0);
-                out.glstat.normal_termination = g.value("normal_termination", true);
+                auto gv = [](const json& j, const char* key) -> std::vector<double> {
+                    return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
+                };
+                out.glstat.t = gv(g, "t");
+                out.glstat.total_energy = gv(g, "total_energy");
+                out.glstat.kinetic_energy = gv(g, "kinetic_energy");
+                out.glstat.internal_energy = gv(g, "internal_energy");
+                out.glstat.hourglass_energy = gv(g, "hourglass_energy");
+                out.glstat.energy_ratio = gv(g, "energy_ratio");
+                out.glstat.mass = gv(g, "mass");
+                out.glstat.energy_ratio_min = g.contains("energy_ratio_min") && g["energy_ratio_min"].is_number() ? g["energy_ratio_min"].get<double>() : 1.0;
+                out.glstat.energy_ratio_max = g.contains("energy_ratio_max") && g["energy_ratio_max"].is_number() ? g["energy_ratio_max"].get<double>() : 1.0;
+                out.glstat.has_mass_added = g.contains("has_mass_added") && g["has_mass_added"].is_boolean() ? g["has_mass_added"].get<bool>() : false;
+                out.glstat.normal_termination = g.contains("normal_termination") && g["normal_termination"].is_boolean() ? g["normal_termination"].get<bool>() : true;
             }
 
         } catch (const std::exception& e) {
@@ -237,6 +318,43 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
             }
         }
         std::sort(out.render_files.begin(), out.render_files.end());
+    }
+
+    // 5. Fallback: if no result.json, build parts from stress_history
+    if (out.parts.empty()) {
+        double globalMax = 0;
+        int globalMaxPid = 0;
+        for (const auto& ts : out.stress) {
+            PartSummary ps;
+            ps.part_id = ts.part_id;
+            ps.name = ts.part_name.empty() ? ("Part " + std::to_string(ts.part_id)) : ts.part_name;
+            ps.peak_stress = ts.global_max;
+            ps.stress_warning = "ok";
+            ps.strain_warning = "ok";
+            if (ts.global_max > globalMax) { globalMax = ts.global_max; globalMaxPid = ts.part_id; }
+            out.parts[ts.part_id] = ps;
+        }
+        for (const auto& ts : out.strain) {
+            auto it = out.parts.find(ts.part_id);
+            if (it != out.parts.end()) {
+                it->second.peak_strain = ts.global_max;
+            }
+        }
+        out.peak_stress_global = globalMax;
+        out.peak_stress_part_id = globalMaxPid;
+    }
+
+    // 6. Auto-generate warnings
+    if (out.energy_ratio_min > 1.1)
+        out.warnings.push_back({"crit", "Energy ratio > 1.10 (" + std::to_string(out.energy_ratio_min) + ") — energy generation detected"});
+    else if (out.energy_ratio_min > 1.05)
+        out.warnings.push_back({"warn", "Energy ratio > 1.05 (" + std::to_string(out.energy_ratio_min) + ")"});
+
+    for (const auto& [pid, ps] : out.parts) {
+        if (ps.stress_warning == "crit")
+            out.warnings.push_back({"crit", "Part " + std::to_string(pid) + " (" + ps.name + "): stress exceeds limit (" + std::to_string(ps.peak_stress) + " MPa)"});
+        if (ps.strain_warning == "crit")
+            out.warnings.push_back({"crit", "Part " + std::to_string(pid) + " (" + ps.name + "): strain exceeds limit (" + std::to_string(ps.peak_strain) + ")"});
     }
 
     out.loaded = !out.stress.empty() || !out.parts.empty();

@@ -88,6 +88,7 @@ set(VIEWER_SOURCES
     src/scene/Camera.cpp
     src/data/SimData.cpp
     src/data/ReportData.cpp
+    src/widgets/VideoPlayer.cpp
 )
 
 add_executable(koo_viewer ${VIEWER_SOURCES})
