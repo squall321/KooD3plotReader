@@ -117,6 +117,16 @@ bool loadSphereData(const std::string& jsonPath, SphereData& out) {
                 eulerToLonLat(ar.angle.roll, ar.angle.pitch, ar.angle.yaw,
                               ar.angle.name, ar.angle.lon, ar.angle.lat);
 
+                auto parseTS = [](const json& j, const char* tKey, const char* vKey, TimeSeries& ts) {
+                    if (j.contains(tKey) && j[tKey].is_object()) {
+                        auto& obj = j[tKey];
+                        if (obj.contains("t") && obj["t"].is_array())
+                            ts.t = obj["t"].get<std::vector<double>>();
+                        if (obj.contains(vKey) && obj[vKey].is_array())
+                            ts.values = obj[vKey].get<std::vector<double>>();
+                    }
+                };
+
                 if (r.contains("parts") && r["parts"].is_object()) {
                     for (auto& [pk, pv] : r["parts"].items()) {
                         int pid = std::stoi(pk);
@@ -125,6 +135,10 @@ bool loadSphereData(const std::string& jsonPath, SphereData& out) {
                         pd.peak_strain = sd(pv, "peak_strain");
                         pd.peak_g = sd(pv, "peak_g");
                         pd.peak_disp = sd(pv, "peak_disp");
+                        parseTS(pv, "stress_ts", "max", pd.stress_ts);
+                        parseTS(pv, "strain_ts", "max", pd.strain_ts);
+                        parseTS(pv, "g_ts", "g", pd.g_ts);
+                        parseTS(pv, "disp_ts", "mag", pd.disp_ts);
                         ar.parts[pid] = pd;
                     }
                 }

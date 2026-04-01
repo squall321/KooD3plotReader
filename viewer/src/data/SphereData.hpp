@@ -10,11 +10,20 @@ struct AngleInfo {
     double lon = 0, lat = 0;  // Mollweide coordinates
 };
 
+struct TimeSeries {
+    std::vector<double> t;
+    std::vector<double> values;
+};
+
 struct AnglePartData {
     double peak_stress = 0;
     double peak_strain = 0;
     double peak_g = 0;
     double peak_disp = 0;
+    TimeSeries stress_ts;
+    TimeSeries strain_ts;
+    TimeSeries g_ts;
+    TimeSeries disp_ts;
 };
 
 struct AngleResult {
