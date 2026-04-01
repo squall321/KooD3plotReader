@@ -25,12 +25,22 @@ private:
 
     void renderKPIBar();
     void renderMollweide();
+    void renderGlobe();
     void renderAngleTable();
     void renderPartRisk();
     void renderCompareInfo();
+    void renderDirectional();
+    void renderStatistics();
+    void renderFindings();
+
+    // Globe state
+    float globeYaw_ = 0, globePitch_ = 0.3f;
+    bool globeAutoRotate_ = true;
 
     // Helpers
     double getAngleValue(int ri, int partId, int qty) const;
     void mollweideProject(double lonDeg, double latDeg, double& x, double& y) const;
     ImU32 valueToColor(double norm) const;
+    void projectGlobe(double lon, double lat, float vLon, float vLat,
+                       float R, float& sx, float& sy, float& sz) const;
 };

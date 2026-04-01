@@ -117,17 +117,24 @@ void SphereReportApp::run(const std::string& jsonPath) {
 
         renderKPIBar();
 
-        // Mollweide panel
+        // Left: Mollweide + Globe
         ImGui::Begin("Mollweide");
-        renderMollweide();
+        if (ImGui::BeginTabBar("MapTabs")) {
+            if (ImGui::BeginTabItem("Mollweide")) { renderMollweide(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("3D Globe"))  { renderGlobe(); ImGui::EndTabItem(); }
+            ImGui::EndTabBar();
+        }
         ImGui::End();
 
         // Right: tabbed analysis
         ImGui::Begin("Analysis");
         if (ImGui::BeginTabBar("SphereTabs")) {
-            if (ImGui::BeginTabItem("Angle Table")) { renderAngleTable(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Part Risk"))   { renderPartRisk(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Selected"))    { renderCompareInfo(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Angle Table"))  { renderAngleTable(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Part Risk"))    { renderPartRisk(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Directional"))  { renderDirectional(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Statistics"))   { renderStatistics(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Findings"))     { renderFindings(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Selected"))     { renderCompareInfo(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
         ImGui::End();
@@ -578,4 +585,293 @@ void SphereReportApp::renderCompareInfo() {
         }
         ImGui::EndTable();
     }
+}
+
+// ============================================================
+// 3D Globe (ImDrawList wireframe sphere with data points)
+// ============================================================
+void SphereReportApp::projectGlobe(double lonDeg, double latDeg, float vLon, float vLat,
+                                     float R, float& sx, float& sy, float& sz) const {
+    double lon = lonDeg * M_PI / 180.0, lat = latDeg * M_PI / 180.0;
+    double x = std::cos(lat) * std::sin(lon);
+    double y = std::sin(lat);
+    double z = std::cos(lat) * std::cos(lon);
+
+    // Rotate by view angles
+    double vl = vLon * M_PI / 180.0, va = vLat * M_PI / 180.0;
+    double x1 = x * std::cos(vl) - z * std::sin(vl);
+    double z1 = x * std::sin(vl) + z * std::cos(vl);
+    double y1 = y * std::cos(va) - z1 * std::sin(va);
+    double z2 = y * std::sin(va) + z1 * std::cos(va);
+
+    sx = (float)(x1 * R);
+    sy = (float)(y1 * R);
+    sz = (float)z2;
+}
+
+void SphereReportApp::renderGlobe() {
+    ImGui::Checkbox("Auto Rotate", &globeAutoRotate_);
+    if (globeAutoRotate_) {
+        globeYaw_ += ImGui::GetIO().DeltaTime * 20.0f;
+        if (globeYaw_ > 360) globeYaw_ -= 360;
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    float sz = std::min(avail.x, avail.y) - 20;
+    if (sz < 100) sz = 200;
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##globe", ImVec2(sz, sz));
+    bool hovered = ImGui::IsItemHovered();
+
+    if (hovered) {
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            ImVec2 d = ImGui::GetIO().MouseDelta;
+            globeYaw_ += d.x * 0.5f;
+            globePitch_ = std::clamp(globePitch_ - d.y * 0.005f, -1.4f, 1.4f);
+            globeAutoRotate_ = false;
+        }
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float cx = pos.x + sz * 0.5f, cy = pos.y + sz * 0.5f;
+    float R = sz * 0.42f;
+    float vLon = globeYaw_, vLat = globePitch_ * 180.0f / M_PI;
+
+    // Background
+    dl->AddRectFilled(pos, ImVec2(pos.x + sz, pos.y + sz), IM_COL32(15, 17, 26, 255), 6);
+
+    // Grid lines (front hemisphere only)
+    for (int lon = -180; lon <= 150; lon += 30) {
+        for (int lat = -87; lat <= 87; lat += 3) {
+            float sx1, sy1, sz1, sx2, sy2, sz2;
+            projectGlobe(lon, lat, vLon, vLat, R, sx1, sy1, sz1);
+            projectGlobe(lon, lat+3, vLon, vLat, R, sx2, sy2, sz2);
+            if (sz1 > 0 && sz2 > 0)
+                dl->AddLine(ImVec2(cx+sx1, cy-sy1), ImVec2(cx+sx2, cy-sy2), IM_COL32(60,65,80,60), 0.5f);
+        }
+    }
+    for (int lat = -60; lat <= 60; lat += 30) {
+        for (int lon = -180; lon <= 177; lon += 3) {
+            float sx1, sy1, sz1, sx2, sy2, sz2;
+            projectGlobe(lon, lat, vLon, vLat, R, sx1, sy1, sz1);
+            projectGlobe(lon+3, lat, vLon, vLat, R, sx2, sy2, sz2);
+            if (sz1 > 0 && sz2 > 0)
+                dl->AddLine(ImVec2(cx+sx1, cy-sy1), ImVec2(cx+sx2, cy-sy2), IM_COL32(60,65,80,60), 0.5f);
+        }
+    }
+
+    // Outline
+    dl->AddCircle(ImVec2(cx, cy), R, IM_COL32(120,125,160,180), 64, 1.5f);
+
+    // Data points (sorted back-to-front)
+    struct ProjPt { float sx, sy, sz; int ri; ImU32 col; };
+    std::vector<ProjPt> pts;
+    double vmin = 1e30, vmax = -1e30;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        double v = getAngleValue(ri, selectedPartId_, quantity_);
+        vmin = std::min(vmin, v); vmax = std::max(vmax, v);
+    }
+    double vrange = std::max(vmax - vmin, 1e-10);
+
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        auto& r = data_.results[ri];
+        float sx, sy, szp;
+        projectGlobe(r.angle.lon, r.angle.lat, vLon, vLat, R, sx, sy, szp);
+        double v = getAngleValue(ri, selectedPartId_, quantity_);
+        double norm = (v - vmin) / vrange;
+        pts.push_back({sx, sy, szp, ri, valueToColor(norm)});
+    }
+    std::sort(pts.begin(), pts.end(), [](const auto& a, const auto& b) { return a.sz < b.sz; });
+
+    int nPts = (int)pts.size();
+    float baseR = nPts > 500 ? 2 : nPts > 200 ? 3 : 4;
+    for (auto& p : pts) {
+        float px = cx + p.sx, py = cy - p.sy;
+        if (p.sz > 0) {
+            bool sel = selectedAngles_.count(p.ri);
+            dl->AddCircleFilled(ImVec2(px, py), sel ? baseR + 2 : baseR, p.col);
+            if (sel) dl->AddCircle(ImVec2(px, py), baseR + 4, IM_COL32(255,255,255,200), 0, 1.5f);
+        } else {
+            dl->AddCircleFilled(ImVec2(px, py), baseR * 0.6f, IM_COL32((p.col&0xFF)/4, ((p.col>>8)&0xFF)/4, ((p.col>>16)&0xFF)/4, 150));
+        }
+    }
+}
+
+// ============================================================
+// Directional Analysis
+// ============================================================
+void SphereReportApp::renderDirectional() {
+    ImGui::TextColored(COL_DIM,
+        "Ranking of impact directions by peak value.\n"
+        "Shows which directions are most critical for the selected part and quantity.");
+    ImGui::Spacing();
+
+    // Top 20 worst directions
+    std::vector<std::pair<int, double>> ranked;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri)
+        ranked.push_back({ri, getAngleValue(ri, selectedPartId_, quantity_)});
+    std::sort(ranked.begin(), ranked.end(), [](auto& a, auto& b) { return a.second > b.second; });
+
+    const char* qtyNames[] = {"Stress (MPa)", "Strain", "G-Force", "Disp (mm)"};
+    ImGui::TextColored(COL_ACCENT, "  Top 20 Worst Directions — %s", qtyNames[quantity_]);
+    ImGui::Separator();
+
+    double maxV = ranked.empty() ? 1.0 : std::max(ranked[0].second, 1e-10);
+    for (int i = 0; i < std::min(20, (int)ranked.size()); ++i) {
+        int ri = ranked[i].first;
+        auto& r = data_.results[ri];
+        float pct = (float)(ranked[i].second / maxV);
+
+        char label[128];
+        snprintf(label, sizeof(label), "%2d. %-15s [%s]", i+1, r.angle.name.c_str(), r.angle.category.c_str());
+        ImGui::Text("%s", label);
+        ImGui::SameLine(250);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.31f+pct*0.6f, 0.2f, 0.2f, 1));
+        char ov[32]; snprintf(ov, sizeof(ov), "%.1f", ranked[i].second);
+        ImGui::ProgressBar(pct, ImVec2(-1, 16), ov);
+        ImGui::PopStyleColor();
+    }
+
+    // Category breakdown
+    ImGui::Spacing();
+    ImGui::TextColored(COL_BLUE, "  Category Breakdown");
+    ImGui::Separator();
+    std::map<std::string, std::vector<double>> catVals;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        catVals[data_.results[ri].angle.category].push_back(
+            getAngleValue(ri, selectedPartId_, quantity_));
+    }
+    for (auto& [cat, vals] : catVals) {
+        double avg = 0, maxC = 0;
+        for (double v : vals) { avg += v; maxC = std::max(maxC, v); }
+        avg /= vals.size();
+        ImGui::Text("  %-12s  count=%d  avg=%.1f  max=%.1f", cat.c_str(), (int)vals.size(), avg, maxC);
+    }
+}
+
+// ============================================================
+// Statistics
+// ============================================================
+void SphereReportApp::renderStatistics() {
+    ImGui::TextColored(COL_DIM,
+        "Distribution of peak values across all impact directions.\n"
+        "Histogram shows how many angles fall into each value bin.");
+    ImGui::Spacing();
+
+    std::vector<double> vals;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri)
+        vals.push_back(getAngleValue(ri, selectedPartId_, quantity_));
+
+    if (vals.empty()) return;
+
+    double vmin = *std::min_element(vals.begin(), vals.end());
+    double vmax = *std::max_element(vals.begin(), vals.end());
+    double avg = 0, stddev = 0;
+    for (double v : vals) avg += v;
+    avg /= vals.size();
+    for (double v : vals) stddev += (v - avg) * (v - avg);
+    stddev = std::sqrt(stddev / vals.size());
+
+    // Summary stats
+    ImGui::TextColored(COL_ACCENT, "  Summary Statistics");
+    ImGui::Separator();
+    ImGui::Text("  Count: %d    Min: %.2f    Max: %.2f    Mean: %.2f    StdDev: %.2f",
+        (int)vals.size(), vmin, vmax, avg, stddev);
+    ImGui::Spacing();
+
+    // Histogram
+    int nBins = 20;
+    double binW = std::max((vmax - vmin) / nBins, 1e-10);
+    std::vector<double> bins(nBins, 0);
+    std::vector<double> binCenters(nBins);
+    for (int i = 0; i < nBins; ++i)
+        binCenters[i] = vmin + (i + 0.5) * binW;
+    for (double v : vals) {
+        int bi = std::min((int)((v - vmin) / binW), nBins - 1);
+        if (bi >= 0) bins[bi]++;
+    }
+
+    const char* qtyNames[] = {"Stress (MPa)", "Strain", "G-Force", "Disp (mm)"};
+    ImVec2 plotSz(ImGui::GetContentRegionAvail().x, std::max(250.0f, ImGui::GetContentRegionAvail().y - 10));
+    if (ImPlot::BeginPlot("##Histogram", plotSz)) {
+        ImPlot::SetupAxes(qtyNames[quantity_], "Count");
+        ImPlot::PlotBars("Distribution", binCenters.data(), bins.data(), nBins, binW * 0.8);
+        // Mean line
+        ImPlot::PlotInfLines("Mean", &avg, 1);
+        ImPlot::EndPlot();
+    }
+}
+
+// ============================================================
+// Findings (auto-generated recommendations)
+// ============================================================
+void SphereReportApp::renderFindings() {
+    ImGui::TextColored(COL_ACCENT, "  Automated Findings & Recommendations");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    auto finding = [](ImDrawList* dl, ImVec2 pos, const char* level, const char* title, const char* detail, ImVec4 col) {
+        ImVec4 bg = col; bg.w = 0.12f;
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+        ImGui::BeginChild(title, ImVec2(-1, 70), true);
+        ImGui::TextColored(col, "%s  %s", level, title);
+        ImGui::TextColored(COL_DIM, "%s", detail);
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    };
+
+    // Generate findings
+    char buf[256];
+
+    // 1. Coverage
+    snprintf(buf, sizeof(buf), "%d/%d simulations completed. DOE: %s, Angular spacing: %.1f deg, Coverage: %.0f%%",
+        data_.successful_runs, data_.total_runs, data_.doe_strategy.c_str(), data_.angular_spacing, data_.sphere_coverage * 100);
+    finding(nullptr, ImVec2(0,0), "INFO", "Simulation Coverage", buf,
+        data_.sphere_coverage >= 0.9 ? COL_ACCENT : COL_YELLOW);
+
+    // 2. Worst stress
+    if (data_.worst_stress_angle >= 0) {
+        auto& wr = data_.results[data_.worst_stress_angle];
+        snprintf(buf, sizeof(buf), "Peak stress %.1f MPa at direction %s (Roll=%.1f, Pitch=%.1f)",
+            data_.worst_stress, wr.angle.name.c_str(), wr.angle.roll, wr.angle.pitch);
+        ImVec4 col = (data_.yield_stress > 0 && data_.worst_stress > data_.yield_stress) ? COL_RED : COL_YELLOW;
+        finding(nullptr, ImVec2(0,0), data_.worst_stress > data_.yield_stress ? "CRITICAL" : "WARNING",
+            "Worst Case Stress", buf, col);
+    }
+
+    // 3. Safety factor
+    if (data_.yield_stress > 0 && data_.worst_stress > 0) {
+        double sf = data_.yield_stress / data_.worst_stress;
+        snprintf(buf, sizeof(buf), "Global Safety Factor = %.3f (Yield = %.0f MPa / Peak = %.0f MPa)%s",
+            sf, data_.yield_stress, data_.worst_stress,
+            sf < 1.0 ? " — EXCEEDS YIELD" : sf < 1.5 ? " — Low margin" : " — Acceptable");
+        finding(nullptr, ImVec2(0,0), sf < 1.0 ? "CRITICAL" : sf < 1.5 ? "WARNING" : "OK",
+            "Safety Factor Assessment", buf, sf < 1.0 ? COL_RED : sf < 1.5 ? COL_YELLOW : COL_ACCENT);
+    }
+
+    // 4. Directional sensitivity
+    {
+        std::vector<double> vals;
+        for (auto& r : data_.results)
+            for (auto& [pid, pd] : r.parts)
+                vals.push_back(pd.peak_stress);
+        if (!vals.empty()) {
+            double vmin = *std::min_element(vals.begin(), vals.end());
+            double vmax = *std::max_element(vals.begin(), vals.end());
+            double ratio = vmax > 1e-6 ? vmin / vmax : 1;
+            snprintf(buf, sizeof(buf), "Min/Max stress ratio = %.2f. %s",
+                ratio, ratio < 0.3 ? "High directional sensitivity — some angles much worse than others."
+                     : ratio < 0.7 ? "Moderate directional dependence."
+                     : "Relatively uniform across directions.");
+            finding(nullptr, ImVec2(0,0), ratio < 0.3 ? "WARNING" : "INFO",
+                "Directional Sensitivity", buf, ratio < 0.3 ? COL_YELLOW : COL_BLUE);
+        }
+    }
+
+    // 5. Part count
+    snprintf(buf, sizeof(buf), "%d parts analyzed across %d impact directions = %d data points total.",
+        (int)data_.parts.size(), (int)data_.results.size(),
+        (int)(data_.parts.size() * data_.results.size()));
+    finding(nullptr, ImVec2(0,0), "INFO", "Analysis Scope", buf, COL_BLUE);
 }
