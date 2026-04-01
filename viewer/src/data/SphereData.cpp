@@ -7,9 +7,40 @@
 
 using json = nlohmann::json;
 
+// Try to decode direction from angle name (cube geometry: faces/edges/corners)
+static bool angleNameToDirection(const std::string& name, double& x, double& y, double& z) {
+    x = y = z = 0;
+    std::string n = name;
+    for (auto& c : n) c = toupper(c);
+
+    if (n.find("RIGHT") != std::string::npos) x = 1;
+    if (n.find("LEFT") != std::string::npos) x = -1;
+    if (n.find("TOP") != std::string::npos) y = 1;
+    if (n.find("BOTTOM") != std::string::npos) y = -1;
+    if (n.find("BACK") != std::string::npos) z = -1;
+    if (n.find("FRONT") != std::string::npos) z = 1;
+
+    double mag = std::sqrt(x*x + y*y + z*z);
+    if (mag > 0.01) { x /= mag; y /= mag; z /= mag; return true; }
+    return false;
+}
+
+static void directionToLonLat(double x, double y, double z, double& lon, double& lat) {
+    lon = std::atan2(x, -z) * 180.0 / M_PI;
+    lat = std::asin(std::max(-1.0, std::min(1.0, y))) * 180.0 / M_PI;
+    lat = std::max(-85.0, std::min(85.0, lat));
+}
+
 void eulerToLonLat(double rollDeg, double pitchDeg, double yawDeg,
                     const std::string& name, double& lon, double& lat) {
-    // Ry(pitch) * Rx(roll) * [0, 0, -1] → impact direction
+    // 1. Try name-based decoding first (correct for cube faces/edges/corners)
+    double dx, dy, dz;
+    if (angleNameToDirection(name, dx, dy, dz)) {
+        directionToLonLat(dx, dy, dz, lon, lat);
+        return;
+    }
+
+    // 2. Euler-based: Ry(pitch) * Rx(roll) * [0, 0, -1] → impact direction
     double r = rollDeg * M_PI / 180.0;
     double p = pitchDeg * M_PI / 180.0;
 
