@@ -226,8 +226,12 @@ void DeepReportApp::run(const std::string& outputDir) {
             if (!data_.element_quality.empty()) {
                 if (ImGui::BeginTabItem("Quality")) { renderQualityTab(); ImGui::EndTabItem(); }
             }
+            if (!data_.rcforc.empty() || !data_.sleout.empty()) {
+                if (ImGui::BeginTabItem("Contact")) { renderContactTab(); ImGui::EndTabItem(); }
+            }
             if (ImGui::BeginTabItem("3D View"))   { render3DTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Renders"))   { renderRenderGalleryTab(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("SysInfo"))   { renderSysInfoTab(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
         ImGui::End();
@@ -652,10 +656,31 @@ void DeepReportApp::renderStressTab() {
         drawBarRanking("Eff. Plastic Strain Ranking", items, COL_YELLOW, "", 4);
     }
 
-    // Time series: stress overlay
+    // Time series: stress overlay (with yield line)
     ImGui::TextColored(COL_ACCENT, "  Stress Time History");
     ImGui::Separator();
-    drawTimeSeriesPlot("##StressTS", "Von Mises (MPa)", data_.stress, false);
+    {
+        ImVec2 sz(ImGui::GetContentRegionAvail().x, std::max(250.0f, ImGui::GetContentRegionAvail().y * 0.3f));
+        if (ImPlot::BeginPlot("##StressTS", sz)) {
+            ImPlot::SetupAxes("Time", "Von Mises (MPa)");
+            for (const auto& ts : data_.stress) {
+                if (ts.data.empty()) continue;
+                bool show = selectedParts_.empty() || selectedParts_.count(ts.part_id);
+                if (!show) continue;
+                std::vector<double> t(ts.data.size()), v(ts.data.size());
+                for (size_t i = 0; i < ts.data.size(); ++i) { t[i] = ts.data[i].time; v[i] = ts.data[i].max_value; }
+                char label[64]; snprintf(label, sizeof(label), "P%d %s", ts.part_id, ts.part_name.c_str());
+                ImPlot::PlotLine(label, t.data(), v.data(), (int)t.size());
+            }
+            // Yield stress horizontal line
+            if (data_.yield_stress > 0) {
+                double xt[] = {data_.start_time, data_.end_time};
+                double yt[] = {data_.yield_stress, data_.yield_stress};
+                ImPlot::PlotLine("Yield", xt, yt, 2);
+            }
+            ImPlot::EndPlot();
+        }
+    }
 
     // Time series: strain overlay
     if (!data_.strain.empty()) {
@@ -1310,6 +1335,140 @@ void DeepReportApp::renderRenderGalleryTab() {
             (avail.y - textSize.y) * 0.5f + ImGui::GetCursorPosY()));
         ImGui::TextColored(COL_DIM, "Click a section view above to preview");
     }
+}
+
+// ============================================================
+// 3D Viewer — shaders
+// ============================================================
+// ============================================================
+// Contact Tab
+// ============================================================
+void DeepReportApp::renderContactTab() {
+    ImGui::TextColored(COL_DIM,
+        "Contact interface forces from binout. Peak force indicates maximum contact load.\n"
+        "Sliding energy shows energy dissipated by friction at each interface.");
+    ImGui::Spacing();
+
+    // rcforc: contact force time histories
+    if (!data_.rcforc.empty()) {
+        ImGui::TextColored(COL_ACCENT, "  Contact Forces (rcforc)");
+        ImGui::Separator();
+
+        // Peak force ranking
+        for (const auto& ci : data_.rcforc) {
+            char label[128];
+            snprintf(label, sizeof(label), "  Interface %d: %s — Peak: %.1f N", ci.id, ci.name.c_str(), ci.peak_fmag);
+            ImGui::TextUnformatted(label);
+        }
+        ImGui::Spacing();
+
+        // Force magnitude chart
+        if (!data_.rcforc.empty() && !data_.rcforc[0].t.empty()) {
+            ImVec2 sz(ImGui::GetContentRegionAvail().x, std::max(200.0f, ImGui::GetContentRegionAvail().y * 0.4f));
+            if (ImPlot::BeginPlot("##ContactForce", sz)) {
+                ImPlot::SetupAxes("Time", "Force Magnitude (N)");
+                for (const auto& ci : data_.rcforc) {
+                    if (ci.fmag.empty()) continue;
+                    char label[64]; snprintf(label, sizeof(label), "Ifc %d %s", ci.id, ci.name.c_str());
+                    ImPlot::PlotLine(label, ci.t.data(), ci.fmag.data(), (int)ci.t.size());
+                }
+                ImPlot::EndPlot();
+            }
+        }
+    }
+
+    // sleout: sliding energy
+    if (!data_.sleout.empty()) {
+        ImGui::TextColored(COL_YELLOW, "  Sliding Energy (sleout)");
+        ImGui::Separator();
+
+        if (!data_.sleout[0].t.empty()) {
+            ImVec2 sz(ImGui::GetContentRegionAvail().x, std::max(150.0f, ImGui::GetContentRegionAvail().y - 10));
+            if (ImPlot::BeginPlot("##SlidingEnergy", sz)) {
+                ImPlot::SetupAxes("Time", "Energy");
+                for (const auto& se : data_.sleout) {
+                    if (se.total_energy.empty()) continue;
+                    char label[64]; snprintf(label, sizeof(label), "Ifc %d total", se.id);
+                    ImPlot::PlotLine(label, se.t.data(), se.total_energy.data(), (int)se.t.size());
+                    if (!se.friction_energy.empty()) {
+                        snprintf(label, sizeof(label), "Ifc %d friction", se.id);
+                        ImPlot::PlotLine(label, se.t.data(), se.friction_energy.data(), (int)se.t.size());
+                    }
+                }
+                ImPlot::EndPlot();
+            }
+        }
+    }
+}
+
+// ============================================================
+// SysInfo Tab
+// ============================================================
+void DeepReportApp::renderSysInfoTab() {
+    ImGui::TextColored(COL_ACCENT, "  Simulation Information");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    auto infoRow = [](const char* label, const char* value) {
+        ImGui::Text("  %-24s", label);
+        ImGui::SameLine(220);
+        ImGui::TextColored(ImVec4(0.85f,0.85f,0.90f,1), "%s", value);
+    };
+
+    char buf[256];
+    infoRow("Label:", data_.label.c_str());
+    snprintf(buf, sizeof(buf), "Tier %d", data_.tier);
+    infoRow("Tier:", buf);
+    infoRow("D3plot Path:", data_.d3plot_path.c_str());
+    snprintf(buf, sizeof(buf), "%d", data_.num_states);
+    infoRow("States:", buf);
+    snprintf(buf, sizeof(buf), "%.6f — %.6f", data_.start_time, data_.end_time);
+    infoRow("Time Range:", buf);
+    snprintf(buf, sizeof(buf), "%d", (int)data_.parts.size());
+    infoRow("Parts:", buf);
+    infoRow("Termination:", data_.normal_termination ? "Normal" : "ERROR");
+    infoRow("Termination Source:", data_.termination_source.c_str());
+    if (data_.yield_stress > 0) {
+        snprintf(buf, sizeof(buf), "%.1f MPa", data_.yield_stress);
+        infoRow("Yield Stress:", buf);
+    }
+
+    ImGui::Spacing();
+    ImGui::TextColored(COL_ACCENT, "  Data Files");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    auto fileRow = [](const char* name, bool present) {
+        ImGui::Text("  %-20s", name);
+        ImGui::SameLine(200);
+        if (present)
+            ImGui::TextColored(ImVec4(0.31f,0.80f,0.64f,1), "Present");
+        else
+            ImGui::TextColored(ImVec4(0.55f,0.55f,0.62f,1), "Not found");
+    };
+
+    fileRow("analysis_result.json", !data_.stress.empty());
+    fileRow("result.json", !data_.parts.empty() || !data_.glstat.t.empty());
+    fileRow("motion/ CSVs", !data_.motion.empty());
+    fileRow("renders/", !data_.render_files.empty());
+    fileRow("binout (rcforc)", !data_.rcforc.empty());
+    fileRow("binout (sleout)", !data_.sleout.empty());
+    fileRow("element_quality", !data_.element_quality.empty());
+    fileRow("tensors", !data_.tensors.empty());
+
+    ImGui::Spacing();
+    ImGui::TextColored(COL_ACCENT, "  Analysis Summary");
+    ImGui::Separator();
+    ImGui::Spacing();
+    snprintf(buf, sizeof(buf), "%d stress + %d strain + %d principal + %d tensor + %d motion",
+        (int)data_.stress.size(), (int)data_.strain.size(),
+        (int)data_.max_principal.size(), (int)data_.tensors.size(),
+        (int)data_.motion.size());
+    infoRow("Time Series:", buf);
+    snprintf(buf, sizeof(buf), "%d rcforc + %d sleout", (int)data_.rcforc.size(), (int)data_.sleout.size());
+    infoRow("Contact:", buf);
+    snprintf(buf, sizeof(buf), "%d render files", (int)data_.render_files.size());
+    infoRow("Renders:", buf);
 }
 
 // ============================================================

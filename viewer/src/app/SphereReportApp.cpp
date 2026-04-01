@@ -131,7 +131,9 @@ void SphereReportApp::run(const std::string& jsonPath) {
         if (ImGui::BeginTabBar("SphereTabs")) {
             if (ImGui::BeginTabItem("Angle Table"))  { renderAngleTable(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Part Risk"))    { renderPartRisk(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Heatmap"))      { renderHeatmapTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Directional"))  { renderDirectional(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Failure"))      { renderFailureTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Statistics"))   { renderStatistics(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Findings"))     { renderFindings(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Selected"))     { renderCompareInfo(); ImGui::EndTabItem(); }
@@ -272,6 +274,15 @@ void SphereReportApp::renderMollweide() {
         ImGui::EndCombo();
     }
 
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Swap R/P", &swapRP_)) {
+        // Recompute lon/lat with swapped axes
+        for (auto& r : data_.results) {
+            double roll = swapRP_ ? r.angle.pitch : r.angle.roll;
+            double pitch = swapRP_ ? r.angle.roll : r.angle.pitch;
+            eulerToLonLat(roll, pitch, r.angle.yaw, r.angle.name, r.angle.lon, r.angle.lat);
+        }
+    }
     ImGui::TextColored(COL_DIM, "Click to select/deselect angles. Selected: %d", (int)selectedAngles_.size());
     ImGui::Spacing();
 
@@ -874,4 +885,162 @@ void SphereReportApp::renderFindings() {
         (int)data_.parts.size(), (int)data_.results.size(),
         (int)(data_.parts.size() * data_.results.size()));
     finding(nullptr, ImVec2(0,0), "INFO", "Analysis Scope", buf, COL_BLUE);
+}
+
+// ============================================================
+// Heatmap: Part x All Angles (color coded grid)
+// ============================================================
+void SphereReportApp::renderHeatmapTab() {
+    ImGui::TextColored(COL_DIM,
+        "Full part-by-angle heatmap. Each cell shows the selected quantity value.\n"
+        "Color intensity proportional to value. Scroll horizontally for all angles.");
+    ImGui::Spacing();
+
+    if (data_.results.empty() || data_.parts.empty()) return;
+
+    // Sort angles by worst value descending
+    std::vector<int> angleOrder;
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) angleOrder.push_back(ri);
+    std::sort(angleOrder.begin(), angleOrder.end(), [&](int a, int b) {
+        double va = 0, vb = 0;
+        for (auto& [pid, pd] : data_.results[a].parts) {
+            double v = 0;
+            switch (quantity_) { case 0: v=pd.peak_stress; break; case 1: v=pd.peak_strain; break; case 2: v=pd.peak_g; break; case 3: v=pd.peak_disp; break; }
+            va = std::max(va, v);
+        }
+        for (auto& [pid, pd] : data_.results[b].parts) {
+            double v = 0;
+            switch (quantity_) { case 0: v=pd.peak_stress; break; case 1: v=pd.peak_strain; break; case 2: v=pd.peak_g; break; case 3: v=pd.peak_disp; break; }
+            vb = std::max(vb, v);
+        }
+        return va > vb;
+    });
+
+    int nAngles = std::min(50, (int)angleOrder.size());  // Limit columns for performance
+    int ncols = 2 + nAngles;
+
+    if (ImGui::BeginTable("##FullHeatmap", ncols,
+            ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+            ImGuiTableFlags_SizingFixedFit)) {
+
+        ImGui::TableSetupScrollFreeze(2, 1);
+        ImGui::TableSetupColumn("Part", 0, 35);
+        ImGui::TableSetupColumn("Name", 0, 90);
+        for (int i = 0; i < nAngles; ++i) {
+            ImGui::TableSetupColumn(data_.results[angleOrder[i]].angle.name.c_str(), 0, 50);
+        }
+        ImGui::TableHeadersRow();
+
+        // Global max for normalization
+        double gmax = 1;
+        for (auto& [pid, pi] : data_.parts)
+            for (int i = 0; i < nAngles; ++i)
+                gmax = std::max(gmax, getAngleValue(angleOrder[i], pid, quantity_));
+
+        for (auto& [pid, pi] : data_.parts) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::Text("%d", pid);
+            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(pi.name.c_str());
+            for (int i = 0; i < nAngles; ++i) {
+                ImGui::TableSetColumnIndex(i + 2);
+                double v = getAngleValue(angleOrder[i], pid, quantity_);
+                double norm = v / gmax;
+                ImU32 bg = valueToColor(norm);
+                int r = (bg >> 0) & 0xFF, g = (bg >> 8) & 0xFF, b = (bg >> 16) & 0xFF;
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, IM_COL32(r/3, g/3, b/3, 200));
+                ImGui::Text("%.0f", v);
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    if ((int)angleOrder.size() > nAngles) {
+        ImGui::TextColored(COL_DIM, "Showing top %d of %d angles (sorted by worst value)", nAngles, (int)angleOrder.size());
+    }
+}
+
+// ============================================================
+// Failure Analysis Tab
+// ============================================================
+void SphereReportApp::renderFailureTab() {
+    ImGui::TextColored(COL_DIM,
+        "Failure prediction based on yield stress and strain limits.\n"
+        "Parts exceeding material limits are flagged by direction.");
+    ImGui::Spacing();
+
+    if (data_.yield_stress <= 0) {
+        ImGui::TextColored(COL_YELLOW, "No yield stress specified. Cannot perform failure analysis.");
+        ImGui::TextColored(COL_DIM, "Set yield stress in koo_sphere_report: --yield-stress <MPa>");
+        return;
+    }
+
+    ImGui::TextColored(COL_ACCENT, "  Safety Factor by Part (Global Worst Angle)");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    struct PartFailure {
+        int pid;
+        std::string name;
+        double worst_stress;
+        double safety_factor;
+        std::string worst_angle;
+    };
+    std::vector<PartFailure> failures;
+
+    for (auto& [pid, pi] : data_.parts) {
+        double worst = 0;
+        std::string worstAngle;
+        for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            auto it = data_.results[ri].parts.find(pid);
+            if (it != data_.results[ri].parts.end() && it->second.peak_stress > worst) {
+                worst = it->second.peak_stress;
+                worstAngle = data_.results[ri].angle.name;
+            }
+        }
+        double sf = worst > 0 ? data_.yield_stress / worst : 999;
+        failures.push_back({pid, pi.name, worst, sf, worstAngle});
+    }
+    std::sort(failures.begin(), failures.end(), [](auto& a, auto& b) { return a.safety_factor < b.safety_factor; });
+
+    if (ImGui::BeginTable("##FailureTable", 5,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
+
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Part");
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Peak Stress (MPa)");
+        ImGui::TableSetupColumn("Worst Angle");
+        ImGui::TableSetupColumn("Safety Factor");
+        ImGui::TableHeadersRow();
+
+        for (auto& f : failures) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::Text("%d", f.pid);
+            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(f.name.c_str());
+            ImGui::TableSetColumnIndex(2); ImGui::Text("%.1f", f.worst_stress);
+            ImGui::TableSetColumnIndex(3); ImGui::TextColored(COL_ACCENT, "%s", f.worst_angle.c_str());
+            ImGui::TableSetColumnIndex(4);
+            ImVec4 sfCol = f.safety_factor >= 1.5 ? COL_ACCENT :
+                           f.safety_factor >= 1.0 ? COL_YELLOW : COL_RED;
+            ImGui::TextColored(sfCol, "%.3f%s", f.safety_factor,
+                f.safety_factor < 1.0 ? " FAIL" : f.safety_factor < 1.5 ? " LOW" : "");
+        }
+        ImGui::EndTable();
+    }
+
+    // Count failures
+    int nFail = 0, nLow = 0;
+    for (auto& f : failures) {
+        if (f.safety_factor < 1.0) nFail++;
+        else if (f.safety_factor < 1.5) nLow++;
+    }
+    ImGui::Spacing();
+    if (nFail > 0)
+        ImGui::TextColored(COL_RED, "!! %d parts EXCEED yield stress (SF < 1.0)", nFail);
+    if (nLow > 0)
+        ImGui::TextColored(COL_YELLOW, "! %d parts have LOW safety margin (SF < 1.5)", nLow);
+    if (nFail == 0 && nLow == 0)
+        ImGui::TextColored(COL_ACCENT, "All parts within acceptable safety margins (SF >= 1.5)");
 }

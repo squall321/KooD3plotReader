@@ -56,6 +56,8 @@ private:
     void renderMotionTab();
     void renderEnergyTab();
     void renderQualityTab();
+    void renderContactTab();
+    void renderSysInfoTab();
     void renderRenderGalleryTab();
     void renderVideoFullscreen();
 

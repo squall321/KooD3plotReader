@@ -274,6 +274,41 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
                 out.glstat.normal_termination = g.contains("normal_termination") && g["normal_termination"].is_boolean() ? g["normal_termination"].get<bool>() : true;
             }
 
+            // Binout data (rcforc, sleout)
+            if (j.contains("binout") && j["binout"].is_object()) {
+                auto& bn = j["binout"];
+                if (bn.contains("rcforc") && bn["rcforc"].is_array()) {
+                    for (const auto& ifc : bn["rcforc"]) {
+                        DeepReportData::ContactInterface ci;
+                        ci.id = ifc.contains("id") && ifc["id"].is_number() ? ifc["id"].get<int>() : 0;
+                        ci.name = ifc.contains("name") && ifc["name"].is_string() ? ifc["name"].get<std::string>() : "";
+                        ci.side = ifc.contains("side") && ifc["side"].is_string() ? ifc["side"].get<std::string>() : "";
+                        auto gvb = [](const json& j, const char* key) -> std::vector<double> {
+                            return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
+                        };
+                        ci.t = gvb(ifc, "t");
+                        ci.fx = gvb(ifc, "fx"); ci.fy = gvb(ifc, "fy"); ci.fz = gvb(ifc, "fz");
+                        ci.fmag = gvb(ifc, "fmag");
+                        ci.peak_fmag = ifc.contains("peak_fmag") && ifc["peak_fmag"].is_number() ? ifc["peak_fmag"].get<double>() : 0;
+                        out.rcforc.push_back(std::move(ci));
+                    }
+                }
+                if (bn.contains("sleout") && bn["sleout"].is_array()) {
+                    for (const auto& sl : bn["sleout"]) {
+                        DeepReportData::ContactEnergy ce;
+                        ce.id = sl.contains("id") && sl["id"].is_number() ? sl["id"].get<int>() : 0;
+                        ce.name = sl.contains("name") && sl["name"].is_string() ? sl["name"].get<std::string>() : "";
+                        auto gvb = [](const json& j, const char* key) -> std::vector<double> {
+                            return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
+                        };
+                        ce.t = gvb(sl, "t");
+                        ce.total_energy = gvb(sl, "total_energy");
+                        ce.friction_energy = gvb(sl, "friction_energy");
+                        out.sleout.push_back(std::move(ce));
+                    }
+                }
+            }
+
         } catch (const std::exception& e) {
             // result.json is optional, continue without it
         }

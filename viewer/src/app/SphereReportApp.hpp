@@ -32,10 +32,13 @@ private:
     void renderDirectional();
     void renderStatistics();
     void renderFindings();
+    void renderHeatmapTab();
+    void renderFailureTab();
 
     // Globe state
     float globeYaw_ = 0, globePitch_ = 0.3f;
     bool globeAutoRotate_ = true;
+    bool swapRP_ = false;
 
     // Helpers
     double getAngleValue(int ri, int partId, int qty) const;

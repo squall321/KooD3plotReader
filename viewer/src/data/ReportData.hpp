@@ -124,6 +124,25 @@ struct DeepReportData {
     };
     std::vector<MotionSeries> motion;
 
+    // Contact data (from binout)
+    struct ContactInterface {
+        int id = 0;
+        std::string name;
+        std::string side;
+        std::vector<double> t;
+        std::vector<double> fx, fy, fz, fmag;
+        double peak_fmag = 0;
+    };
+    struct ContactEnergy {
+        int id = 0;
+        std::string name;
+        std::vector<double> t;
+        std::vector<double> total_energy;
+        std::vector<double> friction_energy;
+    };
+    std::vector<ContactInterface> rcforc;
+    std::vector<ContactEnergy> sleout;
+
     // Element quality
     struct ElemQuality {
         int part_id;
