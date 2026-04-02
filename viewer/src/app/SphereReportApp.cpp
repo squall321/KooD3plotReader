@@ -272,6 +272,33 @@ void SphereReportApp::renderKPIBar() {
 // Mollweide Projection Map
 // ============================================================
 void SphereReportApp::renderMollweide() {
+    // Device shape controls
+    if (ImGui::TreeNode("Device Shape")) {
+        ImGui::TextColored(COL_DIM, "Aspect ratio (W:H:D) or load STL file");
+        ImGui::SetNextItemWidth(60); ImGui::InputFloat("W##asp", &deviceAspect_[0], 0, 0, "%.2f"); ImGui::SameLine();
+        ImGui::SetNextItemWidth(60); ImGui::InputFloat("H##asp", &deviceAspect_[1], 0, 0, "%.2f"); ImGui::SameLine();
+        ImGui::SetNextItemWidth(60); ImGui::InputFloat("D##asp", &deviceAspect_[2], 0, 0, "%.2f");
+
+        static char stlPath[256] = "";
+        ImGui::SetNextItemWidth(200);
+        ImGui::InputTextWithHint("##stl", "STL file path...", stlPath, sizeof(stlPath));
+        ImGui::SameLine();
+        if (ImGui::Button("Load STL")) {
+            StlMesh mesh;
+            if (mesh.loadFile(stlPath)) {
+                stlMesh_ = std::move(mesh);
+                stlLoaded_ = true;
+            }
+        }
+        if (stlLoaded_) {
+            ImGui::SameLine();
+            ImGui::TextColored(COL_ACCENT, "%d tris", (int)stlMesh_.triangles.size());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear STL")) { stlLoaded_ = false; stlMesh_.triangles.clear(); }
+        }
+        ImGui::TreePop();
+    }
+
     // Controls
     const char* qtyNames[] = {"Stress (MPa)", "Strain", "G-Force", "Displacement (mm)"};
     ImGui::SetNextItemWidth(200);
@@ -460,11 +487,13 @@ void SphereReportApp::renderMollweide() {
         dl->AddCircle(ImVec2(sx, sy), baseR + 6, IM_COL32(255,255,255,255), 0, 2.5f);
     }
 
-    // Orientation cube (bottom-left corner)
+    // Orientation device (bottom-right, large)
     if (hoveredAngle_ >= 0) {
-        drawOrientationCube(dl, ImVec2(mapPos.x + 10, mapPos.y + mapH - 90),
-                            80, data_.results[hoveredAngle_].angle.roll,
-                            data_.results[hoveredAngle_].angle.pitch);
+        float cubeSize = 150;
+        drawOrientationDevice(dl,
+            ImVec2(mapPos.x + mapW - cubeSize - 40, mapPos.y + mapH - cubeSize - 5),
+            cubeSize, data_.results[hoveredAngle_].angle.roll,
+            data_.results[hoveredAngle_].angle.pitch);
     }
 
     // Colorbar
@@ -1172,68 +1201,176 @@ void SphereReportApp::renderFailureTab() {
 // ============================================================
 // Orientation Cube — shows device direction for hovered angle
 // ============================================================
-void SphereReportApp::drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size,
-                                           double rollDeg, double pitchDeg) {
+void SphereReportApp::drawOrientationDevice(ImDrawList* dl, ImVec2 pos, float size,
+                                              double rollDeg, double pitchDeg) {
+    if (stlLoaded_ && !stlMesh_.triangles.empty())
+        drawOrientationSTL(dl, pos, size, rollDeg, pitchDeg);
+    else
+        drawOrientationCube(dl, pos, size, rollDeg, pitchDeg);
+}
+
+void SphereReportApp::drawOrientationSTL(ImDrawList* dl, ImVec2 pos, float size,
+                                          double rollDeg, double pitchDeg) {
     float cx = pos.x + size * 0.5f, cy = pos.y + size * 0.5f;
-    float s = size * 0.35f;
+    float sc = size * 0.35f / stlMesh_.maxExtent;
 
     double r = rollDeg * M_PI / 180.0, p = pitchDeg * M_PI / 180.0;
     float cr = (float)std::cos(r), sr = (float)std::sin(r);
     float cp = (float)std::cos(p), sp = (float)std::sin(p);
 
-    // 3D cube vertices (unit cube centered at origin)
-    float verts[8][3] = {
-        {-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1},
-        {-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1}
-    };
-
-    // Rotate by roll (around X) then pitch (around Y)
-    auto rotate = [&](float x, float y, float z, float& ox, float& oy) {
-        // Rx(roll)
+    auto project = [&](float x, float y, float z, float& ox, float& oy, float& oz) {
+        x -= stlMesh_.center[0]; y -= stlMesh_.center[1]; z -= stlMesh_.center[2];
         float y1 = y*cr - z*sr, z1 = y*sr + z*cr;
-        // Ry(pitch)
-        float x2 = x*cp + z1*sp, z2 = -x*sp + z1*cp;
-        // Isometric projection
+        float x2 = x*cp + z1*sp; oz = -x*sp + z1*cp;
         ox = (x2 - y1) * 0.707f;
-        oy = -(x2 + y1) * 0.408f - z2 * 0.816f;
+        oy = -(x2 + y1) * 0.408f - oz * 0.816f;
     };
 
-    float proj[8][2];
+    // Background
+    dl->AddRectFilled(pos, ImVec2(pos.x + size, pos.y + size), IM_COL32(20, 22, 35, 220), 6);
+
+    // Sort triangles by average Z (painter's algorithm)
+    struct TriProj { float pts[3][2]; float avgZ; float lightVal; };
+    std::vector<TriProj> tris(stlMesh_.triangles.size());
+
+    for (size_t i = 0; i < stlMesh_.triangles.size(); ++i) {
+        auto& t = stlMesh_.triangles[i];
+        float sumZ = 0;
+        for (int vi = 0; vi < 3; ++vi) {
+            float oz;
+            project(t.v[vi][0], t.v[vi][1], t.v[vi][2],
+                    tris[i].pts[vi][0], tris[i].pts[vi][1], oz);
+            tris[i].pts[vi][0] = cx + tris[i].pts[vi][0] * sc;
+            tris[i].pts[vi][1] = cy + tris[i].pts[vi][1] * sc;
+            sumZ += oz;
+        }
+        tris[i].avgZ = sumZ / 3.0f;
+
+        // Simple lighting from face normal
+        float nx, ny, nz;
+        project(t.normal[0] + stlMesh_.center[0], t.normal[1] + stlMesh_.center[1],
+                t.normal[2] + stlMesh_.center[2], nx, ny, nz);
+        tris[i].lightVal = std::max(0.2f, std::abs(nz));
+    }
+
+    std::sort(tris.begin(), tris.end(), [](const auto& a, const auto& b) { return a.avgZ < b.avgZ; });
+
+    // Draw triangles
+    for (auto& t : tris) {
+        ImVec2 pts[3] = {{t.pts[0][0], t.pts[0][1]}, {t.pts[1][0], t.pts[1][1]}, {t.pts[2][0], t.pts[2][1]}};
+        int gray = (int)(t.lightVal * 180 + 40);
+        dl->AddConvexPolyFilled(pts, 3, IM_COL32(gray/2, gray/2+20, gray, 200));
+        dl->AddPolyline(pts, 3, IM_COL32(100, 105, 130, 100), ImDrawFlags_Closed, 0.5f);
+    }
+
+    // Ground + label
+    dl->AddRectFilled(ImVec2(pos.x + 5, pos.y + size - 18),
+                      ImVec2(pos.x + size - 5, pos.y + size - 4),
+                      IM_COL32(86,95,137,40), 2);
+    dl->AddText(ImVec2(pos.x + size/2 - 18, pos.y + size - 17),
+                IM_COL32(121,130,169,180), "GROUND");
+
+    char label[64];
+    snprintf(label, sizeof(label), "R:%.0f P:%.0f [STL:%d]", rollDeg, pitchDeg, (int)stlMesh_.triangles.size());
+    dl->AddText(ImVec2(pos.x + 4, pos.y + 2), IM_COL32(150,155,180,200), label);
+}
+
+void SphereReportApp::drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size,
+                                           double rollDeg, double pitchDeg) {
+    float cx = pos.x + size * 0.5f, cy = pos.y + size * 0.5f;
+    float sc = size * 0.25f;
+
+    double r = rollDeg * M_PI / 180.0, p = pitchDeg * M_PI / 180.0;
+    float cr = (float)std::cos(r), sr = (float)std::sin(r);
+    float cp = (float)std::cos(p), sp = (float)std::sin(p);
+
+    // Configurable device proportions
+    float hw = deviceAspect_[0], hh = deviceAspect_[1], hd = deviceAspect_[2];
+
+    // 8 vertices of phone-shaped box
+    float verts[8][3] = {
+        {-hw,-hh,-hd},{hw,-hh,-hd},{hw,hh,-hd},{-hw,hh,-hd},
+        {-hw,-hh,hd},{hw,-hh,hd},{hw,hh,hd},{-hw,hh,hd}
+    };
+
+    // Rotate: Rx(roll) then Ry(pitch), then isometric projection
+    auto project = [&](float x, float y, float z, float& ox, float& oy, float& oz) {
+        float y1 = y*cr - z*sr, z1 = y*sr + z*cr;
+        float x2 = x*cp + z1*sp; oz = -x*sp + z1*cp;
+        // Isometric
+        ox = (x2 - y1) * 0.707f;
+        oy = -(x2 + y1) * 0.408f - oz * 0.816f;
+    };
+
+    float proj[8][2], projZ[8];
     for (int i = 0; i < 8; ++i) {
-        rotate(verts[i][0], verts[i][1], verts[i][2], proj[i][0], proj[i][1]);
-        proj[i][0] = cx + proj[i][0] * s;
-        proj[i][1] = cy + proj[i][1] * s;
+        project(verts[i][0], verts[i][1], verts[i][2], proj[i][0], proj[i][1], projZ[i]);
+        proj[i][0] = cx + proj[i][0] * sc;
+        proj[i][1] = cy + proj[i][1] * sc;
     }
 
     // Background
-    dl->AddRectFilled(pos, ImVec2(pos.x + size, pos.y + size), IM_COL32(20, 22, 35, 200), 6);
+    dl->AddRectFilled(pos, ImVec2(pos.x + size, pos.y + size), IM_COL32(20, 22, 35, 220), 6);
 
-    // Draw edges
-    int edges[][2] = {{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
-    for (auto& e : edges) {
-        dl->AddLine(ImVec2(proj[e[0]][0], proj[e[0]][1]),
-                    ImVec2(proj[e[1]][0], proj[e[1]][1]),
-                    IM_COL32(150, 155, 180, 150), 1.2f);
+    // Face colors (HTML matching):
+    // Display(front Z+)=red, Back(Z-)=gray, Right(X+)=orange, Left(X-)=purple, Top(Y+)=blue, Bottom(Y-)=green
+    struct FaceDef { int vi[4]; ImU32 fill; ImU32 border; const char* label; };
+    FaceDef faces[] = {
+        {{4,5,6,7}, IM_COL32(247,118,142,100), IM_COL32(247,118,142,200), "Display"},  // Z+ front
+        {{0,3,2,1}, IM_COL32(86,95,137,80),    IM_COL32(121,130,169,180), "Back"},      // Z- back
+        {{1,2,6,5}, IM_COL32(255,158,100,90),  IM_COL32(255,158,100,200), "R"},         // X+ right
+        {{0,4,7,3}, IM_COL32(187,154,247,90),  IM_COL32(187,154,247,200), "L"},         // X- left
+        {{3,7,6,2}, IM_COL32(122,162,247,100), IM_COL32(122,162,247,200), "Top"},       // Y+ top
+        {{0,1,5,4}, IM_COL32(158,206,106,90),  IM_COL32(158,206,106,200), "Btm"},       // Y- bottom
+    };
+
+    // Sort faces by average Z (painter's algorithm — back to front)
+    struct FaceSort { int idx; float avgZ; };
+    FaceSort faceOrder[6];
+    for (int f = 0; f < 6; ++f) {
+        faceOrder[f].idx = f;
+        faceOrder[f].avgZ = (projZ[faces[f].vi[0]] + projZ[faces[f].vi[1]] +
+                              projZ[faces[f].vi[2]] + projZ[faces[f].vi[3]]) / 4.0f;
+    }
+    std::sort(faceOrder, faceOrder + 6, [](const FaceSort& a, const FaceSort& b) { return a.avgZ < b.avgZ; });
+
+    // Draw faces back to front
+    for (int fi = 0; fi < 6; ++fi) {
+        auto& face = faces[faceOrder[fi].idx];
+        ImVec2 pts[4];
+        for (int j = 0; j < 4; ++j) pts[j] = ImVec2(proj[face.vi[j]][0], proj[face.vi[j]][1]);
+
+        dl->AddConvexPolyFilled(pts, 4, face.fill);
+        for (int j = 0; j < 4; ++j)
+            dl->AddLine(pts[j], pts[(j+1)%4], face.border, 1.2f);
+
+        // Label at face center
+        float fcx = (pts[0].x+pts[1].x+pts[2].x+pts[3].x)/4;
+        float fcy = (pts[0].y+pts[1].y+pts[2].y+pts[3].y)/4;
+        dl->AddText(ImVec2(fcx - 6, fcy - 5), IM_COL32(255,255,255,220), face.label);
     }
 
-    // Face labels (approximate center of top face)
-    // Top face = verts 4,5,6,7 (Z+)
-    float topCx = (proj[4][0]+proj[5][0]+proj[6][0]+proj[7][0])/4;
-    float topCy = (proj[4][1]+proj[5][1]+proj[6][1]+proj[7][1])/4;
-    dl->AddText(ImVec2(topCx-4, topCy-6), IM_COL32(78,204,163,255), "T");
-
-    // Front face = verts 0,1,5,4 (Y-)
-    float frCx = (proj[0][0]+proj[1][0]+proj[5][0]+proj[4][0])/4;
-    float frCy = (proj[0][1]+proj[1][1]+proj[5][1]+proj[4][1])/4;
-    dl->AddText(ImVec2(frCx-4, frCy-6), IM_COL32(233,69,96,255), "F");
-
-    // Right face = verts 1,2,6,5 (X+)
-    float rtCx = (proj[1][0]+proj[2][0]+proj[6][0]+proj[5][0])/4;
-    float rtCy = (proj[1][1]+proj[2][1]+proj[6][1]+proj[5][1])/4;
-    dl->AddText(ImVec2(rtCx-4, rtCy-6), IM_COL32(79,192,255,255), "R");
+    // Ground indicator
+    dl->AddRectFilled(ImVec2(pos.x + 5, pos.y + size - 18),
+                      ImVec2(pos.x + size - 5, pos.y + size - 4),
+                      IM_COL32(86,95,137,40), 2);
+    dl->AddText(ImVec2(pos.x + size/2 - 18, pos.y + size - 17),
+                IM_COL32(121,130,169,180), "GROUND");
 
     // Roll/Pitch label
     char label[64];
     snprintf(label, sizeof(label), "R:%.0f P:%.0f", rollDeg, pitchDeg);
-    dl->AddText(ImVec2(pos.x + 4, pos.y + size - 14), IM_COL32(150,155,180,200), label);
+    dl->AddText(ImVec2(pos.x + 4, pos.y + 2), IM_COL32(150,155,180,200), label);
+
+    // Legend (small)
+    const char* legendItems[] = {"Display", "Back", "Right", "Left", "Top", "Bottom"};
+    ImU32 legendCols[] = {IM_COL32(247,118,142,255), IM_COL32(121,130,169,255),
+                          IM_COL32(255,158,100,255), IM_COL32(187,154,247,255),
+                          IM_COL32(122,162,247,255), IM_COL32(158,206,106,255)};
+    float ly = pos.y + 16;
+    for (int i = 0; i < 6; ++i) {
+        dl->AddRectFilled(ImVec2(pos.x + 4, ly), ImVec2(pos.x + 12, ly + 8), legendCols[i], 1);
+        dl->AddText(ImVec2(pos.x + 15, ly - 2), IM_COL32(150,155,180,200), legendItems[i]);
+        ly += 11;
+    }
 }

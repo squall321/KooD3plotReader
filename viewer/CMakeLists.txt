@@ -89,6 +89,7 @@ set(VIEWER_SOURCES
     src/data/SimData.cpp
     src/data/ReportData.cpp
     src/data/SphereData.cpp
+    src/data/StlLoader.cpp
     src/app/SphereReportApp.cpp
     src/widgets/VideoPlayer.cpp
 )

@@ -1,5 +1,6 @@
 #pragma once
 #include "data/SphereData.hpp"
+#include "data/StlLoader.hpp"
 #include <imgui.h>
 #include <string>
 #include <set>
@@ -45,8 +46,14 @@ private:
     bool manualScale_ = false;
     float scaleMin_ = 0, scaleMax_ = 0;
 
-    // Orientation cube
+    // Orientation device (box or STL)
+    StlMesh stlMesh_;
+    bool stlLoaded_ = false;
+    float deviceAspect_[3] = {0.48f, 1.0f, 0.08f};  // Galaxy S25 default (W:H:D)
+
+    void drawOrientationDevice(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
     void drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
+    void drawOrientationSTL(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
 
     // Helpers
     double getAngleValue(int ri, int partId, int qty) const;
