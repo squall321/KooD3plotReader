@@ -40,6 +40,9 @@ private:
     float globeYaw_ = 0, globePitch_ = 0.3f;
     bool globeAutoRotate_ = true;
     bool swapRP_ = false;
+    bool langKo_ = true;  // true=Korean, false=English
+    bool globeRecording_ = false;
+    int globeRecFrame_ = 0;
 
     // Mollweide options
     bool contourMode_ = false;

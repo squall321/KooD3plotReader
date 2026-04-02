@@ -57,7 +57,9 @@ private:
     void renderEnergyTab();
     void renderQualityTab();
     void renderContactTab();
+    void renderDeepDiveTab();
     void renderSysInfoTab();
+    int deepDivePartId_ = 0;
     void renderRenderGalleryTab();
     void renderVideoFullscreen();
 

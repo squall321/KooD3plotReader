@@ -182,6 +182,24 @@ void DeepReportApp::run(const std::string& outputDir) {
     std::cout << "[DeepReport] Loaded: " << data_.stress.size() << " stress, "
               << data_.parts.size() << " parts, " << data_.motion.size() << " motion\n";
 
+    // Drag & drop
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
+        auto* app = (DeepReportApp*)glfwGetWindowUserPointer(w);
+        for (int i = 0; i < count; ++i) {
+            std::string p = paths[i];
+            namespace fs = std::filesystem;
+            // If directory dropped, reload
+            if (fs::is_directory(p)) {
+                DeepReportData newData;
+                if (loadDeepReport(p, newData)) {
+                    app->data_ = std::move(newData);
+                    std::cout << "[Drop] Reloaded: " << p << "\n";
+                }
+            }
+        }
+    });
+
     while (!glfwWindowShouldClose(window_)) {
         glfwPollEvents();
 
@@ -251,6 +269,7 @@ void DeepReportApp::run(const std::string& outputDir) {
             if (ImGui::BeginTabItem("Tensor"))    { renderTensorTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Motion"))    { renderMotionTab(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Energy"))    { renderEnergyTab(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Deep Dive")) { renderDeepDiveTab(); ImGui::EndTabItem(); }
             if (!data_.element_quality.empty()) {
                 if (ImGui::BeginTabItem("Quality")) { renderQualityTab(); ImGui::EndTabItem(); }
             }
@@ -1368,6 +1387,169 @@ void DeepReportApp::renderRenderGalleryTab() {
 // ============================================================
 // 3D Viewer — shaders
 // ============================================================
+// ============================================================
+// Deep Dive Tab — per-part comprehensive view
+// ============================================================
+void DeepReportApp::renderDeepDiveTab() {
+    if (data_.parts.empty()) {
+        ImGui::TextColored(COL_DIM, "No parts data");
+        return;
+    }
+
+    ImGui::TextColored(COL_DIM,
+        "Select a part to see all analysis results in one page.\n"
+        "Includes KPI summary, stress/strain time history, displacement XYZ, velocity, acceleration.");
+    ImGui::Spacing();
+
+    // Part selector
+    if (deepDivePartId_ == 0 && !data_.parts.empty())
+        deepDivePartId_ = data_.parts.begin()->first;
+
+    ImGui::Text("Part:"); ImGui::SameLine();
+    ImGui::SetNextItemWidth(300);
+    auto it = data_.parts.find(deepDivePartId_);
+    std::string currentLabel = it != data_.parts.end()
+        ? ("Part " + std::to_string(deepDivePartId_) + " — " + it->second.name) : "Select";
+    if (ImGui::BeginCombo("##ddPart", currentLabel.c_str())) {
+        for (auto& [pid, ps] : data_.parts) {
+            char label[128]; snprintf(label, sizeof(label), "Part %d — %s", pid, ps.name.c_str());
+            if (ImGui::Selectable(label, deepDivePartId_ == pid))
+                deepDivePartId_ = pid;
+        }
+        ImGui::EndCombo();
+    }
+
+    auto pit = data_.parts.find(deepDivePartId_);
+    if (pit == data_.parts.end()) return;
+    auto& ps = pit->second;
+
+    ImGui::Spacing();
+
+    // KPI cards
+    ImGui::Columns(5, nullptr, false);
+    char buf[64];
+
+    auto ddKpi = [&](const char* label, double val, const char* fmt, const char* unit, ImVec4 col) {
+        ImGui::BeginGroup();
+        ImGui::TextColored(COL_DIM, "%s", label);
+        snprintf(buf, sizeof(buf), fmt, val);
+        ImGui::TextColored(col, "%s", buf);
+        ImGui::TextColored(COL_DIM, "%s", unit);
+        ImGui::EndGroup();
+        ImGui::NextColumn();
+    };
+
+    ddKpi("Peak Stress", ps.peak_stress, "%.1f", "MPa", COL_ACCENT);
+    ddKpi("Peak Strain", ps.peak_strain, "%.4f", "", COL_YELLOW);
+    ddKpi("Peak Disp", ps.peak_disp, "%.2f", "mm", COL_PURPLE);
+    ddKpi("Safety Factor", ps.safety_factor, "%.3f", "",
+          ps.safety_factor >= 1.0 ? COL_ACCENT : ps.safety_factor > 0 ? COL_RED : COL_DIM);
+    if (!ps.mat_type.empty())
+        ddKpi("Material", 0, "%s", ps.mat_type.c_str(), COL_BLUE);
+    else
+        ImGui::NextColumn();
+    ImGui::Columns(1);
+
+    // Additional info
+    if (ps.time_of_peak_stress > 0)
+        ImGui::Text("  Peak stress at t=%.6f, Element #%d", ps.time_of_peak_stress, ps.peak_element_id);
+    if (ps.peak_max_principal != 0)
+        ImGui::Text("  Principal: S1=%.1f  S3=%.1f MPa", ps.peak_max_principal, ps.peak_min_principal);
+    if (ps.peak_max_principal_strain != 0)
+        ImGui::Text("  Principal Strain: e1=%.4f  e3=%.4f", ps.peak_max_principal_strain, ps.peak_min_principal_strain);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // Stress chart (max + avg)
+    auto* stressTS = ([&]() -> const PartTimeSeries* {
+        for (auto& s : data_.stress) if (s.part_id == deepDivePartId_) return &s;
+        return nullptr;
+    })();
+
+    if (stressTS && !stressTS->data.empty()) {
+        int n = (int)stressTS->data.size();
+        std::vector<double> t(n), vmax(n), vavg(n);
+        for (int i = 0; i < n; ++i) { t[i] = stressTS->data[i].time; vmax[i] = stressTS->data[i].max_value; vavg[i] = stressTS->data[i].avg_value; }
+
+        if (ImPlot::BeginPlot("##DDStress", ImVec2(-1, 200))) {
+            ImPlot::SetupAxes("Time", "Von Mises (MPa)");
+            ImPlot::PlotLine("Max", t.data(), vmax.data(), n);
+            ImPlot::PlotLine("Avg", t.data(), vavg.data(), n);
+            if (data_.yield_stress > 0) {
+                double xt[] = {t.front(), t.back()}, yt[] = {data_.yield_stress, data_.yield_stress};
+                ImPlot::PlotLine("Yield", xt, yt, 2);
+            }
+            ImPlot::EndPlot();
+        }
+    }
+
+    // Strain chart
+    auto* strainTS = ([&]() -> const PartTimeSeries* {
+        for (auto& s : data_.strain) if (s.part_id == deepDivePartId_) return &s;
+        return nullptr;
+    })();
+
+    if (strainTS && !strainTS->data.empty()) {
+        int n = (int)strainTS->data.size();
+        std::vector<double> t(n), v(n);
+        for (int i = 0; i < n; ++i) { t[i] = strainTS->data[i].time; v[i] = strainTS->data[i].max_value; }
+        if (ImPlot::BeginPlot("##DDStrain", ImVec2(-1, 180))) {
+            ImPlot::SetupAxes("Time", "Eff. Plastic Strain");
+            ImPlot::PlotLine("Strain", t.data(), v.data(), n);
+            ImPlot::EndPlot();
+        }
+    }
+
+    // Motion charts
+    auto* motion = ([&]() -> const DeepReportData::MotionSeries* {
+        for (auto& m : data_.motion) if (m.part_id == deepDivePartId_) return &m;
+        return nullptr;
+    })();
+
+    if (motion && !motion->t.empty()) {
+        int n = (int)motion->t.size();
+
+        // Displacement magnitude + max
+        if (ImPlot::BeginPlot("##DDDisp", ImVec2(-1, 180))) {
+            ImPlot::SetupAxes("Time", "Displacement (mm)");
+            ImPlot::PlotLine("Avg |U|", motion->t.data(), motion->disp_mag.data(), n);
+            if (!motion->max_disp_mag.empty())
+                ImPlot::PlotLine("Max |U|", motion->t.data(), motion->max_disp_mag.data(), n);
+            ImPlot::EndPlot();
+        }
+
+        // Displacement XYZ
+        if (!motion->disp_x.empty()) {
+            if (ImPlot::BeginPlot("##DDDispXYZ", ImVec2(-1, 170))) {
+                ImPlot::SetupAxes("Time", "Displacement XYZ (mm)");
+                ImPlot::PlotLine("Ux", motion->t.data(), motion->disp_x.data(), n);
+                ImPlot::PlotLine("Uy", motion->t.data(), motion->disp_y.data(), n);
+                ImPlot::PlotLine("Uz", motion->t.data(), motion->disp_z.data(), n);
+                ImPlot::EndPlot();
+            }
+        }
+
+        // Velocity
+        if (!motion->vel_mag.empty()) {
+            if (ImPlot::BeginPlot("##DDVel", ImVec2(-1, 160))) {
+                ImPlot::SetupAxes("Time", "Velocity (mm/s)");
+                ImPlot::PlotLine("|V|", motion->t.data(), motion->vel_mag.data(), n);
+                ImPlot::EndPlot();
+            }
+        }
+
+        // Acceleration
+        if (!motion->acc_mag.empty()) {
+            if (ImPlot::BeginPlot("##DDAcc", ImVec2(-1, 160))) {
+                ImPlot::SetupAxes("Time", "Acceleration");
+                ImPlot::PlotLine("|A|", motion->t.data(), motion->acc_mag.data(), n);
+                ImPlot::EndPlot();
+            }
+        }
+    }
+}
+
 // ============================================================
 // Contact Tab
 // ============================================================

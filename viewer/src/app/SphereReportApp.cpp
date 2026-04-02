@@ -89,6 +89,31 @@ void SphereReportApp::run(const std::string& jsonPath) {
     // Default to first part
     if (!data_.parts.empty()) selectedPartId_ = data_.parts.begin()->first;
 
+    // Drag & drop: STL files
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
+        auto* app = (SphereReportApp*)glfwGetWindowUserPointer(w);
+        for (int i = 0; i < count; ++i) {
+            std::string p = paths[i];
+            if (p.size() > 4 && (p.substr(p.size()-4) == ".stl" || p.substr(p.size()-4) == ".STL")) {
+                StlMesh mesh;
+                if (mesh.loadFile(p)) {
+                    app->stlMesh_ = std::move(mesh);
+                    app->stlLoaded_ = true;
+                    std::cout << "[Drop] Loaded STL: " << p << "\n";
+                }
+            } else if (p.size() > 5 && p.substr(p.size()-5) == ".json") {
+                SphereData newData;
+                if (loadSphereData(p, newData)) {
+                    app->data_ = std::move(newData);
+                    if (!app->data_.parts.empty())
+                        app->selectedPartId_ = app->data_.parts.begin()->first;
+                    std::cout << "[Drop] Loaded JSON: " << p << "\n";
+                }
+            }
+        }
+    });
+
     while (!glfwWindowShouldClose(window_)) {
         glfwPollEvents();
         ImGui_ImplOpenGL3_NewFrame();
@@ -242,6 +267,10 @@ void SphereReportApp::renderKPIBar() {
         ImGui::PopStyleColor();
         ImGui::EndGroup();
     };
+
+    // Language toggle
+    ImGui::SameLine(ImGui::GetWindowWidth() - 50);
+    if (ImGui::SmallButton(langKo_ ? "EN" : "KO")) langKo_ = !langKo_;
 
     ImGui::Columns(6, nullptr, false);
     snprintf(buf, sizeof(buf), "%d / %d", data_.successful_runs, data_.total_runs);
@@ -775,9 +804,30 @@ void SphereReportApp::projectGlobe(double lonDeg, double latDeg, float vLon, flo
 
 void SphereReportApp::renderGlobe() {
     ImGui::Checkbox("Auto Rotate", &globeAutoRotate_);
+    ImGui::SameLine();
+    if (!globeRecording_) {
+        if (ImGui::Button("Record 360")) {
+            globeRecording_ = true;
+            globeRecFrame_ = 0;
+            globeAutoRotate_ = false;
+            std::cout << "[Globe] Recording 360 frames...\n";
+        }
+    } else {
+        ImGui::TextColored(COL_RED, "Recording %d/360", globeRecFrame_);
+    }
+
     if (globeAutoRotate_) {
         globeYaw_ += ImGui::GetIO().DeltaTime * 20.0f;
         if (globeYaw_ > 360) globeYaw_ -= 360;
+    }
+
+    if (globeRecording_) {
+        globeYaw_ = (float)globeRecFrame_;
+        globeRecFrame_++;
+        if (globeRecFrame_ >= 360) {
+            globeRecording_ = false;
+            std::cout << "[Globe] Recording done. 360 PPM frames saved.\n";
+        }
     }
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
