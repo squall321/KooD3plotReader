@@ -11,19 +11,28 @@
 // ============================================================
 // 3D Viewer — shaders + colormap (private to this TU)
 // ============================================================
+// Mesh shader — supports GL clip plane for section view
 static const char* VERT3D = R"(
 #version 330 core
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNorm;
 layout(location=2) in float aFringe;
-uniform mat4 uMVP;
-uniform mat3 uNormalMat;
-out vec3 vNorm;
+uniform mat4  uMVP;
+uniform mat3  uNormalMat;
+uniform int   uSectionEnabled;
+uniform int   uSectionAxis;   // 0=X 1=Y 2=Z
+uniform float uSectionPos;    // world coordinate of cut plane
+out vec3  vNorm;
 out float vFringe;
 void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
-    vNorm = normalize(uNormalMat * aNorm);
+    vNorm   = normalize(uNormalMat * aNorm);
     vFringe = aFringe;
+    // Keep vertices on the negative side of the cut plane (coord < cutPos)
+    float coord = (uSectionAxis == 0) ? aPos.x
+                : (uSectionAxis == 1) ? aPos.y
+                :                       aPos.z;
+    gl_ClipDistance[0] = (uSectionEnabled == 1) ? (uSectionPos - coord) : 1.0;
 }
 )";
 
@@ -32,10 +41,10 @@ static const char* FRAG3D = R"(
 in vec3 vNorm;
 in float vFringe;
 uniform sampler1D uColormap;
-uniform vec3 uLightDir;
+uniform vec3  uLightDir;
 uniform float uAmbient;
-uniform int uUseFringe;
-uniform vec3 uFlatColor;
+uniform int   uUseFringe;
+uniform vec3  uFlatColor;
 out vec4 fragColor;
 void main() {
     vec3 color;
@@ -48,6 +57,21 @@ void main() {
     color *= uAmbient + (1.0 - uAmbient) * diff;
     fragColor = vec4(color, 1.0);
 }
+)";
+
+// Flat-color shader for the cut plane indicator quad
+static const char* VERT_PLANE = R"(
+#version 330 core
+layout(location=0) in vec3 aPos;
+uniform mat4 uMVP;
+void main() { gl_Position = uMVP * vec4(aPos, 1.0); }
+)";
+
+static const char* FRAG_PLANE = R"(
+#version 330 core
+uniform vec4 uColor;
+out vec4 fragColor;
+void main() { fragColor = uColor; }
 )";
 
 static void buildJetColormap(unsigned char* data) {
@@ -92,6 +116,17 @@ void DeepReportApp::init3DViewer() {
 
     camera3d_.fitTo(meshGPU_.bboxMin[0], meshGPU_.bboxMin[1], meshGPU_.bboxMin[2],
                     meshGPU_.bboxMax[0], meshGPU_.bboxMax[1], meshGPU_.bboxMax[2]);
+
+    // Cut plane indicator: flat-color shader + dynamic quad VAO
+    shaderPlane_.loadFromString(VERT_PLANE, FRAG_PLANE);
+    glGenVertexArrays(1, &planeVAO_);
+    glGenBuffers(1, &planeVBO_);
+    glBindVertexArray(planeVAO_);
+    glBindBuffer(GL_ARRAY_BUFFER, planeVBO_);
+    glBufferData(GL_ARRAY_BUFFER, 4 * 3 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
 
     mesh3dReady_ = true;
 }
@@ -149,7 +184,7 @@ void DeepReportApp::render3DTab() {
         return;
     }
 
-    // Controls row
+    // Controls row — preset views
     const char* viewNames[] = {"Front", "Back", "Right", "Left", "Top", "Bottom"};
     for (int i = 0; i < 6; ++i) {
         if (i > 0) ImGui::SameLine();
@@ -159,6 +194,29 @@ void DeepReportApp::render3DTab() {
     ImGui::Checkbox("Fringe", &show3DFringe_);
     ImGui::SameLine();
     ImGui::Checkbox("Wire", &wireframe3d_);
+
+    // Section view controls
+    ImGui::SameLine();
+    ImGui::Separator();
+    ImGui::SameLine();
+    ImGui::Checkbox("Section", &section3DEnabled_);
+    if (section3DEnabled_) {
+        ImGui::SameLine();
+        ImGui::TextColored(COL_DIM, "|");
+        ImGui::SameLine();
+        ImGui::RadioButton("X", &section3DAxis_, 0); ImGui::SameLine();
+        ImGui::RadioButton("Y", &section3DAxis_, 1); ImGui::SameLine();
+        ImGui::RadioButton("Z", &section3DAxis_, 2); ImGui::SameLine();
+        ImGui::SetNextItemWidth(200);
+        ImGui::SliderFloat("##secpos", &section3DPos_, 0.0f, 1.0f, "");
+        // Show world coordinate
+        float bmin = meshGPU_.bboxMin[section3DAxis_];
+        float bmax = meshGPU_.bboxMax[section3DAxis_];
+        float worldPos = bmin + section3DPos_ * (bmax - bmin);
+        const char* axName = (section3DAxis_ == 0) ? "X" : (section3DAxis_ == 1) ? "Y" : "Z";
+        ImGui::SameLine();
+        ImGui::TextColored(COL_ACCENT, "%s = %.3f", axName, worldPos);
+    }
 
     if (sim3d_.statesLoaded && sim3d_.numStates() > 0) {
         ImGui::SameLine();
@@ -216,12 +274,22 @@ void DeepReportApp::render3DTab() {
     camera3d_.aspect = (float)vpW / vpH;
     camera3d_.update();
 
+    // Compute section world position
+    float sectionWorldPos = 0.0f;
+    if (section3DEnabled_) {
+        float bmin = meshGPU_.bboxMin[section3DAxis_];
+        float bmax = meshGPU_.bboxMax[section3DAxis_];
+        sectionWorldPos = bmin + section3DPos_ * (bmax - bmin);
+    }
+
     // Render to FBO
     glBindFramebuffer(GL_FRAMEBUFFER, fbo3d_);
     glViewport(0, 0, vpW, vpH);
     glClearColor(0.08f, 0.08f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
+
+    if (section3DEnabled_) glEnable(GL_CLIP_DISTANCE0);
 
     if (wireframe3d_) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
@@ -231,6 +299,9 @@ void DeepReportApp::render3DTab() {
     shader3d_.setVec3("uLightDir", 0.3f, 0.8f, 0.5f);
     shader3d_.setFloat("uAmbient", 0.3f);
     shader3d_.setInt("uUseFringe", show3DFringe_ ? 1 : 0);
+    shader3d_.setInt("uSectionEnabled", section3DEnabled_ ? 1 : 0);
+    shader3d_.setInt("uSectionAxis", section3DAxis_);
+    shader3d_.setFloat("uSectionPos", sectionWorldPos);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_1D, colormapTex_);
@@ -246,6 +317,63 @@ void DeepReportApp::render3DTab() {
     }
 
     if (wireframe3d_) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    if (section3DEnabled_) {
+        glDisable(GL_CLIP_DISTANCE0);
+
+        // Build cut plane quad vertices spanning the model bbox
+        float ext = 0.02f;  // 2% extension beyond bbox for visibility
+        float x0 = meshGPU_.bboxMin[0] - ext * (meshGPU_.bboxMax[0] - meshGPU_.bboxMin[0]);
+        float x1 = meshGPU_.bboxMax[0] + ext * (meshGPU_.bboxMax[0] - meshGPU_.bboxMin[0]);
+        float y0 = meshGPU_.bboxMin[1] - ext * (meshGPU_.bboxMax[1] - meshGPU_.bboxMin[1]);
+        float y1 = meshGPU_.bboxMax[1] + ext * (meshGPU_.bboxMax[1] - meshGPU_.bboxMin[1]);
+        float z0 = meshGPU_.bboxMin[2] - ext * (meshGPU_.bboxMax[2] - meshGPU_.bboxMin[2]);
+        float z1 = meshGPU_.bboxMax[2] + ext * (meshGPU_.bboxMax[2] - meshGPU_.bboxMin[2]);
+        float p = sectionWorldPos;
+        float quad[4][3];
+        if (section3DAxis_ == 0) {  // X plane
+            quad[0][0]=p; quad[0][1]=y0; quad[0][2]=z0;
+            quad[1][0]=p; quad[1][1]=y1; quad[1][2]=z0;
+            quad[2][0]=p; quad[2][1]=y1; quad[2][2]=z1;
+            quad[3][0]=p; quad[3][1]=y0; quad[3][2]=z1;
+        } else if (section3DAxis_ == 1) {  // Y plane
+            quad[0][0]=x0; quad[0][1]=p; quad[0][2]=z0;
+            quad[1][0]=x1; quad[1][1]=p; quad[1][2]=z0;
+            quad[2][0]=x1; quad[2][1]=p; quad[2][2]=z1;
+            quad[3][0]=x0; quad[3][1]=p; quad[3][2]=z1;
+        } else {                            // Z plane
+            quad[0][0]=x0; quad[0][1]=y0; quad[0][2]=p;
+            quad[1][0]=x1; quad[1][1]=y0; quad[1][2]=p;
+            quad[2][0]=x1; quad[2][1]=y1; quad[2][2]=p;
+            quad[3][0]=x0; quad[3][1]=y1; quad[3][2]=p;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, planeVBO_);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+
+        shaderPlane_.use();
+        shaderPlane_.setMat4("uMVP", camera3d_.mvp);
+        glBindVertexArray(planeVAO_);
+
+        // Semi-transparent fill
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glUniform4f(glGetUniformLocation(shaderPlane_.id, "uColor"),
+                    0.25f, 0.65f, 1.0f, 0.18f);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+        // Opaque outline
+        glUniform4f(glGetUniformLocation(shaderPlane_.id, "uColor"),
+                    0.25f, 0.75f, 1.0f, 0.85f);
+        glLineWidth(1.5f);
+        glDrawArrays(GL_LINE_LOOP, 0, 4);
+        glLineWidth(1.0f);
+
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glBindVertexArray(0);
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Draw FBO texture as ImGui image

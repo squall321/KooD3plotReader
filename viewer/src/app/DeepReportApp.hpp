@@ -47,6 +47,13 @@ private:
     int fringeType_ = 0;  // 0=vonMises, 1=strain, 2=displacement
     bool mesh3dReady_ = false;
 
+    // Interactive section view (3D tab)
+    bool  section3DEnabled_ = false;
+    int   section3DAxis_    = 2;    // 0=X, 1=Y, 2=Z
+    float section3DPos_     = 0.5f; // 0..1 normalized within bbox
+    Shader shaderPlane_;            // flat-color shader for cut plane quad
+    GLuint planeVAO_ = 0, planeVBO_ = 0;
+
     void renderKPIBar();
     void renderWarnings();
     void renderOverview();
