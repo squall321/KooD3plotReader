@@ -102,6 +102,17 @@ set(VIEWER_SOURCES
     src/data/SphereData.cpp
     src/data/StlLoader.cpp
     src/app/SphereReportApp.cpp
+    src/app/SphereReportOrientation.cpp
+    src/app/SphereReportTabMollweide.cpp
+    src/app/SphereReportTabGlobe.cpp
+    src/app/SphereReportTabAngleTable.cpp
+    src/app/SphereReportTabPartRisk.cpp
+    src/app/SphereReportTabCompare.cpp
+    src/app/SphereReportTabDirectional.cpp
+    src/app/SphereReportTabStatistics.cpp
+    src/app/SphereReportTabFindings.cpp
+    src/app/SphereReportTabHeatmap.cpp
+    src/app/SphereReportTabFailure.cpp
     src/widgets/VideoPlayer.cpp
 )
 

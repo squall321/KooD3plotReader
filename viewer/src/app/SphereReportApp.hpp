@@ -1,6 +1,7 @@
 #pragma once
 #include "data/SphereData.hpp"
 #include "data/StlLoader.hpp"
+#include "app/DeepReportColors.hpp"
 #include <imgui.h>
 #include <string>
 #include <set>
