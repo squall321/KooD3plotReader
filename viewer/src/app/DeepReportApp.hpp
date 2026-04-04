@@ -60,11 +60,26 @@ private:
     void renderDeepDiveTab();
     void renderSysInfoTab();
     int deepDivePartId_ = 0;
+    bool navigateToDeepDive_ = false;
+    int tabToSelect_ = -1;  // -1 = no pending switch; 0..N = select that tab index
     void renderRenderGalleryTab();
     void renderVideoFullscreen();
+    void renderSectionViewConfig();  // collapsible config panel in gallery tab
+
+    // Section view config state
+    bool svCfgAxX_ = true, svCfgAxY_ = false, svCfgAxZ_ = true;
+    bool svCfgFieldVM_ = true, svCfgFieldStrain_ = false, svCfgFieldDisp_ = false;
+    bool svCfgFieldPressure_ = false, svCfgFieldMaxShear_ = false;
+    bool svCfgPerPart_ = false;
+    float svCfgFade_ = 0.0f;
+    char svCfgTargetIds_[128] = "";  // comma-separated part IDs
+    bool svCfgConfigOpen_ = true;
+
+    // Global part filter (keyword text, comma-separated, applied across all tabs)
+    char globalFilter_[128] = "";
+    bool partPassesFilter(int pid, const std::string& name) const;
 
     // Helpers
-    void drawBarRanking(const char* title, const std::vector<std::pair<int, double>>& items, ImVec4 color, const char* unit, int decimals = 1);
     void drawTimeSeriesPlot(const char* id, const char* yLabel, const std::vector<PartTimeSeries>& series, bool showAvg = false);
 
     // 3D viewer

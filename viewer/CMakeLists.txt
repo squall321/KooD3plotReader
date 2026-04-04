@@ -83,6 +83,17 @@ set(VIEWER_SOURCES
     src/main.cpp
     src/app/App.cpp
     src/app/DeepReportApp.cpp
+    src/app/DeepReportTabOverview.cpp
+    src/app/DeepReportTabStress.cpp
+    src/app/DeepReportTabTensor.cpp
+    src/app/DeepReportTabMotion.cpp
+    src/app/DeepReportTabEnergy.cpp
+    src/app/DeepReportTabQuality.cpp
+    src/app/DeepReportTabRenders.cpp
+    src/app/DeepReportTabDeepDive.cpp
+    src/app/DeepReportTabContact.cpp
+    src/app/DeepReportTabSysInfo.cpp
+    src/app/DeepReportTab3D.cpp
     src/gpu/Shader.cpp
     src/gpu/MeshGPU.cpp
     src/scene/Camera.cpp

@@ -165,14 +165,36 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
             if (j.contains("element_quality") && j["element_quality"].is_array()) {
                 for (const auto& eq : j["element_quality"]) {
                     DeepReportData::ElemQuality q;
+                    auto eqd = [&eq](const char* k, double def = 0.0) {
+                        return eq.contains(k) && eq[k].is_number() ? eq[k].get<double>() : def;
+                    };
                     q.part_id = eq.contains("part_id") ? eq["part_id"].get<int>() : 0;
                     q.part_name = eq.contains("part_name") && eq["part_name"].is_string() ? eq["part_name"].get<std::string>() : "";
                     q.element_type = eq.contains("element_type") && eq["element_type"].is_string() ? eq["element_type"].get<std::string>() : "";
                     q.num_elements = eq.contains("num_elements") ? eq["num_elements"].get<int>() : 0;
-                    q.peak_aspect_ratio = eq.contains("peak_aspect_ratio") ? eq["peak_aspect_ratio"].get<double>() : 0;
-                    q.min_jacobian = eq.contains("min_jacobian") ? eq["min_jacobian"].get<double>() : 1;
-                    q.peak_warpage = eq.contains("peak_warpage") ? eq["peak_warpage"].get<double>() : 0;
-                    q.peak_skewness = eq.contains("peak_skewness") ? eq["peak_skewness"].get<double>() : 0;
+                    q.peak_aspect_ratio = eqd("peak_aspect_ratio");
+                    q.min_jacobian = eqd("min_jacobian", 1.0);
+                    q.peak_warpage = eqd("peak_warpage");
+                    q.peak_skewness = eqd("peak_skewness");
+                    q.max_volume_change = eqd("max_volume_change");
+                    q.max_negative_jacobian_count = eq.contains("max_negative_jacobian_count") ? eq["max_negative_jacobian_count"].get<int>() : 0;
+                    // Time series
+                    if (eq.contains("data") && eq["data"].is_array()) {
+                        for (const auto& d : eq["data"]) {
+                            DeepReportData::QualityTimePoint qtp;
+                            auto dd = [&d](const char* k, double def = 0.0) {
+                                return d.contains(k) && d[k].is_number() ? d[k].get<double>() : def;
+                            };
+                            qtp.time = dd("time");
+                            qtp.ar_max = dd("ar_max");
+                            qtp.ar_avg = dd("ar_avg");
+                            qtp.vol_min = dd("vol_min", 1.0);
+                            qtp.vol_max = dd("vol_max", 1.0);
+                            qtp.warp_max = dd("warp_max");
+                            qtp.skew_max = dd("skew_max");
+                            q.time_series.push_back(qtp);
+                        }
+                    }
                     out.element_quality.push_back(q);
                 }
             }
@@ -282,7 +304,13 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
                         DeepReportData::ContactInterface ci;
                         ci.id = ifc.contains("id") && ifc["id"].is_number() ? ifc["id"].get<int>() : 0;
                         ci.name = ifc.contains("name") && ifc["name"].is_string() ? ifc["name"].get<std::string>() : "";
-                        ci.side = ifc.contains("side") && ifc["side"].is_string() ? ifc["side"].get<std::string>() : "";
+                        if (ifc.contains("side")) {
+                            if (ifc["side"].is_number()) ci.side = ifc["side"].get<int>();
+                            else if (ifc["side"].is_string()) {
+                                auto s = ifc["side"].get<std::string>();
+                                ci.side = (s == "0" || s == "m" || s == "master") ? 0 : 1;
+                            }
+                        }
                         auto gvb = [](const json& j, const char* key) -> std::vector<double> {
                             return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
                         };
@@ -305,6 +333,33 @@ bool loadDeepReport(const std::string& outputDir, DeepReportData& out) {
                         ce.total_energy = gvb(sl, "total_energy");
                         ce.friction_energy = gvb(sl, "friction_energy");
                         out.sleout.push_back(std::move(ce));
+                    }
+                }
+                if (bn.contains("matsum") && bn["matsum"].is_object()) {
+                    auto& ms = bn["matsum"];
+                    auto gvb = [](const json& j, const char* key) -> std::vector<double> {
+                        return j.contains(key) && j[key].is_array() ? j[key].get<std::vector<double>>() : std::vector<double>{};
+                    };
+                    std::vector<double> t_ms = gvb(ms, "t");
+                    std::vector<int> ids;
+                    if (ms.contains("part_ids") && ms["part_ids"].is_array())
+                        ids = ms["part_ids"].get<std::vector<int>>();
+                    std::vector<std::string> names;
+                    if (ms.contains("part_names") && ms["part_names"].is_array())
+                        names = ms["part_names"].get<std::vector<std::string>>();
+                    std::vector<std::vector<double>> ie_all, ke_all;
+                    if (ms.contains("internal_energy") && ms["internal_energy"].is_array())
+                        ie_all = ms["internal_energy"].get<std::vector<std::vector<double>>>();
+                    if (ms.contains("kinetic_energy") && ms["kinetic_energy"].is_array())
+                        ke_all = ms["kinetic_energy"].get<std::vector<std::vector<double>>>();
+                    for (int i = 0; i < (int)ids.size(); ++i) {
+                        DeepReportData::MatSumEntry e;
+                        e.part_id   = ids[i];
+                        e.part_name = (i < (int)names.size()) ? names[i] : "";
+                        e.t         = t_ms;
+                        if (i < (int)ie_all.size()) e.internal_energy = ie_all[i];
+                        if (i < (int)ke_all.size()) e.kinetic_energy  = ke_all[i];
+                        out.matsum.push_back(std::move(e));
                     }
                 }
             }

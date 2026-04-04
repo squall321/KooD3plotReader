@@ -128,7 +128,7 @@ struct DeepReportData {
     struct ContactInterface {
         int id = 0;
         std::string name;
-        std::string side;
+        int side = 0;   // 0 = master, 1 = slave
         std::vector<double> t;
         std::vector<double> fx, fy, fz, fmag;
         double peak_fmag = 0;
@@ -143,16 +143,36 @@ struct DeepReportData {
     std::vector<ContactInterface> rcforc;
     std::vector<ContactEnergy> sleout;
 
+    // MATSUM: per-part material energy from binout
+    struct MatSumEntry {
+        int part_id = 0;
+        std::string part_name;
+        std::vector<double> t;
+        std::vector<double> internal_energy;
+        std::vector<double> kinetic_energy;
+    };
+    std::vector<MatSumEntry> matsum;
+
     // Element quality
+    struct QualityTimePoint {
+        double time = 0;
+        double ar_max = 0, ar_avg = 0;
+        double vol_min = 1, vol_max = 1;  // volume/area ratio vs initial
+        double warp_max = 0;              // warpage angle (shell only)
+        double skew_max = 0;              // skewness (shell only)
+    };
     struct ElemQuality {
-        int part_id;
+        int part_id = 0;
         std::string part_name;
         std::string element_type;
-        int num_elements;
-        double peak_aspect_ratio;
-        double min_jacobian;
-        double peak_warpage;
-        double peak_skewness;
+        int num_elements = 0;
+        double peak_aspect_ratio = 0;
+        double min_jacobian = 1;
+        double peak_warpage = 0;
+        double peak_skewness = 0;
+        double max_volume_change = 0;
+        int max_negative_jacobian_count = 0;
+        std::vector<QualityTimePoint> time_series;  // per-state quality metrics
     };
     std::vector<ElemQuality> element_quality;
 
