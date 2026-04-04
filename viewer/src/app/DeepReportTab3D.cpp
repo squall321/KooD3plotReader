@@ -307,14 +307,25 @@ void DeepReportApp::render3DTab() {
     glBindTexture(GL_TEXTURE_1D, colormapTex_);
     shader3d_.setInt("uColormap", 0);
 
+    bool hasHighlight = (highlightPartId_ >= 0);
     for (size_t i = 0; i < meshGPU_.partCount(); ++i) {
         const auto& p = meshGPU_.part(i);
         if (!p.visible) continue;
-        if (!show3DFringe_)
-            shader3d_.setVec3("uFlatColor", p.color[0], p.color[1], p.color[2]);
+        if (!show3DFringe_) {
+            bool isHighlighted = hasHighlight && (p.partId == highlightPartId_);
+            bool isDimmed      = hasHighlight && (p.partId != highlightPartId_);
+            if (isHighlighted)
+                shader3d_.setVec3("uFlatColor", 1.0f, 0.92f, 0.30f);  // bright yellow
+            else if (isDimmed)
+                shader3d_.setVec3("uFlatColor", p.color[0]*0.25f, p.color[1]*0.25f, p.color[2]*0.25f);
+            else
+                shader3d_.setVec3("uFlatColor", p.color[0], p.color[1], p.color[2]);
+        }
         glBindVertexArray(p.vao);
         glDrawElements(GL_TRIANGLES, p.indexCount, GL_UNSIGNED_INT, nullptr);
     }
+    // Reset highlight after each frame (re-set from hovered row next frame)
+    highlightPartId_ = -1;
 
     if (wireframe3d_) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 

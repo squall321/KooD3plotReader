@@ -98,9 +98,10 @@ void SphereReportApp::renderMollweide() {
             dl->AddLine(ImVec2(cx+x1*scale, cy-y1*scale), ImVec2(cx+x2*scale, cy-y2*scale), IM_COL32(50,55,75,80), 0.5f);
         }
 
-    // Value range
+    // Value range (category-filtered)
     double vmin = 1e30, vmax = -1e30;
     for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        if (!passesFilter(data_.results[ri].angle.category)) continue;
         double v = getAngleValue(ri, selectedPartId_, quantity_);
         vmin = std::min(vmin, v); vmax = std::max(vmax, v);
     }
@@ -145,6 +146,7 @@ void SphereReportApp::renderMollweide() {
 
     for (int ri = 0; ri < nPts; ++ri) {
         auto& r = data_.results[ri];
+        if (!passesFilter(r.angle.category)) continue;
         double mx, my;
         mollweideProject(r.angle.lon, r.angle.lat, mx, my);
         float sx = cx + (float)mx*scale, sy = cy - (float)my*scale;

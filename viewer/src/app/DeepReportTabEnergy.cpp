@@ -112,24 +112,84 @@ void DeepReportApp::renderEnergyTab() {
         }
     }
 
-    // Final values summary
+    // Final values summary + pie chart
     if (!g.t.empty()) {
         ImGui::Spacing();
-        ImGui::TextColored(COL_ACCENT, "  Final Values (t=%.4f)", g.t.back());
+        ImGui::TextColored(COL_ACCENT, "  Final Energy Balance (t=%.4f)", g.t.back());
         ImGui::Separator();
         ImGui::Spacing();
-        ImGui::Columns(4, nullptr, false);
-        auto eVal = [&](const char* label, const std::vector<double>& v, ImVec4 col) {
-            if (!v.empty()) {
-                ImGui::TextColored(COL_DIM, "%s", label);
-                ImGui::TextColored(col, "%.4g", v.back());
+
+        double totE  = g.total_energy.empty()    ? 0 : std::abs(g.total_energy.back());
+        double kinE  = g.kinetic_energy.empty()  ? 0 : std::abs(g.kinetic_energy.back());
+        double intE  = g.internal_energy.empty() ? 0 : std::abs(g.internal_energy.back());
+        double hgE   = g.hourglass_energy.empty()? 0 : std::abs(g.hourglass_energy.back());
+        double otherE = std::max(0.0, totE - kinE - intE - hgE);
+
+        // Pie chart (left) + stats (right)
+        ImGui::Columns(2, nullptr, false);
+
+        // Left: ImPlot pie chart
+        float pieSize = std::min(180.0f, ImGui::GetContentRegionAvail().y - 20);
+        if (totE > 1e-20 && pieSize > 60) {
+            static const char* pieLabels[] = {"KE", "IE", "HG", "Other"};
+            double pieVals[4] = {kinE/totE*100, intE/totE*100, hgE/totE*100, otherE/totE*100};
+            // Filter out near-zero slices
+            int nSlices = 0;
+            const char* activeLabels[4]; double activeVals[4];
+            for (int i = 0; i < 4; ++i) {
+                if (pieVals[i] > 0.5) {
+                    activeLabels[nSlices] = pieLabels[i];
+                    activeVals[nSlices]   = pieVals[i];
+                    nSlices++;
+                }
             }
-            ImGui::NextColumn();
+            if (nSlices > 0) {
+                ImPlot::PushColormap(ImPlotColormap_Cool);
+                if (ImPlot::BeginPlot("##EnergyPie", ImVec2(pieSize, pieSize),
+                        ImPlotFlags_Equal | ImPlotFlags_NoMouseText |
+                        ImPlotFlags_NoFrame | ImPlotFlags_NoLegend)) {
+                    ImPlot::SetupAxes(nullptr, nullptr,
+                        ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations);
+                    ImPlot::SetupAxesLimits(0, 1, 0, 1);
+                    ImPlot::PlotPieChart(activeLabels, activeVals, nSlices,
+                        0.5, 0.5, 0.4, "%.1f%%");
+                    ImPlot::EndPlot();
+                }
+                ImPlot::PopColormap();
+            }
+        }
+        ImGui::NextColumn();
+
+        // Right: text values + warnings
+        ImGui::Spacing();
+        auto eRow = [&](const char* label, double val, double pct, ImVec4 col) {
+            ImGui::TextColored(COL_DIM, "%-10s", label);
+            ImGui::SameLine(110);
+            ImGui::TextColored(col, "%.4g", val);
+            if (totE > 1e-20) {
+                ImGui::SameLine(210);
+                ImGui::TextColored(COL_DIM, "(%.1f%%)", pct);
+            }
         };
-        eVal("Total", g.total_energy, COL_ACCENT);
-        eVal("Kinetic", g.kinetic_energy, COL_BLUE);
-        eVal("Internal", g.internal_energy, COL_YELLOW);
-        eVal("Hourglass", g.hourglass_energy, COL_RED);
+        eRow("Total",    totE,  100.0,           COL_ACCENT);
+        eRow("Kinetic",  kinE,  kinE/totE*100,   COL_BLUE);
+        eRow("Internal", intE,  intE/totE*100,   COL_YELLOW);
+        eRow("Hourglass",hgE,   hgE/totE*100,    hgE/totE > 0.1 ? COL_RED : COL_DIM);
+        if (otherE > 1e-20)
+            eRow("Other", otherE, otherE/totE*100, COL_DIM);
+
+        ImGui::Spacing();
+        // Hourglass quality warning
+        if (totE > 1e-20 && hgE > 0) {
+            double hgPct = hgE / totE * 100.0;
+            if (hgPct > 10.0)
+                ImGui::TextColored(COL_RED,    "!! HG > 10%% — poor mesh quality / underintegration");
+            else if (hgPct > 5.0)
+                ImGui::TextColored(COL_YELLOW, "!  HG > 5%% — check element formulation");
+            else
+                ImGui::TextColored(COL_ACCENT, "Hourglass < 5%% — acceptable");
+        }
+
         ImGui::Columns(1);
     }
 

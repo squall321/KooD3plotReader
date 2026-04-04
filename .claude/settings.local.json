@@ -67,7 +67,17 @@
       "Bash(ldconfig:*)",
       "Bash(dpkg -l:*)",
       "Bash(LD_LIBRARY_PATH=/home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/lsprepost/lib /home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/lsprepost/lsprepost:*)",
-      "Bash(/tmp/test_render.yaml << 'EOF'\nversion: \"2.0\"\n\ninput:\n  d3plot: \"/data/Tests/Test_001_Full26_1Step/output/Run_20260207_212430_5c2c4c/d3plot\"\n\noutput:\n  directory: \"/tmp/render_test_output\"\n  json: false\n  csv: false\n\nperformance:\n  threads: 4\n  verbose: true\n  lsprepost_path: \"/home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/lsprepost/lsprepost\"\n\nrender_jobs:\n  - name: \"Test_Section\"\n    type: section_view\n    fringe: von_mises\n    part_pattern: \"PKG*\"\n    sections:\n      - axis: z\n        position: center\n    output:\n      format: png\n      directory: \"/tmp/render_test_output\"\nEOF)"
+      "Bash(/tmp/test_render.yaml << 'EOF'\nversion: \"2.0\"\n\ninput:\n  d3plot: \"/data/Tests/Test_001_Full26_1Step/output/Run_20260207_212430_5c2c4c/d3plot\"\n\noutput:\n  directory: \"/tmp/render_test_output\"\n  json: false\n  csv: false\n\nperformance:\n  threads: 4\n  verbose: true\n  lsprepost_path: \"/home/koopark/claude/KooD3plotReader/KooD3plotReader/installed/lsprepost/lsprepost\"\n\nrender_jobs:\n  - name: \"Test_Section\"\n    type: section_view\n    fringe: von_mises\n    part_pattern: \"PKG*\"\n    sections:\n      - axis: z\n        position: center\n    output:\n      format: png\n      directory: \"/tmp/render_test_output\"\nEOF)",
+      "Bash(rm -rf /tmp/sv_scale_test)",
+      "Bash(PYTHONPATH=python/koo_deep_report python3 -m koo_deep_report results/d3plot --section-view --section-view-axes z --section-view-target-ids 1 --output /tmp/sv_scale_test --ua-threads 4)",
+      "Bash(time ./build/examples/unified_analyzer --config /tmp/test_singlepass.yaml --ua-threads 4)",
+      "Bash(/tmp/test_singlepass.yaml:*)",
+      "Bash(./build/examples/unified_analyzer --config /tmp/test_singlepass.yaml --ua-threads 4)",
+      "Bash(./build/examples/unified_analyzer --config /tmp/test_motion.yaml --ua-threads 4)",
+      "Bash(/tmp/analysis_summary.txt:*)",
+      "Bash(PYTHONPATH=python/koo_deep_report python3 -c \":*)",
+      "Bash(PYTHONPATH=python/koo_deep_report python3 -m koo_deep_report batch /data/Tests/Test_005_Fibonacci_100/output --output /tmp/fib100_batch --ua-threads 2 --no-render --skip-existing)",
+      "Bash(PYTHONPATH=python/koo_sphere_report python3 -m koo_sphere_report --help)"
     ],
     "deny": [],
     "ask": []

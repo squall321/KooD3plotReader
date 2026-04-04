@@ -50,6 +50,16 @@ private:
     bool manualScale_ = false;
     float scaleMin_ = 0, scaleMax_ = 0;
 
+    // A/B Compare
+    SphereData dataB_;
+    bool hasDataB_ = false;
+
+    // Category filter (face/edge/corner/fibonacci → all on by default)
+    bool catFilter_[4] = {true, true, true, true};  // face, edge, corner, fibonacci
+
+    // Help overlay
+    bool showHelp_ = false;
+
     // Orientation device (box or STL)
     StlMesh stlMesh_;
     bool stlLoaded_ = false;
@@ -59,7 +69,12 @@ private:
     void drawOrientationCube(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
     void drawOrientationSTL(ImDrawList* dl, ImVec2 pos, float size, double roll, double pitch);
 
+    void renderCompareABTab();     // A/B delta Mollweide
+    void renderHelpOverlay();      // ? key overlay
+    void exportHTMLReport();       // Ctrl+E → .html
+
     // Helpers
+    bool passesFilter(const std::string& category) const;  // category filter check
     double getAngleValue(int ri, int partId, int qty) const;
     void mollweideProject(double lonDeg, double latDeg, double& x, double& y) const;
     ImU32 valueToColor(double norm) const;

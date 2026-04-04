@@ -91,12 +91,33 @@ void SphereReportApp::run(const std::string& jsonPath) {
                     std::cout << "[Drop] Loaded STL: " << p << "\n";
                 }
             } else if (p.size() > 5 && p.substr(p.size()-5) == ".json") {
-                SphereData newData;
-                if (loadSphereData(p, newData)) {
-                    app->data_ = std::move(newData);
-                    if (!app->data_.parts.empty())
-                        app->selectedPartId_ = app->data_.parts.begin()->first;
-                    std::cout << "[Drop] Loaded JSON: " << p << "\n";
+                if (!app->data_.loaded) {
+                    // No primary data yet — load as A
+                    SphereData newData;
+                    if (loadSphereData(p, newData)) {
+                        app->data_ = std::move(newData);
+                        if (!app->data_.parts.empty())
+                            app->selectedPartId_ = app->data_.parts.begin()->first;
+                        std::cout << "[Drop] Loaded A JSON: " << p << "\n";
+                    }
+                } else if (!app->hasDataB_) {
+                    // A loaded — second JSON → B (compare mode)
+                    SphereData newData;
+                    if (loadSphereData(p, newData)) {
+                        app->dataB_ = std::move(newData);
+                        app->hasDataB_ = true;
+                        std::cout << "[Drop] Loaded B JSON (compare): " << p << "\n";
+                    }
+                } else {
+                    // Both loaded — replace A, clear B
+                    SphereData newData;
+                    if (loadSphereData(p, newData)) {
+                        app->data_ = std::move(newData);
+                        app->hasDataB_ = false;
+                        if (!app->data_.parts.empty())
+                            app->selectedPartId_ = app->data_.parts.begin()->first;
+                        std::cout << "[Drop] Replaced A JSON: " << p << "\n";
+                    }
                 }
             }
         }
@@ -129,6 +150,10 @@ void SphereReportApp::run(const std::string& jsonPath) {
         }
 
         if (!ImGui::GetIO().WantCaptureKeyboard) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Slash) && ImGui::GetIO().KeyShift)
+                showHelp_ = !showHelp_;  // ? = Shift+/
+            if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_E))
+                exportHTMLReport();
             if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
                 int w, h;
                 glfwGetFramebufferSize(window_, &w, &h);
@@ -147,11 +172,15 @@ void SphereReportApp::run(const std::string& jsonPath) {
         }
 
         renderKPIBar();
+        if (showHelp_) renderHelpOverlay();
 
         ImGui::Begin("Mollweide");
         if (ImGui::BeginTabBar("MapTabs")) {
             if (ImGui::BeginTabItem("Mollweide")) { renderMollweide(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("3D Globe"))  { renderGlobe(); ImGui::EndTabItem(); }
+            if (hasDataB_) {
+                if (ImGui::BeginTabItem("A/B Delta")) { renderCompareABTab(); ImGui::EndTabItem(); }
+            }
             ImGui::EndTabBar();
         }
         ImGui::End();
@@ -187,6 +216,17 @@ void SphereReportApp::shutdown() {
     ImGui::DestroyContext();
     if (window_) glfwDestroyWindow(window_);
     glfwTerminate();
+}
+
+// ============================================================
+// Category filter helper
+// ============================================================
+bool SphereReportApp::passesFilter(const std::string& category) const {
+    // catFilter_[0]=face, [1]=edge, [2]=corner, [3]=fibonacci
+    static const char* cats[] = {"face", "edge", "corner", "fibonacci"};
+    for (int i = 0; i < 4; ++i)
+        if (category == cats[i]) return catFilter_[i];
+    return true;  // unknown categories always pass
 }
 
 // ============================================================
@@ -253,8 +293,23 @@ void SphereReportApp::renderKPIBar() {
         ImGui::EndGroup();
     };
 
-    ImGui::SameLine(ImGui::GetWindowWidth() - 50);
+    // Top-right controls: lang toggle + compare status + help hint
+    float rightX = ImGui::GetWindowWidth() - 180;
+    ImGui::SameLine(rightX);
+    if (hasDataB_) {
+        ImGui::PushStyleColor(ImGuiCol_Text, COL_BLUE);
+        ImGui::Text("B: %s", dataB_.project_name.empty() ? "loaded" : dataB_.project_name.c_str());
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X##clearB")) hasDataB_ = false;
+        ImGui::SameLine();
+    } else {
+        ImGui::TextColored(COL_DIM, "Drop 2nd JSON=Compare");
+        ImGui::SameLine();
+    }
     if (ImGui::SmallButton(langKo_ ? "EN" : "KO")) langKo_ = !langKo_;
+    ImGui::SameLine();
+    ImGui::TextColored(COL_DIM, "[?]");
 
     ImGui::Columns(6, nullptr, false);
     snprintf(buf, sizeof(buf), "%d / %d", data_.successful_runs, data_.total_runs);
@@ -278,6 +333,23 @@ void SphereReportApp::renderKPIBar() {
     snprintf(buf, sizeof(buf), "%d", (int)data_.parts.size());
     kpi("PARTS", buf, "", COL_DIM);
     ImGui::Columns(1);
+
+    // Category filter row
+    ImGui::Spacing();
+    ImGui::TextColored(COL_DIM, "Filter:");
+    ImGui::SameLine();
+    static const char* catLabels[] = {"Face", "Edge", "Corner", "Fibonacci"};
+    static ImVec4 catCols[] = {
+        {0.48f,0.80f,0.64f,1}, {0.61f,0.48f,0.80f,1},
+        {0.80f,0.61f,0.30f,1}, {0.35f,0.65f,0.95f,1}
+    };
+    for (int i = 0; i < 4; ++i) {
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            catFilter_[i] ? catCols[i] : ImVec4(0.35f,0.35f,0.40f,1));
+        if (ImGui::Checkbox(catLabels[i], &catFilter_[i])) {}
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+    }
 
     ImGui::End();
 }

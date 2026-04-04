@@ -605,10 +605,11 @@ void DeepReportApp::renderPartTable() {
                     if (isSelected) selectedParts_.erase(pid);
                     else selectedParts_.insert(pid);
                 }
-                // Double-click → navigate to Deep Dive
+                // Hover → highlight in 3D; double-click → Deep Dive
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                    ImGui::SetTooltip("Double-click \xe2\x86\x92 Deep Dive  |  Single click \xe2\x86\x92 select");
+                    ImGui::SetTooltip("Hover=3D highlight  |  Double-click \xe2\x86\x92 Deep Dive");
+                    highlightPartId_ = pid;
                     if (ImGui::IsMouseDoubleClicked(0)) {
                         deepDivePartId_ = pid;
                         navigateToDeepDive_ = true;

@@ -23,7 +23,8 @@ public:
 private:
     GLFWwindow* window_ = nullptr;
     DeepReportData data_;
-    std::set<int> selectedParts_;  // multi-select
+    std::set<int> selectedParts_;   // multi-select
+    int highlightPartId_ = -1;      // 3D highlight: -1 = all normal
     int activeTab_ = 0;
 
     // Video players (keyed by file path)

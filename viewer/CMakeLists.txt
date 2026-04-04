@@ -113,6 +113,9 @@ set(VIEWER_SOURCES
     src/app/SphereReportTabFindings.cpp
     src/app/SphereReportTabHeatmap.cpp
     src/app/SphereReportTabFailure.cpp
+    src/app/SphereReportTabCompareAB.cpp
+    src/app/SphereReportHelpOverlay.cpp
+    src/app/SphereReportExportHTML.cpp
     src/widgets/VideoPlayer.cpp
 )
 
