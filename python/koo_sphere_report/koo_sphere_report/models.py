@@ -66,19 +66,30 @@ class PartInfo:
 
 @dataclass
 class TimeSeriesData:
-    """Time series with min/max/avg per timestep."""
+    """Time series with min/max/avg per timestep.
+
+    When loaded in streaming mode, `times`/`max_values`/... may be downsampled
+    while `true_peak` / `true_peak_time` retain the exact values from the
+    pre-downsampled source (kept for findings / worst-angle accuracy).
+    """
     times: list[float] = field(default_factory=list)
     max_values: list[float] = field(default_factory=list)
     min_values: list[float] = field(default_factory=list)
     avg_values: list[float] = field(default_factory=list)
     max_element_ids: list[int] = field(default_factory=list)
+    true_peak: float | None = None
+    true_peak_time: float | None = None
 
     @property
     def peak(self) -> float:
+        if self.true_peak is not None:
+            return self.true_peak
         return max(self.max_values) if self.max_values else 0.0
 
     @property
     def peak_time(self) -> float:
+        if self.true_peak_time is not None:
+            return self.true_peak_time
         if not self.max_values:
             return 0.0
         idx = self.max_values.index(max(self.max_values))
@@ -102,17 +113,24 @@ class MotionData:
     avg_acc_z: list[float] = field(default_factory=list)
     avg_acc_mag: list[float] = field(default_factory=list)
     max_disp_mag: list[float] = field(default_factory=list)
+    true_peak_g: float | None = None
+    true_peak_g_time: float | None = None
+    true_peak_disp: float | None = None
 
     G_FACTOR = 9810.0  # mm/s² per G
 
     @property
     def peak_g(self) -> float:
+        if self.true_peak_g is not None:
+            return self.true_peak_g
         if not self.avg_acc_mag:
             return 0.0
         return max(abs(v) for v in self.avg_acc_mag) / self.G_FACTOR
 
     @property
     def peak_g_time(self) -> float:
+        if self.true_peak_g_time is not None:
+            return self.true_peak_g_time
         if not self.avg_acc_mag:
             return 0.0
         abs_vals = [abs(v) for v in self.avg_acc_mag]
@@ -121,6 +139,8 @@ class MotionData:
 
     @property
     def peak_disp(self) -> float:
+        if self.true_peak_disp is not None:
+            return self.true_peak_disp
         return max(self.max_disp_mag) if self.max_disp_mag else 0.0
 
     def g_series(self) -> list[float]:
