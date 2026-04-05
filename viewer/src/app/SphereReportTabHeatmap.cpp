@@ -22,10 +22,11 @@ void SphereReportApp::renderHeatmapTab() {
         return 0;
     };
 
-    // Sort angles by worst value descending
+    // Sort angles by worst value descending (respects category filter)
     std::vector<int> angleOrder;
     angleOrder.reserve(data_.results.size());
-    for (int ri = 0; ri < (int)data_.results.size(); ++ri) angleOrder.push_back(ri);
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri)
+        if (passesFilter(data_.results[ri].angle.category)) angleOrder.push_back(ri);
     std::sort(angleOrder.begin(), angleOrder.end(), [&](int a, int b) {
         double va = 0, vb = 0;
         for (auto& [pid, pd] : data_.results[a].parts) va = std::max(va, partQty(pd));

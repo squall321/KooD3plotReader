@@ -28,8 +28,10 @@ void SphereReportApp::renderAngleTable() {
 
         std::vector<std::pair<int,double>> sorted;
         sorted.reserve(data_.results.size());
-        for (int ri = 0; ri < (int)data_.results.size(); ++ri)
+        for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            if (!passesFilter(data_.results[ri].angle.category)) continue;
             sorted.push_back({ri, getAngleValue(ri, selectedPartId_, quantity_)});
+        }
         std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
 
         ImGuiListClipper clipper;

@@ -28,6 +28,7 @@ void SphereReportApp::renderFailureTab() {
     for (auto& [pid, pi] : data_.parts) {
         double worst = 0; std::string worstAngle;
         for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            if (!passesFilter(data_.results[ri].angle.category)) continue;
             auto it = data_.results[ri].parts.find(pid);
             if (it != data_.results[ri].parts.end() && it->second.peak_stress > worst) {
                 worst = it->second.peak_stress;

@@ -47,6 +47,7 @@ void SphereReportApp::renderCompareABTab() {
     double dmin = 1e18, dmax = -1e18;
     for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
         auto& r = data_.results[ri];
+        if (!passesFilter(r.angle.category)) continue;
         double vA = 0;
         for (auto& [pid, pd] : r.parts) {
             double v = 0;

@@ -153,6 +153,13 @@ void SphereReportApp::renderDirectional() {
         dl->AddText(labelPos, IM_COL32(160,165,190,230), cats[i].name.c_str());
     }
 
+    // Fan-fill helper: center-to-edge triangles (works for any star-shaped polygon)
+    auto fanFill = [&](const std::vector<ImVec2>& pts, ImU32 col) {
+        ImVec2 center(cx, cy);
+        for (int i = 0; i < (int)pts.size(); ++i)
+            dl->AddTriangleFilled(center, pts[i], pts[(i+1) % pts.size()], col);
+    };
+
     // A polygon (avg values)
     {
         std::vector<ImVec2> pts(n);
@@ -160,24 +167,19 @@ void SphereReportApp::renderDirectional() {
             float norm = (float)(cats[i].avg / gmax);
             pts[i] = axisPoint(i, R * norm);
         }
-        // Filled
-        dl->AddConvexPolyFilled(pts.data(), n, IM_COL32(122,162,247,50));
-        // Outline
+        fanFill(pts, IM_COL32(122,162,247,50));
         dl->AddPolyline(pts.data(), n, IM_COL32(122,162,247,220), ImDrawFlags_Closed, 2.0f);
-        // Dots at each vertex
         for (auto& p : pts) dl->AddCircleFilled(p, 3.5f, IM_COL32(122,162,247,255));
     }
 
     // B polygon (if compare mode)
     if (hasDataB_) {
-        double gmaxB = 1e-10;
-        for (auto& c : cats) gmaxB = std::max(gmaxB, std::max(c.max, c.maxB));
         std::vector<ImVec2> pts(n);
         for (int i = 0; i < n; ++i) {
-            float norm = (float)(cats[i].avgB / gmax);  // normalise against same A max
+            float norm = (float)(cats[i].avgB / gmax);
             pts[i] = axisPoint(i, R * std::min(norm, 1.1f));
         }
-        dl->AddConvexPolyFilled(pts.data(), n, IM_COL32(247,118,142,40));
+        fanFill(pts, IM_COL32(247,118,142,40));
         dl->AddPolyline(pts.data(), n, IM_COL32(247,118,142,200), ImDrawFlags_Closed, 1.5f);
         for (auto& p : pts) dl->AddCircleFilled(p, 3.0f, IM_COL32(247,118,142,255));
     }

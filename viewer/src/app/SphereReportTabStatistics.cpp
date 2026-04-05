@@ -13,8 +13,10 @@ void SphereReportApp::renderStatistics() {
 
     std::vector<double> vals;
     vals.reserve(data_.results.size());
-    for (int ri = 0; ri < (int)data_.results.size(); ++ri)
+    for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+        if (!passesFilter(data_.results[ri].angle.category)) continue;
         vals.push_back(getAngleValue(ri, selectedPartId_, quantity_));
+    }
     if (vals.empty()) return;
 
     double vmin = *std::min_element(vals.begin(), vals.end());

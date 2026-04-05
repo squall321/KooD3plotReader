@@ -214,11 +214,10 @@ void DeepReportApp::run(const std::string& outputDir) {
             if (ImGui::IsKeyPressed(ImGuiKey_Slash) && ImGui::GetIO().KeyShift)
                 showHelp_ = !showHelp_;  // ? = Shift+/
             if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
-                // Toggle fullscreen (not implemented — maximize only)
-                static bool maximized = true;
-                if (maximized) glfwRestoreWindow(window_);
-                else glfwMaximizeWindow(window_);
-                maximized = !maximized;
+                if (glfwGetWindowAttrib(window_, GLFW_MAXIMIZED))
+                    glfwRestoreWindow(window_);
+                else
+                    glfwMaximizeWindow(window_);
             }
             // Ctrl+S screenshot
             if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {

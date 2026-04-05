@@ -25,7 +25,7 @@ void DeepReportApp::renderContactTab() {
             for (const auto& ci : data_.rcforc) masters.push_back(&ci);
 
         // ── Interface selector ─────────────────────────────
-        static int selIfcIdx = 0;
+        int& selIfcIdx = contactIfcIdx_;
         if (selIfcIdx >= (int)masters.size()) selIfcIdx = 0;
 
         SectionHeader("Contact Forces (rcforc)", COL_ACCENT);
@@ -121,7 +121,7 @@ void DeepReportApp::renderContactTab() {
         SectionHeader("Sliding Energy (sleout)", COL_YELLOW);
 
         // Dropdown for sleout interface
-        static int selSleIdx = 0;
+        int& selSleIdx = contactSleIdx_;
         if (selSleIdx >= (int)data_.sleout.size()) selSleIdx = 0;
 
         if (data_.sleout.size() > 1) {
@@ -163,7 +163,7 @@ void DeepReportApp::renderContactTab() {
         SectionHeader("Material Energy per Part (matsum)", COL_BLUE);
         ImGui::Spacing();
 
-        static int selMatsumIdx = 0;
+        int& selMatsumIdx = contactMatsumIdx_;
         if (selMatsumIdx >= (int)data_.matsum.size()) selMatsumIdx = 0;
 
         // Part selector

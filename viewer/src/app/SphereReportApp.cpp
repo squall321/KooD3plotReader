@@ -152,6 +152,12 @@ void SphereReportApp::run(const std::string& jsonPath) {
         if (!ImGui::GetIO().WantCaptureKeyboard) {
             if (ImGui::IsKeyPressed(ImGuiKey_Slash) && ImGui::GetIO().KeyShift)
                 showHelp_ = !showHelp_;  // ? = Shift+/
+            if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+                if (glfwGetWindowAttrib(window_, GLFW_MAXIMIZED))
+                    glfwRestoreWindow(window_);
+                else
+                    glfwMaximizeWindow(window_);
+            }
             if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_E))
                 exportHTMLReport();
             if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {

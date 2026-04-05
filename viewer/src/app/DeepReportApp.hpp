@@ -67,6 +67,9 @@ private:
     void renderEnergyTab();
     void renderQualityTab();
     void renderContactTab();
+    int contactIfcIdx_ = 0;   // selected rcforc interface
+    int contactSleIdx_ = 0;   // selected sleout interface
+    int contactMatsumIdx_ = 0; // selected matsum part
     void renderDeepDiveTab();
     void renderSysInfoTab();
     int deepDivePartId_ = 0;
