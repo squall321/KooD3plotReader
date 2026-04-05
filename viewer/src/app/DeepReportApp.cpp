@@ -211,6 +211,8 @@ void DeepReportApp::run(const std::string& outputDir) {
                     }
                 }
             }
+            if (ImGui::IsKeyPressed(ImGuiKey_Slash) && ImGui::GetIO().KeyShift)
+                showHelp_ = !showHelp_;  // ? = Shift+/
             if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
                 // Toggle fullscreen (not implemented — maximize only)
                 static bool maximized = true;
@@ -238,6 +240,7 @@ void DeepReportApp::run(const std::string& outputDir) {
         }
 
         renderKPIBar();
+        if (showHelp_) renderDeepHelpOverlay();
         renderPartTable();
 
         // Main analysis panel with tabs

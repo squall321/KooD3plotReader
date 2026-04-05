@@ -1,19 +1,33 @@
 #include "app/App.hpp"
 #include "app/DeepReportApp.hpp"
 #include "app/SphereReportApp.hpp"
+#include "app/SessionState.hpp"
 #include <iostream>
 #include <string>
 #include <filesystem>
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: koo_viewer <mode> <path>\n";
-        std::cerr << "  Modes:\n";
-        std::cerr << "    deep   <output_dir>   — Single analysis report viewer\n";
-        std::cerr << "    sphere <test_dir>      — All-angle sphere report viewer\n";
-        std::cerr << "    3d     <d3plot_path>   — 3D model viewer\n";
-        std::cerr << "    <d3plot_or_dir>        — Auto-detect mode\n";
-        return 1;
+        // Try restoring last session
+        SessionState sess = loadSession();
+        if (sess.valid) {
+            std::cout << "[KooViewer] Restoring session: " << sess.mode << " " << sess.path << "\n";
+            // Re-invoke with restored args
+            const char* newArgv[3];
+            newArgv[0] = argv[0];
+            newArgv[1] = sess.mode.c_str();
+            newArgv[2] = sess.path.c_str();
+            argc = 3; argv = const_cast<char**>(newArgv);
+        } else {
+            std::cerr << "Usage: koo_viewer <mode> <path>\n";
+            std::cerr << "  Modes:\n";
+            std::cerr << "    deep   <output_dir>   — Single analysis report viewer\n";
+            std::cerr << "    sphere <test_dir>      — All-angle sphere report viewer\n";
+            std::cerr << "    3d     <d3plot_path>   — 3D model viewer\n";
+            std::cerr << "    <d3plot_or_dir>        — Auto-detect mode\n";
+            std::cerr << "  (No session found — provide a path to start)\n";
+            return 1;
+        }
     }
 
     std::string mode = "auto";
@@ -42,11 +56,13 @@ int main(int argc, char* argv[]) {
     std::cout << "[KooViewer] Path: " << path << "\n";
 
     if (mode == "deep") {
+        saveSession("deep", path);
         DeepReportApp app;
         if (!app.init(1600, 900)) return 1;
         app.run(path);
         app.shutdown();
     } else if (mode == "3d") {
+        saveSession("3d", path);
         App app;
         if (!app.init(1600, 900, "KooViewer — 3D")) return 1;
         app.run(path);
@@ -66,6 +82,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
+        saveSession("sphere", jsonPath);
         SphereReportApp app;
         if (!app.init(1600, 900)) return 1;
         app.run(jsonPath);

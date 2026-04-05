@@ -116,6 +116,7 @@ set(VIEWER_SOURCES
     src/app/SphereReportTabCompareAB.cpp
     src/app/SphereReportHelpOverlay.cpp
     src/app/SphereReportExportHTML.cpp
+    src/app/DeepReportHelpOverlay.cpp
     src/widgets/VideoPlayer.cpp
 )
 
