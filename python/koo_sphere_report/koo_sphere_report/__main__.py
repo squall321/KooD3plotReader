@@ -14,17 +14,26 @@ def main():
         prog="koo_sphere_report",
         description="KooReport - Full-angle drop simulation analysis report",
     )
-    parser.add_argument(
-        "--test-dir", required=True,
-        help="Path to test directory (e.g., /data/Tests/Test_001_Full26_1Step)",
+
+    # Mutually exclusive input modes
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--test-dir",
+        help="Path to test directory with analysis_results/ (d3plot mode)",
     )
+    input_group.add_argument(
+        "--from-json",
+        metavar="JSON_FILE",
+        help="Re-generate report from an existing report.json (no d3plot needed)",
+    )
+
     parser.add_argument(
         "--output", "-o", default=None,
-        help="Output HTML file path (default: <test-dir>/report.html)",
+        help="Output HTML file path",
     )
     parser.add_argument(
         "--json", default=None,
-        help="Output JSON file path (default: alongside HTML)",
+        help="Output JSON file path",
     )
     parser.add_argument(
         "--terminal-only", action="store_true",
@@ -41,28 +50,40 @@ def main():
     )
     parser.add_argument(
         "--ts-points", type=int, default=0,
-        help="Time series points per chart (0=auto: 100/30/20 based on N results)",
+        help="Time series points per chart (0=auto)",
     )
     args = parser.parse_args()
 
-    test_dir = Path(args.test_dir)
-    if not test_dir.exists():
-        print(f"Error: {test_dir} does not exist", file=sys.stderr)
-        sys.exit(1)
-
-    if not (test_dir / "analysis_results").exists():
-        print(f"Error: No analysis_results in {test_dir}", file=sys.stderr)
-        print("Run unified_analyzer --recursive first.", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Loading data from {test_dir}...")
-    t0 = time.time()
-    report = analyze(test_dir, yield_stress=args.yield_stress)
-    t_load = time.time() - t0
-    print(f"Loaded {report.successful_runs} results in {t_load:.1f}s")
+    # ── Load data ────────────────────────────────────────────
+    if args.from_json:
+        from .from_json import load_report_from_json
+        json_in = Path(args.from_json)
+        if not json_in.exists():
+            print(f"Error: {json_in} does not exist", file=sys.stderr)
+            sys.exit(1)
+        print(f"Loading from JSON: {json_in}")
+        t0 = time.time()
+        report = load_report_from_json(json_in, yield_stress=args.yield_stress)
+        base_dir = str(json_in.parent.resolve())
+        print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
+    else:
+        test_dir = Path(args.test_dir)
+        if not test_dir.exists():
+            print(f"Error: {test_dir} does not exist", file=sys.stderr)
+            sys.exit(1)
+        if not (test_dir / "analysis_results").exists():
+            print(f"Error: No analysis_results in {test_dir}", file=sys.stderr)
+            print("Run unified_analyzer --recursive first.", file=sys.stderr)
+            sys.exit(1)
+        print(f"Loading data from {test_dir}...")
+        t0 = time.time()
+        report = analyze(test_dir, yield_stress=args.yield_stress)
+        base_dir = str(test_dir.resolve())
+        print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
 
     formats = ["terminal"] if args.terminal_only else args.format
 
+    # ── Terminal output ──────────────────────────────────────
     if "terminal" in formats:
         try:
             from .report.terminal import print_report
@@ -70,15 +91,27 @@ def main():
         except ImportError:
             print("Warning: rich not installed, skipping terminal output", file=sys.stderr)
 
+    # ── HTML output ──────────────────────────────────────────
     if "html" in formats:
-        html_path = args.output or str(test_dir / "report.html")
+        if args.output:
+            html_path = args.output
+        elif args.from_json:
+            html_path = str(Path(args.from_json).with_suffix(".html"))
+        else:
+            html_path = str(Path(args.test_dir) / "report.html")
         print(f"Generating HTML report: {html_path}")
         t0 = time.time()
-        generate_html(report, html_path, ts_points=args.ts_points, test_dir=str(test_dir.resolve()))
+        generate_html(report, html_path, ts_points=args.ts_points, test_dir=base_dir)
         print(f"HTML report saved in {time.time()-t0:.1f}s ({Path(html_path).stat().st_size/1024:.0f} KB)")
 
+    # ── JSON output ──────────────────────────────────────────
     if "json" in formats:
-        json_path = args.json or str(test_dir / "report.json")
+        if args.json:
+            json_path = args.json
+        elif args.from_json:
+            json_path = str(Path(args.from_json).parent / (report.project_name + "_regenerated.json"))
+        else:
+            json_path = str(Path(args.test_dir) / "report.json")
         save_json(report, json_path)
         print(f"JSON report saved: {json_path}")
 
