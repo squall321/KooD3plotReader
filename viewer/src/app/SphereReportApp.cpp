@@ -201,6 +201,7 @@ void SphereReportApp::run(const std::string& jsonPath) {
             if (ImGui::BeginTabItem("Statistics"))   { renderStatistics(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Findings"))     { renderFindings(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Selected"))     { renderCompareInfo(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Angle Detail")) { renderAngleDetail(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
         ImGui::End();

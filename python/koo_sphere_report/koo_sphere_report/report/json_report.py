@@ -23,6 +23,7 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
     summary = {
         "project_name": report.project_name,
         "doe_strategy": report.doe_strategy,
+        "test_dir": str(report.test_dir) if hasattr(report, 'test_dir') and report.test_dir else "",
         "total_runs": report.total_runs,
         "successful_runs": report.successful_runs,
         "failed_runs": report.failed_runs,

@@ -32,6 +32,11 @@ struct SimData {
     // Load states (background thread)
     void loadStatesAsync(const std::string& d3plotPath, int threads = 4);
 
+    // Load states with memory budget (background thread).
+    // maxMemMB: approximate memory budget in MB for state data.
+    // Automatically computes stride to stay within budget.
+    void loadStatesBudgeted(const std::string& d3plotPath, int maxMemMB = 2048);
+
     // Build GPU input faces from SurfaceExtractor result
     std::vector<MeshGPU::InputFace> buildGPUFaces() const;
 

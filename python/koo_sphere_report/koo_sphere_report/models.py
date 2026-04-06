@@ -211,3 +211,4 @@ class Report:
     sphere_coverage: float = 0.0
     findings: list[Finding] = field(default_factory=list)
     yield_stress: float = 0.0  # User-defined yield stress for safety factor
+    test_dir: str = ""         # Source test directory (for d3plot access)

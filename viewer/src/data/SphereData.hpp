@@ -42,6 +42,7 @@ struct SpherePartInfo {
 struct SphereData {
     std::string project_name;
     std::string doe_strategy;
+    std::string test_dir;   // source test directory (for d3plot access)
     int total_runs = 0;
     int successful_runs = 0;
     int failed_runs = 0;

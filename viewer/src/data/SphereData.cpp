@@ -83,6 +83,7 @@ bool loadSphereData(const std::string& jsonPath, SphereData& out) {
         out.angular_spacing = sd(j, "angular_spacing_deg");
         out.sphere_coverage = sd(j, "sphere_coverage");
         out.yield_stress = sd(j, "yield_stress");
+        out.test_dir = ss(j, "test_dir");
 
         // Parts info
         if (j.contains("parts") && j["parts"].is_object()) {

@@ -15,13 +15,14 @@
 
 | # | 기능 | 앱 | 우선순위 | 상태 |
 |---|------|----|----------|------|
-| 1 | **A/B 비교 모드** — 두 JSON 드래그 드롭, Delta Mollweide, 파트별 SF 변화량 표 | Sphere | 최고 | 🔲 구현 예정 |
-| 2 | **파트 크로스탭 하이라이트** — 파트 테이블 클릭 → 3D 뷰어 강조, Mollweide 파트 기준 컬러 | 공통 | 높음 | 🔲 구현 예정 |
-| 3 | **각도 카테고리 필터** — KPI바 face/edge/corner/fibonacci 토글 → Mollweide/Heatmap 반영 | Sphere | 높음 | 🔲 구현 예정 |
-| 4 | **단축키 헬프 오버레이** — `?` 키 → 반투명 오버레이로 모든 단축키/조작법 표시 | 공통 | 중간 | 🔲 구현 예정 |
-| 5 | **HTML 리포트 내보내기** — Ctrl+E → self-contained .html (Mollweide SVG + 표 + Findings) | Sphere | 중간 | 🔲 구현 예정 |
-| 6 | **에너지 비율 파이차트** — 최종 프레임 KE/IE/HE/SE 비율 + hourglass 경고 | Deep | 낮음 | 🔲 구현 예정 |
-| 7 | **방향 민감도 레이더** — 카테고리별 평균 stress 레이더 차트 | Sphere | 낮음 | 🔲 구현 예정 |
+| 1 | **A/B 비교 모드** — 두 JSON 드래그 드롭, Delta Mollweide, 파트별 SF 변화량 표 | Sphere | 최고 | ✅ 완료 |
+| 2 | **파트 크로스탭 하이라이트** — 파트 테이블 클릭 → 3D 뷰어 강조, Mollweide 파트 기준 컬러 | 공통 | 높음 | ✅ 완료 |
+| 3 | **각도 카테고리 필터** — KPI바 face/edge/corner/fibonacci 토글 → Mollweide/Heatmap 반영 | Sphere | 높음 | ✅ 완료 |
+| 4 | **단축키 헬프 오버레이** — `?` 키 → 반투명 오버레이로 모든 단축키/조작법 표시 | 공통 | 중간 | ✅ 완료 |
+| 5 | **HTML 리포트 내보내기** — Ctrl+E → self-contained .html (Mollweide SVG + 표 + Findings) | Sphere | 중간 | ✅ 완료 |
+| 6 | **에너지 비율 파이차트** — 최종 프레임 KE/IE/HE/SE 비율 + hourglass 경고 | Deep | 낮음 | ✅ 완료 |
+| 7 | **방향 민감도 레이더** — 카테고리별 평균 stress 레이더 차트 | Sphere | 낮음 | ✅ 완료 |
+| 8 | **세션 저장/복원** — 마지막 실행 경로 자동 복원 (SessionState.hpp) | 공통 | 낮음 | ✅ 완료 |
 
 > 이미 구현된 것: 3D Fringe overlay, 타임스텝 스크러버 (Play/Pause + SliderInt), 섹션뷰 3D, IDW Mollweide contour, Globe recording
 

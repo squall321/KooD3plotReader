@@ -146,6 +146,7 @@ def analyze(test_dir: str | Path, yield_stress: float = 0.0) -> Report:
         angular_spacing_deg=spacing,
         sphere_coverage=coverage,
         yield_stress=yield_stress,
+        test_dir=str(test_dir.resolve()),
     )
 
     report.findings = _generate_findings(report)

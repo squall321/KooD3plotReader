@@ -49,6 +49,64 @@ void SimData::loadStatesAsync(const std::string& d3plotPath, int threads) {
     loadThread_.detach();
 }
 
+void SimData::loadStatesBudgeted(const std::string& d3plotPath, int maxMemMB) {
+    loadThread_ = std::thread([this, d3plotPath, maxMemMB]() {
+        D3plotReader reader(d3plotPath);
+        if (reader.open() != ErrorCode::SUCCESS) {
+            loadError = "Failed to open d3plot for states";
+            return;
+        }
+
+        size_t totalStates = reader.get_num_states();
+        if (totalStates == 0) { statesLoaded = true; return; }
+
+        // Estimate memory per state: read first state to measure
+        auto st0 = reader.read_state(0);
+        size_t bytesPerState = st0.node_displacements.size() * sizeof(double)
+                             + st0.solid_data.size() * sizeof(double)
+                             + st0.shell_data.size() * sizeof(double)
+                             + sizeof(data::StateData);
+        if (bytesPerState == 0) bytesPerState = 1;
+
+        size_t budgetBytes = static_cast<size_t>(maxMemMB) * 1024ULL * 1024ULL;
+        size_t maxStates = std::max(size_t(2), budgetBytes / bytesPerState);
+
+        // Compute stride: keep first + last + evenly spaced
+        size_t stride = 1;
+        if (totalStates > maxStates)
+            stride = (totalStates - 1) / (maxStates - 1); // -1 to always include last
+        if (stride < 1) stride = 1;
+
+        std::cout << "[SimData] Budget: " << maxMemMB << " MB, "
+                  << bytesPerState / 1024 << " KB/state, "
+                  << totalStates << " total → stride=" << stride
+                  << " → loading ~" << std::min(totalStates, maxStates) << " states\n";
+
+        // Load with stride
+        states.clear();
+        states.reserve(std::min(totalStates, maxStates) + 1);
+        states.push_back(std::move(st0)); // state 0 already read
+        statesProgress = 1;
+
+        for (size_t i = stride; i < totalStates; i += stride) {
+            states.push_back(reader.read_state(i));
+            statesProgress = static_cast<int>(states.size() * 100 / std::min(totalStates, maxStates));
+        }
+
+        // Always include last state if not already there
+        size_t lastIdx = totalStates - 1;
+        if (lastIdx > 0 && (lastIdx % stride) != 0) {
+            states.push_back(reader.read_state(lastIdx));
+        }
+
+        std::cout << "[SimData] Loaded " << states.size() << " / " << totalStates
+                  << " states (~" << (states.size() * bytesPerState / 1024 / 1024) << " MB)\n";
+        statesProgress = 100;
+        statesLoaded = true;
+    });
+    loadThread_.detach();
+}
+
 std::vector<MeshGPU::InputFace> SimData::buildGPUFaces() const {
     std::vector<MeshGPU::InputFace> result;
     result.reserve(extFaces.size());

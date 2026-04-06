@@ -117,6 +117,7 @@ set(VIEWER_SOURCES
     src/app/SphereReportHelpOverlay.cpp
     src/app/SphereReportExportHTML.cpp
     src/app/DeepReportHelpOverlay.cpp
+    src/app/SphereReportAngleDetail.cpp
     src/widgets/VideoPlayer.cpp
 )
 
