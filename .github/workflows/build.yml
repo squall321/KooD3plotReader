@@ -37,7 +37,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libomp-dev python3-tk
+          sudo apt-get install -y cmake libomp-dev python3-tk \
+            libgl-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxext-dev libwayland-dev \
+            libxkbcommon-dev
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
@@ -47,7 +50,8 @@ jobs:
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF \
             -DKOOD3PLOT_BUILD_CAPI=OFF \
             -DKOOD3PLOT_BUILD_HDF5=OFF \
-            -DKOOD3PLOT_ENABLE_SIMD=OFF
+            -DKOOD3PLOT_ENABLE_SIMD=OFF \
+            -DKOOD3PLOT_BUILD_VIEWER=ON
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
@@ -57,7 +61,8 @@ jobs:
             -DKOOD3PLOT_BUILD_V4_RENDER=OFF `
             -DKOOD3PLOT_BUILD_CAPI=OFF `
             -DKOOD3PLOT_BUILD_HDF5=OFF `
-            -DKOOD3PLOT_ENABLE_SIMD=OFF
+            -DKOOD3PLOT_ENABLE_SIMD=OFF `
+            -DKOOD3PLOT_BUILD_VIEWER=ON
 
       - name: Build C++
         run: cmake --build build --config Release --parallel 4
@@ -100,7 +105,8 @@ jobs:
           else
             for f in build/examples/unified_analyzer \
                      build/examples/comprehensive_example \
-                     build/examples/full_extraction_example; do
+                     build/examples/full_extraction_example \
+                     build/viewer/koo_viewer; do
               [ -f "$f" ] && cp "$f" "${DIST}/bin/"
             done
           fi
@@ -123,6 +129,11 @@ jobs:
           cp -r python/koo_deep_report/koo_deep_report "${DIST}/python/koo_deep_report/"
           cp python/koo_deep_report/entry_point.py "${DIST}/python/koo_deep_report/" 2>/dev/null || true
           cp python/koo_deep_report/pyproject.toml "${DIST}/python/koo_deep_report/" 2>/dev/null || true
+
+          # koo_sphere_report Python package
+          mkdir -p "${DIST}/python/koo_sphere_report"
+          cp -r python/koo_sphere_report/koo_sphere_report "${DIST}/python/koo_sphere_report/"
+          cp python/koo_sphere_report/pyproject.toml "${DIST}/python/koo_sphere_report/" 2>/dev/null || true
 
           # Config / YAML examples
           [ -d config ] && cp -r config "${DIST}/config"
