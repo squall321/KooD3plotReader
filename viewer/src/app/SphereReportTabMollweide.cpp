@@ -167,6 +167,39 @@ void SphereReportApp::renderMollweide() {
         if (selectedAngles_.count(hoveredAngle_)) selectedAngles_.erase(hoveredAngle_);
         else                                       selectedAngles_.insert(hoveredAngle_);
     }
+    // Double-click → jump to Angle Detail tab and auto-load
+    if (mapHovered && ImGui::IsMouseDoubleClicked(0) && hoveredAngle_ >= 0) {
+        detailAngleIdx_ = -1;  // force reload
+        selectedAngles_.insert(hoveredAngle_);
+        analysisTabToSelect_ = 8;  // "Angle Detail" tab index
+        // Trigger auto-load in next renderAngleDetail() by setting detailAngleIdx_ mismatch
+    }
+
+    // ── Top 5 worst markers ────────────────────────────────────
+    {
+        // Build ranked list by current quantity
+        std::vector<std::pair<double,int>> top5;
+        for (int ri = 0; ri < nPts; ++ri) {
+            if (!passesFilter(data_.results[ri].angle.category)) continue;
+            top5.push_back({getAngleValue(ri, selectedPartId_, quantity_), ri});
+        }
+        std::sort(top5.begin(), top5.end(), [](auto& a, auto& b){ return a.first > b.first; });
+        int nMark = std::min(5, (int)top5.size());
+        for (int i = 0; i < nMark; ++i) {
+            int ri = top5[i].second;
+            auto& r = data_.results[ri];
+            double mx, my;
+            mollweideProject(r.angle.lon, r.angle.lat, mx, my);
+            float sx = cx + (float)mx*scale, sy = cy - (float)my*scale;
+            // Diamond marker outline
+            float ms = 10 + i * 0.5f;  // slightly smaller for lower ranks
+            ImVec2 pts[4] = {{sx,sy-ms},{sx+ms*0.6f,sy},{sx,sy+ms},{sx-ms*0.6f,sy}};
+            dl->AddPolyline(pts, 4, IM_COL32(255,255,255,180), ImDrawFlags_Closed, 1.8f);
+            // Rank number
+            char num[4]; snprintf(num, sizeof(num), "%d", i+1);
+            dl->AddText(ImVec2(sx + ms*0.7f, sy - 8), IM_COL32(255,220,120,230), num);
+        }
+    }
 
     if (hoveredAngle_ >= 0) {
         auto& r = data_.results[hoveredAngle_];

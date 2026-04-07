@@ -30,6 +30,9 @@ private:
     std::set<int> selectedAngles_;
     int hoveredAngle_ = -1;
 
+    // Programmatic tab switch (set to tab index → auto-select next frame)
+    int analysisTabToSelect_ = -1;  // -1 = no auto-switch
+
     void renderKPIBar();
     void renderMollweide();
     void renderGlobe();

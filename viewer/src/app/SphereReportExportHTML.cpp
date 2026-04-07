@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 
 // Export a self-contained HTML report.
 // Contains: summary KPIs, inline SVG Mollweide map, worst angles table,
@@ -312,6 +313,128 @@ void SphereReportApp::exportHTMLReport() {
              (int)data_.parts.size(), (int)data_.results.size(),
              (int)(data_.parts.size() * data_.results.size()));
     finding("find-info", "INFO", "Analysis Scope", buf);
+
+    // ---- A/B Comparison section (only when B data loaded) ----
+    if (hasDataB_) {
+        f << "<h2>A/B Comparison &mdash; " << htmlEscape(data_.project_name) << " vs " << htmlEscape(dataB_.project_name) << "</h2>\n";
+
+        // Build B lookup
+        std::map<std::string, int> bLookup;
+        for (int ri = 0; ri < (int)dataB_.results.size(); ++ri)
+            bLookup[dataB_.results[ri].angle.name] = ri;
+
+        // Compute deltas
+        struct ABEntry { std::string name, cat; double valA, valB, delta; bool matched; double lon, lat; };
+        std::vector<ABEntry> abEntries;
+        int nImproved = 0, nWorsened = 0, nMissing = 0;
+        double totalDelta = 0;
+        double dabsMax = 0;
+
+        for (int ri = 0; ri < (int)data_.results.size(); ++ri) {
+            auto& r = data_.results[ri];
+            double vA = 0;
+            for (auto& [pid, pd] : r.parts) vA = std::max(vA, pd.peak_stress);
+
+            ABEntry e;
+            e.name = r.angle.name;
+            e.cat  = r.angle.category;
+            e.valA = vA;
+            e.lon  = r.angle.lon;
+            e.lat  = r.angle.lat;
+
+            auto it = bLookup.find(r.angle.name);
+            if (it != bLookup.end()) {
+                double vB = 0;
+                for (auto& [pid, pd] : dataB_.results[it->second].parts)
+                    vB = std::max(vB, pd.peak_stress);
+                e.valB = vB;
+                e.delta = vA - vB;
+                e.matched = true;
+                totalDelta += e.delta;
+                dabsMax = std::max(dabsMax, std::abs(e.delta));
+                if (e.delta < -0.01) nImproved++;
+                else if (e.delta > 0.01) nWorsened++;
+            } else {
+                e.valB = 0; e.delta = 0; e.matched = false;
+                nMissing++;
+            }
+            abEntries.push_back(e);
+        }
+        if (dabsMax < 1e-9) dabsMax = 1.0;
+        int nMatched = (int)abEntries.size() - nMissing;
+
+        // Summary stats
+        f << "<div class='kpi-row'>\n";
+        snprintf(buf, sizeof(buf), "%d", nMatched);
+        kpi("Matched", buf, "angles", "#7aa2f7");
+        snprintf(buf, sizeof(buf), "%d", nImproved);
+        kpi("Improved", buf, "lower in A", "#9ece6a");
+        snprintf(buf, sizeof(buf), "%d", nWorsened);
+        kpi("Worsened", buf, "higher in A", "#f7768e");
+        snprintf(buf, sizeof(buf), "%.1f", nMatched > 0 ? totalDelta / nMatched : 0.0);
+        kpi("Avg Delta", buf, "MPa", "#e0af68");
+        f << "</div>\n";
+
+        // Delta Mollweide SVG
+        f << "<h3 style='color:#7aa2f7'>Delta Map (A - B)</h3>\n";
+        f << "<p class='dim'>Blue = improved (A &lt; B), Red = worsened (A &gt; B), Grey = unmatched</p>\n";
+        f << "<svg width='" << (int)svgW << "' height='" << (int)svgH << "' xmlns='http://www.w3.org/2000/svg'>\n";
+        f << "<ellipse cx='" << cx << "' cy='" << cy
+          << "' rx='" << rx << "' ry='" << ry
+          << "' fill='#0d0f1a' stroke='#2a2d3e' stroke-width='1.5'/>\n";
+
+        for (auto& e : abEntries) {
+            double sx, sy;
+            mollweideSVG(e.lon, e.lat, cx, cy, rx, ry, sx, sy);
+            std::string color;
+            if (!e.matched) {
+                color = "#505060";
+            } else {
+                float t = (float)(e.delta / dabsMax);
+                if (t >= 0) {
+                    int r2 = (int)(t*220+35), g2 = (int)(35*(1-t)), b2 = g2;
+                    char c2[16]; snprintf(c2, sizeof(c2), "#%02x%02x%02x", r2, g2, b2);
+                    color = c2;
+                } else {
+                    int r2 = (int)(35*(1+t)), g2 = r2, b2 = (int)(-t*220+35);
+                    char c2[16]; snprintf(c2, sizeof(c2), "#%02x%02x%02x", r2, g2, b2);
+                    color = c2;
+                }
+            }
+            f << "<circle cx='" << (int)sx << "' cy='" << (int)sy
+              << "' r='5' fill='" << color << "' opacity='0.85'>"
+              << "<title>" << htmlEscape(e.name) << ": A=" << (int)e.valA
+              << " B=" << (int)e.valB << " Δ=" << (int)e.delta << "</title></circle>\n";
+        }
+        f << "</svg>\n";
+
+        // Delta table — top 30
+        f << "<h3 style='color:#7aa2f7'>Delta Table (sorted by |Δ|)</h3>\n";
+        std::vector<ABEntry*> abSorted;
+        for (auto& e : abEntries) if (e.matched) abSorted.push_back(&e);
+        std::sort(abSorted.begin(), abSorted.end(), [](auto* a, auto* b){
+            return std::abs(a->delta) > std::abs(b->delta);
+        });
+        f << "<table><tr><th>Direction</th><th>Cat</th><th>A (MPa)</th>"
+          << "<th>B (MPa)</th><th>Δ</th><th>Change</th></tr>\n";
+        int nDelta = std::min(30, (int)abSorted.size());
+        for (int i = 0; i < nDelta; ++i) {
+            auto* e = abSorted[i];
+            std::string dc = e->delta > 0 ? "#f7768e" : "#7aa2f7";
+            double pct = e->valB > 1e-9 ? e->delta / e->valB * 100.0 : 0.0;
+            f << "<tr><td class='accent'>" << htmlEscape(e->name) << "</td>"
+              << "<td class='dim'>" << htmlEscape(e->cat) << "</td>"
+              << "<td>" << (int)e->valA << "</td>"
+              << "<td>" << (int)e->valB << "</td>"
+              << "<td style='color:" << dc << ";font-weight:bold'>"
+              << (e->delta > 0 ? "+" : "") << (int)e->delta << "</td>"
+              << "<td style='color:" << dc << "'>"
+              << (pct > 0 ? "+" : "") << std::fixed;
+            f.precision(1);
+            f << pct << "%</td></tr>\n";
+        }
+        f << "</table>\n";
+    }
 
     f << "<footer>Generated by KooViewer &mdash; KooD3plotReader &mdash; "
       << htmlEscape(data_.project_name) << "</footer>\n";

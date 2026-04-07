@@ -193,15 +193,19 @@ void SphereReportApp::run(const std::string& jsonPath) {
 
         ImGui::Begin("Analysis");
         if (ImGui::BeginTabBar("SphereTabs")) {
-            if (ImGui::BeginTabItem("Angle Table"))  { renderAngleTable(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Part Risk"))    { renderPartRisk(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Heatmap"))      { renderHeatmapTab(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Directional"))  { renderDirectional(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Failure"))      { renderFailureTab(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Statistics"))   { renderStatistics(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Findings"))     { renderFindings(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Selected"))     { renderCompareInfo(); ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Angle Detail")) { renderAngleDetail(); ImGui::EndTabItem(); }
+            auto tabFlags = [&](int idx) -> ImGuiTabItemFlags {
+                return (analysisTabToSelect_ == idx) ? ImGuiTabItemFlags_SetSelected : 0;
+            };
+            if (ImGui::BeginTabItem("Angle Table",  nullptr, tabFlags(0))) { renderAngleTable(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Part Risk",    nullptr, tabFlags(1))) { renderPartRisk(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Heatmap",      nullptr, tabFlags(2))) { renderHeatmapTab(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Directional",  nullptr, tabFlags(3))) { renderDirectional(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Failure",      nullptr, tabFlags(4))) { renderFailureTab(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Statistics",   nullptr, tabFlags(5))) { renderStatistics(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Findings",     nullptr, tabFlags(6))) { renderFindings(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Selected",     nullptr, tabFlags(7))) { renderCompareInfo(); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Angle Detail", nullptr, tabFlags(8))) { renderAngleDetail(); ImGui::EndTabItem(); }
+            analysisTabToSelect_ = -1;  // consume after one frame
             ImGui::EndTabBar();
         }
         ImGui::End();
