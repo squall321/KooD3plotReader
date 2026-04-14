@@ -6,9 +6,15 @@ from pathlib import Path
 
 @dataclass
 class SectionViewRenderConfig:
-    """Configuration for software-rasterized section view rendering (VTK-free)."""
+    """Configuration for section view rendering.
+
+    backend="lsprepost" (default): uses LSPrePost drawcut+projectview via Xvfb.
+        Produces high-quality section views identical to interactive LSPrePost.
+    backend="software": uses built-in software rasterizer (VTK-free, slower).
+    """
     enabled: bool = True
-    view_mode: str = "section"  # "section" (2D) or "section_3d" (3D half-model)
+    backend: str = "lsprepost"   # "lsprepost" (default) or "software"
+    view_mode: str = "section"  # "section" (2D) or "section_3d" (3D half-model, software only)
     axes: list[str] = field(default_factory=lambda: ["x", "y", "z"])  # x | y | z
     scalar_fields: list[str] = field(default_factory=lambda: ["von_mises", "strain"])  # 복수 필드
     scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
@@ -123,6 +129,93 @@ def build_section_view_yaml_entries(
                                                          target_ids=[pid], field_name=fld)))
 
     return entries
+
+
+_FRINGE_MAP = {
+    "von_mises": "von_mises",
+    "strain": "eff_plastic_strain",
+    "eps": "eff_plastic_strain",
+    "displacement": "displacement_mag",
+    "pressure": "pressure",
+    "max_shear": "max_shear",
+}
+
+
+def build_lsprepost_section_jobs(
+    output_dir: str,
+    config: SectionViewRenderConfig,
+    part_ids: list[int] | None = None,
+) -> list[dict]:
+    """Build render_jobs dicts for LSPrePost section view rendering.
+
+    Same output folder structure as software renderer so HTML gallery
+    picks up results unchanged.
+    """
+    if not config.enabled:
+        return []
+
+    renders_dir = str(Path(output_dir) / "renders")
+    jobs: list[dict] = []
+    fields = config.effective_fields
+    resolution = [config.width, config.height]
+
+    # Overview: all parts, per field × axis
+    for fld in fields:
+        fringe = _FRINGE_MAP.get(fld, fld)
+        for axis in config.axes:
+            if len(fields) == 1:
+                name = f"section_view_{axis}"
+            else:
+                name = f"section_view_{fld}_{axis}"
+
+            job: dict = {
+                "name": name,
+                "type": "section_view",
+                "fringe": fringe,
+                "section": {"axis": axis, "position": "center"},
+                "states": "all",
+                "output": {
+                    "format": "mp4",
+                    "fps": config.fps,
+                    "resolution": resolution,
+                    "directory": str(Path(renders_dir) / name),
+                    "filename": "section_view",
+                },
+            }
+            if config.target_part_ids:
+                job["parts"] = config.target_part_ids
+            elif config.target_patterns:
+                job["part_pattern"] = config.target_patterns[0]
+            jobs.append(job)
+
+    # Per-part: each part × field × axis
+    if config.per_part_render and part_ids:
+        for fld in fields:
+            fringe = _FRINGE_MAP.get(fld, fld)
+            for pid in part_ids:
+                for axis in config.axes:
+                    if len(fields) == 1:
+                        name = f"section_view_part_{pid}_{axis}"
+                    else:
+                        name = f"section_view_{fld}_part_{pid}_{axis}"
+
+                    jobs.append({
+                        "name": name,
+                        "type": "section_view",
+                        "fringe": fringe,
+                        "parts": [pid],
+                        "section": {"axis": axis, "position": "center"},
+                        "states": "all",
+                        "output": {
+                            "format": "mp4",
+                            "fps": config.fps,
+                            "resolution": resolution,
+                            "directory": str(Path(renders_dir) / name),
+                            "filename": "section_view",
+                        },
+                    })
+
+    return jobs
 
 
 @dataclass

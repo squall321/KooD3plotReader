@@ -106,9 +106,12 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="설치 디렉토리 (unified_analyzer, lsprepost 자동 탐색 기준)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="unified_analyzer 출력 표시")
-    # Section view rendering (software-rasterized, VTK-free)
+    # Section view rendering
     p.add_argument("--section-view", action="store_true",
-                   help="소프트웨어 단면뷰 렌더링 활성화 (VTK 불필요, LSPrePost 단면 렌더 대체)")
+                   help="단면뷰 렌더링 활성화 (기본: LSPrePost 백엔드)")
+    p.add_argument("--section-view-backend", default="lsprepost",
+                   choices=["lsprepost", "software"],
+                   help="단면뷰 백엔드: lsprepost=LSPrePost drawcut (기본, 고품질), software=내장 래스터라이저")
     p.add_argument("--section-view-mode", default="section",
                    choices=["section", "section_3d"],
                    help="단면뷰 모드: section=2D, section_3d=3D 반절단 뷰 (기본: section)")
@@ -424,6 +427,7 @@ def run_single(args: argparse.Namespace) -> None:
         sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
+            backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
@@ -590,6 +594,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
+            backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,

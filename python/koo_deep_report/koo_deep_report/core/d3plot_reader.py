@@ -125,8 +125,9 @@ def run_analysis(
         if extracted_ids:
             if sv_needs_second_pass:
                 sv_per_part = copy.copy(section_view_config)
+                # Pass render_config through so LSPrePost path is resolved
                 yaml2 = _build_yaml(
-                    d3plot_path, output_dir, None,
+                    d3plot_path, output_dir, render_config,
                     extracted_ids, threads, render_threads, verbose,
                     render_only=True,
                     install_dir=install_dir,
@@ -257,8 +258,23 @@ def _build_yaml(
                 '    output_prefix: "quality/all"',
             ]
 
-    # render_jobs (LSPrePost) — skip when section_view_config is active
-    if render_config and render_config.enabled and not (section_view_config and section_view_config.enabled):
+    # Section view rendering — two backends:
+    #   "lsprepost" (default): generates render_jobs for LSPrePost drawcut+projectview
+    #   "software": generates section_views for built-in software rasterizer
+    sv_active = section_view_config and section_view_config.enabled
+    sv_backend = getattr(section_view_config, 'backend', 'lsprepost') if sv_active else None
+
+    # render_jobs (LSPrePost) — either from RenderConfig or SectionViewRenderConfig
+    if sv_active and sv_backend == "lsprepost":
+        # Section views via LSPrePost backend
+        from ..render.job_builder import build_lsprepost_section_jobs
+        jobs = build_lsprepost_section_jobs(str(output_dir), section_view_config, part_ids)
+        if jobs:
+            lines.append("render_jobs:")
+            for job in jobs:
+                lines.append(_dict_to_yaml(job, indent=2))
+    elif render_config and render_config.enabled and not sv_active:
+        # Legacy LSPrePost render (no section view config)
         from ..render.job_builder import build_render_jobs
         jobs = build_render_jobs(
             str(d3plot_path),
@@ -271,8 +287,8 @@ def _build_yaml(
             for job in jobs:
                 lines.append(_dict_to_yaml(job, indent=2))
 
-    # section_views (software-rasterized, VTK-free) — replaces LSPrePost section renders
-    if section_view_config and section_view_config.enabled:
+    # section_views (software-rasterized, VTK-free)
+    if sv_active and sv_backend == "software":
         from ..render.job_builder import build_section_view_yaml_entries
         sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config, part_ids)
         if sv_entries:
