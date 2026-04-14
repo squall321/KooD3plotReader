@@ -9,11 +9,14 @@
 #include "kood3plot/render/LSPrePostRenderer.h"
 #include <fstream>
 #include <sstream>
+#include <iostream>
 #include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <set>
+#include <map>
 #include <atomic>
+#include <iomanip>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -309,25 +312,21 @@ bool LSPrePostRenderer::executeLSPrePost(
     const std::string& script_path,
     const std::string& working_dir)
 {
-    // LSPrePost batch mode: -nographics is the only reliable mode.
-    // Camera/visibility commands (ponly, genselect, fit, zoom) are all ignored
-    // in batch mode regardless of Xvfb/display. Camera centering is handled
-    // by ffmpeg post-crop in UnifiedAnalyzerRender.cpp instead.
+    // LSPrePost needs a real X11 display for proper view control (drawcut, projectview).
+    // Strategy: start a dedicated Xvfb on a per-worker display, run LSPrePost against it,
+    // then kill the Xvfb. This is more reliable than xvfb-run -a for section views.
     std::ostringstream cmd;
 #ifndef _WIN32
-    // Use xvfb-run to give each instance its own virtual display.
-    // -a auto-selects a free display number, preventing conflicts
-    // when multiple LSPrePost instances run in parallel.
-    // Fallback: if xvfb-run is not available, run directly (single-thread only).
-    static int xvfb_available = -1;  // -1=unknown, 0=no, 1=yes
-    if (xvfb_available == -1) {
-        xvfb_available = (std::system("which xvfb-run >/dev/null 2>&1") == 0) ? 1 : 0;
-    }
-    if (xvfb_available == 1) {
-        cmd << "xvfb-run -a ";
-    }
-#endif
+    // Dedicated Xvfb display per worker (avoids conflicts in parallel rendering)
+    int display_num = 10 + pImpl->worker_id;  // :10, :11, :12, ...
+    cmd << "Xvfb :" << display_num << " -ac -screen 0 1600x1200x24 &"
+        << " XVFB_PID=$!; sleep 0.5;"
+        << " DISPLAY=:" << display_num << ".0"
+        << " \"" << pImpl->lsprepost_path << "\" c=\"" << script_path << "\";"
+        << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null";
+#else
     cmd << "\"" << pImpl->lsprepost_path << "\" -nographics c=\"" << script_path << "\"";
+#endif
 
 #ifdef _WIN32
     // Windows execution
@@ -417,6 +416,111 @@ std::string LSPrePostRenderer::getLastError() const {
 
 std::string LSPrePostRenderer::getLastOutput() const {
     return pImpl->last_output;
+}
+
+// ============================================================
+// All-Part Section View Batch Rendering
+// ============================================================
+
+int LSPrePostRenderer::renderAllPartSections(
+    const std::string& d3plot_path,
+    const std::string& output_dir,
+    const std::vector<int>& part_ids,
+    const std::map<int, std::string>& part_names,
+    const RenderOptions& options)
+{
+    namespace fs = std::filesystem;
+    fs::path abs_d3plot = fs::absolute(d3plot_path);
+    fs::path abs_output = fs::absolute(output_dir);
+    fs::create_directories(abs_output);
+
+    const char axes[] = {'x', 'y', 'z'};
+    const double normals[][3] = {{1,0,0}, {0,1,0}, {0,0,1}};
+    int fringe_code = fringeTypeToCode(options.fringe_type);
+
+    int success = 0;
+    int total = (int)part_ids.size() * 3;
+    int current = 0;
+
+    for (int pid : part_ids) {
+        // Build folder name: part_ID_name
+        std::string pname;
+        auto it = part_names.find(pid);
+        if (it != part_names.end() && !it->second.empty()) {
+            pname = it->second;
+            // Sanitize for filesystem
+            for (char& c : pname) {
+                if (c == '/' || c == '\\' || c == ' ' || c == ':') c = '_';
+            }
+        }
+        std::string folder = "part_" + std::to_string(pid);
+        if (!pname.empty()) folder += "_" + pname;
+
+        fs::path part_dir = abs_output / folder;
+        fs::create_directories(part_dir);
+
+        for (int ai = 0; ai < 3; ++ai) {
+            current++;
+            std::string axis_name(1, axes[ai]);
+            fs::path out_path = part_dir / ("section_" + axis_name);
+
+            std::cout << "[SectionView] (" << current << "/" << total << ") "
+                      << "Part " << pid << " " << axis_name << "-axis"
+                      << (pname.empty() ? "" : " (" + pname + ")")
+                      << "\n";
+
+            // Generate cfile with per-part fringe range highlight
+            std::ostringstream script;
+            script << std::fixed << std::setprecision(6);
+            script << "$# Section view: Part " << pid << " " << axis_name << "-axis\n";
+            script << "open d3plot \"" << abs_d3plot.string() << "\"\n";
+            script << "ac\n";
+            script << "bgstyle fade\n\n";
+
+            // Section plane at origin, normal along axis
+            script << "splane dep0 0.0 0.0 0.0 "
+                   << normals[ai][0] << " " << normals[ai][1] << " " << normals[ai][2] << "\n";
+            script << "splane projectview\n";
+            script << "splane drawcut\n";
+            script << "ac\n\n";
+
+            // Fringe with per-part highlighting
+            // pfringe shows fringe per-part; combined with range userdef
+            // to emphasize the target part
+            script << "fringe " << fringe_code << "\n";
+            script << "pfringe\n";
+            if (!options.auto_fringe_range) {
+                script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+            }
+            script << "\n";
+
+            // Animation → movie
+            script << "anim forward\n";
+            script << "movie mt 0\n";
+            script << "movie MP4/H264 "
+                   << options.image_width << "x" << options.image_height
+                   << " \"" << out_path.string() << "\" " << options.fps << "\n\n";
+
+            script << "splane done\n";
+            script << "exit\n";
+
+            // Save and execute
+            fs::path cfile = part_dir / ("section_" + axis_name + ".cfile");
+            if (saveScript(script.str(), cfile.string())) {
+                std::string work_dir = abs_d3plot.parent_path().string();
+                if (executeLSPrePost(cfile.string(), work_dir)) {
+                    success++;
+                } else {
+                    std::cerr << "[SectionView] FAILED: Part " << pid
+                              << " " << axis_name << " — " << getLastError() << "\n";
+                }
+                fs::remove(cfile);  // cleanup
+            }
+        }
+    }
+
+    std::cout << "[SectionView] Completed: " << success << "/" << total << " renders\n";
+    return success;
 }
 
 // ============================================================

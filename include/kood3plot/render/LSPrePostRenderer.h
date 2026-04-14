@@ -18,6 +18,7 @@
 #include <vector>
 #include <memory>
 #include <array>
+#include <map>
 
 namespace kood3plot {
 namespace render {
@@ -340,6 +341,30 @@ public:
     bool executeLSPrePost(
         const std::string& script_path,
         const std::string& working_dir = ""
+    );
+
+    /**
+     * @brief Render section views for all parts × all axes (X/Y/Z)
+     *
+     * For each part, renders 3 section cut animations (X, Y, Z axis)
+     * using per-part fringe range to highlight the target part.
+     * Uses a dedicated Xvfb display for reliable view control.
+     *
+     * Output structure: output_dir/part_{id}_{name}/section_{axis}.mp4
+     *
+     * @param d3plot_path Path to d3plot file
+     * @param output_dir  Output root directory
+     * @param part_ids    Part IDs to render (empty = all available)
+     * @param part_names  Part name map (id → name) for folder naming
+     * @param options     Base render options (resolution, fps, fringe type)
+     * @return Number of successful renders
+     */
+    int renderAllPartSections(
+        const std::string& d3plot_path,
+        const std::string& output_dir,
+        const std::vector<int>& part_ids,
+        const std::map<int, std::string>& part_names = {},
+        const RenderOptions& options = RenderOptions()
     );
 
     /**
