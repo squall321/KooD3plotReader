@@ -90,10 +90,16 @@ private:
 
     /**
      * @brief Map RadiossState → d3plot StateData
+     *
+     * @param dst_mesh Destination mesh (used to convert displacement deltas
+     *                 back into absolute current coordinates — required by the
+     *                 LS-DYNA d3plot spec, which stores current coordinates in
+     *                 the IU=1 field, not deltas).
      */
     data::StateData mapState(const RadiossState& src,
                              const RadiossHeader& header,
-                             const data::ControlData& control);
+                             const data::ControlData& control,
+                             const data::Mesh& dst_mesh);
 };
 
 } // namespace converter

@@ -27,7 +27,12 @@ void RadiossToD3plotConverter::mapMesh(
 {
     // Title
     control.TITLE = options.title.empty() ? header.title : options.title;
-    control.NDIM = 5;  // Standard 3D
+    // NDIM = 4: matches what real LS-DYNA d3plot files use (verified against
+    // LS-DYNA R9.3 output). Both 3 and 4 use effective_ndim=3 for actual node
+    // coordinates (always 3 floats per node), but LS-PrePost treats NDIM=4
+    // as "LS-DYNA native format" which enables correct part rendering paths.
+    control.NDIM = 4;
+    control.ICODE = 6;  // LS-DYNA solver code (required for LS-PrePost format detection)
 
     // ── Nodes ──
     const size_t num_nodes = src.nodes.size();
@@ -117,7 +122,10 @@ void RadiossToD3plotConverter::mapMesh(
     // NV3D/NV2D: always set if elements exist (zero-fill if no stress data)
     control.NV3D = (control.NEL8 > 0) ? 7 : 0;
     control.NV2D = (control.NEL4 > 0) ? 33 : 0;
-    control.NV1D = 0;   // Beam results not extracted from Radioss animation
+    // NV1D must be >= 6 if beams exist (LS-PrePost requirement):
+    // 6 standard beam vars = axial force, shear_s, shear_t, moment_s, moment_t, torsion
+    // Values will be zero-filled by D3plotWriter (beam results not extracted from Radioss)
+    control.NV1D = (control.NEL2 > 0) ? 6 : 0;
     control.NV3DT = 0;
 
     // Material counts
@@ -133,7 +141,11 @@ void RadiossToD3plotConverter::mapMesh(
     control.NUMMAT2 = (control.NEL2 > 0 && !dst.beam_parts.empty()) ?
         static_cast<int32_t>(std::set<int32_t>(dst.beam_parts.begin(), dst.beam_parts.end()).size()) : 0;
     control.NUMMATT = 0;
-    control.NMMAT = static_cast<int32_t>(parts.size());
+    // NMMAT must equal the SUM of NUMMAT* (LS-PrePost requirement):
+    // LS-PrePost allocates a part table of size NMMAT and indexes
+    // solid/shell/beam materials sequentially. If NMMAT != sum, mapping breaks
+    // and geometry becomes invisible even though the file loads without error.
+    control.NMMAT = control.NUMMAT8 + control.NUMMAT4 + control.NUMMAT2 + control.NUMMATT;
     if (control.NMMAT == 0) control.NMMAT = 1;
 
     // Nodal output flags
@@ -148,6 +160,23 @@ void RadiossToD3plotConverter::mapMesh(
     control.EXTRA = 0;
     control.ISTRN = 0;  // Radioss animation files don't contain strain tensor
 
+    // MAXINT: shell integration point count. Must be >= 1 even when there are
+    // no shells, because LS-PrePost uses MAXINT in derived calculations
+    // (e.g. shell data word count) and MAXINT=0 triggers zero-division /
+    // empty-section code paths that lead to an invisible model.
+    control.MAXINT = 1;
+
+    // IOSHL[0..3]: shell output flags.
+    // The D3plotWriter encodes these as 1000 (true) / 999 (false).
+    // Real LS-DYNA single-precision files consistently use 1000 for all four
+    // slots regardless of whether shells are present, to signal that the
+    // corresponding section sizes in the state record are "defined". Using
+    // 999 confuses LS-PrePost into treating the whole state layout as empty.
+    control.IOSHL[0] = 1;
+    control.IOSHL[1] = 1;
+    control.IOSHL[2] = 1;
+    control.IOSHL[3] = 1;
+
     // Compute derived values
     control.compute_derived_values();
 }
@@ -159,7 +188,8 @@ void RadiossToD3plotConverter::mapMesh(
 data::StateData RadiossToD3plotConverter::mapState(
     const RadiossState& src,
     const RadiossHeader& header,
-    const data::ControlData& control)
+    const data::ControlData& control,
+    const data::Mesh& dst_mesh)
 {
     data::StateData dst;
     dst.time = src.time;
@@ -168,8 +198,29 @@ data::StateData RadiossToD3plotConverter::mapState(
     dst.global_vars.resize(control.NGLBV, 0.0);
 
     // ── Nodal data ──
+    // CRITICAL: The LS-DYNA d3plot spec stores CURRENT COORDINATES in the IU=1
+    // field (not displacement deltas). RadiossReader computes delta as
+    // (current_pos - initial_pos) when reading Radioss animation files, so we
+    // must add the initial node coordinates back here to recover the absolute
+    // current position expected by LS-PrePost. Failing to do this is what
+    // produced the "garbled / scrambled geometry" in LS-PrePost while
+    // KooD3plotReader still rendered correctly (it handled deltas internally).
     if (control.IU && !src.node_displacements.empty()) {
-        dst.node_displacements = src.node_displacements;
+        const size_t num_nodes = dst_mesh.nodes.size();
+        const size_t expected = num_nodes * 3;
+        if (src.node_displacements.size() >= expected) {
+            dst.node_displacements.resize(expected);
+            for (size_t i = 0; i < num_nodes; ++i) {
+                dst.node_displacements[i * 3 + 0] =
+                    dst_mesh.nodes[i].x + src.node_displacements[i * 3 + 0];
+                dst.node_displacements[i * 3 + 1] =
+                    dst_mesh.nodes[i].y + src.node_displacements[i * 3 + 1];
+                dst.node_displacements[i * 3 + 2] =
+                    dst_mesh.nodes[i].z + src.node_displacements[i * 3 + 2];
+            }
+        } else {
+            dst.node_displacements = src.node_displacements;
+        }
     }
     if (control.IV && !src.node_velocities.empty()) {
         dst.node_velocities = src.node_velocities;
@@ -332,7 +383,7 @@ RadiossConversionResult RadiossToD3plotConverter::convert(
 
     // Map states one at a time to minimize memory usage
     for (size_t i = 0; i < radioss_states.size(); ++i) {
-        auto d3_state = mapState(radioss_states[i], header, control);
+        auto d3_state = mapState(radioss_states[i], header, control, d3_mesh);
         writer.addState(d3_state);
 
         if (options.verbose && (i % 50 == 0 || i == radioss_states.size() - 1)) {
