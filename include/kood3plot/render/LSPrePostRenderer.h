@@ -206,11 +206,24 @@ struct RenderOptions {
 };
 
 /**
+ * @brief Options for renderAllPartSections()
+ */
+struct PartSectionOptions {
+    bool section_view = true;    ///< Generate section views (projectview + drawcut)
+    bool iso_clip_view = true;   ///< Generate isometric clip views (clipplane)
+    std::vector<char> axes = {'x', 'y', 'z'};  ///< Axes to render
+    double section_position = 0.5;  ///< Section position within part bbox (0.0=min, 0.5=center, 1.0=max)
+    int edge_width = 2;          ///< Edge/outline width (1-5)
+    double section_margin = -0.3; ///< zin margin for section view (negative = zoom out)
+    double iso_clip_margin = -1.5; ///< zin margin for iso clip view
+};
+
+/**
  * @brief LSPrePost external renderer
  *
  * Automates LSPrePost for section view rendering and animation export.
- * Uses batch mode (lsprepost -nographics c=script.cfile) to generate
- * images and videos from d3plot files.
+ * Uses batch mode with dedicated Xvfb to generate images and videos
+ * from d3plot files.
  */
 class LSPrePostRenderer {
 public:
@@ -371,7 +384,8 @@ public:
         const std::string& output_dir,
         const std::vector<int>& part_ids,
         const std::map<int, std::string>& part_names = {},
-        const RenderOptions& options = RenderOptions()
+        const RenderOptions& options = RenderOptions(),
+        const PartSectionOptions& section_opts = PartSectionOptions()
     );
 
     /**

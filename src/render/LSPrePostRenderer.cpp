@@ -448,23 +448,42 @@ int LSPrePostRenderer::renderAllPartSections(
     const std::string& output_dir,
     const std::vector<int>& part_ids,
     const std::map<int, std::string>& part_names,
-    const RenderOptions& options)
+    const RenderOptions& options,
+    const PartSectionOptions& section_opts)
 {
     namespace fs = std::filesystem;
     fs::path abs_d3plot = fs::absolute(d3plot_path);
     fs::path abs_output = fs::absolute(output_dir);
     fs::create_directories(abs_output);
 
-    const char axes[] = {'x', 'y', 'z'};
     const double normals[][3] = {{1,0,0}, {0,1,0}, {0,0,1}};
     int fringe_code = fringeTypeToCode(options.fringe_type);
 
-    // Part bbox center used as section plane origin
-    auto model_bbox = GeometryAnalyzer::calculateModelBounds(reader, 0);
+    // Axis char → index
+    auto axisIndex = [](char c) -> int {
+        if (c == 'x' || c == 'X') return 0;
+        if (c == 'y' || c == 'Y') return 1;
+        return 2;
+    };
 
-    int success = 0;
-    int total = (int)part_ids.size() * 3;
-    int current = 0;
+    // Iso clip view: rotation per axis
+    // X-section: front → ry+45 → rx+35, clipplane +
+    // Y-section: front → ry-45 → rx+35, clipplane -
+    // Z-section: top  → ry+45 → rx-35, clipplane -
+    struct IsoViewDef {
+        const char* base_view;
+        int ry_angle, rx_angle;
+        const char* clip_sign;
+    };
+    const IsoViewDef iso_views[3] = {
+        {"front",  45,  35, "+"},  // X
+        {"front", -45,  35, "-"},  // Y
+        {"top",    45, -35, "-"},  // Z
+    };
+
+    int views_per_axis = (section_opts.section_view ? 1 : 0) + (section_opts.iso_clip_view ? 1 : 0);
+    int total = (int)part_ids.size() * (int)section_opts.axes.size() * views_per_axis;
+    int success = 0, current = 0;
 
     for (int pid : part_ids) {
         std::string pname;
@@ -481,81 +500,133 @@ int LSPrePostRenderer::renderAllPartSections(
         fs::path part_dir = abs_output / folder;
         fs::create_directories(part_dir);
 
-        // Part bbox center for section plane
         auto part_bbox = GeometryAnalyzer::calculatePartBounds(reader, pid, 0);
-        double sp[3] = {part_bbox.center[0], part_bbox.center[1], part_bbox.center[2]};
+        double pos = section_opts.section_position;
+        double sp[3] = {
+            part_bbox.min[0] + pos * (part_bbox.max[0] - part_bbox.min[0]),
+            part_bbox.min[1] + pos * (part_bbox.max[1] - part_bbox.min[1]),
+            part_bbox.min[2] + pos * (part_bbox.max[2] - part_bbox.min[2]),
+        };
 
-        for (int ai = 0; ai < 3; ++ai) {
-            current++;
-            std::string axis_name(1, axes[ai]);
-            fs::path out_path = part_dir / ("section_" + axis_name);
+        // Helper: generate common fringe isolation block
+        auto writeFringeIsolation = [&](std::ostringstream& s) {
+            s << "genselect target part\n";
+            s << "selectpart select 1\n";
+            s << "genselect part remove part " << pid << "/0\n";
+            s << "selectpart reverse\n";
+            s << "selectpart select 0\n";
+            s << "fringe " << fringe_code << "\n";
+            s << "pfringe\n\n";
+        };
 
-            std::cout << "[SectionView] (" << current << "/" << total << ") "
-                      << "Part " << pid << " " << axis_name << "-axis"
-                      << (pname.empty() ? "" : " (" + pname + ")")
-                      << "\n";
+        auto writeRestoreAll = [&](std::ostringstream& s) {
+            s << "genselect target part\n";
+            s << "selectpart select 1\n";
+            s << "selectpart all on\n";
+            s << "selectpart select 0\n\n";
+        };
 
-            // ── Build cfile ──
-            std::ostringstream script;
-            script << std::fixed << std::setprecision(6);
-            script << "$# Section view: Part " << pid << " " << axis_name << "-axis\n";
-            script << "bgstyle fade\n";
-            script << "open d3plot \"" << abs_d3plot.string() << "\"\n";
-            script << "ac\n";
-            script << "mesh off\n\n";
+        auto writeTargetOnly = [&](std::ostringstream& s) {
+            s << "genselect target part\n";
+            s << "selectpart select 1\n";
+            s << "selectpart all off\n";
+            s << "selectpart part " << pid << " on\n";
+            s << "selectpart select 0\n";
+        };
 
-            // Step 1: Isolate target for fringe (genselect remove → reverse)
-            script << "genselect target part\n";
-            script << "selectpart select 1\n";
-            script << "genselect part remove part " << pid << "/0\n";
-            script << "selectpart reverse\n";
-            script << "selectpart select 0\n";
-            script << "fringe " << fringe_code << "\n";
-            script << "pfringe\n\n";
+        for (char axis_char : section_opts.axes) {
+            int ai = axisIndex(axis_char);
+            std::string axis_name(1, axis_char);
 
-            // Step 2: Show only target → section → ac (fit to target)
-            script << "genselect target part\n";
-            script << "selectpart select 1\n";
-            script << "selectpart all off\n";
-            script << "selectpart part " << pid << " on\n";
-            script << "selectpart select 0\n";
+            // ── (A) Section view: projectview + drawcut ──
+            if (section_opts.section_view) {
+                current++;
+                fs::path out_path = part_dir / ("section_" + axis_name);
+                std::cout << "[SectionView] (" << current << "/" << total << ") "
+                          << "Part " << pid << " section-" << axis_name
+                          << " pos=" << (int)(pos*100) << "%"
+                          << (pname.empty() ? "" : " (" + pname + ")") << "\n";
 
-            script << "splane dep0 " << sp[0] << " " << sp[1] << " " << sp[2] << " "
-                   << normals[ai][0] << " " << normals[ai][1] << " " << normals[ai][2] << "\n";
-            script << "splane projectview\n";
-            script << "splane drawcut\n";
-            script << "ac\n";
+                double sm = section_opts.section_margin;
+                std::ostringstream script;
+                script << std::fixed << std::setprecision(6);
+                script << "bgstyle fade\n"
+                       << "open d3plot \"" << abs_d3plot.string() << "\"\n"
+                       << "ac\nmesh off\n"
+                       << "edgelwidth " << section_opts.edge_width << "\n\n";
 
-            // Step 3: Zoom out slightly for context (margin=0.3)
-            script << "zin -0.3 -0.3 1.3 1.3\n\n";
+                writeFringeIsolation(script);
+                writeTargetOnly(script);
 
-            // Step 4: Restore all parts (camera stays at target zoom)
-            script << "genselect target part\n";
-            script << "selectpart select 1\n";
-            script << "selectpart all on\n";
-            script << "selectpart select 0\n\n";
+                script << "splane dep0 " << sp[0] << " " << sp[1] << " " << sp[2] << " "
+                       << normals[ai][0] << " " << normals[ai][1] << " " << normals[ai][2] << "\n"
+                       << "splane projectview\nsplane drawcut\nac\n"
+                       << "zin " << sm << " " << sm << " " << (1.0-sm) << " " << (1.0-sm) << "\n\n";
 
-            // Step 5: Animation → movie
-            script << "anim forward\n";
-            script << "movie mt 0\n";
-            script << "movie MP4/H264 "
-                   << options.image_width << "x" << options.image_height
-                   << " \"" << out_path.string() << "\" " << options.fps << "\n\n";
+                writeRestoreAll(script);
 
-            script << "splane done\n";
-            script << "exit\n";
+                script << "anim forward\nmovie mt 0\n"
+                       << "movie MP4/H264 " << options.image_width << "x" << options.image_height
+                       << " \"" << out_path.string() << "\" " << options.fps << "\n\n"
+                       << "splane done\nexit\n";
 
-            // Save and execute
-            fs::path cfile = part_dir / ("section_" + axis_name + ".cfile");
-            if (saveScript(script.str(), cfile.string())) {
-                std::string work_dir = abs_d3plot.parent_path().string();
-                if (executeLSPrePost(cfile.string(), work_dir)) {
-                    success++;
-                } else {
-                    std::cerr << "[SectionView] FAILED: Part " << pid
-                              << " " << axis_name << " — " << getLastError() << "\n";
+                fs::path cfile = part_dir / ("section_" + axis_name + ".cfile");
+                if (saveScript(script.str(), cfile.string())) {
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()))
+                        success++;
+                    else
+                        std::cerr << "[SectionView] FAILED: Part " << pid << " section-" << axis_name << "\n";
+                    fs::remove(cfile);
                 }
-                fs::remove(cfile);
+            }
+
+            // ── (B) Iso clip view: isometric + clipplane ──
+            if (section_opts.iso_clip_view) {
+                current++;
+                fs::path out_path = part_dir / ("iso_clip_" + axis_name);
+                const auto& iv = iso_views[ai];
+                double im = section_opts.iso_clip_margin;
+                std::cout << "[SectionView] (" << current << "/" << total << ") "
+                          << "Part " << pid << " iso_clip-" << axis_name
+                          << " pos=" << (int)(pos*100) << "%"
+                          << (pname.empty() ? "" : " (" + pname + ")") << "\n";
+
+                std::ostringstream script;
+                script << std::fixed << std::setprecision(6);
+                script << "bgstyle fade\n"
+                       << "open d3plot \"" << abs_d3plot.string() << "\"\n"
+                       << "ac\nmesh off\nshademode 1\n"
+                       << "edgelwidth " << section_opts.edge_width << "\n\n";
+
+                writeFringeIsolation(script);
+                writeRestoreAll(script);
+
+                script << iv.base_view << "\n"
+                       << "rotang " << iv.ry_angle << "\nry\n"
+                       << "rotang " << iv.rx_angle << "\nrx\n";
+
+                writeTargetOnly(script);
+                script << "ac\n";
+                writeRestoreAll(script);
+
+                script << "splane dep0 " << sp[0] << " " << sp[1] << " " << sp[2] << " "
+                       << normals[ai][0] << " " << normals[ai][1] << " " << normals[ai][2] << "\n"
+                       << "splane clipplane " << iv.clip_sign << "\n"
+                       << "zin " << im << " " << im << " " << (1.0-im) << " " << (1.0-im) << "\n\n";
+
+                script << "anim forward\nmovie mt 0\n"
+                       << "movie MP4/H264 " << options.image_width << "x" << options.image_height
+                       << " \"" << out_path.string() << "\" " << options.fps << "\n\n"
+                       << "splane done\nexit\n";
+
+                fs::path cfile = part_dir / ("iso_clip_" + axis_name + ".cfile");
+                if (saveScript(script.str(), cfile.string())) {
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()))
+                        success++;
+                    else
+                        std::cerr << "[SectionView] FAILED: Part " << pid << " iso_clip-" << axis_name << "\n";
+                    fs::remove(cfile);
+                }
             }
         }
     }
