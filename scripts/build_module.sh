@@ -9,6 +9,7 @@
 #   ./scripts/build_module.sh                          # 기본 (./module/)
 #   ./scripts/build_module.sh --prefix /opt/kood3plot  # 커스텀 경로
 #   ./scripts/build_module.sh --no-viewer              # 뷰어 제외 (headless)
+#   ./scripts/build_module.sh --nuitka                 # Python→standalone exe (Python 불필요)
 #   ./scripts/build_module.sh --with-lsprepost <path>  # LSPrePost 포함
 #
 # Apptainer def 파일에서:
@@ -42,6 +43,7 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 BUILD_TYPE="Release"
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 BUILD_VIEWER=true
+BUILD_NUITKA=false
 LSPREPOST_SRC=""
 
 # Colors
@@ -60,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --jobs)            JOBS="$2"; shift 2 ;;
         --build-type)      BUILD_TYPE="$2"; shift 2 ;;
         --no-viewer)       BUILD_VIEWER=false; shift ;;
+        --nuitka)          BUILD_NUITKA=true; shift ;;
         --with-lsprepost)  LSPREPOST_SRC="$2"; shift 2 ;;
         --help|-h)
             sed -n '/^# ==/,/^# ==/p' "$0" | sed 's/^# //' | head -35
@@ -77,6 +80,7 @@ echo "  Source:     ${PROJECT_ROOT}"
 echo "  Prefix:     ${PREFIX}"
 echo "  Build:      ${BUILD_TYPE} (${JOBS} jobs)"
 echo "  Viewer:     ${BUILD_VIEWER}"
+echo "  Nuitka:     ${BUILD_NUITKA}"
 echo "  LSPrePost:  ${LSPREPOST_SRC:-(not included)}"
 echo ""
 
@@ -203,6 +207,56 @@ ok "koo_sphere_report wrapper → bin/"
 cp "${PROJECT_ROOT}/scripts/post_analyze.sh" "${PREFIX}/bin/post_analyze"
 chmod +x "${PREFIX}/bin/post_analyze"
 ok "post_analyze → bin/"
+
+# ============================================================
+# Nuitka standalone builds (optional)
+# ============================================================
+if [ "$BUILD_NUITKA" = true ]; then
+    log "Building standalone executables with Nuitka..."
+
+    if ! python3 -m nuitka --version &>/dev/null; then
+        warn "Nuitka not found — installing..."
+        pip install nuitka ordered-set 2>/dev/null || pip install --user nuitka ordered-set 2>/dev/null || {
+            err "Failed to install Nuitka"; BUILD_NUITKA=false;
+        }
+    fi
+
+    if [ "$BUILD_NUITKA" = true ]; then
+        NUITKA_COMMON=(
+            --standalone
+            --onefile
+            --assume-yes-for-downloads
+            --remove-output
+            --no-pyi-file
+        )
+
+        # koo_deep_report
+        log "  Building koo_deep_report (Nuitka)..."
+        DEEP_SRC="${PROJECT_ROOT}/python/koo_deep_report"
+        python3 -m nuitka "${NUITKA_COMMON[@]}" \
+            --include-package=koo_deep_report \
+            --output-filename=koo_deep_report \
+            --output-dir="${PREFIX}/bin" \
+            "${DEEP_SRC}/koo_deep_report/__main__.py" \
+            2>&1 | tail -5 \
+            && ok "koo_deep_report (Nuitka standalone) → bin/" \
+            || warn "koo_deep_report Nuitka build failed (shell wrapper still available)"
+
+        # koo_sphere_report
+        log "  Building koo_sphere_report (Nuitka)..."
+        SPHERE_SRC="${PROJECT_ROOT}/python/koo_sphere_report"
+        python3 -m nuitka "${NUITKA_COMMON[@]}" \
+            --include-package=koo_sphere_report \
+            --output-filename=koo_sphere_report \
+            --output-dir="${PREFIX}/bin" \
+            "${SPHERE_SRC}/koo_sphere_report/__main__.py" \
+            2>&1 | tail -5 \
+            && ok "koo_sphere_report (Nuitka standalone) → bin/" \
+            || warn "koo_sphere_report Nuitka build failed (shell wrapper still available)"
+
+        echo ""
+    fi
+fi
 
 # LSPrePost (optional)
 if [ -n "${LSPREPOST_SRC}" ] && [ -d "${LSPREPOST_SRC}" ]; then
