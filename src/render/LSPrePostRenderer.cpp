@@ -439,6 +439,29 @@ std::string LSPrePostRenderer::getLastOutput() const {
 }
 
 // ============================================================
+// ffmpeg re-encode helper
+// ============================================================
+
+static bool reencodeMP4(const std::string& path, int crf) {
+    namespace fs = std::filesystem;
+    if (crf <= 0) return true;  // skip
+    std::string mp4 = path + ".mp4";
+    if (!fs::exists(mp4)) return false;
+
+    std::string tmp = path + "_tmp.mp4";
+    std::ostringstream cmd;
+    cmd << "ffmpeg -y -i \"" << mp4 << "\" -c:v libx264 -crf " << crf
+        << " -preset medium -an \"" << tmp << "\" >/dev/null 2>&1";
+
+    if (std::system(cmd.str().c_str()) == 0 && fs::exists(tmp)) {
+        fs::rename(tmp, mp4);
+        return true;
+    }
+    fs::remove(tmp);  // cleanup on failure
+    return false;
+}
+
+// ============================================================
 // All-Part Section View Batch Rendering
 // ============================================================
 
@@ -572,10 +595,12 @@ int LSPrePostRenderer::renderAllPartSections(
 
                 fs::path cfile = part_dir / ("section_" + axis_name + ".cfile");
                 if (saveScript(script.str(), cfile.string())) {
-                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()))
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string())) {
+                        reencodeMP4(out_path.string(), section_opts.crf);
                         success++;
-                    else
+                    } else {
                         std::cerr << "[SectionView] FAILED: Part " << pid << " section-" << axis_name << "\n";
+                    }
                     fs::remove(cfile);
                 }
             }
@@ -621,10 +646,12 @@ int LSPrePostRenderer::renderAllPartSections(
 
                 fs::path cfile = part_dir / ("iso_clip_" + axis_name + ".cfile");
                 if (saveScript(script.str(), cfile.string())) {
-                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()))
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string())) {
+                        reencodeMP4(out_path.string(), section_opts.crf);
                         success++;
-                    else
+                    } else {
                         std::cerr << "[SectionView] FAILED: Part " << pid << " iso_clip-" << axis_name << "\n";
+                    }
                     fs::remove(cfile);
                 }
             }

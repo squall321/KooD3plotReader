@@ -216,6 +216,7 @@ struct PartSectionOptions {
     int edge_width = 2;          ///< Edge/outline width (1-5)
     double section_margin = -0.3; ///< zin margin for section view (negative = zoom out)
     double iso_clip_margin = -1.5; ///< zin margin for iso clip view
+    int crf = 23;                ///< H264 CRF for ffmpeg re-encode (18=high, 23=default, 28=compact, 0=skip)
 };
 
 /**
