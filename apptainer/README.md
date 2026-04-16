@@ -38,6 +38,41 @@ apptainer/
 
 빌드 시간: headless ~5분, full ~10분 (소스에서 전체 컴파일).
 
+### SIF 파일 위치
+
+| 단계 | 경로 |
+|------|------|
+| **빌드 직후** (프로젝트 내) | `<project_root>/apptainer/kood3plot_{headless,full}.sif` |
+| **공유 배포 경로 (권장)** | `/opt/containers/kood3plot_{headless,full}.sif` |
+| 개인/스크래치 공간 | 임의 (`--bind` 설정에 주의) |
+
+빌드 후 공유 경로로 이동:
+
+```bash
+# 관리자 권한으로
+sudo mkdir -p /opt/containers
+sudo cp apptainer/kood3plot_headless.sif /opt/containers/
+sudo cp apptainer/kood3plot_full.sif /opt/containers/
+
+# 또는 NFS/공유 저장소에
+cp apptainer/kood3plot_headless.sif /nfs/shared/containers/
+```
+
+이후 사용자는 다음 경로 중 하나에서 SIF를 참조:
+
+```bash
+# 방법 1: 환경변수 (스크립트에서)
+SIF=/opt/containers/kood3plot_headless.sif
+apptainer exec --bind /data "$SIF" post_analyze /data/test_001
+
+# 방법 2: 절대 경로 직접
+apptainer exec --bind /data /opt/containers/kood3plot_headless.sif post_analyze /data/test_001
+
+# 방법 3: 모듈 시스템 (environment module / lmod)
+module load kood3plot/2.3.1
+post_analyze /data/test_001    # alias로 감싸진 상태
+```
+
 ---
 
 ## Headless 이미지에서 지원되는 기능
