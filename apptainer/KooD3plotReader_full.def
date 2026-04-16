@@ -1,0 +1,75 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author       KooD3plotReader Team
+    Version      2.3.1
+    Description  LS-DYNA d3plot post-processing toolchain (full, with GUI viewer)
+
+%help
+    KooD3plotReader — Full post-processing module with interactive GUI.
+
+    Bundled tools (PATH):
+      unified_analyzer     — C++ d3plot analysis engine
+      koo_viewer           — Interactive GUI viewer (OpenGL 3.3)
+      koo_deep_report      — Python single-sim report
+      koo_sphere_report    — Python all-angle sphere report
+      post_analyze         — Bash orchestrator
+
+    Desktop usage (needs X11 + GPU):
+      apptainer exec --nv --bind /tmp/.X11-unix kood3plot_full.sif \
+          koo_viewer sphere /data/test_001
+
+    Headless usage:
+      apptainer exec kood3plot_full.sif post_analyze /data/test_001
+
+    Build:
+      apptainer build kood3plot_full.sif KooD3plotReader_full.def
+
+%post
+    set -e
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential cmake g++ git ca-certificates \
+        libomp-dev python3 python3-pip python3-venv \
+        ffmpeg libpng-dev xvfb \
+        libgl-dev libx11-dev libxrandr-dev libxinerama-dev \
+        libxcursor-dev libxi-dev libxext-dev \
+        libwayland-dev libxkbcommon-dev
+
+    cd /opt
+    git clone --depth 1 https://github.com/squall321/KooD3plotReader.git
+    cd KooD3plotReader
+
+    # Build module (full: viewer + no Nuitka)
+    ./scripts/build_module.sh --prefix /opt/kood3plot
+
+    rm -rf /opt/KooD3plotReader/build
+    rm -rf /opt/KooD3plotReader/.git
+
+    pip install --no-cache-dir rich pyyaml
+
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    export KOOD3PLOT_HOME=/opt/kood3plot
+    export PATH=/opt/kood3plot/bin:$PATH
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report
+    export LSPREPOST_PATH=/opt/kood3plot/lsprepost
+    export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
+
+%runscript
+    if [ $# -eq 0 ]; then
+        cat /opt/kood3plot/VERSION
+        echo ""
+        echo "Usage: apptainer exec [--nv] kood3plot_full.sif <command> [args]"
+        exit 0
+    fi
+    exec "$@"
+
+%test
+    /opt/kood3plot/bin/unified_analyzer --help >/dev/null
+    /opt/kood3plot/bin/koo_viewer 2>&1 | head -1 >/dev/null || true
+    echo "All tools available"
