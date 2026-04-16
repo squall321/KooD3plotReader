@@ -230,29 +230,44 @@ if [ "$BUILD_NUITKA" = true ]; then
             --no-pyi-file
         )
 
+        NUITKA_TMP=$(mktemp -d)
+
         # koo_deep_report
         log "  Building koo_deep_report (Nuitka)..."
         DEEP_SRC="${PROJECT_ROOT}/python/koo_deep_report"
+        cat > "${NUITKA_TMP}/entry_deep.py" << 'ENTRY'
+from koo_deep_report.__main__ import main
+main()
+ENTRY
+        cd "${DEEP_SRC}"
         python3 -m nuitka "${NUITKA_COMMON[@]}" \
             --include-package=koo_deep_report \
             --output-filename=koo_deep_report \
             --output-dir="${PREFIX}/bin" \
-            "${DEEP_SRC}/koo_deep_report/__main__.py" \
-            2>&1 | tail -5 \
-            && ok "koo_deep_report (Nuitka standalone) → bin/" \
+            "${NUITKA_TMP}/entry_deep.py" \
+            2>&1 | tail -3 \
+            && ok "koo_deep_report (Nuitka onefile) → bin/" \
             || warn "koo_deep_report Nuitka build failed (shell wrapper still available)"
 
         # koo_sphere_report
         log "  Building koo_sphere_report (Nuitka)..."
         SPHERE_SRC="${PROJECT_ROOT}/python/koo_sphere_report"
+        cat > "${NUITKA_TMP}/entry_sphere.py" << 'ENTRY'
+from koo_sphere_report.__main__ import main
+main()
+ENTRY
+        cd "${SPHERE_SRC}"
         python3 -m nuitka "${NUITKA_COMMON[@]}" \
             --include-package=koo_sphere_report \
             --output-filename=koo_sphere_report \
             --output-dir="${PREFIX}/bin" \
-            "${SPHERE_SRC}/koo_sphere_report/__main__.py" \
-            2>&1 | tail -5 \
-            && ok "koo_sphere_report (Nuitka standalone) → bin/" \
+            "${NUITKA_TMP}/entry_sphere.py" \
+            2>&1 | tail -3 \
+            && ok "koo_sphere_report (Nuitka onefile) → bin/" \
             || warn "koo_sphere_report Nuitka build failed (shell wrapper still available)"
+
+        rm -rf "${NUITKA_TMP}"
+        cd "${PROJECT_ROOT}"
 
         echo ""
     fi
