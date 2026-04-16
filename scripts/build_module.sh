@@ -138,6 +138,7 @@ else
     CMAKE_OPTS+=(-DKOOD3PLOT_BUILD_VIEWER=OFF)
 fi
 
+mkdir -p "${BUILD_DIR}"
 cmake -B "${BUILD_DIR}" -S "${PROJECT_ROOT}" "${CMAKE_OPTS[@]}" \
     > "${BUILD_DIR}/cmake_config.log" 2>&1
 ok "CMake configured"
