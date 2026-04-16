@@ -262,155 +262,155 @@ void D3plotWriter::Impl::writeControlData() {
     write_float_word(0.0);
 
     // Word 11: File type (int, d3plot = 1)
-    write_int_word(1);
+    writer.write_int(1);
 
     // Word 12: Source version (int, 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 13: Release version (int, 960)
-    write_int_word(960);
+    writer.write_int(960);
 
     // Word 14: Version (FLOAT - 960.0, CRITICAL for format detection!)
     write_float_word(960.0);
 
     // Word 15: NDIM (int)
-    write_int_word(control.NDIM);
+    writer.write_int(control.NDIM);
 
     // Word 16: NUMNP (int)
-    write_int_word(control.NUMNP);
+    writer.write_int(control.NUMNP);
 
     // Word 17: ICODE (int)
-    write_int_word(control.ICODE);
+    writer.write_int(control.ICODE);
 
     // Word 18: NGLBV (int)
-    write_int_word(control.NGLBV);
+    writer.write_int(control.NGLBV);
 
     // Word 19: IT (int)
-    write_int_word(control.IT);
+    writer.write_int(control.IT);
 
     // Word 20: IU (int)
-    write_int_word(control.IU);
+    writer.write_int(control.IU);
 
     // Word 21: IV (int)
-    write_int_word(control.IV);
+    writer.write_int(control.IV);
 
     // Word 22: IA (int)
-    write_int_word(control.IA);
+    writer.write_int(control.IA);
 
     // Word 23: NEL8 (int)
-    write_int_word(control.NEL8);
+    writer.write_int(control.NEL8);
 
     // Word 24: NUMMAT8 (int)
-    write_int_word(control.NUMMAT8);
+    writer.write_int(control.NUMMAT8);
 
     // Word 25: NUMDS (int, unused = 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 26: NUMST (int, unused = 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 27: NV3D (int)
-    write_int_word(control.NV3D);
+    writer.write_int(control.NV3D);
 
     // Word 28: NEL2 (int)
-    write_int_word(control.NEL2);
+    writer.write_int(control.NEL2);
 
     // Word 29: NUMMAT2 (int)
-    write_int_word(control.NUMMAT2);
+    writer.write_int(control.NUMMAT2);
 
     // Word 30: NV1D (int)
-    write_int_word(control.NV1D);
+    writer.write_int(control.NV1D);
 
     // Word 31: NEL4 (int)
-    write_int_word(control.NEL4);
+    writer.write_int(control.NEL4);
 
     // Word 32: NUMMAT4 (int)
-    write_int_word(control.NUMMAT4);
+    writer.write_int(control.NUMMAT4);
 
     // Word 33: NV2D (int)
-    write_int_word(control.NV2D);
+    writer.write_int(control.NV2D);
 
     // Word 34: NEIPH (int)
-    write_int_word(control.NEIPH);
+    writer.write_int(control.NEIPH);
 
     // Word 35: NEIPS (int)
-    write_int_word(control.NEIPS);
+    writer.write_int(control.NEIPS);
 
     // Word 36: MAXINT (int)
-    write_int_word(control.MAXINT);
+    writer.write_int(control.MAXINT);
 
     // Word 37: EDLOPT/NMSPH (int)
-    write_int_word(control.NMSPH);
+    writer.write_int(control.NMSPH);
 
     // Word 38: NGPSPH (int)
-    write_int_word(control.NGPSPH);
+    writer.write_int(control.NGPSPH);
 
     // Word 39: NARBS (int)
-    write_int_word(control.NARBS);
+    writer.write_int(control.NARBS);
 
     // Word 40: NELT (int)
-    write_int_word(control.NELT);
+    writer.write_int(control.NELT);
 
     // Word 41: NUMMATT (int)
-    write_int_word(control.NUMMATT);
+    writer.write_int(control.NUMMATT);
 
     // Word 42: NV3DT (int)
-    write_int_word(control.NV3DT);
+    writer.write_int(control.NV3DT);
 
     // Word 43: IOSHL(1) (int, 1000 = yes, 999 = no)
-    write_int_word(control.IOSHL[0] ? 1000 : 999);
+    writer.write_int(control.IOSHL[0] ? 1000 : 999);
 
     // Word 44: IOSHL(2) (int)
-    write_int_word(control.IOSHL[1] ? 1000 : 999);
+    writer.write_int(control.IOSHL[1] ? 1000 : 999);
 
     // Word 45: IOSHL(3) (int)
-    write_int_word(control.IOSHL[2] ? 1000 : 999);
+    writer.write_int(control.IOSHL[2] ? 1000 : 999);
 
     // Word 46: IOSHL(4) (int)
-    write_int_word(control.IOSHL[3] ? 1000 : 999);
+    writer.write_int(control.IOSHL[3] ? 1000 : 999);
 
     // Word 47: IALEMAT (int)
-    write_int_word(control.IALEMAT);
+    writer.write_int(control.IALEMAT);
 
     // Word 48: NCFDV1 (int, unused = 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 49: Reserved (int, 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 50: Reserved (int, 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 51: NMMAT (int)
-    write_int_word(control.NMMAT);
+    writer.write_int(control.NMMAT);
 
     // Word 52: NCFDV2 (int, unused = 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 53: Reserved (int, 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 54: Reserved (int, 0)
-    write_int_word(0);
+    writer.write_int(0);
 
     // Word 55: DT (float)
     write_float_word(control.DT);
 
     // Word 56: IDTDT (int)
-    write_int_word(control.IDTDT);
+    writer.write_int(control.IDTDT);
 
     // Word 57: EXTRA (int)
-    write_int_word(control.EXTRA);
+    writer.write_int(control.EXTRA);
 
     // Words 58-63: Reserved (int, zeros)
     for (int i = 58; i < 64; ++i) {
-        write_int_word(0);
+        writer.write_int(0);
     }
 
     // Extended control words (if EXTRA > 0)
     if (control.EXTRA > 0) {
         for (int i = 0; i < control.EXTRA; ++i) {
-            write_int_word(0);
+            writer.write_int(0);
         }
     }
 }
@@ -554,96 +554,88 @@ void D3plotWriter::Impl::writeGeometry() {
 }
 
 void D3plotWriter::Impl::writeNARBS() {
-    // NARBS section contains arbitrary numbering information
-    // This is a simplified implementation
+    // NARBS section — arbitrary numbering block.
+    // LS-DYNA d3plot spec (ls-dyna_database.txt):
+    //   10 header words (NSORT..NSRTD)
+    //   NUMNP words           : user node IDs
+    //   NEL8  words           : user solid element IDs
+    //   NELT  words           : user tshell element IDs   (BEFORE beams, per spec order)
+    //   NEL2  words           : user beam element IDs
+    //   NEL4  words           : user shell element IDs
+    //   NMMAT words           : NORDER  (ordered user material/part IDs)
+    //   NMMAT words           : NSRMU   (unordered material IDs)
+    //   NMMAT words           : NSRMP   (cross-reference array)
+    //   NMMAT words           : material type numbers (MT array)
+    // Total = 10 + NUMNP + NEL8 + NELT + NEL2 + NEL4 + 4*NMMAT
+    //
+    // Without this block, a reader cannot resolve element->part mapping
+    // and per-part analysis collapses to a single bucket. This is what was
+    // happening to Radioss-origin d3plot files in KooOpenRadioss.
 
     if (control.NARBS <= 0) return;
 
-    // Write NARBS header
-    // Word 1: NSORT (sorting flag)
-    writer.write_int(0);
-
-    // Word 2: NSRH
-    writer.write_int(0);
-
-    // Word 3: NSRB
-    writer.write_int(0);
-
-    // Word 4: NSRS
-    writer.write_int(0);
-
-    // Word 5: NSRT
-    writer.write_int(0);
-
-    // Word 6: NSORTD
-    writer.write_int(0);
-
-    // Word 7: NSRHD
-    writer.write_int(0);
-
-    // Word 8: NSRBD
-    writer.write_int(0);
-
-    // Word 9: NSRSD
-    writer.write_int(0);
-
-    // Word 10: NSRTD
-    writer.write_int(0);
-
-    // Write node IDs
-    if (!mesh.real_node_ids.empty()) {
-        writer.write_int_array(mesh.real_node_ids);
-    } else {
-        // Write sequential IDs
-        for (int i = 1; i <= control.NUMNP; ++i) {
-            writer.write_int(i);
-        }
-    }
-
-    // Write element IDs (solids)
     int nel8 = std::abs(control.NEL8);
-    if (!mesh.real_solid_ids.empty()) {
-        writer.write_int_array(mesh.real_solid_ids);
+    int nelt = control.NELT;
+    int nel2 = control.NEL2;
+    int nel4 = control.NEL4;
+    int nmmat = control.NMMAT;
+
+    // ---- 10-word header ----
+    for (int i = 0; i < 10; ++i) writer.write_int(0);
+
+    // ---- NUMNP user node IDs ----
+    if (static_cast<int>(mesh.real_node_ids.size()) == control.NUMNP) {
+        for (int32_t v : mesh.real_node_ids) writer.write_int(v);
     } else {
-        for (int i = 1; i <= nel8; ++i) {
-            writer.write_int(i);
-        }
+        for (int i = 1; i <= control.NUMNP; ++i) writer.write_int(i);
     }
 
-    // Write element IDs (beams)
-    if (!mesh.real_beam_ids.empty()) {
-        writer.write_int_array(mesh.real_beam_ids);
+    // ---- NEL8 user solid IDs ----
+    if (static_cast<int>(mesh.real_solid_ids.size()) == nel8) {
+        for (int32_t v : mesh.real_solid_ids) writer.write_int(v);
     } else {
-        for (int i = 1; i <= control.NEL2; ++i) {
-            writer.write_int(i);
-        }
+        for (int i = 1; i <= nel8; ++i) writer.write_int(i);
     }
 
-    // Write element IDs (shells)
-    if (!mesh.real_shell_ids.empty()) {
-        writer.write_int_array(mesh.real_shell_ids);
+    // ---- NELT user tshell IDs ----
+    if (static_cast<int>(mesh.real_thick_shell_ids.size()) == nelt) {
+        for (int32_t v : mesh.real_thick_shell_ids) writer.write_int(v);
     } else {
-        for (int i = 1; i <= control.NEL4; ++i) {
-            writer.write_int(i);
-        }
+        for (int i = 1; i <= nelt; ++i) writer.write_int(i);
     }
 
-    // Write element IDs (thick shells)
-    if (!mesh.real_thick_shell_ids.empty()) {
-        writer.write_int_array(mesh.real_thick_shell_ids);
+    // ---- NEL2 user beam IDs ----
+    if (static_cast<int>(mesh.real_beam_ids.size()) == nel2) {
+        for (int32_t v : mesh.real_beam_ids) writer.write_int(v);
     } else {
-        for (int i = 1; i <= control.NELT; ++i) {
-            writer.write_int(i);
-        }
+        for (int i = 1; i <= nel2; ++i) writer.write_int(i);
     }
 
-    // Material type array
-    if (!mesh.material_types.empty()) {
-        writer.write_int_array(mesh.material_types);
-    } else if (control.NMMAT > 0) {
-        for (int i = 1; i <= control.NMMAT; ++i) {
-            writer.write_int(i);
-        }
+    // ---- NEL4 user shell IDs ----
+    if (static_cast<int>(mesh.real_shell_ids.size()) == nel4) {
+        for (int32_t v : mesh.real_shell_ids) writer.write_int(v);
+    } else {
+        for (int i = 1; i <= nel4; ++i) writer.write_int(i);
+    }
+
+    // ---- NORDER (NMMAT): ordered user part IDs ----
+    // Reader uses this to translate solid_materials[i] (1-based material slot)
+    // into a user-visible part ID. We use identity (1..NMMAT) because our
+    // element connectivity already stores the real part IDs directly.
+    for (int i = 1; i <= nmmat; ++i) writer.write_int(i);
+
+    // ---- NSRMU (NMMAT): unordered user material IDs ----
+    for (int i = 1; i <= nmmat; ++i) writer.write_int(i);
+
+    // ---- NSRMP (NMMAT): cross reference ----
+    for (int i = 1; i <= nmmat; ++i) writer.write_int(i);
+
+    // ---- Material type numbers (NMMAT) ----
+    if (static_cast<int>(mesh.material_types.size()) == nmmat) {
+        for (int32_t v : mesh.material_types) writer.write_int(v);
+    } else {
+        // Default: 0 (unknown) for each part. LS-PrePost tolerates this.
+        for (int i = 0; i < nmmat; ++i) writer.write_int(0);
     }
 }
 

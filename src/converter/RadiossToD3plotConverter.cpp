@@ -129,24 +129,36 @@ void RadiossToD3plotConverter::mapMesh(
     control.NV3DT = 0;
 
     // Material counts
-    std::set<int32_t> parts;
-    for (auto p : dst.solid_parts) parts.insert(p);
-    for (auto p : dst.shell_parts) parts.insert(p);
-    for (auto p : dst.beam_parts) parts.insert(p);
+    //
+    // IMPORTANT: NUMMAT8 / NUMMAT4 / NUMMAT2 must be large enough that every
+    // element's mat_id (stored in the 9th word of its connectivity record)
+    // is a valid 1-based index into the NORDER table inside NARBS. If we set
+    // NUMMAT8 = unique part count and the source part IDs have gaps (e.g.
+    // {1,3,7,23}), element mat_id = 23 overruns a 4-slot NARBS table and the
+    // reader silently drops that element's part mapping — which is exactly
+    // why per-part aggregation was collapsing to a single bucket.
+    //
+    // Use max(part_id) instead of unique count. NORDER identity map below
+    // reserves slots for every id from 1 up to the max, and gap slots stay
+    // unused — that is compatible with how NARBSParser reads the table.
+    auto max_part = [](const std::vector<int32_t>& v) -> int32_t {
+        int32_t m = 0;
+        for (int32_t x : v) if (x > m) m = x;
+        return m;
+    };
+    int32_t max_solid_pid = max_part(dst.solid_parts);
+    int32_t max_shell_pid = max_part(dst.shell_parts);
+    int32_t max_beam_pid  = max_part(dst.beam_parts);
 
-    control.NUMMAT8 = (control.NEL8 > 0 && !dst.solid_parts.empty()) ?
-        static_cast<int32_t>(std::set<int32_t>(dst.solid_parts.begin(), dst.solid_parts.end()).size()) : 0;
-    control.NUMMAT4 = (control.NEL4 > 0 && !dst.shell_parts.empty()) ?
-        static_cast<int32_t>(std::set<int32_t>(dst.shell_parts.begin(), dst.shell_parts.end()).size()) : 0;
-    control.NUMMAT2 = (control.NEL2 > 0 && !dst.beam_parts.empty()) ?
-        static_cast<int32_t>(std::set<int32_t>(dst.beam_parts.begin(), dst.beam_parts.end()).size()) : 0;
+    control.NUMMAT8 = (control.NEL8 > 0) ? max_solid_pid : 0;
+    control.NUMMAT4 = (control.NEL4 > 0) ? max_shell_pid : 0;
+    control.NUMMAT2 = (control.NEL2 > 0) ? max_beam_pid  : 0;
     control.NUMMATT = 0;
-    // NMMAT must equal the SUM of NUMMAT* (LS-PrePost requirement):
-    // LS-PrePost allocates a part table of size NMMAT and indexes
-    // solid/shell/beam materials sequentially. If NMMAT != sum, mapping breaks
-    // and geometry becomes invisible even though the file loads without error.
-    control.NMMAT = control.NUMMAT8 + control.NUMMAT4 + control.NUMMAT2 + control.NUMMATT;
-    if (control.NMMAT == 0) control.NMMAT = 1;
+
+    // NMMAT is the global size of the part table, large enough to index any
+    // mat_id from any element type.
+    int32_t nmmat_max = std::max({max_solid_pid, max_shell_pid, max_beam_pid});
+    control.NMMAT = nmmat_max > 0 ? nmmat_max : 1;
 
     // Nodal output flags
     control.IU = header.has_displacement ? 1 : 0;
@@ -156,7 +168,24 @@ void RadiossToD3plotConverter::mapMesh(
 
     // Global variables
     control.NGLBV = 6;  // KE, IE, total, X-vel, Y-vel, Z-vel
-    control.NARBS = 0;
+
+    // NARBS arbitrary numbering block length (in words).
+    //   10 header + NUMNP + NEL8 + NELT + NEL2 + NEL4 + 4*NMMAT
+    // Writing this block is required so downstream readers (GeometryParser
+    // and unified_analyzer) can resolve element -> part mapping. Without it,
+    // per-part aggregation collapses to a single bucket.
+    {
+        const int nel8_abs = std::abs(control.NEL8);
+        const int narbs_words = 10
+                              + control.NUMNP
+                              + nel8_abs
+                              + control.NELT
+                              + control.NEL2
+                              + control.NEL4
+                              + 4 * control.NMMAT;
+        control.NARBS = narbs_words;
+    }
+
     control.EXTRA = 0;
     control.ISTRN = 0;  // Radioss animation files don't contain strain tensor
 
