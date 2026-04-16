@@ -16,16 +16,16 @@ From: ubuntu:22.04
       post_analyze         — Bash orchestrator (unified → deep → sphere)
 
     Usage:
-      apptainer exec SmartTwinPostprocessor_headless.sif unified_analyzer --help
-      apptainer exec SmartTwinPostprocessor_headless.sif post_analyze <test_dir>
-      apptainer exec SmartTwinPostprocessor_headless.sif koo_deep_report <d3plot_dir>
+      apptainer exec SmartTwinPostprocessor.sif unified_analyzer --help
+      apptainer exec SmartTwinPostprocessor.sif post_analyze <test_dir>
+      apptainer exec SmartTwinPostprocessor.sif koo_deep_report <d3plot_dir>
 
     With data bind:
-      apptainer exec --bind /data:/data SmartTwinPostprocessor_headless.sif \
+      apptainer exec --bind /data:/data SmartTwinPostprocessor.sif \
           post_analyze /data/test_001 --section-view --section-view-backend lsprepost
 
     Build:
-      apptainer build SmartTwinPostprocessor_headless.sif SmartTwinPostprocessor_headless.def
+      apptainer build SmartTwinPostprocessor.sif SmartTwinPostprocessor.def
 
 %post
     set -e
@@ -71,7 +71,7 @@ From: ubuntu:22.04
     if [ $# -eq 0 ]; then
         cat /opt/kood3plot/VERSION
         echo ""
-        echo "Usage: apptainer exec SmartTwinPostprocessor_headless.sif <command> [args]"
+        echo "Usage: apptainer exec SmartTwinPostprocessor.sif <command> [args]"
         echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, post_analyze"
         exit 0
     fi

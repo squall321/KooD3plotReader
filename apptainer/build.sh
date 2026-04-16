@@ -49,5 +49,5 @@ case "${VARIANT}" in
 esac
 
 echo "Done. Test with:"
-echo "  apptainer run SmartTwinPostprocessor_headless.sif"
-echo "  apptainer exec SmartTwinPostprocessor_headless.sif post_analyze --help"
+echo "  apptainer run SmartTwinPostprocessor.sif"
+echo "  apptainer exec SmartTwinPostprocessor.sif post_analyze --help"
