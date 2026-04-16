@@ -164,3 +164,6 @@ nul
 
 # Claude settings (optional, can include if wanted)
 # .claude/
+# Apptainer SIF binaries (too large for git)
+apptainer/*.sif
+*.sif

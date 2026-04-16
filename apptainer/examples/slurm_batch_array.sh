@@ -18,7 +18,7 @@
 # ============================================================
 set -euo pipefail
 
-SIF="${SIF:-/opt/containers/kood3plot_headless.sif}"
+SIF="${SIF:-/opt/apptainers/SmartTwinPostprocessor_headless.sif}"
 LIST="${LIST:-test_dirs.txt}"
 
 TEST_DIR=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$LIST")

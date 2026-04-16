@@ -14,7 +14,7 @@
 #   sbatch slurm_post_analyze.sh /data/drop_test_001
 #
 # 옵션 환경변수:
-#   SIF=/path/to/kood3plot_headless.sif  (기본: 현재 디렉토리)
+#   SIF=/path/to/SmartTwinPostprocessor_headless.sif  (기본: /opt/apptainers/)
 #   YIELD=250                            (기본: 미지정)
 #   EXTRA="--section-view --section-view-backend lsprepost"
 # ============================================================
@@ -26,7 +26,7 @@ if [ -z "$TEST_DIR" ]; then
     exit 1
 fi
 
-SIF="${SIF:-/opt/containers/kood3plot_headless.sif}"
+SIF="${SIF:-/opt/apptainers/SmartTwinPostprocessor_headless.sif}"
 YIELD="${YIELD:-}"
 EXTRA="${EXTRA:---section-view --section-view-backend lsprepost}"
 
