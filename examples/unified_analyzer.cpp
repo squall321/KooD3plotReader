@@ -384,10 +384,12 @@ std::string generateResultFolderName(const fs::path& d3plot_dir, const fs::path&
     // Get relative path from root
     fs::path rel_path = fs::relative(canonical_dir, canonical_root);
 
-    // Convert to string and replace separators with underscores
+    // Convert to string — keep '/' for nested directory structure, only sanitize spaces
     std::string name = rel_path.string();
     for (char& c : name) {
-        if (c == '/' || c == '\\' || c == ' ') {
+        if (c == '\\') {
+            c = '/';
+        } else if (c == ' ') {
             c = '_';
         }
     }

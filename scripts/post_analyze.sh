@@ -47,6 +47,7 @@ set -euo pipefail
 
 TEST_DIR=""
 CONFIG_FILE=""       # unified_analyzer 용 YAML (sphere 선행)
+ANALYSIS_GROUPS=()   # unified_analyzer 가 발견한 그룹 목록 (Output, Output2 등)
 DEEP_CONFIG=""       # koo_deep_report --config 로 전달할 YAML
 DEEP_ONLY=false
 SPHERE_ONLY=false
@@ -59,8 +60,61 @@ DEEP_EXTRA=()
 SPHERE_EXTRA=()
 
 usage() {
-    sed -n '/^# ==/,/^# ==/p' "$0" | sed 's/^# //' | head -55
-    exit 1
+    cat << 'HELPEOF'
+사용법:
+    post_analyze <test_dir> [options]
+
+  전체 파이프라인: unified_analyzer → sphere_report (빠름) → deep_report (느림)
+  각 단계는 기존 결과가 있으면 자동 스킵 (--force 로 강제 재계산)
+
+[모드]
+    --deep-only             deep report 만
+    --sphere-only           sphere report 만
+    --force                 기존 결과 무시하고 전체 재계산
+
+[설정]
+    --config YAML           unified_analyzer 용 YAML (common_analysis.yaml)
+    --deep-config YAML      koo_deep_report 용 YAML
+    --threads N             병렬 스레드 수 (기본 4)
+    --yield-stress MPa      항복응력
+
+[렌더 (deep_report 전달)]
+    --no-render
+    --per-part-render
+    --element-quality
+    --render-threads N
+    --ua-threads N
+    --parts ID...
+    --part-pattern PATTERN
+    --strain-limit EPS
+    --design-overrides JSON
+    --material-overrides JSON
+
+[섹션뷰 (deep_report 전달)]
+    --section-view
+    --section-view-backend {lsprepost|software}
+    --section-view-mode {section|section_3d}
+    --section-view-per-part
+    --section-view-axes x y z
+    --section-view-fields von_mises eps strain ...
+    --section-view-target-ids ID...
+    --section-view-target-patterns PAT...
+    --section-view-fade DIST
+    --sv-threads N
+
+[고급]
+    --deep-opts "..."       koo_deep_report 추가 옵션 pass-through
+    --sphere-opts "..."     koo_sphere_report 추가 옵션 pass-through
+    -h|--help
+
+예시:
+    post_analyze /data/drop_test_001
+    post_analyze /data/drop_test_001 --yield-stress 250 --threads 8
+    post_analyze /data/drop_test_001 --deep-only --no-render
+    post_analyze /data/drop_test_001 --sphere-only
+    post_analyze /data/drop_test_001 --section-view --section-view-backend lsprepost
+HELPEOF
+    exit 0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -207,15 +261,11 @@ echo "============================================================"
 # ============================================================
 run_step_unified() {
     echo ""
-    echo "=== [Step 1] unified_analyzer --recursive ==="
+    echo "=== [Step 1] unified_analyzer (Run 별 개별 분석) ==="
 
     if ${FORCE}; then
         echo "  FORCE 모드 — 기존 analysis_results/ 삭제"
         rm -rf "${ANALYSIS_DIR}"
-    elif [ -d "${ANALYSIS_DIR}" ] && \
-         [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" != "" ]; then
-        echo "  기존 analysis_results/ 존재 — SKIP"
-        return 0
     fi
 
     if [ ! -d "${OUTPUT_DIR}" ]; then
@@ -234,27 +284,188 @@ run_step_unified() {
         return 1
     fi
 
-    mkdir -p "${ANALYSIS_DIR}"
-    local cmd=(
-        unified_analyzer
-        --recursive "${OUTPUT_DIR}"
-        --config "${CONFIG_FILE}"
-        --output "${ANALYSIS_DIR}"
-        --skip-existing
-    )
-    echo "  $ ${cmd[*]}"
-    "${cmd[@]}"
+    # d3plot 탐색 → (run_name, sub_path, d3plot_path) 트리플로 수집
+    # output/Run_xxx/Output/d3plot  → run_name=Run_xxx, sub_path=Output
+    # output/Run_xxx/d3plot         → run_name=Run_xxx, sub_path=_default
+    declare -a D3PLOT_ENTRIES=()    # "run_name|sub_path|d3plot_path"
+    declare -A GROUPS=()            # sub_path → count
+
+    while IFS= read -r d3plot_path; do
+        local rel="${d3plot_path#${OUTPUT_DIR}/}"   # Run_xxx/Output/d3plot
+        local run_name="${rel%%/*}"                 # Run_xxx
+
+        if [ -z "${run_name}" ] || [ "${run_name}" = "${rel}" ]; then
+            continue
+        fi
+
+        # sub_path: Run 폴더와 d3plot 사이의 경로
+        local after_run="${rel#${run_name}/}"       # Output/d3plot
+        local sub_path="${after_run%/d3plot}"        # Output
+
+        # d3plot 이 Run 바로 밑에 있으면 sub_path == "d3plot" 이 됨
+        if [ "${sub_path}" = "d3plot" ] || [ "${sub_path}" = "${after_run}" ]; then
+            sub_path="_default"
+        fi
+
+        D3PLOT_ENTRIES+=("${run_name}|${sub_path}|${d3plot_path}")
+        GROUPS["${sub_path}"]=$(( ${GROUPS["${sub_path}"]:-0} + 1 ))
+
+    done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
+
+    local _total=${#D3PLOT_ENTRIES[@]}
+    if [ "${_total}" = 0 ]; then
+        echo "  ERROR: d3plot 파일을 찾을 수 없음: ${OUTPUT_DIR}"
+        return 1
+    fi
+
+    local _num_groups=${#GROUPS[@]}
+    echo "  d3plot ${_total}개 탐지, ${_num_groups}개 그룹:"
+    for g in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort); do
+        echo "    - ${g}: ${GROUPS[$g]}개 Run"
+    done
+
+    # 그룹별로 analysis_results 구성
+    local _done=0
+    local _skip=0
+    local _fail=0
+    local _idx=0
+
+    for entry in "${D3PLOT_ENTRIES[@]}"; do
+        _idx=$(( _idx + 1 ))
+        IFS='|' read -r run_name sub_path d3plot_path <<< "${entry}"
+
+        # 결과 디렉토리 결정
+        local result_dir
+        if [ "${_num_groups}" = 1 ] && [ "${sub_path}" != "_default" ]; then
+            # 그룹 1개면 analysis_results/Run_xxx/ (하위 안 나눔)
+            result_dir="${ANALYSIS_DIR}/${run_name}"
+        elif [ "${sub_path}" = "_default" ]; then
+            result_dir="${ANALYSIS_DIR}/${run_name}"
+        else
+            # 그룹 여러 개면 analysis_results/{sub_path}/Run_xxx/
+            result_dir="${ANALYSIS_DIR}/${sub_path}/${run_name}"
+        fi
+
+        # skip-existing 체크
+        if [ -f "${result_dir}/analysis_result.json" ] && ! ${FORCE}; then
+            _skip=$(( _skip + 1 ))
+            continue
+        fi
+
+        mkdir -p "${result_dir}"
+
+        # d3plot 경로를 임시 YAML 에 주입
+        local tmp_yaml
+        tmp_yaml=$(mktemp /tmp/ua_config_XXXXXX.yaml)
+        sed "s|d3plot:.*|d3plot: \"${d3plot_path}\"|" "${CONFIG_FILE}" | \
+            sed "s|directory:.*|directory: \"${result_dir}\"|" > "${tmp_yaml}"
+
+        printf "  [%d/%d] %s/%s ... " "${_idx}" "${_total}" "${sub_path}" "${run_name}"
+
+        if unified_analyzer --config "${tmp_yaml}" > /dev/null 2>&1; then
+            echo "OK"
+            _done=$(( _done + 1 ))
+        else
+            echo "FAIL"
+            _fail=$(( _fail + 1 ))
+        fi
+
+        rm -f "${tmp_yaml}"
+    done
+
+    echo ""
+    echo "  완료: ${_done} / 스킵: ${_skip} / 실패: ${_fail} / 전체: ${_total}"
+
+    # 그룹 목록을 전역으로 저장 (sphere_report 에서 사용)
+    ANALYSIS_GROUPS=()
+    for g in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort); do
+        ANALYSIS_GROUPS+=("${g}")
+    done
 }
 
 # ============================================================
-# Step 2: koo_deep_report batch --skip-existing
+# Step 2: koo_sphere_report --test-dir  (빠름 — aggregation 만)
+#  - 전각도 DOE 종합 리포트 (analysis_results/ 필수)
+# ============================================================
+run_step_sphere() {
+    echo ""
+    echo "=== [Step 2] koo_sphere_report (종합 리포트) ==="
+
+    if [ ! -d "${ANALYSIS_DIR}" ] || \
+       [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" = "" ]; then
+        echo "  ERROR: analysis_results/ 없음 또는 비어있음"
+        echo "         Step 1 을 먼저 실행하거나 --config 를 지정하세요"
+        return 1
+    fi
+
+    # 그룹이 여러 개면 (Output, Output2 등) 그룹별로 sphere report 생성
+    # 그룹이 1개 또는 _default 면 기존 방식 (단일 report.html)
+    if [ "${#ANALYSIS_GROUPS[@]}" -gt 1 ]; then
+        echo "  ${#ANALYSIS_GROUPS[@]}개 그룹 감지 → 그룹별 sphere report 생성"
+        echo ""
+
+        for group in "${ANALYSIS_GROUPS[@]}"; do
+            local group_dir="${ANALYSIS_DIR}/${group}"
+            if [ ! -d "${group_dir}" ]; then
+                echo "  [${group}] analysis_results/${group}/ 없음 — SKIP"
+                continue
+            fi
+
+            # sphere_report 가 <test_dir>/analysis_results/ 를 기대하므로
+            # 임시로 analysis_results 심볼릭 링크를 그룹 폴더로 교체
+            local orig_ar="${TEST_DIR}/analysis_results"
+            local ar_bak="${TEST_DIR}/.analysis_results_original"
+
+            # 원본 백업 (심볼릭 링크 또는 디렉토리)
+            if [ -L "${orig_ar}" ]; then
+                mv "${orig_ar}" "${ar_bak}"
+            elif [ -d "${orig_ar}" ]; then
+                mv "${orig_ar}" "${ar_bak}"
+            fi
+
+            # 그룹 폴더를 analysis_results 로 심볼릭 링크
+            ln -sfn "${group_dir}" "${orig_ar}"
+
+            local output_html="${TEST_DIR}/report_${group}.html"
+            local output_json="${TEST_DIR}/report_${group}.json"
+
+            echo "  [${group}] sphere report → $(basename "${output_html}")"
+
+            local cmd=(koo_sphere_report --test-dir "${TEST_DIR}"
+                       --format html json
+                       --output "${output_html}"
+                       --json "${output_json}")
+            [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
+            [ "${#SPHERE_EXTRA[@]}" -gt 0 ] && cmd+=("${SPHERE_EXTRA[@]}")
+
+            "${cmd[@]}" || echo "  [${group}] WARN: sphere report 실패"
+
+            # 심볼릭 링크 제거, 원본 복구
+            rm -f "${orig_ar}"
+            if [ -e "${ar_bak}" ]; then
+                mv "${ar_bak}" "${orig_ar}"
+            fi
+        done
+    else
+        # 단일 그룹 또는 _default — 기존 방식
+        local cmd=(koo_sphere_report --test-dir "${TEST_DIR}" --format html json)
+        [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
+        [ "${#SPHERE_EXTRA[@]}" -gt 0 ] && cmd+=("${SPHERE_EXTRA[@]}")
+
+        echo "  $ ${cmd[*]}"
+        "${cmd[@]}"
+    fi
+}
+
+# ============================================================
+# Step 3: koo_deep_report batch --skip-existing  (느림 — 렌더 포함)
 #  - 각 sim 별 deep 분석 + 개별 HTML 생성
 #  - --deep-config 있으면 deep_report --config 로 전달
 #  - DEEP_EXTRA 배열로 임의 옵션 pass-through
 # ============================================================
 run_step_deep() {
     echo ""
-    echo "=== [Step 2] koo_deep_report batch ==="
+    echo "=== [Step 3] koo_deep_report batch (개별 분석 + 렌더) ==="
 
     if ${FORCE}; then
         echo "  FORCE 모드 — 기존 deep_reports/ 삭제"
@@ -282,30 +493,9 @@ run_step_deep() {
 }
 
 # ============================================================
-# Step 3: koo_sphere_report --test-dir
-#  - 전각도 DOE 종합 리포트 (analysis_results/ 필수)
-# ============================================================
-run_step_sphere() {
-    echo ""
-    echo "=== [Step 3] koo_sphere_report ==="
-
-    if [ ! -d "${ANALYSIS_DIR}" ] || \
-       [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" = "" ]; then
-        echo "  ERROR: analysis_results/ 없음 또는 비어있음"
-        echo "         Step 1 을 먼저 실행하거나 --config 를 지정하세요"
-        return 1
-    fi
-
-    local cmd=(koo_sphere_report --test-dir "${TEST_DIR}")
-    [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
-    [ "${#SPHERE_EXTRA[@]}" -gt 0 ] && cmd+=("${SPHERE_EXTRA[@]}")
-
-    echo "  $ ${cmd[*]}"
-    "${cmd[@]}"
-}
-
-# ============================================================
 # 실행 분기
+#   전체: unified_analyzer → sphere (빠름) → deep (느림)
+#   sphere 먼저 → 종합 결과 빨리 확인, deep 은 렌더까지 하므로 나중에
 # ============================================================
 if ${DEEP_ONLY}; then
     # deep 만: unified_analyzer 선행 실행은 불필요 (deep 내부에서 처리)
@@ -315,10 +505,10 @@ elif ${SPHERE_ONLY}; then
     run_step_unified
     run_step_sphere
 else
-    # 전체: unified_analyzer → deep → sphere
+    # 전체: unified_analyzer → sphere (빠름) → deep (느림)
     run_step_unified
-    run_step_deep
     run_step_sphere
+    run_step_deep
 fi
 
 echo ""
