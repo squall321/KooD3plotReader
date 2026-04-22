@@ -287,20 +287,20 @@ run_step_unified() {
     # d3plot 탐색 → (run_name, sub_path, d3plot_path) 트리플로 수집
     # output/Run_xxx/Output/d3plot  → run_name=Run_xxx, sub_path=Output
     # output/Run_xxx/d3plot         → run_name=Run_xxx, sub_path=_default
-    declare -a D3PLOT_ENTRIES=()    # "run_name|sub_path|d3plot_path"
-    declare -A GROUPS=()            # sub_path → count
+    D3PLOT_ENTRIES=()    # "run_name|sub_path|d3plot_path"
+    GROUP_LIST=""        # 줄바꿈 구분 그룹 목록 (중복 포함)
 
     while IFS= read -r d3plot_path; do
-        local rel="${d3plot_path#${OUTPUT_DIR}/}"   # Run_xxx/Output/d3plot
-        local run_name="${rel%%/*}"                 # Run_xxx
+        rel="${d3plot_path#${OUTPUT_DIR}/}"    # Run_xxx/Output/d3plot
+        run_name="${rel%%/*}"                  # Run_xxx
 
         if [ -z "${run_name}" ] || [ "${run_name}" = "${rel}" ]; then
             continue
         fi
 
         # sub_path: Run 폴더와 d3plot 사이의 경로
-        local after_run="${rel#${run_name}/}"       # Output/d3plot
-        local sub_path="${after_run%/d3plot}"        # Output
+        after_run="${rel#${run_name}/}"         # Output/d3plot
+        sub_path="${after_run%/d3plot}"          # Output
 
         # d3plot 이 Run 바로 밑에 있으면 sub_path == "d3plot" 이 됨
         if [ "${sub_path}" = "d3plot" ] || [ "${sub_path}" = "${after_run}" ]; then
@@ -308,34 +308,36 @@ run_step_unified() {
         fi
 
         D3PLOT_ENTRIES+=("${run_name}|${sub_path}|${d3plot_path}")
-        GROUPS["${sub_path}"]=$(( ${GROUPS["${sub_path}"]:-0} + 1 ))
+        GROUP_LIST="${GROUP_LIST}${sub_path}"$'\n'
 
     done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
 
-    local _total=${#D3PLOT_ENTRIES[@]}
+    _total=${#D3PLOT_ENTRIES[@]}
     if [ "${_total}" = 0 ]; then
         echo "  ERROR: d3plot 파일을 찾을 수 없음: ${OUTPUT_DIR}"
         return 1
     fi
 
-    local _num_groups=${#GROUPS[@]}
+    # 유니크 그룹 목록 + 카운트
+    UNIQUE_GROUPS=$(echo "${GROUP_LIST}" | sed '/^$/d' | sort -u)
+    _num_groups=$(echo "${UNIQUE_GROUPS}" | wc -l)
     echo "  d3plot ${_total}개 탐지, ${_num_groups}개 그룹:"
-    for g in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort); do
-        echo "    - ${g}: ${GROUPS[$g]}개 Run"
+    echo "${UNIQUE_GROUPS}" | while read -r g; do
+        cnt=$(echo "${GROUP_LIST}" | grep -cx "${g}")
+        echo "    - ${g}: ${cnt}개 Run"
     done
 
     # 그룹별로 analysis_results 구성
-    local _done=0
-    local _skip=0
-    local _fail=0
-    local _idx=0
+    _done=0
+    _skip=0
+    _fail=0
+    _idx=0
 
     for entry in "${D3PLOT_ENTRIES[@]}"; do
         _idx=$(( _idx + 1 ))
         IFS='|' read -r run_name sub_path d3plot_path <<< "${entry}"
 
         # 결과 디렉토리 결정
-        local result_dir
         if [ "${_num_groups}" = 1 ] && [ "${sub_path}" != "_default" ]; then
             # 그룹 1개면 analysis_results/Run_xxx/ (하위 안 나눔)
             result_dir="${ANALYSIS_DIR}/${run_name}"
@@ -355,7 +357,6 @@ run_step_unified() {
         mkdir -p "${result_dir}"
 
         # d3plot 경로를 임시 YAML 에 주입
-        local tmp_yaml
         tmp_yaml=$(mktemp /tmp/ua_config_XXXXXX.yaml)
         sed "s|d3plot:.*|d3plot: \"${d3plot_path}\"|" "${CONFIG_FILE}" | \
             sed "s|directory:.*|directory: \"${result_dir}\"|" > "${tmp_yaml}"
@@ -378,9 +379,9 @@ run_step_unified() {
 
     # 그룹 목록을 전역으로 저장 (sphere_report 에서 사용)
     ANALYSIS_GROUPS=()
-    for g in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort); do
-        ANALYSIS_GROUPS+=("${g}")
-    done
+    while read -r g; do
+        [ -n "${g}" ] && ANALYSIS_GROUPS+=("${g}")
+    done <<< "${UNIQUE_GROUPS}"
 }
 
 # ============================================================
