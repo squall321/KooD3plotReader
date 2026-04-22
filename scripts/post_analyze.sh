@@ -361,9 +361,9 @@ run_step_unified() {
         sed "s|d3plot:.*|d3plot: \"${d3plot_path}\"|" "${CONFIG_FILE}" | \
             sed "s|directory:.*|directory: \"${result_dir}\"|" > "${tmp_yaml}"
 
-        printf "  [%d/%d] %s/%s ... " "${_idx}" "${_total}" "${sub_path}" "${run_name}"
+        printf "  [%d/%d] %s/%s → analysis_results/%s/%s ... " "${_idx}" "${_total}" "${run_name}" "${sub_path}" "${sub_path}" "${run_name}"
 
-        if unified_analyzer --config "${tmp_yaml}" > /dev/null 2>&1; then
+        if unified_analyzer --config "${tmp_yaml}" 2>&1 | tail -5; then
             echo "OK"
             _done=$(( _done + 1 ))
         else
