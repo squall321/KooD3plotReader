@@ -356,10 +356,21 @@ run_step_unified() {
 
         mkdir -p "${result_dir}"
 
-        # d3plot 경로를 임시 YAML 에 주입
+        # config YAML 에 input/output 섹션 추가 (템플릿에 없을 수 있으므로 항상 prepend)
         tmp_yaml=$(mktemp /tmp/ua_config_XXXXXX.yaml)
-        sed "s|d3plot:.*|d3plot: \"${d3plot_path}\"|" "${CONFIG_FILE}" | \
-            sed "s|directory:.*|directory: \"${result_dir}\"|" > "${tmp_yaml}"
+        {
+            echo 'version: "2.0"'
+            echo "input:"
+            echo "  d3plot: \"${d3plot_path}\""
+            echo "output:"
+            echo "  directory: \"${result_dir}\""
+            echo "  json: true"
+            echo "  csv: true"
+            echo ""
+            # 원본 config 에서 version/input/output 제외하고 나머지 (performance, analysis_jobs 등) 추가
+            grep -v '^\s*version:\|^\s*d3plot:\|^\s*directory:\|^\s*json:\|^\s*csv:\|^input:\|^output:' "${CONFIG_FILE}" | \
+                grep -v '^\s*#.*d3plot\|^\s*#.*directory'
+        } > "${tmp_yaml}"
 
         printf "  [%d/%d] %s/%s → analysis_results/%s/%s ... " "${_idx}" "${_total}" "${run_name}" "${sub_path}" "${sub_path}" "${run_name}"
 
@@ -405,34 +416,34 @@ run_step_sphere() {
         echo "  ${#ANALYSIS_GROUPS[@]}개 그룹 감지 → 그룹별 sphere report 생성"
         echo ""
 
+        # analysis_results/ 를 먼저 백업, 그룹별로 심볼릭 링크 교체
+        orig_ar="${TEST_DIR}/analysis_results"
+        ar_bak="${TEST_DIR}/.analysis_results_original"
+
+        # 원본 백업 (1회)
+        if [ -d "${orig_ar}" ] && [ ! -L "${orig_ar}" ]; then
+            mv "${orig_ar}" "${ar_bak}"
+        elif [ -L "${orig_ar}" ]; then
+            rm -f "${orig_ar}"
+        fi
+
         for group in "${ANALYSIS_GROUPS[@]}"; do
-            local group_dir="${ANALYSIS_DIR}/${group}"
+            # 백업된 원본 안의 그룹 폴더 참조
+            group_dir="${ar_bak}/${group}"
             if [ ! -d "${group_dir}" ]; then
-                echo "  [${group}] analysis_results/${group}/ 없음 — SKIP"
+                echo "  [${group}] .analysis_results_original/${group}/ 없음 — SKIP"
                 continue
-            fi
-
-            # sphere_report 가 <test_dir>/analysis_results/ 를 기대하므로
-            # 임시로 analysis_results 심볼릭 링크를 그룹 폴더로 교체
-            local orig_ar="${TEST_DIR}/analysis_results"
-            local ar_bak="${TEST_DIR}/.analysis_results_original"
-
-            # 원본 백업 (심볼릭 링크 또는 디렉토리)
-            if [ -L "${orig_ar}" ]; then
-                mv "${orig_ar}" "${ar_bak}"
-            elif [ -d "${orig_ar}" ]; then
-                mv "${orig_ar}" "${ar_bak}"
             fi
 
             # 그룹 폴더를 analysis_results 로 심볼릭 링크
             ln -sfn "${group_dir}" "${orig_ar}"
 
-            local output_html="${TEST_DIR}/report_${group}.html"
-            local output_json="${TEST_DIR}/report_${group}.json"
+            output_html="${TEST_DIR}/report_${group}.html"
+            output_json="${TEST_DIR}/report_${group}.json"
 
             echo "  [${group}] sphere report → $(basename "${output_html}")"
 
-            local cmd=(koo_sphere_report --test-dir "${TEST_DIR}"
+            cmd=(koo_sphere_report --test-dir "${TEST_DIR}"
                        --format html json
                        --output "${output_html}"
                        --json "${output_json}")
@@ -441,12 +452,14 @@ run_step_sphere() {
 
             "${cmd[@]}" || echo "  [${group}] WARN: sphere report 실패"
 
-            # 심볼릭 링크 제거, 원본 복구
+            # 심볼릭 링크 제거
             rm -f "${orig_ar}"
-            if [ -e "${ar_bak}" ]; then
-                mv "${ar_bak}" "${orig_ar}"
-            fi
         done
+
+        # 원본 복구
+        if [ -d "${ar_bak}" ]; then
+            mv "${ar_bak}" "${orig_ar}"
+        fi
     else
         # 단일 그룹 또는 _default — 기존 방식
         local cmd=(koo_sphere_report --test-dir "${TEST_DIR}" --format html json)
