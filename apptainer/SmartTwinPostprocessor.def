@@ -27,6 +27,10 @@ From: ubuntu:22.04
     Build:
       apptainer build SmartTwinPostprocessor.sif SmartTwinPostprocessor.def
 
+%files
+    # LSPrePost 바이너리 (호스트 installed/lsprepost/ → 컨테이너 /opt/_lsprepost_staging/)
+    ../installed/lsprepost /opt/_lsprepost_staging
+
 %post
     set -e
 
@@ -47,8 +51,14 @@ From: ubuntu:22.04
     # Build module (headless: no viewer, no Nuitka to keep size small)
     ./scripts/build_module.sh --prefix /opt/kood3plot --no-viewer
 
-    # Copy bundled LSPrePost if present (build_module.sh auto-bundles)
-    # No action needed — build_module.sh handles it
+    # LSPrePost: %files 에서 staging 으로 복사된 것을 최종 위치로 이동
+    if [ -d /opt/_lsprepost_staging ]; then
+        mkdir -p /opt/kood3plot/lsprepost
+        cp -r /opt/_lsprepost_staging/* /opt/kood3plot/lsprepost/
+        chmod +x /opt/kood3plot/lsprepost/lsprepost 2>/dev/null || true
+        rm -rf /opt/_lsprepost_staging
+        echo "LSPrePost bundled → /opt/kood3plot/lsprepost/"
+    fi
 
     # Cleanup: remove build artifacts and source (keep only /opt/kood3plot)
     rm -rf /opt/KooD3plotReader/build

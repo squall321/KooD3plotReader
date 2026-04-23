@@ -56,6 +56,8 @@ THREADS=4
 YIELD_STRESS=""
 
 # deep_report 로 pass-through 할 편의 플래그 배열
+# 기본: 섹션뷰 ON (모든 파트 × x/y/z × von_mises × lsprepost backend)
+SECTION_VIEW=true
 DEEP_EXTRA=()
 SPHERE_EXTRA=()
 
@@ -146,7 +148,8 @@ while [[ $# -gt 0 ]]; do
         --material-overrides)      DEEP_EXTRA+=(--material-overrides "$2"); shift 2 ;;
 
         # Section view 편의 플래그
-        --section-view)            DEEP_EXTRA+=(--section-view); shift ;;
+        --section-view)            SECTION_VIEW=true; shift ;;
+        --no-section-view)         SECTION_VIEW=false; shift ;;
         --section-view-backend)    DEEP_EXTRA+=(--section-view-backend "$2"); shift 2 ;;
         --section-view-mode)       DEEP_EXTRA+=(--section-view-mode "$2"); shift 2 ;;
         --section-view-per-part)   DEEP_EXTRA+=(--section-view-per-part); shift ;;
@@ -479,7 +482,7 @@ run_step_sphere() {
 # ============================================================
 run_step_deep() {
     echo ""
-    echo "=== [Step 3] koo_deep_report batch (개별 분석 + 렌더) ==="
+    echo "=== [Step 3] koo_deep_report (Run 별 개별 분석 + 렌더) ==="
 
     if ${FORCE}; then
         echo "  FORCE 모드 — 기존 deep_reports/ 삭제"
@@ -492,18 +495,87 @@ run_step_deep() {
     fi
 
     mkdir -p "${DEEP_REPORTS_DIR}"
-    local cmd=(
-        koo_deep_report batch "${OUTPUT_DIR}"
-        --output "${DEEP_REPORTS_DIR}"
-        --skip-existing
-        --threads "${THREADS}"
-    )
-    [ -n "${DEEP_CONFIG}" ]  && cmd+=(--config "${DEEP_CONFIG}")
-    [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
-    [ "${#DEEP_EXTRA[@]}" -gt 0 ] && cmd+=("${DEEP_EXTRA[@]}")
 
-    echo "  $ ${cmd[*]}"
-    "${cmd[@]}"
+    # Step 1 과 동일 방식: Run 폴더별로 d3plot 찾아서 개별 호출
+    # deep_report batch 는 중첩 구조(Run_xxx/Output/d3plot)에서 이름이 꼬이므로 사용 안 함
+    _deep_total=0
+    _deep_done=0
+    _deep_skip=0
+    _deep_fail=0
+
+    while IFS= read -r d3plot_path; do
+        _deep_total=$(( _deep_total + 1 ))
+
+        rel="${d3plot_path#${OUTPUT_DIR}/}"
+        run_name="${rel%%/*}"
+
+        if [ -z "${run_name}" ] || [ "${run_name}" = "${rel}" ]; then
+            continue
+        fi
+
+        # sub_path 결정 (그룹이 여러 개면 하위 분류)
+        after_run="${rel#${run_name}/}"
+        sub_path="${after_run%/d3plot}"
+        if [ "${sub_path}" = "d3plot" ] || [ "${sub_path}" = "${after_run}" ]; then
+            sub_path="_default"
+        fi
+
+        # 출력 경로: 그룹 1개면 deep_reports/Run_xxx, 여러개면 deep_reports/{sub_path}/Run_xxx
+        if [ "${_num_groups:-1}" = 1 ] && [ "${sub_path}" != "_default" ]; then
+            deep_out="${DEEP_REPORTS_DIR}/${run_name}"
+        elif [ "${sub_path}" = "_default" ]; then
+            deep_out="${DEEP_REPORTS_DIR}/${run_name}"
+        else
+            deep_out="${DEEP_REPORTS_DIR}/${sub_path}/${run_name}"
+        fi
+
+        # skip-existing 체크
+        if [ -f "${deep_out}/result.json" ] && ! ${FORCE}; then
+            _deep_skip=$(( _deep_skip + 1 ))
+            continue
+        fi
+
+        printf "  [%d] %s/%s ... " "${_deep_total}" "${run_name}" "${sub_path}"
+
+        cmd=(koo_deep_report "${d3plot_path}" --output "${deep_out}")
+        [ -n "${DEEP_CONFIG}" ]  && cmd+=(--config "${DEEP_CONFIG}")
+        [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
+
+        # 섹션뷰 기본값 주입 (SECTION_VIEW=true 이고 사용자가 --section-view 를 DEEP_EXTRA 에 안 넣었을 때)
+        if ${SECTION_VIEW}; then
+            # DEEP_EXTRA 에 이미 --section-view 있으면 중복 방지
+            _has_sv=false
+            for _e in "${DEEP_EXTRA[@]}"; do
+                [ "${_e}" = "--section-view" ] && { _has_sv=true; break; }
+            done
+            if ! ${_has_sv}; then
+                cmd+=(--section-view --section-view-per-part
+                      --section-view-axes x y z
+                      --section-view-fields von_mises)
+                # lsprepost 있으면 사용, 없으면 software fallback
+                if command -v lsprepost >/dev/null 2>&1 || \
+                   [ -x "${LSPREPOST_PATH:-}/lsprepost" ] 2>/dev/null; then
+                    cmd+=(--section-view-backend lsprepost)
+                else
+                    cmd+=(--section-view-backend software)
+                fi
+            fi
+        fi
+
+        [ "${#DEEP_EXTRA[@]}" -gt 0 ] && cmd+=("${DEEP_EXTRA[@]}")
+
+        if "${cmd[@]}" > /dev/null 2>&1; then
+            echo "OK"
+            _deep_done=$(( _deep_done + 1 ))
+        else
+            echo "FAIL"
+            _deep_fail=$(( _deep_fail + 1 ))
+        fi
+
+    done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
+
+    echo ""
+    echo "  완료: ${_deep_done} / 스킵: ${_deep_skip} / 실패: ${_deep_fail} / 전체: ${_deep_total}"
 }
 
 # ============================================================
