@@ -69,42 +69,29 @@ analysis_jobs:
       direction: [0, 0, -1]
       angle: 45.0
 
-render_jobs:
-  - name: "Z-Section von_mises"
-    type: section_view
-    fringe: von_mises
-    section:
-      axis: z
-      position: center
-    states: "all"
-    output:
-      format: mp4
-      filename: "section_z_stress.mp4"
-      fps: 30
-      resolution: [1920, 1080]
+# ── Section View Rendering ──────────────────────────────
+# 단면뷰(섹션뷰) 렌더링 설정. CLI(--section-view*) 보다 우선순위 낮음.
+# 백엔드:
+#   lsprepost (기본): LSPrePost drawcut+projectview, 고품질, X/Y/Z 모두 지원
+#   software        : 내장 SW 래스터라이저 (VTK/GPU 불필요)
+#
+# 타겟 지정 방법 (셋 중 하나):
+#   1) 미지정 → 전체 모델 단면뷰만
+#   2) target_part_ids/target_patterns → 해당 파트만 fringe 강조한 단면뷰 1개
+#   3) per_part: true → 분석 결과의 모든 파트 각각에 대해 1개씩 단면뷰 생성
+section_view:
+  enabled: true
+  backend: lsprepost            # lsprepost | software
+  mode: section                 # section (2D) | section_3d (3D 반절단; software 전용)
+  axes: [x, y, z]
+  fields: [von_mises, strain]   # von_mises | eps | strain | displacement | pressure | max_shear
 
-  - name: "X-Section von_mises"
-    type: section_view
-    fringe: von_mises
-    section:
-      axis: x
-      position: center
-    states: "all"
-    output:
-      format: png
-      filename: "section_x_stress.png"
-      fps: 30
-      resolution: [1920, 1080]
+  # per-part: 모든 파트에 대해 개별 단면뷰 (각 field × part × axis 조합)
+  per_part: false
 
-  - name: "Y-Section eff_plastic_strain"
-    type: section_view
-    fringe: eff_plastic_strain
-    section:
-      axis: y
-      position: center
-    states: "all"
-    output:
-      format: mp4
-      filename: "section_y_strain.mp4"
-      fps: 30
-      resolution: [1920, 1080]
+  # target: 특정 파트만 (per_part=false 일 때 적용)
+  target_part_ids: []           # 예: [4, 5, 6]
+  target_patterns: []           # 예: ["*PKG*", "*CELL*"]
+
+  fade: 0.0                     # 0=비타겟 단색, >0=거리별 반투명
+  sv_threads: 2                 # 병렬 단면뷰 렌더러 수

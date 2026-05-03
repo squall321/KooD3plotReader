@@ -132,6 +132,68 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)")
     p.add_argument("--sv-threads", type=int, default=2, metavar="N",
                    help="병렬 단면뷰 렌더러 수 (default 2)")
+    # ── per-part renderAllPartSections options (lsprepost backend) ──
+    p.add_argument("--section-view-iso-clip", dest="section_view_iso_clip",
+                   action="store_true",
+                   help="(per-part 전용) iso clip view 추가 생성 (LSPrePost backend)")
+    p.add_argument("--no-section-view-iso-clip", dest="section_view_iso_clip",
+                   action="store_false",
+                   help="(per-part 전용) iso clip view 비활성")
+    p.set_defaults(section_view_iso_clip=True)
+    p.add_argument("--section-view-section-position", type=float, default=0.5,
+                   metavar="P", help="(per-part) 단면 위치 part bbox 비율 0..1 (default 0.5)")
+    p.add_argument("--section-view-section-margin", type=float, default=-0.3,
+                   metavar="M", help="(per-part) section view zin 마진 (default -0.3)")
+    p.add_argument("--section-view-iso-clip-margin", type=float, default=-0.3,
+                   metavar="M", help="(per-part) iso clip zin 마진 (default -0.3, 더 음수=더 zoom out)")
+    p.add_argument("--section-view-edge-width", type=int, default=2,
+                   metavar="N", help="(per-part) edge width 1-5 (default 2)")
+    p.add_argument("--section-view-crf", type=int, default=23,
+                   metavar="N", help="H264 CRF for ffmpeg re-encode (default 23)")
+    p.add_argument("--section-view-reverse-cut", dest="section_view_reverse_cut",
+                   action="store_true",
+                   help="(per-part) cut 방향 뒤집기 — 카메라 쪽이 잘려서 내부 단면이 정면으로 (default ON)")
+    p.add_argument("--no-section-view-reverse-cut", dest="section_view_reverse_cut",
+                   action="store_false",
+                   help="(per-part) cut 방향 원래대로 (멀리 있는 쪽이 잘림)")
+    p.set_defaults(section_view_reverse_cut=True)
+    # ── sliding section view ──
+    p.add_argument("--section-view-sliding", dest="section_view_sliding",
+                   action="store_true",
+                   help="(per-part) 단면 슬라이딩 영상 생성 — 시뮬 진행 + cut plane이 part bbox 끝→끝 슬라이딩")
+    p.set_defaults(section_view_sliding=False)
+    p.add_argument("--section-view-sliding-steps", type=int, default=20, metavar="N",
+                   help="(sliding) cut 위치 step 수 (default 20)")
+    p.add_argument("--section-view-sliding-near-to-far",
+                   dest="section_view_sliding_near_to_far", action="store_true",
+                   help="(sliding) bbox.max → bbox.min 방향 (카메라 가까운 쪽 → 먼 쪽, default)")
+    p.add_argument("--section-view-sliding-far-to-near",
+                   dest="section_view_sliding_near_to_far", action="store_false",
+                   help="(sliding) bbox.min → bbox.max 방향")
+    p.set_defaults(section_view_sliding_near_to_far=True)
+    p.add_argument("--section-view-sliding-pad", type=float, default=0.05, metavar="P",
+                   help="(sliding) bbox 밖 padding 비율 (default 0.05)")
+    p.add_argument("--section-view-sliding-freeze-time", dest="section_view_sliding_freeze_time",
+                   action="store_true",
+                   help="(sliding) 시간 고정 모드 — 각 step의 peak_time frame만 사용해서 plane만 슬라이딩하는 영상 생성")
+    p.set_defaults(section_view_sliding_freeze_time=False)
+    p.add_argument("--section-view-sliding-peak-time", type=float, default=-1.0, metavar="T",
+                   help="(sliding freeze_time) 고정할 시뮬 시간 (sec). -1 = auto (시뮬 끝 95%%)")
+    # sliding style toggles
+    p.add_argument("--section-view-sliding-section-style",
+                   dest="section_view_sliding_section_style", action="store_true",
+                   help="(sliding) section 스타일 (drawcut + projectview) ON (default ON)")
+    p.add_argument("--no-section-view-sliding-section-style",
+                   dest="section_view_sliding_section_style", action="store_false",
+                   help="(sliding) section 스타일 OFF")
+    p.set_defaults(section_view_sliding_section_style=True)
+    p.add_argument("--section-view-sliding-iso-style",
+                   dest="section_view_sliding_iso_style", action="store_true",
+                   help="(sliding) iso 스타일 (clipplane + isometric) ON (default ON)")
+    p.add_argument("--no-section-view-sliding-iso-style",
+                   dest="section_view_sliding_iso_style", action="store_false",
+                   help="(sliding) iso 스타일 OFF")
+    p.set_defaults(section_view_sliding_iso_style=True)
 
 
 def _load_design_overrides(path_str: str) -> dict[int, dict] | None:
@@ -292,7 +354,209 @@ def _parse_config_yaml(path: str) -> dict:
     # render_jobs → render enabled/disabled
     cfg["no_render"] = "render_jobs:" not in text
 
+    # section_view block
+    sv_block = _extract_top_block(text, "section_view")
+    if sv_block is not None:
+        sv_cfg = _parse_section_view_block(sv_block)
+        if sv_cfg:
+            cfg["section_view"] = sv_cfg
+            # section_view enabled keeps render path active so lsprepost_path
+            # resolution still runs even when render_jobs: block is absent.
+            if sv_cfg.get("section_view") is True:
+                cfg["no_render"] = False
+
     return cfg
+
+
+def _extract_top_block(text: str, key: str) -> str | None:
+    """Extract the body of a top-level YAML block by key.
+
+    Returns the indented body lines (excluding the key line itself), or None
+    if the key is not found at top level (column 0). Block ends at the next
+    top-level key or end of text.
+    """
+    pattern = rf'^{re.escape(key)}:\s*$'
+    m = re.search(pattern, text, re.MULTILINE)
+    if not m:
+        return None
+    start = m.end()
+    # Find next top-level key (line starting at column 0 with `word:`)
+    nxt = re.search(r'^[A-Za-z_][\w]*:', text[start:], re.MULTILINE)
+    end = start + nxt.start() if nxt else len(text)
+    return text[start:end]
+
+
+def _parse_section_view_block(block: str) -> dict:
+    """Parse the body of a section_view: YAML block into a dict matching
+    argparse-style attribute names.
+    """
+    out: dict = {}
+
+    def _bool(s: str) -> bool:
+        return s.strip().lower() in ("true", "yes", "on", "1")
+
+    # enabled
+    m = re.search(r'^\s+enabled:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view"] = _bool(m.group(1))
+
+    # backend
+    m = re.search(r'^\s+backend:\s*["\']?(\w+)["\']?\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_backend"] = m.group(1).strip()
+
+    # mode
+    m = re.search(r'^\s+mode:\s*["\']?(\w+)["\']?\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_mode"] = m.group(1).strip()
+
+    # axes (flow list: [x, y, z])
+    m = re.search(r'^\s+axes:\s*\[([^\]]+)\]\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        items = [x.strip().strip('"').strip("'") for x in m.group(1).split(",")]
+        out["section_view_axes"] = [x for x in items if x]
+
+    # fields (flow list)
+    m = re.search(r'^\s+fields:\s*\[([^\]]+)\]\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        items = [x.strip().strip('"').strip("'") for x in m.group(1).split(",")]
+        out["section_view_fields"] = [x for x in items if x]
+
+    # target_part_ids (flow list of ints)
+    m = re.search(r'^\s+target_part_ids:\s*\[([^\]]*)\]\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            ids = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
+            out["section_view_target_ids"] = ids
+        except ValueError:
+            pass
+
+    # target_patterns (flow list of strings)
+    m = re.search(r'^\s+target_patterns:\s*\[([^\]]*)\]\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        items = [x.strip().strip('"').strip("'") for x in m.group(1).split(",")]
+        out["section_view_target_patterns"] = [x for x in items if x]
+
+    # per_part
+    m = re.search(r'^\s+per_part:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_per_part"] = _bool(m.group(1))
+
+    # fade
+    m = re.search(r'^\s+fade:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_fade"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    # sv_threads
+    m = re.search(r'^\s+sv_threads:\s*(\d+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["sv_threads"] = int(m.group(1))
+
+    # ── per-part renderAllPartSections fields ──
+    m = re.search(r'^\s+iso_clip_view:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_iso_clip"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+section_position:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_section_position"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    m = re.search(r'^\s+section_margin:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_section_margin"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    m = re.search(r'^\s+iso_clip_margin:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_iso_clip_margin"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    m = re.search(r'^\s+edge_width:\s*(\d+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_edge_width"] = int(m.group(1))
+
+    m = re.search(r'^\s+crf:\s*(\d+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_crf"] = int(m.group(1))
+
+    m = re.search(r'^\s+reverse_cut:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_reverse_cut"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_view:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_sliding"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_section_style:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_sliding_section_style"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_iso_style:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_sliding_iso_style"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_steps:\s*(\d+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_sliding_steps"] = int(m.group(1))
+
+    m = re.search(r'^\s+sliding_near_to_far:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_sliding_near_to_far"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_pad:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_sliding_pad"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    m = re.search(r'^\s+sliding_freeze_time:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
+                  block, re.MULTILINE | re.IGNORECASE)
+    if m:
+        out["section_view_sliding_freeze_time"] = _bool(m.group(1))
+
+    m = re.search(r'^\s+sliding_peak_time:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_sliding_peak_time"] = float(m.group(1))
+        except ValueError:
+            pass
+
+    return out
 
 
 def _apply_config_to_args(args: argparse.Namespace) -> None:
@@ -339,6 +603,85 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         args.part_pattern = cfg["part_pattern"]
     if not getattr(args, "install_dir", "") and "install_dir" in cfg:
         args.install_dir = cfg["install_dir"]
+
+    # section_view block: only apply YAML when CLI did not override (defaults intact).
+    sv_cfg = cfg.get("section_view") or {}
+    if sv_cfg:
+        if not getattr(args, "section_view", False) and "section_view" in sv_cfg:
+            args.section_view = bool(sv_cfg["section_view"])
+        if (getattr(args, "section_view_backend", "lsprepost") == "lsprepost"
+                and "section_view_backend" in sv_cfg):
+            args.section_view_backend = sv_cfg["section_view_backend"]
+        if (getattr(args, "section_view_mode", "section") == "section"
+                and "section_view_mode" in sv_cfg):
+            args.section_view_mode = sv_cfg["section_view_mode"]
+        if (not getattr(args, "section_view_per_part", False)
+                and "section_view_per_part" in sv_cfg):
+            args.section_view_per_part = bool(sv_cfg["section_view_per_part"])
+        if (getattr(args, "section_view_axes", None) == ["x", "y", "z"]
+                and "section_view_axes" in sv_cfg):
+            args.section_view_axes = sv_cfg["section_view_axes"]
+        if (getattr(args, "section_view_fields", None) is None
+                and "section_view_fields" in sv_cfg):
+            args.section_view_fields = sv_cfg["section_view_fields"]
+        if (getattr(args, "section_view_target_ids", None) is None
+                and "section_view_target_ids" in sv_cfg):
+            args.section_view_target_ids = sv_cfg["section_view_target_ids"]
+        if (getattr(args, "section_view_target_patterns", None) is None
+                and "section_view_target_patterns" in sv_cfg):
+            args.section_view_target_patterns = sv_cfg["section_view_target_patterns"]
+        if (getattr(args, "section_view_fade", 0.0) == 0.0
+                and "section_view_fade" in sv_cfg):
+            args.section_view_fade = sv_cfg["section_view_fade"]
+        if (getattr(args, "sv_threads", 2) == 2
+                and "sv_threads" in sv_cfg):
+            args.sv_threads = sv_cfg["sv_threads"]
+        # per-part renderAllPartSections fields
+        if (getattr(args, "section_view_iso_clip", True) is True
+                and "section_view_iso_clip" in sv_cfg):
+            args.section_view_iso_clip = bool(sv_cfg["section_view_iso_clip"])
+        if (getattr(args, "section_view_section_position", 0.5) == 0.5
+                and "section_view_section_position" in sv_cfg):
+            args.section_view_section_position = sv_cfg["section_view_section_position"]
+        if (getattr(args, "section_view_section_margin", -0.3) == -0.3
+                and "section_view_section_margin" in sv_cfg):
+            args.section_view_section_margin = sv_cfg["section_view_section_margin"]
+        if (getattr(args, "section_view_iso_clip_margin", -0.3) == -0.3
+                and "section_view_iso_clip_margin" in sv_cfg):
+            args.section_view_iso_clip_margin = sv_cfg["section_view_iso_clip_margin"]
+        if (getattr(args, "section_view_edge_width", 2) == 2
+                and "section_view_edge_width" in sv_cfg):
+            args.section_view_edge_width = sv_cfg["section_view_edge_width"]
+        if (getattr(args, "section_view_crf", 23) == 23
+                and "section_view_crf" in sv_cfg):
+            args.section_view_crf = sv_cfg["section_view_crf"]
+        if (getattr(args, "section_view_reverse_cut", True) is True
+                and "section_view_reverse_cut" in sv_cfg):
+            args.section_view_reverse_cut = bool(sv_cfg["section_view_reverse_cut"])
+        if (not getattr(args, "section_view_sliding", False)
+                and "section_view_sliding" in sv_cfg):
+            args.section_view_sliding = bool(sv_cfg["section_view_sliding"])
+        if (getattr(args, "section_view_sliding_section_style", True) is True
+                and "section_view_sliding_section_style" in sv_cfg):
+            args.section_view_sliding_section_style = bool(sv_cfg["section_view_sliding_section_style"])
+        if (getattr(args, "section_view_sliding_iso_style", True) is True
+                and "section_view_sliding_iso_style" in sv_cfg):
+            args.section_view_sliding_iso_style = bool(sv_cfg["section_view_sliding_iso_style"])
+        if (getattr(args, "section_view_sliding_steps", 20) == 20
+                and "section_view_sliding_steps" in sv_cfg):
+            args.section_view_sliding_steps = sv_cfg["section_view_sliding_steps"]
+        if (getattr(args, "section_view_sliding_near_to_far", True) is True
+                and "section_view_sliding_near_to_far" in sv_cfg):
+            args.section_view_sliding_near_to_far = bool(sv_cfg["section_view_sliding_near_to_far"])
+        if (getattr(args, "section_view_sliding_pad", 0.05) == 0.05
+                and "section_view_sliding_pad" in sv_cfg):
+            args.section_view_sliding_pad = sv_cfg["section_view_sliding_pad"]
+        if (not getattr(args, "section_view_sliding_freeze_time", False)
+                and "section_view_sliding_freeze_time" in sv_cfg):
+            args.section_view_sliding_freeze_time = bool(sv_cfg["section_view_sliding_freeze_time"])
+        if (getattr(args, "section_view_sliding_peak_time", -1.0) == -1.0
+                and "section_view_sliding_peak_time" in sv_cfg):
+            args.section_view_sliding_peak_time = sv_cfg["section_view_sliding_peak_time"]
 
 
 def _resolve_install_dir(explicit: str) -> Path | None:
@@ -436,6 +779,21 @@ def run_single(args: argparse.Namespace) -> None:
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=getattr(args, "section_view_per_part", False),
             sv_threads=getattr(args, "sv_threads", 2),
+            iso_clip_view=getattr(args, "section_view_iso_clip", True),
+            section_position=getattr(args, "section_view_section_position", 0.5),
+            section_margin=getattr(args, "section_view_section_margin", -0.3),
+            iso_clip_margin=getattr(args, "section_view_iso_clip_margin", -0.3),
+            edge_width=getattr(args, "section_view_edge_width", 2),
+            crf=getattr(args, "section_view_crf", 23),
+            reverse_cut=getattr(args, "section_view_reverse_cut", True),
+            sliding_view=getattr(args, "section_view_sliding", False),
+            sliding_section_style=getattr(args, "section_view_sliding_section_style", True),
+            sliding_iso_style=getattr(args, "section_view_sliding_iso_style", True),
+            sliding_steps=getattr(args, "section_view_sliding_steps", 20),
+            sliding_near_to_far=getattr(args, "section_view_sliding_near_to_far", True),
+            sliding_pad=getattr(args, "section_view_sliding_pad", 0.05),
+            sliding_freeze_time=getattr(args, "section_view_sliding_freeze_time", False),
+            sliding_peak_time=getattr(args, "section_view_sliding_peak_time", -1.0),
         )
 
     print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'}"
@@ -603,6 +961,21 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=getattr(args, "section_view_per_part", False),
             sv_threads=getattr(args, "sv_threads", 2),
+            iso_clip_view=getattr(args, "section_view_iso_clip", True),
+            section_position=getattr(args, "section_view_section_position", 0.5),
+            section_margin=getattr(args, "section_view_section_margin", -0.3),
+            iso_clip_margin=getattr(args, "section_view_iso_clip_margin", -0.3),
+            edge_width=getattr(args, "section_view_edge_width", 2),
+            crf=getattr(args, "section_view_crf", 23),
+            reverse_cut=getattr(args, "section_view_reverse_cut", True),
+            sliding_view=getattr(args, "section_view_sliding", False),
+            sliding_section_style=getattr(args, "section_view_sliding_section_style", True),
+            sliding_iso_style=getattr(args, "section_view_sliding_iso_style", True),
+            sliding_steps=getattr(args, "section_view_sliding_steps", 20),
+            sliding_near_to_far=getattr(args, "section_view_sliding_near_to_far", True),
+            sliding_pad=getattr(args, "section_view_sliding_pad", 0.05),
+            sliding_freeze_time=getattr(args, "section_view_sliding_freeze_time", False),
+            sliding_peak_time=getattr(args, "section_view_sliding_peak_time", -1.0),
         )
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,

@@ -194,6 +194,26 @@ public:
         const std::vector<data::StateData>& all_states,
         UnifiedProgressCallback callback
     );
+
+    /**
+     * @brief Run part_section_renders jobs (LSPrePost renderAllPartSections).
+     *
+     * Generates per-part section views with genselect-based fringe isolation
+     * and optional iso clip views. Output: <output_dir>/part_{id}_{name}/
+     *   - section_{axis}.mp4
+     *   - iso_clip_{axis}.mp4
+     *
+     * If a job's part_ids is empty, this fills it from analysis_result_part_ids
+     * (passed in) or from a fresh mesh scan.
+     *
+     * Implementation in UnifiedAnalyzerRender.cpp (KOOD3PLOT_HAS_RENDER only).
+     */
+    bool processPartSectionRenders(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        const std::vector<int32_t>& analysis_result_part_ids,
+        UnifiedProgressCallback callback
+    );
 };
 
 } // namespace analysis

@@ -823,5 +823,167 @@ bool UnifiedAnalyzer::processRenderJobs(
 #endif
 }
 
+// ============================================================
+// processPartSectionRenders — uses LSPrePostRenderer::renderAllPartSections
+// ============================================================
+
+bool UnifiedAnalyzer::processPartSectionRenders(
+    D3plotReader& reader,
+    const UnifiedConfig& config,
+    const std::vector<int32_t>& analysis_result_part_ids,
+    UnifiedProgressCallback callback
+) {
+    if (config.part_section_renders.empty()) return true;
+
+    if (callback) callback("Processing part section renders...");
+
+#ifdef KOOD3PLOT_HAS_RENDER
+    namespace fs = std::filesystem;
+
+    // Resolve LSPrePost path (same fallback chain as processRenderJobs).
+    std::string lsprepost_path = config.lsprepost_path;
+    if (lsprepost_path.empty()) {
+        try {
+            fs::path exe_path = fs::read_symlink("/proc/self/exe");
+            fs::path exe_dir = exe_path.parent_path();
+#ifdef _WIN32
+            fs::path p = exe_dir / ".." / "lsprepost" / "lspp412_win64.exe";
+            if (fs::exists(p)) lsprepost_path = fs::canonical(p).string();
+#else
+            fs::path p = exe_dir / ".." / "lsprepost" / "lsprepost";
+            if (fs::exists(p)) lsprepost_path = fs::canonical(p).string();
+#endif
+        } catch (...) { /* fallback below */ }
+    }
+    if (lsprepost_path.empty()) lsprepost_path = "lsprepost";
+
+    if (callback) callback("  Using LSPrePost: " + lsprepost_path);
+
+    // Probe availability
+    {
+        render::LSPrePostRenderer probe(lsprepost_path);
+        if (!probe.isAvailable()) {
+            if (callback) callback("  WARNING: LSPrePost not found at: " + lsprepost_path);
+            return false;
+        }
+    }
+
+    // Map fringe_type string → enum
+    auto parseFringe = [](const std::string& s) -> render::FringeType {
+        if (s == "von_mises")            return render::FringeType::VON_MISES;
+        if (s == "eff_plastic_strain")   return render::FringeType::EFFECTIVE_PLASTIC_STRAIN;
+        if (s == "displacement")         return render::FringeType::DISPLACEMENT;
+        if (s == "velocity")             return render::FringeType::VELOCITY;
+        if (s == "acceleration")         return render::FringeType::ACCELERATION;
+        if (s == "pressure")             return render::FringeType::PRESSURE;
+        return render::FringeType::VON_MISES;
+    };
+
+    // Mesh part-name lookup (D3plot has no PART names; fall back to PID labels)
+    auto mesh = reader.read_mesh();
+    std::map<int, std::string> part_names;
+    auto add_pname = [&](int32_t pid) {
+        part_names[static_cast<int>(pid)] = "Part" + std::to_string(pid);
+    };
+    for (auto pid : mesh.solid_parts)        add_pname(pid);
+    for (auto pid : mesh.shell_parts)        add_pname(pid);
+    for (auto pid : mesh.thick_shell_parts)  add_pname(pid);
+
+    bool all_success = true;
+    for (const auto& job : config.part_section_renders) {
+        if (!job.enabled) continue;
+
+        // Determine part_ids: explicit > analysis result > all mesh parts
+        std::vector<int> part_ids;
+        if (!job.part_ids.empty()) {
+            part_ids.assign(job.part_ids.begin(), job.part_ids.end());
+        } else if (!analysis_result_part_ids.empty()) {
+            part_ids.assign(analysis_result_part_ids.begin(),
+                            analysis_result_part_ids.end());
+        } else {
+            for (auto pid : mesh.solid_parts)        part_ids.push_back(pid);
+            for (auto pid : mesh.shell_parts)        part_ids.push_back(pid);
+            for (auto pid : mesh.thick_shell_parts)  part_ids.push_back(pid);
+        }
+        if (part_ids.empty()) {
+            if (callback) callback("  [" + job.name + "] No parts to render — skipped");
+            continue;
+        }
+
+        // Resolve output dir (relative paths joined to config.output_directory).
+        fs::path out_root = job.output_directory;
+        if (!out_root.is_absolute()) {
+            fs::path base = config.output_directory.empty()
+                            ? fs::current_path()
+                            : fs::path(config.output_directory);
+            out_root = base / out_root;
+        }
+        try { fs::create_directories(out_root); } catch (...) {}
+
+        if (callback) {
+            callback("  [" + job.name + "] " +
+                     std::to_string(part_ids.size()) + " parts × " +
+                     std::to_string(job.axes.size()) + " axes" +
+                     (job.section_view ? " + section_view" : "") +
+                     (job.iso_clip_view ? " + iso_clip" : ""));
+        }
+
+        // Build options
+        render::RenderOptions ropts;
+        ropts.fringe_type = parseFringe(job.fringe_type);
+        ropts.image_width  = job.resolution.size() > 0 ? job.resolution[0] : 1280;
+        ropts.image_height = job.resolution.size() > 1 ? job.resolution[1] : 720;
+        ropts.fps = job.fps;
+        ropts.create_animation = true;
+        ropts.video_format = render::VideoFormat::MP4;
+
+        render::PartSectionOptions psopts;
+        psopts.section_view     = job.section_view;
+        psopts.iso_clip_view    = job.iso_clip_view;
+        psopts.axes.assign(job.axes.begin(), job.axes.end());
+        psopts.section_position = job.section_position;
+        psopts.section_margin   = job.section_margin;
+        psopts.iso_clip_margin  = job.iso_clip_margin;
+        psopts.edge_width       = job.edge_width;
+        psopts.crf              = job.crf;
+        psopts.reverse_cut      = job.reverse_cut;
+        psopts.sliding_view           = job.sliding_view;
+        psopts.sliding_section_style  = job.sliding_section_style;
+        psopts.sliding_iso_style      = job.sliding_iso_style;
+        psopts.sliding_steps          = job.sliding_steps;
+        psopts.sliding_near_to_far    = job.sliding_near_to_far;
+        psopts.sliding_pad            = job.sliding_pad;
+        psopts.sliding_freeze_time    = job.sliding_freeze_time;
+        psopts.sliding_peak_time      = job.sliding_peak_time;
+
+        render::LSPrePostRenderer renderer(lsprepost_path);
+        int n_success = renderer.renderAllPartSections(
+            config.d3plot_path,
+            reader,
+            out_root.string(),
+            part_ids,
+            part_names,
+            ropts,
+            psopts
+        );
+        int total_views = static_cast<int>(part_ids.size()) *
+                          static_cast<int>(job.axes.size()) *
+                          ((job.section_view ? 1 : 0) + (job.iso_clip_view ? 1 : 0));
+
+        if (callback) {
+            callback("  [" + job.name + "] Done: " +
+                     std::to_string(n_success) + "/" +
+                     std::to_string(total_views) + " renders");
+        }
+        if (n_success < total_views) all_success = false;
+    }
+
+    return all_success;
+#else
+    if (callback) callback("  Part section renders skipped: render module disabled");
+    return false;
+#endif
+}
+
 } // namespace analysis
 } // namespace kood3plot

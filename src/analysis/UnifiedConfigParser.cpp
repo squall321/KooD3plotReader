@@ -298,12 +298,16 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     bool in_analysis_jobs = false;
     bool in_render_jobs = false;
     bool in_section_views = false;
+    bool in_part_section_renders = false;
     AnalysisJob current_analysis_job;
     RenderJob current_render_job;
     SectionViewJobSpec current_sv;
+    PartSectionRenderJob current_psr;
     bool has_current_analysis_job = false;
     bool has_current_render_job = false;
     bool has_current_sv = false;
+    bool has_current_psr = false;
+    std::string psr_sub_section;  // "output"
 
     // Sub-section tracking
     std::string sub_section;  // "surface", "output", "section", "fringe_range"
@@ -332,6 +336,15 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         }
         current_sv = SectionViewJobSpec();
         has_current_sv = false;
+    };
+
+    auto flush_psr = [&]() {
+        if (has_current_psr) {
+            config.part_section_renders.push_back(current_psr);
+        }
+        current_psr = PartSectionRenderJob();
+        has_current_psr = false;
+        psr_sub_section.clear();
     };
 
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -373,10 +386,12 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
             if (in_analysis_jobs) flush_analysis_job();
             if (in_render_jobs) flush_render_job();
             if (in_section_views) flush_sv();
+            if (in_part_section_renders) flush_psr();
 
             in_analysis_jobs = false;
             in_render_jobs = false;
             in_section_views = false;
+            in_part_section_renders = false;
             current_section = key;
 
             if (key == "analysis_jobs") {
@@ -385,6 +400,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 in_render_jobs = true;
             } else if (key == "section_views") {
                 in_section_views = true;
+            } else if (key == "part_section_renders") {
+                in_part_section_renders = true;
             } else if (key == "version") {
                 config.version = value;
             }
@@ -434,6 +451,101 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 current_render_job.name = value;
             }
             continue;
+        }
+
+        // Handle part_section_renders list items
+        if (in_part_section_renders && is_list_item && indent <= 2) {
+            flush_psr();
+            has_current_psr = true;
+            if (key == "name") current_psr.name = value;
+            continue;
+        }
+
+        // Parse part_section_renders fields
+        if (in_part_section_renders && has_current_psr) {
+            // Sub-section header (indent 4, value empty)
+            if (indent == 4 && value.empty()) {
+                if (key == "output") { psr_sub_section = "output"; continue; }
+                psr_sub_section.clear();
+            }
+
+            // Sub-section: output
+            if (psr_sub_section == "output" && indent >= 6) {
+                if (key == "directory") {
+                    current_psr.output_directory = value;
+                } else if (key == "resolution") {
+                    auto vec = parseIntArray(value);
+                    if (vec.size() >= 2) {
+                        current_psr.resolution.assign(vec.begin(), vec.begin() + 2);
+                    }
+                } else if (key == "fps") {
+                    try { current_psr.fps = std::stoi(value); } catch (...) {}
+                }
+                continue;
+            }
+
+            // Top-level fields (indent 4)
+            if (indent == 4) {
+                psr_sub_section.clear();  // exit any sub-section
+                if (key == "name") {
+                    current_psr.name = value;
+                } else if (key == "enabled") {
+                    current_psr.enabled = parseBool(value);
+                } else if (key == "fringe_type" || key == "fringe") {
+                    current_psr.fringe_type = value;
+                } else if (key == "axes") {
+                    auto strs = parseStringArray(value);
+                    current_psr.axes.clear();
+                    for (const auto& s : strs) {
+                        if (s.empty()) continue;
+                        // Normalize to "x" or "+x"/"-x" form (lowercase axis letter)
+                        std::string out;
+                        size_t p = 0;
+                        if (s[0] == '+' || s[0] == '-') {
+                            out.push_back(s[0]);
+                            p = 1;
+                        }
+                        if (p < s.size()) out.push_back(std::tolower(s[p]));
+                        if (!out.empty()) current_psr.axes.push_back(out);
+                    }
+                } else if (key == "part_ids" || key == "parts") {
+                    auto vec = parseIntArray(value);
+                    current_psr.part_ids.assign(vec.begin(), vec.end());
+                } else if (key == "section_view") {
+                    current_psr.section_view = parseBool(value);
+                } else if (key == "iso_clip_view") {
+                    current_psr.iso_clip_view = parseBool(value);
+                } else if (key == "section_position") {
+                    try { current_psr.section_position = std::stod(value); } catch (...) {}
+                } else if (key == "section_margin") {
+                    try { current_psr.section_margin = std::stod(value); } catch (...) {}
+                } else if (key == "iso_clip_margin") {
+                    try { current_psr.iso_clip_margin = std::stod(value); } catch (...) {}
+                } else if (key == "edge_width") {
+                    try { current_psr.edge_width = std::stoi(value); } catch (...) {}
+                } else if (key == "crf") {
+                    try { current_psr.crf = std::stoi(value); } catch (...) {}
+                } else if (key == "reverse_cut") {
+                    current_psr.reverse_cut = parseBool(value);
+                } else if (key == "sliding_view") {
+                    current_psr.sliding_view = parseBool(value);
+                } else if (key == "sliding_section_style") {
+                    current_psr.sliding_section_style = parseBool(value);
+                } else if (key == "sliding_iso_style") {
+                    current_psr.sliding_iso_style = parseBool(value);
+                } else if (key == "sliding_steps") {
+                    try { current_psr.sliding_steps = std::stoi(value); } catch (...) {}
+                } else if (key == "sliding_near_to_far") {
+                    current_psr.sliding_near_to_far = parseBool(value);
+                } else if (key == "sliding_pad") {
+                    try { current_psr.sliding_pad = std::stod(value); } catch (...) {}
+                } else if (key == "sliding_freeze_time") {
+                    current_psr.sliding_freeze_time = parseBool(value);
+                } else if (key == "sliding_peak_time") {
+                    try { current_psr.sliding_peak_time = std::stod(value); } catch (...) {}
+                }
+                continue;
+            }
         }
 
         // Parse analysis job properties
@@ -622,6 +734,7 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     if (in_analysis_jobs) flush_analysis_job();
     if (in_render_jobs) flush_render_job();
     if (in_section_views) flush_sv();
+    if (in_part_section_renders) flush_psr();
 
     return true;
 }

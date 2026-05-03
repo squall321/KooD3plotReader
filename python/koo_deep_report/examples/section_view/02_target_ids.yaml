@@ -1,0 +1,45 @@
+# Section View Case 2 — 특정 파트 ID 지정 단면뷰
+# ─────────────────────────────────────────────────────────
+# target_part_ids에 명시한 파트들만 fringe로 강조한 단면뷰 1개
+# (배경 파트는 단색 또는 페이드).
+#
+# 출력 예 (axes=[z], fields=[von_mises]):
+#   renders/section_view_z/section_view.mp4    ← target=[4,5,6,19]만 fringe
+#
+# 사용법:
+#   koo_deep_report --config 02_target_ids.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+  json: true
+  csv: true
+
+performance:
+  threads: 4
+  render_threads: 1
+  verbose: true
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+  - name: "Effective Plastic Strain"
+    type: eff_plastic_strain
+    output_prefix: "strain"
+  - name: "Part Motion"
+    type: part_motion
+    output_prefix: "motion"
+
+section_view:
+  enabled: true
+  backend: lsprepost
+  axes: [z]                       # Z축만 (위에서 본 단면)
+  fields: [von_mises]
+  per_part: false
+  target_part_ids: [4, 5, 6, 19]  # PKG 관련 파트만
+  fade: 0.0

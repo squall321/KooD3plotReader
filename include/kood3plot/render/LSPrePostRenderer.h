@@ -211,12 +211,28 @@ struct RenderOptions {
 struct PartSectionOptions {
     bool section_view = true;    ///< Generate section views (projectview + drawcut)
     bool iso_clip_view = true;   ///< Generate isometric clip views (clipplane)
-    std::vector<char> axes = {'x', 'y', 'z'};  ///< Axes to render
+    /// Axes to render. Each entry is one of:
+    ///   "x","y","z"           — axis-aligned, default sign (positive normal)
+    ///   "+x","+y","+z"        — same as above (explicit positive)
+    ///   "-x","-y","-z"        — flipped: normal points the other way; for sliding
+    ///                            this changes which side stays visible after the
+    ///                            cut and which direction the plane sweeps in.
+    std::vector<std::string> axes = {"x", "y", "z"};
     double section_position = 0.5;  ///< Section position within part bbox (0.0=min, 0.5=center, 1.0=max)
     int edge_width = 2;          ///< Edge/outline width (1-5)
     double section_margin = -0.3; ///< zin margin for section view (negative = zoom out)
-    double iso_clip_margin = -1.5; ///< zin margin for iso clip view
+    double iso_clip_margin = -0.3; ///< zin margin for iso clip view (negative = zoom out; -0.3 ≈ 1.6x out)
     int crf = 23;                ///< H264 CRF for ffmpeg re-encode (18=high, 23=default, 28=compact, 0=skip)
+    bool reverse_cut = true;     ///< Reverse cut side: camera-near side becomes the cut (interior visible)
+    // ── Sliding section view ──
+    bool sliding_view = false;          ///< Master toggle for sliding videos (per-part, per-axis)
+    bool sliding_section_style = true;  ///< Generate section-style sliding (drawcut + projectview)
+    bool sliding_iso_style = true;      ///< Generate iso-style sliding (clipplane + isometric)
+    int sliding_steps = 20;             ///< Number of cut positions across part bbox
+    bool sliding_near_to_far = true;    ///< true: bbox.max → bbox.min (camera-near → far)
+    double sliding_pad = 0.05;          ///< Padding outside bbox (fraction of bbox extent)
+    bool sliding_freeze_time = false;   ///< Phase B (later): freeze sim time at peak_state, slide only the cut plane
+    double sliding_peak_time = -1.0;    ///< Phase B (later): explicit peak time in seconds (-1 = auto = last state)
 };
 
 /**
@@ -387,6 +403,40 @@ public:
         const std::map<int, std::string>& part_names = {},
         const RenderOptions& options = RenderOptions(),
         const PartSectionOptions& section_opts = PartSectionOptions()
+    );
+
+    /**
+     * @brief Render a sliding section animation for one part along one axis.
+     *
+     * Generates N short clips (each at a different cut plane position along
+     * the axis), each clip running through the full simulation time. The
+     * clips are then trimmed (1/N of total duration each) and concatenated
+     * via ffmpeg into a single output mp4. The resulting video shows BOTH
+     * the simulation progressing in time AND the cut plane sliding through
+     * the part along the chosen axis.
+     *
+     * Output: <part_dir>/sliding_<axis>.mp4
+     *
+     * @return 1 on success, 0 on failure.
+     */
+    /**
+     * @brief Sliding style selector for renderSlidingSection.
+     */
+    enum class SlidingStyle {
+        SECTION,  ///< drawcut + projectview (front-on 2D slice plate)
+        ISO       ///< clipplane + isometric (3D oblique, section + far-side mesh)
+    };
+
+    int renderSlidingSection(
+        const std::string& d3plot_path,
+        D3plotReader& reader,
+        const std::string& part_dir,
+        int part_id,
+        char axis,
+        int axis_sign,         ///< +1 or -1: flip normal (and so cut/sweep direction)
+        SlidingStyle style,
+        const RenderOptions& options,
+        const PartSectionOptions& section_opts
     );
 
     /**

@@ -1,5 +1,6 @@
 """Run unified_analyzer and parse its JSON/CSV outputs."""
 from __future__ import annotations
+import copy
 import csv
 import json
 import subprocess
@@ -266,13 +267,37 @@ def _build_yaml(
 
     # render_jobs (LSPrePost) — either from RenderConfig or SectionViewRenderConfig
     if sv_active and sv_backend == "lsprepost":
-        # Section views via LSPrePost backend
-        from ..render.job_builder import build_lsprepost_section_jobs
-        jobs = build_lsprepost_section_jobs(str(output_dir), section_view_config, part_ids)
-        if jobs:
+        from ..render.job_builder import (
+            build_lsprepost_section_jobs,
+            build_part_section_render_yaml_entries,
+            SectionViewRenderConfig as _SVC,
+        )
+
+        # Overview render_jobs (force per_part_render=False so this path only
+        # produces full-model section views; per-part goes through the
+        # dedicated part_section_renders block below).
+        sv_overview = copy.copy(section_view_config)
+        sv_overview.per_part_render = False
+        overview_jobs = build_lsprepost_section_jobs(
+            str(output_dir), sv_overview, part_ids
+        )
+        if overview_jobs:
             lines.append("render_jobs:")
-            for job in jobs:
+            for job in overview_jobs:
                 lines.append(_dict_to_yaml(job, indent=2))
+
+        # Per-part section renders (genselect + iso_clip via C++ renderAllPartSections).
+        if section_view_config.per_part_render:
+            psr_entries = build_part_section_render_yaml_entries(
+                str(output_dir), section_view_config, part_ids
+            )
+            if psr_entries:
+                lines.append("part_section_renders:")
+                for name, body in psr_entries:
+                    lines.append(f'  - name: "{name}"')
+                    for bl in body.splitlines():
+                        if bl.strip():
+                            lines.append(f"    {bl}")
     elif render_config and render_config.enabled and not sv_active:
         # Legacy LSPrePost render (no section view config)
         from ..render.job_builder import build_render_jobs

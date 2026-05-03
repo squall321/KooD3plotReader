@@ -1,0 +1,59 @@
+# Section View Case 1 — 전체 파트 일괄 단면뷰
+# ─────────────────────────────────────────────────────────
+# 모든 파트에 대해 개별 단면뷰 생성 (각 field × part × axis 조합).
+# 분석 결과에서 part_ids를 자동 추출 → 2nd render pass 실행.
+#
+# 출력 예 (예: 23개 파트, 2 fields × 3 axes):
+#   renders/section_view_von_mises_z/section_view.mp4              ← overview
+#   renders/section_view_von_mises_part_4_z/section_view.mp4       ← per-part
+#   renders/section_view_von_mises_part_5_z/section_view.mp4
+#   ...
+#   renders/section_view_strain_part_19_z/section_view.mp4
+#
+# 사용법:
+#   koo_deep_report --config 01_per_part_all.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+  json: true
+  csv: true
+
+performance:
+  threads: 4
+  render_threads: 2
+  verbose: true
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+  - name: "Effective Plastic Strain"
+    type: eff_plastic_strain
+    output_prefix: "strain"
+  - name: "Part Motion"
+    type: part_motion
+    output_prefix: "motion"
+
+section_view:
+  enabled: true
+  backend: lsprepost
+  axes: [x, y, z]
+  fields: [von_mises, strain]
+  per_part: true                  # 모든 파트 일괄 단면뷰
+  fade: 0.0
+  sv_threads: 2
+
+  # ── per-part 전용 옵션 (LSPrePost renderAllPartSections) ──
+  # genselect 기반 fringe isolation + iso clip view 지원.
+  # per_part=true 일 때만 적용.
+  iso_clip_view: true             # 추가로 isometric clip view도 생성
+  section_position: 0.5           # 단면 위치 part bbox 비율 (0=min, 1=max)
+  section_margin: -0.3            # section view zin 마진 (음수=zoom out)
+  iso_clip_margin: -1.5           # iso clip zin 마진
+  edge_width: 2                   # 에지/외곽선 두께 1-5
+  crf: 23                         # H264 CRF (18=고화질, 23=기본, 28=압축)

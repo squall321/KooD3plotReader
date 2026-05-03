@@ -862,6 +862,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Render jobs: " << config.render_jobs.size() << "\n";
     std::cout << "=============================================================\n\n";
 
+    // Carry analyzed part IDs across the analysis → part-section-render boundary
+    std::vector<int32_t> analyzed_pids;
+
     // Run analysis
     auto start_time = std::chrono::high_resolution_clock::now();
     bool sv_done_in_analyze = false;
@@ -880,6 +883,7 @@ int main(int argc, char* argv[]) {
         }
 
         sv_done_in_analyze = analyzer.sectionViewsDone();
+        analyzed_pids = result.metadata.analyzed_parts;
 
         // Export results
         std::cout << "\n[EXPORT] Writing results (JSON + CSV)...\n";
@@ -912,6 +916,31 @@ int main(int argc, char* argv[]) {
                 std::cout << "\n[RENDER] All render jobs completed successfully.\n";
             } else {
                 std::cerr << "\n[RENDER] Some render jobs failed.\n";
+            }
+        }
+    }
+
+    // Run part section renders (LSPrePost renderAllPartSections)
+    if (!analysis_only && config.hasPartSectionRenders()) {
+        std::cout << "\n[PART_SECTION] Processing " << config.part_section_renders.size()
+                  << " part section render job(s)...\n";
+
+        D3plotReader psr_reader(config.d3plot_path);
+        auto error = psr_reader.open();
+        if (error != ErrorCode::SUCCESS) {
+            std::cerr << "Failed to open d3plot for part section renders\n";
+        } else {
+            UnifiedAnalyzer psr_analyzer;
+            bool psr_success = psr_analyzer.processPartSectionRenders(
+                psr_reader, config, analyzed_pids,
+                [](const std::string& msg) {
+                    std::cout << msg << "\n";
+                });
+
+            if (psr_success) {
+                std::cout << "\n[PART_SECTION] All part section renders completed.\n";
+            } else {
+                std::cerr << "\n[PART_SECTION] Some part section renders failed.\n";
             }
         }
     }

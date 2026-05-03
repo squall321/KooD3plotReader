@@ -11,6 +11,10 @@ class SectionViewRenderConfig:
     backend="lsprepost" (default): uses LSPrePost drawcut+projectview via Xvfb.
         Produces high-quality section views identical to interactive LSPrePost.
     backend="software": uses built-in software rasterizer (VTK-free, slower).
+
+    For per-part rendering with TRUE fringe isolation (genselect) and iso clip
+    views, set per_part_render=True. This routes through the C++ side's new
+    `part_section_renders` block which calls `LSPrePostRenderer::renderAllPartSections`.
     """
     enabled: bool = True
     backend: str = "lsprepost"   # "lsprepost" (default) or "software"
@@ -29,6 +33,25 @@ class SectionViewRenderConfig:
     fps: int = 24
     supersampling: int = 2
     png_frames: bool = False
+
+    # ── per-part renderAllPartSections options (LSPrePost backend only) ──
+    # Active only when per_part_render=True and backend="lsprepost".
+    iso_clip_view: bool = True       # generate isometric+clipplane views per part
+    section_position: float = 0.5    # 0..1 within part bbox
+    section_margin: float = -0.3     # zin margin for section view (negative = zoom out)
+    iso_clip_margin: float = -0.3    # zin margin for iso clip view (negative = zoom out; -0.3 ≈ 1.6x out)
+    edge_width: int = 2              # edge/outline width 1-5
+    crf: int = 23                    # H264 CRF for ffmpeg re-encode (18=high, 23=default)
+    reverse_cut: bool = True         # flip cut side so interior faces camera
+    # ── sliding section view ──
+    sliding_view: bool = False           # master toggle for sliding videos
+    sliding_section_style: bool = True   # generate section-style sliding (drawcut + projectview)
+    sliding_iso_style: bool = True       # generate iso-style sliding (clipplane + isometric)
+    sliding_steps: int = 20              # number of cut positions across part bbox
+    sliding_near_to_far: bool = True     # bbox.max → bbox.min (camera-near to far)
+    sliding_pad: float = 0.05            # padding fraction outside bbox
+    sliding_freeze_time: bool = False    # Phase B: freeze sim time at peak_state
+    sliding_peak_time: float = -1.0      # Phase B: explicit peak time (-1 = auto)
 
     @property
     def effective_fields(self) -> list[str]:
@@ -139,6 +162,68 @@ _FRINGE_MAP = {
     "pressure": "pressure",
     "max_shear": "max_shear",
 }
+
+
+def build_part_section_render_yaml_entries(
+    output_dir: str,
+    config: SectionViewRenderConfig,
+    part_ids: list[int] | None = None,
+) -> list[tuple[str, str]]:
+    """Return list of (name, yaml_block) tuples for part_section_renders: entries.
+
+    One entry per scalar_field (since the C++ struct holds one fringe_type
+    per job). The C++ side then loops over part_ids × axes internally and
+    renders per-part section + iso_clip views with genselect fringe isolation.
+
+    output_dir: report root (renders/part_sections lives under it)
+    """
+    if not config.enabled:
+        return []
+    if config.backend != "lsprepost":
+        # part_section_renders only supports lsprepost backend
+        return []
+
+    fields = config.effective_fields
+    entries: list[tuple[str, str]] = []
+    for fld in fields:
+        # Map koo_deep_report field names to fringe types accepted by the C++ side.
+        fringe = _FRINGE_MAP.get(fld, fld)
+        # Per-field subdirectory keeps fields from clobbering each other.
+        sub = f"renders/part_sections/{fld}"
+
+        axes_list = "[" + ", ".join(config.axes) + "]"
+        ids_list = "[]"
+        if part_ids:
+            ids_list = "[" + ", ".join(str(i) for i in part_ids) + "]"
+
+        body = (
+            f"fringe_type: {fringe}\n"
+            f"axes: {axes_list}\n"
+            f"part_ids: {ids_list}\n"
+            f"section_view: true\n"
+            f"iso_clip_view: {'true' if config.iso_clip_view else 'false'}\n"
+            f"section_position: {config.section_position}\n"
+            f"section_margin: {config.section_margin}\n"
+            f"iso_clip_margin: {config.iso_clip_margin}\n"
+            f"edge_width: {config.edge_width}\n"
+            f"crf: {config.crf}\n"
+            f"reverse_cut: {'true' if config.reverse_cut else 'false'}\n"
+            f"sliding_view: {'true' if config.sliding_view else 'false'}\n"
+            f"sliding_section_style: {'true' if config.sliding_section_style else 'false'}\n"
+            f"sliding_iso_style: {'true' if config.sliding_iso_style else 'false'}\n"
+            f"sliding_steps: {config.sliding_steps}\n"
+            f"sliding_near_to_far: {'true' if config.sliding_near_to_far else 'false'}\n"
+            f"sliding_pad: {config.sliding_pad}\n"
+            f"sliding_freeze_time: {'true' if config.sliding_freeze_time else 'false'}\n"
+            f"sliding_peak_time: {config.sliding_peak_time}\n"
+            f"output:\n"
+            f'  directory: "{sub}"\n'
+            f"  resolution: [{config.width}, {config.height}]\n"
+            f"  fps: {config.fps}\n"
+        )
+        name = f"Per-Part Sections ({fld})"
+        entries.append((name, body))
+    return entries
 
 
 def build_lsprepost_section_jobs(

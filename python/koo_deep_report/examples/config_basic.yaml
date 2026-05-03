@@ -44,3 +44,11 @@ analysis_jobs:
   - name: "Part Motion"
     type: part_motion
     output_prefix: "motion"
+
+# ── Section View (옵션) ─────────────────────────────────
+# 단면뷰 활성화 시 아래 주석 해제. 자세한 옵션은 config_full.yaml 참조.
+# section_view:
+#   enabled: true
+#   axes: [z]
+#   fields: [von_mises]
+#   per_part: true              # 모든 파트 일괄 단면뷰

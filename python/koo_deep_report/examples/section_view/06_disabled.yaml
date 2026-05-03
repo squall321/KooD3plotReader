@@ -1,0 +1,30 @@
+# Section View Case 6 — 단면뷰 비활성화 (분석만)
+# ─────────────────────────────────────────────────────────
+# section_view.enabled=false 명시. 단면뷰 렌더 없이 분석만 수행.
+# 같은 효과: section_view 블록 자체를 생략하거나, --no-render CLI 플래그.
+#
+# 사용법:
+#   koo_deep_report --config 06_disabled.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+
+performance:
+  threads: 4
+  render_threads: 1
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+  - name: "Effective Plastic Strain"
+    type: eff_plastic_strain
+    output_prefix: "strain"
+
+section_view:
+  enabled: false                  # 단면뷰 OFF

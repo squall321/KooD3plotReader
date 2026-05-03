@@ -1,0 +1,34 @@
+# Section View Case 3 — 파트 이름 패턴으로 타겟 지정
+# ─────────────────────────────────────────────────────────
+# 와일드카드 패턴(*, ?)으로 매칭된 파트만 fringe로 강조.
+# 파트 ID를 외울 필요 없음 — 이름 규칙만 알면 됨.
+#
+# 사용법:
+#   koo_deep_report --config 03_target_patterns.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+  json: true
+  csv: true
+
+performance:
+  threads: 4
+  render_threads: 2
+  verbose: true
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+
+section_view:
+  enabled: true
+  axes: [x, y, z]
+  fields: [von_mises, strain]
+  target_patterns: ["*PKG*", "*CELL*"]  # PKG/CELL 이름 포함 파트만
+  fade: 0.5                              # 배경 파트는 거리별 반투명

@@ -844,6 +844,18 @@ bool UnifiedAnalyzer::processRenderJobs(
     if (callback) callback("  Build with KOOD3PLOT_BUILD_V4_RENDER=ON to enable rendering");
     return false;
 }
+
+bool UnifiedAnalyzer::processPartSectionRenders(
+    D3plotReader& /* reader */,
+    const UnifiedConfig& config,
+    const std::vector<int32_t>& /* analysis_result_part_ids */,
+    UnifiedProgressCallback callback
+) {
+    if (config.part_section_renders.empty()) return true;
+    if (callback) callback("  Part section renders skipped: LSPrePost renderer not available");
+    if (callback) callback("  Build with KOOD3PLOT_BUILD_V4_RENDER=ON to enable");
+    return false;
+}
 #endif
 
 // Note: processSectionViews is implemented in UnifiedAnalyzerSectionRender.cpp

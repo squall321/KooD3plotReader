@@ -1,0 +1,36 @@
+# Section View Case 4 — Overview만 (전체 모델 단면뷰)
+# ─────────────────────────────────────────────────────────
+# target 미지정 + per_part=false → 전체 모델 단면뷰 1개
+# (가장 가벼움. 빠른 확인용.)
+#
+# 출력:
+#   renders/section_view_x/section_view.mp4
+#   renders/section_view_y/section_view.mp4
+#   renders/section_view_z/section_view.mp4
+#
+# 사용법:
+#   koo_deep_report --config 04_overview_only.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+
+performance:
+  threads: 4
+  render_threads: 2
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+
+section_view:
+  enabled: true
+  axes: [x, y, z]
+  fields: [von_mises]            # 단일 필드 (이름 접미사 없이 section_view_z 등으로 출력)
+  per_part: false
+  # target_part_ids/target_patterns 미지정 → overview only

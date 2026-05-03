@@ -1,0 +1,34 @@
+# Section View Case 5 — Software 백엔드 (VTK/GPU/LSPrePost 불필요)
+# ─────────────────────────────────────────────────────────
+# 내장 SW 래스터라이저 사용. LSPrePost가 설치되지 않은 환경(예: CI,
+# 헤드리스 컨테이너)에서도 동작.
+#
+# 추가로 mode=section_3d 옵션으로 3D 반절단 뷰도 가능 (software 전용).
+#
+# 사용법:
+#   koo_deep_report --config 05_software_backend.yaml
+
+version: "2.0"
+
+input:
+  d3plot: "/data/sim/d3plot"
+
+output:
+  directory: "./report"
+
+performance:
+  threads: 4
+  render_threads: 1               # SW 백엔드는 단일 스레드가 무난
+
+analysis_jobs:
+  - name: "Von Mises Stress"
+    type: von_mises
+    output_prefix: "stress"
+
+section_view:
+  enabled: true
+  backend: software               # SW 래스터라이저
+  mode: section_3d                # 3D 반절단 뷰 (software 전용)
+  axes: [z]
+  fields: [von_mises]
+  per_part: false

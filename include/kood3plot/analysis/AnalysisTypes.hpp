@@ -692,6 +692,48 @@ struct SectionViewJobSpec {
     std::string yaml_block;    ///< Raw YAML text (indented, no "section_render:" header)
 };
 
+/**
+ * @brief Per-part section render job (uses LSPrePostRenderer::renderAllPartSections)
+ *
+ * Generates per-part section views with genselect-based fringe isolation
+ * (target part fringed, others in mesh color) and optional iso clip views.
+ * Output structure: <output_directory>/part_{id}_{name}/section_{axis}.mp4
+ *                                                  + iso_clip_{axis}.mp4
+ *
+ * If part_ids is empty, the analyzer auto-fills it from the analysis result
+ * (all parts that produced stress/strain/motion data).
+ */
+struct PartSectionRenderJob {
+    std::string name = "Part Section Renders";
+    bool enabled = true;
+    std::vector<int32_t> part_ids;          ///< empty = auto (all parts from analysis)
+    /// Each entry is "x","y","z" or signed "+x","-x","+y","-y","+z","-z".
+    /// Signed forms flip the cut normal — useful to control which side stays
+    /// visible after the slice and which direction sliding sweeps in.
+    std::vector<std::string> axes{"x", "y", "z"};
+    std::string fringe_type = "von_mises";  ///< von_mises | eff_plastic_strain | displacement | ...
+    bool section_view = true;               ///< drawcut + projectview per part
+    bool iso_clip_view = true;              ///< isometric + clipplane per part
+    double section_position = 0.5;          ///< 0..1 within part bbox
+    double section_margin = -0.3;           ///< zin margin for section_view
+    double iso_clip_margin = -0.3;          ///< zin margin for iso_clip_view (negative = zoom out)
+    int edge_width = 2;
+    int crf = 23;                           ///< H264 CRF for ffmpeg re-encode
+    bool reverse_cut = true;                ///< Flip cut side so interior faces the camera
+    // ── Sliding section view ──
+    bool sliding_view = false;              ///< Master toggle for sliding videos
+    bool sliding_section_style = true;      ///< Generate section-style sliding (drawcut + projectview)
+    bool sliding_iso_style = true;          ///< Generate iso-style sliding (clipplane + isometric)
+    int sliding_steps = 20;                 ///< Cut positions across part bbox
+    bool sliding_near_to_far = true;        ///< true: bbox.max → bbox.min
+    double sliding_pad = 0.05;              ///< Padding fraction outside bbox
+    bool sliding_freeze_time = false;       ///< Phase B: freeze sim time at peak_state
+    double sliding_peak_time = -1.0;        ///< Phase B: explicit peak time (-1 = auto)
+    std::string output_directory = "renders/part_sections";
+    std::vector<int32_t> resolution{1280, 720};
+    int fps = 24;
+};
+
 // ============================================================
 // Unified Configuration
 // ============================================================
@@ -734,6 +776,9 @@ struct UnifiedConfig {
     // Section view jobs (software-rasterized, VTK-free)
     std::vector<SectionViewJobSpec> section_views;
 
+    // Per-part section render jobs (LSPrePost renderAllPartSections)
+    std::vector<PartSectionRenderJob> part_section_renders;
+
     /**
      * @brief Check if any analysis jobs exist
      */
@@ -748,6 +793,11 @@ struct UnifiedConfig {
      * @brief Check if any section view jobs exist
      */
     bool hasSectionViews() const { return !section_views.empty(); }
+
+    /**
+     * @brief Check if any per-part section render jobs exist
+     */
+    bool hasPartSectionRenders() const { return !part_section_renders.empty(); }
 
     /**
      * @brief Check if stress data is needed by any job
