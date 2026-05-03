@@ -73,6 +73,18 @@ struct SectionViewConfig {
     double        scale_factor = 3.0;    ///< viewport extent relative to target bbox (clamped to full model)
     int32_t       supersampling = 2;
 
+    // ── Sliding section (SW backend) ──
+    // When sliding_view=true the renderer holds simulation time at
+    // sliding_peak_time and instead steps the cut plane through the part along
+    // the chosen axis, producing one frame per plane position. The result is a
+    // "frozen-time, plane sweeps the part" animation that mirrors the
+    // LSPrePost iso sliding pipeline.
+    bool        sliding_view        = false;  ///< master toggle for sliding mode
+    int32_t     sliding_steps       = 20;     ///< number of plane positions
+    double      sliding_peak_time   = -1.0;   ///< -1 = auto (last state)
+    double      sliding_pad         = 0.05;   ///< padding fraction outside bbox
+    int32_t     sliding_axis_sign   = 1;      ///< +1 or -1 (slide direction)
+
     // Output settings
     int32_t     width       = 1920;
     int32_t     height      = 1080;

@@ -61,6 +61,18 @@ class SectionViewRenderConfig:
         return self.scalar_fields
 
 
+def _parse_signed_axis(s: str) -> tuple[str, int]:
+    """Parse 'y' / '+y' / '-y' / 'Y' → ('y', +1 / -1)."""
+    s = s.strip()
+    sign = 1
+    if s.startswith('+'):
+        s = s[1:]
+    elif s.startswith('-'):
+        sign = -1
+        s = s[1:]
+    return (s.lower()[0] if s else 'z'), sign
+
+
 def _sv_yaml_block(
     axis: str,
     output_dir: str,
@@ -85,21 +97,40 @@ def _sv_yaml_block(
 
     view_mode_line = f"view_mode: {config.view_mode}\n" if config.view_mode != "section" else ""
 
+    # Sliding support (SW backend reads these via SectionViewConfig)
+    axis_letter, axis_sign = _parse_signed_axis(axis)
+    sliding_block = ""
+    if config.sliding_view:
+        sliding_block = (
+            f"sliding_view: true\n"
+            f"sliding_steps: {config.sliding_steps}\n"
+            f"sliding_pad: {config.sliding_pad}\n"
+            f"sliding_axis_sign: {axis_sign}\n"
+            f"sliding_peak_time: {config.sliding_peak_time}\n"
+        )
+
+    # In sliding mode the plane sweeps through every element along the slide
+    # axis; rendering the full background ("*") flickers because non-target
+    # element edges glance the cut plane differently at each step. Drawing
+    # only the target part keeps the slice clean.
+    background_patterns = "[]" if config.sliding_view else '["*"]'
+
     return (
         f"{view_mode_line}"
         f"plane:\n"
-        f"  axis: {axis}\n"
+        f"  axis: {axis_letter}\n"
         f"  point: [0.0, 0.0, 0.0]\n"
         f"auto_center: true\n"
         f"{target_block}\n"
         f"background_parts:\n"
-        f'  patterns: ["*"]\n'
+        f'  patterns: {background_patterns}\n'
         f"field: {actual_field}\n"
         f"colormap: rainbow\n"
         f"global_range: {'true' if config.global_range else 'false'}\n"
         f"scale_factor: 3.0\n"
         f"supersampling: {config.supersampling}\n"
         f"fade_distance: {config.fade_distance}\n"
+        f"{sliding_block}"
         f"output:\n"
         f"  width: {config.width}\n"
         f"  height: {config.height}\n"

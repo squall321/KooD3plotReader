@@ -211,6 +211,11 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "auto_slab")      { auto_slab = parseBool(value); section = ""; continue; }
             if (key == "slab_thickness") { try { slab_thickness = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "fade_distance")  { try { fade_distance  = std::stod(value); } catch(...) {} section = ""; continue; }
+            if (key == "sliding_view")        { sliding_view = parseBool(value); section = ""; continue; }
+            if (key == "sliding_steps")       { try { sliding_steps = std::stoi(value); } catch(...) {} section = ""; continue; }
+            if (key == "sliding_peak_time")   { try { sliding_peak_time = std::stod(value); } catch(...) {} section = ""; continue; }
+            if (key == "sliding_pad")         { try { sliding_pad = std::stod(value); } catch(...) {} section = ""; continue; }
+            if (key == "sliding_axis_sign")   { try { sliding_axis_sign = std::stoi(value); } catch(...) {} section = ""; continue; }
         }
 
         // Plane sub-keys

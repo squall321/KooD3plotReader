@@ -293,6 +293,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     ColorMap          cmap(config.colormap);
 
     // ---- 5. Camera setup: use state 0 ----
+    AABB3 cached_view_bbox;  // also reused by sliding mode to keep view stable
     {
         const auto& state0 = all_states[0];
         averager.compute(state0, config.field, config.target_parts);
@@ -303,6 +304,46 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
                      tgt0, bg0, bg0_alphas);
 
         AABB3 tgt_bbox = tgt0.empty() ? computeBbox(bg0) : computeBbox(tgt0);
+        // For sliding we want the view to encompass the full target part along
+        // the slide axis (tgt0 only contains polygons clipped at the initial
+        // plane, which is too thin), so widen the bbox using the mesh nodes
+        // of the target part along all axes.
+        if (config.sliding_view) {
+            // Re-derive target part AABB from mesh + state0 displacement
+            std::unordered_map<int32_t, int32_t> nid_map;
+            if (!mesh.real_node_ids.empty()) {
+                for (int32_t i = 0; i < (int32_t)mesh.real_node_ids.size(); ++i)
+                    nid_map[mesh.real_node_ids[i]] = i;
+            }
+            auto resolveNode = [&](int32_t nid) -> int32_t {
+                if (!nid_map.empty()) {
+                    auto it = nid_map.find(nid);
+                    return (it != nid_map.end()) ? it->second : -1;
+                }
+                return nid - 1;
+            };
+            AABB3 tp{{1e300,1e300,1e300},{-1e300,-1e300,-1e300}};
+            bool any = false;
+            auto expand = [&](int32_t nid) {
+                int32_t idx = resolveNode(nid);
+                if (idx < 0 || idx >= (int32_t)mesh.nodes.size()) return;
+                const auto& nd = mesh.nodes[idx];
+                tp.expand({nd.x, nd.y, nd.z}); any = true;
+            };
+            for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+                int32_t pid = (ei < mesh.solid_parts.size()) ? mesh.solid_parts[ei] : 0;
+                if (!config.target_parts.empty() && !config.target_parts.matches(pid))
+                    continue;
+                for (int32_t nid : mesh.solids[ei].node_ids) expand(nid);
+            }
+            for (size_t ei = 0; ei < mesh.shells.size(); ++ei) {
+                int32_t pid = (ei < mesh.shell_parts.size()) ? mesh.shell_parts[ei] : 0;
+                if (!config.target_parts.empty() && !config.target_parts.matches(pid))
+                    continue;
+                for (int32_t nid : mesh.shells[ei].node_ids) expand(nid);
+            }
+            if (any) tgt_bbox = tp;
+        }
         Vec3 tgt_center = tgt_bbox.center();
 
         // Compute full model bbox (target + background) for clamping
@@ -340,6 +381,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         view_bbox.max_pt = {tgt_center.x + view_half.x, tgt_center.y + view_half.y, tgt_center.z + view_half.z};
 
         camera.setup(plane, view_bbox, 1.0, config.width, config.height);
+        cached_view_bbox = view_bbox;
     }
 
     // ---- 6. Global range scan ----
@@ -354,11 +396,126 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         cmap.setGlobalRange(gmin, gmax);
     }
 
-    // ---- 7. Per-state render loop ----
+    // ---- 7. Per-state OR per-plane-position render loop ----
     std::string frame_pattern = out_dir + "/frame_%04d.png";
 
-    for (size_t si = 0; si < num_states; ++si) {
-        const auto& state = all_states[si];
+    // Sliding mode setup: hold time at one state, sweep plane along axis.
+    bool sliding = config.sliding_view && config.use_axis;
+    int sliding_axis_idx = 0;
+    double a_min = 0.0, a_max = 0.0;
+    size_t sliding_state_idx = num_states - 1;
+    int N_steps = static_cast<int>(num_states);
+
+    if (sliding) {
+        // Axis index
+        sliding_axis_idx = (config.axis == 'x') ? 0 : (config.axis == 'y') ? 1 : 2;
+
+        // Target part axis-range (re-compute, iterating only target-part nodes
+        // when target_parts has explicit ids; otherwise full mesh).
+        double mn = 1e300, mx = -1e300;
+        bool use_tgt_bbox = config.target_parts.hasSpecificIds();
+        std::unordered_map<int32_t, int32_t> nid_map;
+        if (!mesh.real_node_ids.empty()) {
+            for (int32_t i = 0; i < static_cast<int32_t>(mesh.real_node_ids.size()); ++i)
+                nid_map[mesh.real_node_ids[i]] = i;
+        }
+        auto resolveNode = [&](int32_t nid) -> int32_t {
+            if (!nid_map.empty()) {
+                auto it = nid_map.find(nid);
+                return (it != nid_map.end()) ? it->second : -1;
+            }
+            return nid - 1;
+        };
+        auto coord = [&](const auto& nd) -> double {
+            return (sliding_axis_idx == 0) ? nd.x
+                 : (sliding_axis_idx == 1) ? nd.y : nd.z;
+        };
+        auto expand = [&](int32_t nid) {
+            int32_t idx = resolveNode(nid);
+            if (idx >= 0 && idx < static_cast<int32_t>(mesh.nodes.size())) {
+                double v = coord(mesh.nodes[idx]);
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+        };
+        if (use_tgt_bbox) {
+            for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+                int32_t pid = (ei < mesh.solid_parts.size()) ? mesh.solid_parts[ei] : 0;
+                if (!config.target_parts.matches(pid)) continue;
+                for (int32_t nid : mesh.solids[ei].node_ids) expand(nid);
+            }
+            for (size_t ei = 0; ei < mesh.thick_shells.size(); ++ei) {
+                int32_t pid = (ei < mesh.thick_shell_parts.size()) ? mesh.thick_shell_parts[ei] : 0;
+                if (!config.target_parts.matches(pid)) continue;
+                for (int32_t nid : mesh.thick_shells[ei].node_ids) expand(nid);
+            }
+            for (size_t ei = 0; ei < mesh.shells.size(); ++ei) {
+                int32_t pid = (ei < mesh.shell_parts.size()) ? mesh.shell_parts[ei] : 0;
+                if (!config.target_parts.matches(pid)) continue;
+                for (int32_t nid : mesh.shells[ei].node_ids) expand(nid);
+            }
+        }
+        if (mn > mx) {
+            // Fallback: full mesh
+            for (const auto& nd : mesh.nodes) {
+                double v = coord(nd);
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+        }
+        double extent = mx - mn;
+        double pad = config.sliding_pad * extent;
+        a_min = mn - pad;
+        a_max = mx + pad;
+
+        // Peak state from sliding_peak_time
+        if (config.sliding_peak_time < 0) {
+            sliding_state_idx = (num_states > 1) ? (num_states - 1) : 0;
+        } else {
+            // Linear approximation: peak_time / total_sim_time × num_states
+            double total = (num_states > 0)
+                ? all_states[num_states - 1].time : 0.0;
+            if (total > 0) {
+                double frac = config.sliding_peak_time / total;
+                if (frac < 0) frac = 0;
+                if (frac > 1) frac = 1;
+                sliding_state_idx = static_cast<size_t>(frac * (num_states - 1) + 0.5);
+            }
+        }
+        N_steps = std::max(2, static_cast<int>(config.sliding_steps));
+
+        std::fprintf(stderr,
+            "[section_view] sliding: axis=%c sign=%d steps=%d range=[%.3f, %.3f] state=%zu/%zu\n",
+            config.axis, config.sliding_axis_sign, N_steps,
+            a_min, a_max, sliding_state_idx, num_states);
+    }
+
+    size_t loop_count = sliding ? static_cast<size_t>(N_steps) : num_states;
+
+    for (size_t si = 0; si < loop_count; ++si) {
+        const auto& state = sliding ? all_states[sliding_state_idx] : all_states[si];
+
+        // For sliding: build a fresh clipper at the next plane position.
+        std::unique_ptr<SectionClipper> sliding_clipper;
+        SectionClipper* eff_clipper = &clipper;
+        if (sliding) {
+            double frac = (N_steps > 1) ? (double)si / (N_steps - 1) : 0.0;
+            double pos = (config.sliding_axis_sign > 0)
+                ? (a_max - frac * (a_max - a_min))
+                : (a_min + frac * (a_max - a_min));
+            Vec3 new_point = plane_point;
+            if (sliding_axis_idx == 0)      new_point.x = pos;
+            else if (sliding_axis_idx == 1) new_point.y = pos;
+            else                             new_point.z = pos;
+            SectionPlane sp_iter = SectionPlane::fromAxis(config.axis, new_point);
+            sliding_clipper = std::make_unique<SectionClipper>(
+                mesh, ctrl, sp_iter, effective_slab);
+            eff_clipper = sliding_clipper.get();
+            // Re-aim camera at the new plane so frame-to-frame view stays
+            // consistent (no flicker from camera orientation drift).
+            camera.setup(sp_iter, cached_view_bbox, 1.0,
+                         config.width, config.height);
+        }
 
         averager.compute(state, config.field, config.target_parts);
 
@@ -368,7 +525,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
 
         std::vector<ClipPolygon> tgt_polys, bg_polys;
         std::vector<float> bg_alphas, tgt_alphas;
-        clipper.clip(state, averager,
+        eff_clipper->clip(state, averager,
                      config.target_parts, config.background_parts,
                      tgt_polys, bg_polys, bg_alphas,
                      effective_fade,
@@ -403,7 +560,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         }
 
         std::string frame_path = out_dir + "/" + frameName(static_cast<int>(si),
-                                                            static_cast<int>(num_states));
+                                                            static_cast<int>(loop_count));
         std::string err = rasterizer.savePng(frame_path);
         if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;
     }
