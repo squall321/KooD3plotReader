@@ -441,6 +441,136 @@ void SoftwareRasterizer::drawTriangle3DContour(
 }
 
 // ============================================================
+// 3D Z-buffered alpha-blended triangle (depth read-only)
+// ============================================================
+
+void SoftwareRasterizer::drawTriangle3DAlpha(
+    double p0x, double p0y, double z0,
+    double p1x, double p1y, double z1,
+    double p2x, double p2y, double z2,
+    RGBA color, float alpha)
+{
+    if (alpha <= 0.0f) return;
+    if (alpha >= 1.0f) {
+        drawTriangle3D(p0x, p0y, z0, p1x, p1y, z1, p2x, p2y, z2, color);
+        return;
+    }
+
+    int xmin = std::max(0,   static_cast<int>(std::min({p0x,p1x,p2x})));
+    int xmax = std::min(ss_width_-1,  static_cast<int>(std::max({p0x,p1x,p2x})) + 1);
+    int ymin = std::max(0,   static_cast<int>(std::min({p0y,p1y,p2y})));
+    int ymax = std::min(ss_height_-1, static_cast<int>(std::max({p0y,p1y,p2y})) + 1);
+
+    float inv = 1.0f - alpha;
+    for (int y = ymin; y <= ymax; ++y) {
+        for (int x = xmin; x <= xmax; ++x) {
+            double l0, l1, l2;
+            if (!baryWeights(x+0.5, y+0.5, p0x,p0y, p1x,p1y, p2x,p2y, l0,l1,l2)) continue;
+            if (l0 < -1e-4 || l1 < -1e-4 || l2 < -1e-4) continue;
+
+            // Depth test AND write. Writing depth means subsequent translucent
+            // triangles BEHIND this one (same/larger depth) get culled — so
+            // each BG part shows only its frontmost surface, blended once.
+            // Without depth write, all front-facing triangles of a thick BG
+            // part stack alpha layers → over-saturated colors and ghost
+            // overlaps from interior side faces.
+            float depth = static_cast<float>(l0*z0 + l1*z1 + l2*z2);
+            size_t z_idx = static_cast<size_t>(y)*ss_width_ + x;
+            if (depth >= zbuffer_[z_idx]) continue;
+            zbuffer_[z_idx] = depth;
+
+            size_t idx = (static_cast<size_t>(y) * ss_width_ + x) * 4;
+            buffer_[idx+0] = static_cast<uint8_t>(alpha * color.r + inv * buffer_[idx+0]);
+            buffer_[idx+1] = static_cast<uint8_t>(alpha * color.g + inv * buffer_[idx+1]);
+            buffer_[idx+2] = static_cast<uint8_t>(alpha * color.b + inv * buffer_[idx+2]);
+            buffer_[idx+3] = 255;
+        }
+    }
+}
+
+// ============================================================
+// Per-part silhouette mask (build coverage)
+// ============================================================
+
+void SoftwareRasterizer::rasterizeToPartMask(
+    double p0x, double p0y, double z0,
+    double p1x, double p1y, double z1,
+    double p2x, double p2y, double z2,
+    float tri_shade,
+    std::vector<uint8_t>& mask,
+    std::vector<float>& part_depth,
+    std::vector<float>& shade)
+{
+    int xmin = std::max(0,   static_cast<int>(std::min({p0x,p1x,p2x})));
+    int xmax = std::min(ss_width_-1,  static_cast<int>(std::max({p0x,p1x,p2x})) + 1);
+    int ymin = std::max(0,   static_cast<int>(std::min({p0y,p1y,p2y})));
+    int ymax = std::min(ss_height_-1, static_cast<int>(std::max({p0y,p1y,p2y})) + 1);
+
+    for (int y = ymin; y <= ymax; ++y) {
+        for (int x = xmin; x <= xmax; ++x) {
+            double l0, l1, l2;
+            if (!baryWeights(x+0.5, y+0.5, p0x,p0y, p1x,p1y, p2x,p2y, l0,l1,l2)) continue;
+            if (l0 < -1e-4 || l1 < -1e-4 || l2 < -1e-4) continue;
+
+            float depth = static_cast<float>(l0*z0 + l1*z1 + l2*z2);
+            size_t idx = static_cast<size_t>(y) * ss_width_ + x;
+            // Cull only if STRICTLY behind already-drawn opaque target
+            // (small epsilon for contact-surface precision). Equal-depth
+            // pixels are kept so the silhouette covers the part's full
+            // screen-space outline.
+            if (depth > zbuffer_[idx] + 1e-4f) continue;
+            mask[idx] = 1;
+            // Track the FRONTMOST triangle per pixel — both depth and
+            // shade. This way a side face contributing near the
+            // silhouette edge stays darker than the top face, giving 3D
+            // depth perception (front-vs-back faces no longer share the
+            // same brightness through the translucent silhouette).
+            if (depth < part_depth[idx]) {
+                part_depth[idx] = depth;
+                shade[idx]      = tri_shade;
+            }
+        }
+    }
+}
+
+// ============================================================
+// Per-part silhouette composite (single uniform alpha-blend)
+// ============================================================
+
+void SoftwareRasterizer::compositePartSilhouette(
+    const std::vector<uint8_t>& mask,
+    const std::vector<float>& part_depth,
+    const std::vector<float>& shade,
+    RGBA color, float alpha)
+{
+    if (alpha <= 0.0f) return;
+    const size_t total = static_cast<size_t>(ss_width_) * ss_height_;
+    const float inv = 1.0f - alpha;
+    for (size_t i = 0; i < total; ++i) {
+        if (!mask[i]) continue;
+        // Apply per-pixel shading so silhouette has 3D depth perception:
+        // top faces (high shade) read brighter, side faces darker.
+        float s = std::min(1.0f, std::max(0.0f, shade[i]));
+        uint8_t cr = static_cast<uint8_t>(color.r * s);
+        uint8_t cg = static_cast<uint8_t>(color.g * s);
+        uint8_t cb = static_cast<uint8_t>(color.b * s);
+
+        size_t b = i * 4;
+        if (alpha >= 1.0f) {
+            buffer_[b+0] = cr;
+            buffer_[b+1] = cg;
+            buffer_[b+2] = cb;
+        } else {
+            buffer_[b+0] = static_cast<uint8_t>(alpha * cr + inv * buffer_[b+0]);
+            buffer_[b+1] = static_cast<uint8_t>(alpha * cg + inv * buffer_[b+1]);
+            buffer_[b+2] = static_cast<uint8_t>(alpha * cb + inv * buffer_[b+2]);
+        }
+        buffer_[b+3] = 255;
+        zbuffer_[i] = part_depth[i];
+    }
+}
+
+// ============================================================
 // 3D Z-buffered line (mesh edge wireframe)
 // ============================================================
 

@@ -202,6 +202,8 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
                                [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
                 if (lower == "section_3d" || lower == "3d" || lower == "half_model")
                     view_mode = SectionViewMode::Section3D;
+                else if (lower == "iso_surface" || lower == "iso" || lower == "surface")
+                    view_mode = SectionViewMode::IsoSurface;
                 else
                     view_mode = SectionViewMode::Section2D;
                 section = "";
@@ -216,6 +218,7 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "sliding_peak_time")   { try { sliding_peak_time = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "sliding_pad")         { try { sliding_pad = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "sliding_axis_sign")   { try { sliding_axis_sign = std::stoi(value); } catch(...) {} section = ""; continue; }
+            if (key == "background_alpha")    { try { background_alpha = std::stod(value); } catch(...) {} section = ""; continue; }
         }
 
         // Plane sub-keys

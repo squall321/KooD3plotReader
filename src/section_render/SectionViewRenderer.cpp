@@ -22,8 +22,11 @@
 #include "kood3plot/section_render/ColorMap.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <iomanip>
@@ -116,6 +119,9 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     // Dispatch to 3D pipeline if requested
     if (config.view_mode == SectionViewMode::Section3D) {
         return render3D(mesh, ctrl, all_states, config);
+    }
+    if (config.view_mode == SectionViewMode::IsoSurface) {
+        return renderIsoSurface(mesh, ctrl, all_states, config);
     }
 
     size_t num_states = all_states.size();
@@ -599,6 +605,7 @@ struct ExtFace {
     int32_t node_idx[3];   ///< Internal 0-based node indices (triangle)
     int32_t part_id;       ///< Part ID
     bool    is_target;     ///< true=target part (contour), false=background (flat color)
+    float   max_edge2_init = 0.f; ///< Largest edge length² in the INITIAL configuration
 };
 
 /// Build a canonical face key from 3 or 4 node indices (sorted) for deduplication
@@ -610,18 +617,26 @@ uint64_t faceKey3(int32_t a, int32_t b, int32_t c) {
     return (uint64_t(arr[0]) << 40) | (uint64_t(arr[1]) << 20) | uint64_t(arr[2]);
 }
 
-/// Resolve node real-ID to 0-based index
+/// Resolve element node reference to 0-based mesh.nodes index.
+///
+/// IMPORTANT: in d3plot binary, element node references (`elem.node_ids[n]`)
+/// are 1-based INTERNAL INDICES into the mesh.nodes array — NOT real-IDs.
+/// The NARBS section provides a separate map (real_id → internal_index)
+/// used only when the caller starts from a user-supplied real ID. Element
+/// arrays are already in internal-index form and only need the 1→0
+/// adjustment.
+///
+/// Misusing real_node_ids here would silently re-route an element's nodes
+/// onto whatever real-ID happened to equal the internal index — which is
+/// exactly what produced the impactor-collapsed-onto-rubber bbox bug.
 int32_t resolveNodeIdx(int32_t nid,
-                       const std::unordered_map<int32_t, int32_t>& nid_to_idx)
+                       const std::unordered_map<int32_t, int32_t>& /*nid_to_idx*/)
 {
-    if (!nid_to_idx.empty()) {
-        auto it = nid_to_idx.find(nid);
-        return (it != nid_to_idx.end()) ? it->second : -1;
-    }
     return nid - 1;
 }
 
-/// Get deformed node position
+/// Get deformed node position.
+/// `state.node_displacements` stores DELTAS from initial.
 Vec3 deformedPos(int32_t idx,
                  const data::Mesh& mesh,
                  const data::StateData& state)
@@ -1274,6 +1289,665 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
         }
     }
 
+    return "";
+}
+
+// ============================================================
+// renderIsoSurface — iso view, no cut, target = fringe / bg = alpha
+// ============================================================
+
+std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
+                                                  const data::ControlData& ctrl,
+                                                  const std::vector<data::StateData>& all_states,
+                                                  const SectionViewConfig& config)
+{
+    size_t num_states = all_states.size();
+    if (num_states == 0) return "No states in d3plot file";
+
+    // Output directory
+    std::string out_dir = config.output_dir;
+    try { fs::create_directories(out_dir); }
+    catch (const std::exception& e) {
+        return std::string("Cannot create output directory: ") + e.what();
+    }
+
+    // Node real-ID → 0-based index. Same approach as render3D: when the d3plot
+    // ships a real-id table (NARBS), node_ids in solids/shells are real IDs and
+    // need a map lookup. Without this, the (nid - 1) fallback produces garbled
+    // indices and a shattered mesh whenever real IDs aren't sequential 1..N.
+    std::unordered_map<int32_t, int32_t> nid_to_idx;
+    if (!mesh.real_node_ids.empty()) {
+        for (int32_t i = 0; i < (int32_t)mesh.real_node_ids.size(); ++i)
+            nid_to_idx[mesh.real_node_ids[i]] = i;
+    }
+
+    // ---- Robust 3D exterior face extraction ----
+    //
+    // Algorithm (per-element type):
+    //   1. Detect actual element type from collapsed-node patterns:
+    //        - tet4    : 4 unique nodes (last 4 hex slots collapsed to n3)
+    //        - penta6  : 6 unique nodes (wedge, ni[4]==ni[5] OR ni[7]==ni[6])
+    //        - pyr5    : 5 unique nodes (rare)
+    //        - hex8    : 8 unique nodes
+    //   2. Generate face list with WINDING preserved:
+    //        - tet4   → 4 tri faces
+    //        - penta6 → 2 tri caps + 3 quad sides
+    //        - hex8   → 6 quad faces
+    //   3. Dedup by SORTED-NODE-TUPLE key (3 nodes for tri, 4 for quad).
+    //      Adjacent elements traverse a shared face in opposite cyclic order,
+    //      so the SORTED tuple is the only stable, element-agnostic key.
+    //      *Critical*: hex faces MUST be deduped at the QUAD level, not the
+    //      triangle level — two hex cells sharing a quad face may pick
+    //      different diagonals when triangulating, so triangle hashes won't
+    //      match and phantom interior triangles leak through. This was the
+    //      root cause of the prior "spike" artifacts in iso surface mode.
+    //   4. Triangulate exterior quads with the 0→2 diagonal (canonical).
+
+    // Pending face record: stored in vectors during element traversal so we
+    // know which faces to triangulate after dedup.
+    struct PendingTri  { int32_t a, b, c;          int32_t part_id; };
+    struct PendingQuad { int32_t a, b, c, d;       int32_t part_id; };
+    std::vector<PendingTri>  pending_tris;
+    std::vector<PendingQuad> pending_quads;
+
+    auto sortedTri = [](int32_t a, int32_t b, int32_t c) {
+        std::array<int32_t, 3> k{a, b, c};
+        std::sort(k.begin(), k.end());
+        return k;
+    };
+    auto sortedQuad = [](int32_t a, int32_t b, int32_t c, int32_t d) {
+        std::array<int32_t, 4> k{a, b, c, d};
+        std::sort(k.begin(), k.end());
+        return k;
+    };
+    struct ArrHash3 {
+        size_t operator()(const std::array<int32_t, 3>& k) const noexcept {
+            uint64_t h = uint64_t(uint32_t(k[0])) * 0x9E3779B185EBCA87ULL;
+            h ^= uint64_t(uint32_t(k[1])) + 0xC2B2AE3D27D4EB4FULL + (h << 6) + (h >> 2);
+            h ^= uint64_t(uint32_t(k[2])) + 0x165667B19E3779F9ULL + (h << 6) + (h >> 2);
+            return size_t(h);
+        }
+    };
+    struct ArrHash4 {
+        size_t operator()(const std::array<int32_t, 4>& k) const noexcept {
+            uint64_t h = uint64_t(uint32_t(k[0])) * 0x9E3779B185EBCA87ULL;
+            h ^= uint64_t(uint32_t(k[1])) + 0xC2B2AE3D27D4EB4FULL + (h << 6) + (h >> 2);
+            h ^= uint64_t(uint32_t(k[2])) + 0x165667B19E3779F9ULL + (h << 6) + (h >> 2);
+            h ^= uint64_t(uint32_t(k[3])) + 0x85EBCA77C2B2AE3DULL + (h << 6) + (h >> 2);
+            return size_t(h);
+        }
+    };
+    std::unordered_map<std::array<int32_t, 3>, int, ArrHash3> tri_count;
+    std::unordered_map<std::array<int32_t, 4>, int, ArrHash4> quad_count;
+
+    auto distinct3 = [](int32_t a, int32_t b, int32_t c) {
+        return a >= 0 && b >= 0 && c >= 0 && a != b && b != c && a != c;
+    };
+    auto distinct4 = [](int32_t a, int32_t b, int32_t c, int32_t d) {
+        return a >= 0 && b >= 0 && c >= 0 && d >= 0
+            && a != b && a != c && a != d
+            && b != c && b != d && c != d;
+    };
+
+    auto pushTri = [&](int32_t a, int32_t b, int32_t c, int32_t pid) {
+        if (!distinct3(a, b, c)) return;
+        tri_count[sortedTri(a, b, c)]++;
+        pending_tris.push_back({a, b, c, pid});
+    };
+    auto pushQuad = [&](int32_t a, int32_t b, int32_t c, int32_t d, int32_t pid) {
+        if (!distinct4(a, b, c, d)) {
+            // Quad collapsed to triangle — push as triangle instead.
+            // Find the duplicated vertex and emit the surviving triangle.
+            int32_t v[4] = {a, b, c, d};
+            for (int i = 0; i < 4; ++i) {
+                int32_t out[3], k = 0;
+                for (int j = 0; j < 4; ++j) if (j != i) out[k++] = v[j];
+                if (distinct3(out[0], out[1], out[2])) {
+                    pushTri(out[0], out[1], out[2], pid);
+                    return;
+                }
+            }
+            return;
+        }
+        quad_count[sortedQuad(a, b, c, d)]++;
+        pending_quads.push_back({a, b, c, d, pid});
+    };
+
+    // Standard LS-DYNA hex8 face winding (outward normals):
+    // node ordering (LS-DYNA right-hand convention):
+    //
+    //       7-------6
+    //      /|      /|
+    //     / |     / |
+    //    4-------5  |
+    //    |  3----|--2
+    //    | /     | /
+    //    |/      |/
+    //    0-------1
+    static const int HEXA_FACES[6][4] = {
+        {0, 3, 2, 1},  // bottom (z-)
+        {4, 5, 6, 7},  // top    (z+)
+        {0, 1, 5, 4},  // front  (y-)
+        {2, 3, 7, 6},  // back   (y+)
+        {0, 4, 7, 3},  // left   (x-)
+        {1, 2, 6, 5}   // right  (x+)
+    };
+
+    int n_tet = 0, n_penta = 0, n_pyr = 0, n_hex = 0, n_other = 0;
+
+    for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+        int32_t pid = (ei < mesh.solid_parts.size()) ? mesh.solid_parts[ei] : 0;
+        const auto& nids = mesh.solids[ei].node_ids;
+        int nn = (int)nids.size();
+        if (nn < 4) continue;
+        int32_t ni[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+        for (int i = 0; i < std::min(nn, 8); ++i)
+            ni[i] = resolveNodeIdx(nids[i], nid_to_idx);
+
+        // Count unique node indices to classify the actual element type.
+        // D3plot stores all solids in 8-node slots and pads degenerate
+        // elements by repeating nodes (tet4 / penta6 / pyr5).
+        if (nn < 8) {
+            // Standalone tet4 storage (rare; some readers truncate).
+            if (nn == 4 && distinct4(ni[0], ni[1], ni[2], ni[3])) {
+                n_tet++;
+                pushTri(ni[0], ni[2], ni[1], pid);  // base (opposite n3)
+                pushTri(ni[0], ni[1], ni[3], pid);
+                pushTri(ni[1], ni[2], ni[3], pid);
+                pushTri(ni[0], ni[3], ni[2], pid);
+            } else {
+                n_other++;
+            }
+            continue;
+        }
+
+        // 8-slot storage. Classify by counting UNIQUE node indices.
+        // LS-DYNA pads degenerate solids with repeated corner nodes; the
+        // particular slot pattern varies between solvers and meshers, so
+        // counting unique values is more robust than pattern matching.
+        int n_unique = 0;
+        {
+            int32_t tmp[8] = {ni[0], ni[1], ni[2], ni[3], ni[4], ni[5], ni[6], ni[7]};
+            std::sort(tmp, tmp + 8);
+            for (int i = 0; i < 8; ++i) {
+                if (i == 0 || tmp[i] != tmp[i-1]) ++n_unique;
+            }
+        }
+
+        if (n_unique == 4) {
+            // tet4 — extract the 4 unique nodes preserving their first
+            // appearance in the original element node list (so the standard
+            // outward winding still applies to ni[0..3] when the padding
+            // collapsed slots 4..7).
+            int32_t v[4] = {-1,-1,-1,-1}; int k = 0;
+            for (int i = 0; i < 8 && k < 4; ++i) {
+                bool seen = false;
+                for (int j = 0; j < k; ++j) if (v[j] == ni[i]) { seen = true; break; }
+                if (!seen) v[k++] = ni[i];
+            }
+            if (k < 4 || !distinct4(v[0], v[1], v[2], v[3])) { n_other++; continue; }
+            n_tet++;
+            // LS-DYNA tet4 winding (face opposite v3 = base, v0->v2->v1 is CCW
+            // viewed from outside). All 4 faces use right-hand rule outward.
+            pushTri(v[0], v[2], v[1], pid);
+            pushTri(v[0], v[1], v[3], pid);
+            pushTri(v[1], v[2], v[3], pid);
+            pushTri(v[0], v[3], v[2], pid);
+        } else if (n_unique == 5) {
+            // pyr5 — apex is the node that appears in slots 4..7 and not in 0..3.
+            int32_t base[4] = {ni[0], ni[1], ni[2], ni[3]};
+            int32_t apex = -1;
+            for (int i = 4; i < 8; ++i) {
+                bool in_base = false;
+                for (int j = 0; j < 4; ++j) if (base[j] == ni[i]) { in_base = true; break; }
+                if (!in_base) { apex = ni[i]; break; }
+            }
+            if (apex < 0 || !distinct4(base[0], base[1], base[2], base[3])) {
+                n_other++; continue;
+            }
+            n_pyr++;
+            // Base quad (winding = outward, away from apex).
+            pushQuad(base[0], base[3], base[2], base[1], pid);
+            // 4 triangular sides connecting base edges to apex.
+            pushTri(base[0], base[1], apex, pid);
+            pushTri(base[1], base[2], apex, pid);
+            pushTri(base[2], base[3], apex, pid);
+            pushTri(base[3], base[0], apex, pid);
+        } else if (n_unique == 6) {
+            // penta6 wedge — 2 tri caps + 3 quad sides.
+            // Multiple LS-DYNA padding conventions exist:
+            //   (a) [n0,n1,n2,n3, n4,n4,n5,n5] — bottom={0,1,2}, top={3,4,5} via slots(3,4,6)
+            //   (b) [n0,n1,n2,n3, n3,n4,n5,n5] — bottom={0,1,2}, top via slots(3,5,6)
+            //   (c) [n0,n1,n2,n2, n3,n4,n5,n5] — bottom via slots(0,1,2),
+            //       top via slots(4,5,6)
+            // Identify two triangle caps by finding two disjoint sets of 3
+            // unique nodes from the slot list. The simplest & robust approach:
+            // collect unique node IDs in original-slot order, classify by
+            // membership in slots 0..3 vs 4..7.
+            int32_t low[8], hi[8]; int nl = 0, nh = 0;
+            auto haveLow = [&](int32_t v) {
+                for (int j = 0; j < nl; ++j) if (low[j] == v) return true; return false;
+            };
+            auto haveHi = [&](int32_t v) {
+                for (int j = 0; j < nh; ++j) if (hi[j] == v) return true; return false;
+            };
+            for (int i = 0; i < 4; ++i) if (!haveLow(ni[i])) low[nl++] = ni[i];
+            for (int i = 4; i < 8; ++i) if (!haveLow(ni[i]) && !haveHi(ni[i])) hi[nh++] = ni[i];
+            // After this: low ∪ hi covers all 6 unique nodes, low ∩ hi = ∅.
+            // Both caps must have 3 nodes each — but if not, fall back.
+            if (nl == 3 && nh == 3) {
+                n_penta++;
+                int32_t b0 = low[0], b1 = low[1], b2 = low[2];
+                int32_t t0 = hi[0],  t1 = hi[1],  t2 = hi[2];
+                // Bottom cap (outward = away from top side)
+                pushTri(b0, b2, b1, pid);
+                pushTri(t0, t1, t2, pid);
+                // 3 side quads — connect each bottom edge to the closest
+                // pair of top nodes. Without knowing the exact pairing from
+                // padding alone, build sides connecting edges (b0,b1)→(t0,t1),
+                // (b1,b2)→(t1,t2), (b2,b0)→(t2,t0). May produce twisted
+                // quads on rare meshes; the dedup catches such anomalies.
+                pushQuad(b0, t0, t1, b1, pid);
+                pushQuad(b1, t1, t2, b2, pid);
+                pushQuad(b2, t2, t0, b0, pid);
+            } else {
+                n_other++;
+                continue;
+            }
+        } else if (n_unique == 7) {
+            // 7-unique-node degenerate hex — uncommon; treat as hex with one
+            // collapsed face. The dedup naturally drops the collapsed quad.
+            n_hex++;
+            for (int f = 0; f < 6; ++f) {
+                pushQuad(ni[HEXA_FACES[f][0]], ni[HEXA_FACES[f][1]],
+                         ni[HEXA_FACES[f][2]], ni[HEXA_FACES[f][3]], pid);
+            }
+        } else if (n_unique == 8) {
+            // True hex8.
+            n_hex++;
+            for (int f = 0; f < 6; ++f) {
+                pushQuad(ni[HEXA_FACES[f][0]], ni[HEXA_FACES[f][1]],
+                         ni[HEXA_FACES[f][2]], ni[HEXA_FACES[f][3]], pid);
+            }
+        } else {
+            n_other++;
+        }
+    }
+    std::fprintf(stderr, "[iso_surface] solids: %zu (tet4=%d penta6=%d pyr5=%d hex8=%d other=%d)\n",
+                 mesh.solids.size(), n_tet, n_penta, n_pyr, n_hex, n_other);
+
+    // Shells & thick shells: always exterior (no dedup needed).
+    int n_shells = 0, n_tshells = 0;
+    for (size_t ei = 0; ei < mesh.shells.size(); ++ei) {
+        int32_t pid = (ei < mesh.shell_parts.size()) ? mesh.shell_parts[ei] : 0;
+        const auto& nids = mesh.shells[ei].node_ids;
+        int nn = (int)nids.size();
+        if (nn < 3) continue;
+        int32_t ni[4] = {-1, -1, -1, -1};
+        for (int i = 0; i < std::min(nn, 4); ++i)
+            ni[i] = resolveNodeIdx(nids[i], nid_to_idx);
+        if (ni[3] >= 0 && ni[3] != ni[2] && distinct4(ni[0], ni[1], ni[2], ni[3])) {
+            // Quad shell — emit DIRECTLY as 2 triangles (skip dedup).
+            pending_quads.push_back({ni[0], ni[1], ni[2], ni[3], pid});
+            quad_count[sortedQuad(ni[0], ni[1], ni[2], ni[3])] = 1;  // mark exterior
+        } else if (distinct3(ni[0], ni[1], ni[2])) {
+            pending_tris.push_back({ni[0], ni[1], ni[2], pid});
+            tri_count[sortedTri(ni[0], ni[1], ni[2])] = 1;
+        }
+        n_shells++;
+    }
+    for (size_t ei = 0; ei < mesh.thick_shells.size(); ++ei) {
+        int32_t pid = (ei < mesh.thick_shell_parts.size()) ? mesh.thick_shell_parts[ei] : 0;
+        const auto& nids = mesh.thick_shells[ei].node_ids;
+        if (nids.size() < 8) continue;
+        int32_t ni[8];
+        for (int i = 0; i < 8; ++i) ni[i] = resolveNodeIdx(nids[i], nid_to_idx);
+        // Treat as hex8 — its 6 faces participate in dedup like solids.
+        for (int f = 0; f < 6; ++f) {
+            pushQuad(ni[HEXA_FACES[f][0]], ni[HEXA_FACES[f][1]],
+                     ni[HEXA_FACES[f][2]], ni[HEXA_FACES[f][3]], pid);
+        }
+        n_tshells++;
+    }
+
+    // ---- Filter: only keep faces with count == 1 (exterior) ----
+    // Also record each face's INITIAL max edge length² so the per-frame
+    // erosion filter can compare runtime size against initial size.
+    bool all_are_target = config.target_parts.empty();
+    std::vector<ExtFace> ext_faces;
+    ext_faces.reserve(pending_tris.size() + pending_quads.size() * 2);
+
+    auto initialEdge2 = [&](int32_t a, int32_t b, int32_t c) -> float {
+        if (a < 0 || b < 0 || c < 0) return 0.f;
+        if (a >= (int32_t)mesh.nodes.size() || b >= (int32_t)mesh.nodes.size() ||
+            c >= (int32_t)mesh.nodes.size()) return 0.f;
+        const auto& na = mesh.nodes[a];
+        const auto& nb = mesh.nodes[b];
+        const auto& nc = mesh.nodes[c];
+        auto sq = [](double x, double y, double z) { return x*x + y*y + z*z; };
+        float e1 = (float)sq(nb.x-na.x, nb.y-na.y, nb.z-na.z);
+        float e2 = (float)sq(nc.x-na.x, nc.y-na.y, nc.z-na.z);
+        float e3 = (float)sq(nc.x-nb.x, nc.y-nb.y, nc.z-nb.z);
+        return std::max({e1, e2, e3});
+    };
+
+    for (const auto& t : pending_tris) {
+        auto it = tri_count.find(sortedTri(t.a, t.b, t.c));
+        if (it != tri_count.end() && it->second == 1) {
+            bool is_tgt = all_are_target || config.target_parts.matches(t.part_id);
+            ExtFace f{{t.a, t.b, t.c}, t.part_id, is_tgt, initialEdge2(t.a, t.b, t.c)};
+            ext_faces.push_back(f);
+        }
+    }
+    for (const auto& q : pending_quads) {
+        auto it = quad_count.find(sortedQuad(q.a, q.b, q.c, q.d));
+        if (it == quad_count.end() || it->second != 1) continue;
+        bool is_tgt = all_are_target || config.target_parts.matches(q.part_id);
+        ExtFace f1{{q.a, q.b, q.c}, q.part_id, is_tgt, initialEdge2(q.a, q.b, q.c)};
+        ExtFace f2{{q.a, q.c, q.d}, q.part_id, is_tgt, initialEdge2(q.a, q.c, q.d)};
+        ext_faces.push_back(f1);
+        ext_faces.push_back(f2);
+    }
+    std::fprintf(stderr, "[iso_surface] Exterior faces: %zu triangles "
+                         "(%zu tris + %zu quads pending; shells=%d, tshells=%d)\n",
+                 ext_faces.size(), pending_tris.size(), pending_quads.size(),
+                 n_shells, n_tshells);
+
+
+    // Part color map
+    std::set<int32_t> unique_pids;
+    for (const auto& f : ext_faces) unique_pids.insert(f.part_id);
+    std::unordered_map<int32_t, int> part_color_map;
+    {
+        int cidx = 0;
+        for (int32_t pid : unique_pids) part_color_map[pid] = cidx++;
+    }
+
+    // ---- Pipeline objects ----
+    NodalAverager     averager(mesh, ctrl);
+    SoftwareRasterizer rasterizer(config.width, config.height, config.supersampling);
+    SectionCamera     camera;
+    ColorMap          cmap(config.colormap);
+
+    // Camera: isometric covering the INITIAL exterior surface AABB (state 0).
+    // Use only nodes that participate in exterior faces — including all
+    // mesh.nodes inflates the bbox with floating/eroded-element nodes and
+    // shrinks the visible model. Mirrors render3D's framing behaviour.
+    Vec3 mesh_center{0,0,0};
+    {
+        AABB3 bbox;
+        bool first = true;
+        const auto& st0 = all_states[0];
+        for (const auto& face : ext_faces) {
+            for (int k = 0; k < 3; ++k) {
+                int32_t idx = face.node_idx[k];
+                if (idx < 0 || idx >= (int32_t)mesh.nodes.size()) continue;
+                Vec3 p = deformedPos(idx, mesh, st0);
+                if (first) { bbox.min_pt = bbox.max_pt = p; first = false; }
+                else bbox.expand(p);
+            }
+        }
+        if (first) {
+            for (size_t i = 0; i < mesh.nodes.size(); ++i) {
+                Vec3 p = deformedPos((int32_t)i, mesh, st0);
+                if (first) { bbox.min_pt = bbox.max_pt = p; first = false; }
+                else bbox.expand(p);
+            }
+        }
+        mesh_center = bbox.center();
+
+        SectionPlane dummy = SectionPlane::fromAxis('z', mesh_center);
+        camera.setupIsometric(dummy, bbox, config.scale_factor,
+                              config.width, config.height);
+    }
+
+    // Global range scan
+    if (config.global_range) {
+        double gmin = 1e300, gmax = -1e300;
+        for (size_t si = 0; si < num_states; ++si) {
+            averager.compute(all_states[si], config.field, config.target_parts);
+            double lo = averager.globalMin(), hi = averager.globalMax();
+            if (lo < gmin) gmin = lo;
+            if (hi > gmax) gmax = hi;
+        }
+        cmap.setGlobalRange(gmin, gmax);
+    }
+
+    // Target lighting (BG uses flat per-part color via silhouette compositor).
+    const double ambient_tgt = 0.3;
+    const double diffuse_tgt = 0.7;
+
+    // Background alpha (clamped to [0, 1])
+    double bg_alpha = config.background_alpha;
+    if (bg_alpha < 0.0) bg_alpha = 0.0;
+    if (bg_alpha > 1.0) bg_alpha = 1.0;
+
+    // Defensive sanity check — if a triangle ever exceeds 6× its initial
+    // edge length, something has gone catastrophically wrong (broken
+    // displacement read, eroded element with stale data, etc). Skip it
+    // rather than render a giant shard. Healthy deformation rarely
+    // exceeds ~3×.
+    const float erosion_growth2 = 36.0f;  // (6.0)²
+
+    std::string frame_pattern = out_dir + "/frame_%04d.png";
+
+    for (size_t si = 0; si < num_states; ++si) {
+        const auto& state = all_states[si];
+
+        averager.compute(state, config.field, config.target_parts);
+        if (!config.global_range)
+            cmap.setRange(averager.globalMin(), averager.globalMax());
+
+        rasterizer.clear({255, 255, 255, 255});
+        rasterizer.enableDepthTest(true);
+
+        Vec3 vd = camera.viewDirection();
+        Vec3 ru = camera.axisU();
+        Vec3 up = camera.axisV();
+        Vec3 light_dir = (vd + ru * 0.4 + up * 0.6).normalized();
+
+        // Pass 0 — TARGET opaque (depth read+write, contour shading).
+        for (const auto& face : ext_faces) {
+            if (!face.is_target) continue;
+
+            Vec3 p0 = deformedPos(face.node_idx[0], mesh, state);
+            Vec3 p1 = deformedPos(face.node_idx[1], mesh, state);
+            Vec3 p2 = deformedPos(face.node_idx[2], mesh, state);
+
+            Vec3 e1 = p1 - p0;
+            Vec3 e2 = p2 - p0;
+            Vec3 e3 = p2 - p1;
+            // Erosion filter — current max edge² compared to initial.
+            double e1l2 = e1.dot(e1), e2l2 = e2.dot(e2), e3l2 = e3.dot(e3);
+            double cur_max_edge2 = std::max({e1l2, e2l2, e3l2});
+            if (face.max_edge2_init > 0.f &&
+                cur_max_edge2 > face.max_edge2_init * erosion_growth2) continue;
+            Vec3 cross = e1.cross(e2);
+            double face_area2 = cross.dot(cross);
+            if (face_area2 < 1e-10) continue;
+            Vec3 fn = cross.normalizedSafe();
+            if (fn.dot(vd) > 1e-3) continue;
+            if (fn.dot(light_dir) < 0) fn = fn * -1.0;
+            double ndotl = std::max(0.0, fn.dot(light_dir));
+
+            double za, zb, zc;
+            Vec2 sa = camera.project3D(p0, za);
+            Vec2 sb = camera.project3D(p1, zb);
+            Vec2 sc = camera.project3D(p2, zc);
+            double ss = (double)config.supersampling;
+            sa.x *= ss; sa.y *= ss;
+            sb.x *= ss; sb.y *= ss;
+            sc.x *= ss; sc.y *= ss;
+
+            double tgt_i = std::min(1.0, ambient_tgt + diffuse_tgt * ndotl);
+            RGBA ca = cmap.map(averager.nodeValue(face.node_idx[0]));
+            RGBA cb = cmap.map(averager.nodeValue(face.node_idx[1]));
+            RGBA cc = cmap.map(averager.nodeValue(face.node_idx[2]));
+            ca.r = uint8_t(ca.r * tgt_i); ca.g = uint8_t(ca.g * tgt_i); ca.b = uint8_t(ca.b * tgt_i);
+            cb.r = uint8_t(cb.r * tgt_i); cb.g = uint8_t(cb.g * tgt_i); cb.b = uint8_t(cb.b * tgt_i);
+            cc.r = uint8_t(cc.r * tgt_i); cc.g = uint8_t(cc.g * tgt_i); cc.b = uint8_t(cc.b * tgt_i);
+            rasterizer.drawTriangle3DContour(sa.x, sa.y, za, ca,
+                                             sb.x, sb.y, zb, cb,
+                                             sc.x, sc.y, zc, cc);
+        }
+
+        // Pass 1 — BG per-part SILHOUETTE compositing.
+        // For each BG part we (a) build a coverage mask of every front-facing
+        // triangle that's in front of the opaque target, then (b) blend the
+        // part's solid color over the framebuffer once for the masked region.
+        // This replaces the element-by-element alpha blend that produced
+        // visible diagonals, multi-layer side strips, and stacked alpha.
+        // Result: each BG part appears as a single uniform translucent
+        // silhouette — the look the user asked for.
+        const size_t mask_size =
+            static_cast<size_t>(rasterizer.ssWidth()) * rasterizer.ssHeight();
+        std::vector<uint8_t> mask(mask_size);
+        std::vector<float>   pdepth(mask_size);
+        std::vector<float>   shade(mask_size);
+
+        // Group BG faces by part id (back-to-front order is preferred for
+        // correct alpha compositing; we sort by minimum depth at state 0,
+        // recomputed each frame would be slow — use part centroid below).
+        std::map<int32_t, std::vector<const ExtFace*>> bg_by_part;
+        for (const auto& face : ext_faces) {
+            if (face.is_target) continue;
+            bg_by_part[face.part_id].push_back(&face);
+        }
+
+        // Sort parts back-to-front by their average centroid depth so
+        // overlapping translucent parts blend in correct order.
+        struct PartOrder { int32_t pid; double avg_z; };
+        std::vector<PartOrder> ordered_parts;
+        ordered_parts.reserve(bg_by_part.size());
+        for (auto& [pid, faces] : bg_by_part) {
+            double sum_z = 0.0;
+            int n = 0;
+            for (const auto* f : faces) {
+                Vec3 c = deformedPos(f->node_idx[0], mesh, state);
+                Vec3 c1 = deformedPos(f->node_idx[1], mesh, state);
+                Vec3 c2 = deformedPos(f->node_idx[2], mesh, state);
+                Vec3 cen = {(c.x+c1.x+c2.x)/3.0, (c.y+c1.y+c2.y)/3.0, (c.z+c1.z+c2.z)/3.0};
+                double zz;
+                camera.project3D(cen, zz);
+                sum_z += zz; ++n;
+            }
+            ordered_parts.push_back({pid, n ? sum_z / n : 0.0});
+        }
+        // Larger depth = further away = draw first (back-to-front).
+        std::sort(ordered_parts.begin(), ordered_parts.end(),
+                  [](const PartOrder& a, const PartOrder& b){ return a.avg_z > b.avg_z; });
+
+        // Compute depth-based alpha modulation: parts CLOSER to camera get
+        // MORE transparency (lower alpha) so they don't occlude what's
+        // behind them. Farther parts stay near `bg_alpha` for visibility.
+        double z_min_part = +std::numeric_limits<double>::infinity();
+        double z_max_part = -std::numeric_limits<double>::infinity();
+        for (const auto& po : ordered_parts) {
+            if (po.avg_z < z_min_part) z_min_part = po.avg_z;
+            if (po.avg_z > z_max_part) z_max_part = po.avg_z;
+        }
+        double z_span = z_max_part - z_min_part;
+
+        for (const auto& po : ordered_parts) {
+            std::fill(mask.begin(), mask.end(), uint8_t(0));
+            std::fill(pdepth.begin(), pdepth.end(),
+                      std::numeric_limits<float>::max());
+            std::fill(shade.begin(), shade.end(), 0.0f);
+
+            for (const auto* face : bg_by_part[po.pid]) {
+                Vec3 p0 = deformedPos(face->node_idx[0], mesh, state);
+                Vec3 p1 = deformedPos(face->node_idx[1], mesh, state);
+                Vec3 p2 = deformedPos(face->node_idx[2], mesh, state);
+
+                Vec3 e1 = p1 - p0;
+                Vec3 e2 = p2 - p0;
+                Vec3 e3 = p2 - p1;
+                double e1l2 = e1.dot(e1), e2l2 = e2.dot(e2), e3l2 = e3.dot(e3);
+                double cur_max_edge2 = std::max({e1l2, e2l2, e3l2});
+                if (face->max_edge2_init > 0.f &&
+                    cur_max_edge2 > face->max_edge2_init * erosion_growth2) continue;
+                Vec3 cross = e1.cross(e2);
+                double face_area2 = cross.dot(cross);
+                if (face_area2 < 1e-10) continue;
+                Vec3 fn = cross.normalizedSafe();
+
+                // Per-triangle lighting intensity. The frontmost triangle
+                // at each pixel sets the shade, so visible top, side, and
+                // back faces each have distinct brightness — gives clear
+                // 3D depth perception through the translucent silhouette.
+                // Auto-flip normal to face the light so back-facing
+                // triangles (which only win at silhouette grazing edges)
+                // still get reasonable shading.
+                if (fn.dot(light_dir) < 0) fn = fn * -1.0;
+                double ndotl = std::max(0.0, fn.dot(light_dir));
+                // Wider ambient/diffuse range (0.4..1.0) to make front-
+                // vs-side face contrast visible through alpha blending.
+                float tri_shade = static_cast<float>(0.4 + 0.6 * ndotl);
+
+                double za, zb, zc;
+                Vec2 sa = camera.project3D(p0, za);
+                Vec2 sb = camera.project3D(p1, zb);
+                Vec2 sc = camera.project3D(p2, zc);
+                double ss = (double)config.supersampling;
+                sa.x *= ss; sa.y *= ss;
+                sb.x *= ss; sb.y *= ss;
+                sc.x *= ss; sc.y *= ss;
+
+                rasterizer.rasterizeToPartMask(sa.x, sa.y, za,
+                                               sb.x, sb.y, zb,
+                                               sc.x, sc.y, zc,
+                                               tri_shade,
+                                               mask, pdepth, shade);
+            }
+
+            // Per-part base color; per-pixel shade is applied inside
+            // compositePartSilhouette to give 3D depth perception while
+            // keeping each part as a single hue.
+            int cidx = 0;
+            auto cit = part_color_map.find(po.pid);
+            if (cit != part_color_map.end()) cidx = cit->second;
+            RGBA pcol = g_part_palette[cidx % G_PART_PALETTE_SIZE];
+            pcol.a = 255;
+
+            // Depth-modulated alpha: closer parts (smaller depth) get
+            // 0.4× of bg_alpha (more transparent), farther parts get
+            // 1.0× (less transparent, visible as backdrop). When there is
+            // only one BG part or all are at the same depth, use bg_alpha
+            // directly.
+            double part_alpha = bg_alpha;
+            if (z_span > 1e-6) {
+                double t = (po.avg_z - z_min_part) / z_span;  // 0=closest, 1=farthest
+                double scale = 0.4 + 0.6 * t;                 // 0.4..1.0
+                part_alpha = bg_alpha * scale;
+            }
+            if (part_alpha < 0.0) part_alpha = 0.0;
+            if (part_alpha > 1.0) part_alpha = 1.0;
+
+            rasterizer.compositePartSilhouette(mask, pdepth, shade,
+                                               pcol, (float)part_alpha);
+        }
+
+        std::string frame_path = out_dir + "/" + frameName((int)si, (int)num_states);
+        std::string err = rasterizer.savePng(frame_path);
+        if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;
+
+        if (si % 20 == 0 || si == num_states - 1)
+            std::fprintf(stderr, "[iso_surface] Rendered frame %zu / %zu\n", si + 1, num_states);
+    }
+
+    if (config.mp4) {
+        std::string mp4_path = out_dir + "/section_view.mp4";
+        std::string err = assembleMp4(frame_pattern, mp4_path, config.fps);
+        if (!err.empty()) return err;
+    }
+    if (!config.png_frames) {
+        for (const auto& entry : fs::directory_iterator(out_dir)) {
+            if (entry.path().extension() == ".png") {
+                const std::string fname = entry.path().filename().string();
+                if (fname.substr(0, 6) == "frame_") fs::remove(entry.path());
+            }
+        }
+    }
     return "";
 }
 

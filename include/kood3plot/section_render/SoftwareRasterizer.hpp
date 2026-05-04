@@ -97,6 +97,73 @@ public:
                                 double p2x, double p2y, double z2, RGBA c2);
 
     /**
+     * @brief Draw a Z-buffered translucent triangle (depth read-only).
+     *
+     * Reads the depth buffer to skip pixels occluded by previously-drawn
+     * opaque geometry (depth < pixel_depth → skip). Does NOT write depth,
+     * so subsequent translucent layers still see the same depth values.
+     *
+     * Color is alpha-blended onto the destination: dst = alpha*src + (1-alpha)*dst.
+     *
+     * Use this for translucent BG parts in iso-surface rendering after
+     * opaque target geometry has been drawn.
+     */
+    void drawTriangle3DAlpha(double p0x, double p0y, double z0,
+                              double p1x, double p1y, double z1,
+                              double p2x, double p2y, double z2,
+                              RGBA color, float alpha);
+
+    /**
+     * @brief Rasterize triangle coverage into a per-part silhouette mask
+     *        with per-pixel lighting intensity.
+     *
+     * For each pixel covered by the triangle:
+     *   - if pixel_depth >= zbuffer + 1e-4 (strictly behind opaque): skip
+     *   - else: set mask[idx]=1; update part_depth[idx]=min(...);
+     *           and store the BRIGHTEST shade across all contributing
+     *           triangles (so top face's strong ndotl wins over a side
+     *           face's dim ndotl at the same pixel).
+     *
+     * The zbuffer is NOT modified by this call. Used to build a
+     * silhouette of an entire BG part — every triangle contributes
+     * coverage, the shading captures 3D depth perception, and
+     * compositePartSilhouette applies a single alpha-blended color
+     * modulated by the per-pixel shade.
+     *
+     * mask, part_depth, shade must each have ssWidth()*ssHeight() entries.
+     * shade values typically in [0,1] (will be clamped on composite).
+     */
+    void rasterizeToPartMask(double p0x, double p0y, double z0,
+                              double p1x, double p1y, double z1,
+                              double p2x, double p2y, double z2,
+                              float tri_shade,
+                              std::vector<uint8_t>& mask,
+                              std::vector<float>& part_depth,
+                              std::vector<float>& shade);
+
+    /**
+     * @brief Composite a part silhouette mask onto the framebuffer.
+     *
+     * For every masked pixel:
+     *   shaded = color × shade[idx]
+     *   framebuffer = α*shaded + (1-α)*framebuffer
+     * and zbuffer is updated to part_depth so subsequent BG parts can be
+     * occlusion-tested correctly.
+     *
+     * Produces a translucent silhouette per BG part with subtle 3D depth
+     * perception (top face bright, side faces darker) — no internal
+     * element diagonals, no multi-layer alpha stacking.
+     */
+    void compositePartSilhouette(const std::vector<uint8_t>& mask,
+                                  const std::vector<float>& part_depth,
+                                  const std::vector<float>& shade,
+                                  RGBA color, float alpha);
+
+    /// Supersampled buffer dimensions (for sizing mask buffers)
+    int32_t ssWidth()  const { return ss_width_; }
+    int32_t ssHeight() const { return ss_height_; }
+
+    /**
      * @brief Draw a Z-buffered line (for mesh edge wireframe)
      */
     void drawLine3D(double ax, double ay, double az,

@@ -18,7 +18,8 @@ class SectionViewRenderConfig:
     """
     enabled: bool = True
     backend: str = "lsprepost"   # "lsprepost" (default) or "software"
-    view_mode: str = "section"  # "section" (2D) or "section_3d" (3D half-model, software only)
+    view_mode: str = "section"  # "section" (2D) | "section_3d" (3D half-model) | "iso_surface" (no cut, target=fringe / bg=alpha; software only)
+    background_alpha: float = 0.3  # iso_surface bg part alpha (0..1; 0.3 ≈ 70% transparent)
     axes: list[str] = field(default_factory=lambda: ["x", "y", "z"])  # x | y | z
     scalar_fields: list[str] = field(default_factory=lambda: ["von_mises", "strain"])  # 복수 필드
     scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
@@ -96,6 +97,10 @@ def _sv_yaml_block(
     actual_field = field_name or config.scalar_field or "von_mises"
 
     view_mode_line = f"view_mode: {config.view_mode}\n" if config.view_mode != "section" else ""
+    bg_alpha_line = (
+        f"background_alpha: {config.background_alpha}\n"
+        if config.view_mode == "iso_surface" else ""
+    )
 
     # Sliding support (SW backend reads these via SectionViewConfig)
     axis_letter, axis_sign = _parse_signed_axis(axis)
@@ -130,6 +135,7 @@ def _sv_yaml_block(
         f"scale_factor: 3.0\n"
         f"supersampling: {config.supersampling}\n"
         f"fade_distance: {config.fade_distance}\n"
+        f"{bg_alpha_line}"
         f"{sliding_block}"
         f"output:\n"
         f"  width: {config.width}\n"

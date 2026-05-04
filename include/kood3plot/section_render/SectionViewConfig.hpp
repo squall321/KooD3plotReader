@@ -45,7 +45,8 @@ namespace section_render {
 /** Section view rendering mode */
 enum class SectionViewMode {
     Section2D,    ///< Default: 2D cross-section view (camera perpendicular to cut plane)
-    Section3D     ///< 3D half-model: isometric view with cut face + 3D exterior
+    Section3D,    ///< 3D half-model: isometric view with cut face + 3D exterior
+    IsoSurface    ///< Iso view, no cut: target part = fringe contour, background = part color + alpha
 };
 
 struct SectionViewConfig {
@@ -84,6 +85,11 @@ struct SectionViewConfig {
     double      sliding_peak_time   = -1.0;   ///< -1 = auto (last state)
     double      sliding_pad         = 0.05;   ///< padding fraction outside bbox
     int32_t     sliding_axis_sign   = 1;      ///< +1 or -1 (slide direction)
+
+    // ── IsoSurface mode ──
+    /// Background-part alpha when view_mode == IsoSurface. 1.0 = opaque,
+    /// 0.0 = invisible. Default 0.3 (≈ 70% transparent).
+    double      background_alpha    = 0.3;
 
     // Output settings
     int32_t     width       = 1920;

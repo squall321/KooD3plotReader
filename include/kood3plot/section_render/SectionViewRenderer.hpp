@@ -67,6 +67,20 @@ private:
                          const std::vector<data::StateData>& all_states,
                          const SectionViewConfig& config);
 
+    /**
+     * @brief Iso-surface rendering pipeline (IsoSurface mode).
+     *
+     * Same isometric camera as Section3D, but no clipping plane: every
+     * target-part element is drawn with the fringe contour and every
+     * background-part element with its part color modulated by
+     * config.background_alpha. Useful for "show me the part of interest
+     * with stress on its surface" overview shots.
+     */
+    std::string renderIsoSurface(const data::Mesh& mesh,
+                                 const data::ControlData& ctrl,
+                                 const std::vector<data::StateData>& all_states,
+                                 const SectionViewConfig& config);
+
     // Sub-steps (all return error string or "")
     std::string writePng(const std::vector<uint8_t>& rgba,
                           int32_t width, int32_t height,

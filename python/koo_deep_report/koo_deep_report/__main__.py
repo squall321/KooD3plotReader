@@ -113,8 +113,10 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    choices=["lsprepost", "software"],
                    help="단면뷰 백엔드: lsprepost=LSPrePost drawcut (기본, 고품질), software=내장 래스터라이저")
     p.add_argument("--section-view-mode", default="section",
-                   choices=["section", "section_3d"],
-                   help="단면뷰 모드: section=2D, section_3d=3D 반절단 뷰 (기본: section)")
+                   choices=["section", "section_3d", "iso_surface"],
+                   help="단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut 없는 iso 외곽 (기본: section)")
+    p.add_argument("--section-view-background-alpha", type=float, default=0.3, metavar="A",
+                   help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70% 투명)")
     p.add_argument("--section-view-per-part", action="store_true",
                    help="파트별 단면뷰 렌더링 활성화")
     p.add_argument("--section-view-axes", nargs="+", default=["x", "y", "z"],
@@ -556,6 +558,14 @@ def _parse_section_view_block(block: str) -> dict:
         except ValueError:
             pass
 
+    m = re.search(r'^\s+background_alpha:\s*([\d.eE+\-]+)\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        try:
+            out["section_view_background_alpha"] = float(m.group(1))
+        except ValueError:
+            pass
+
     return out
 
 
@@ -615,6 +625,9 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         if (getattr(args, "section_view_mode", "section") == "section"
                 and "section_view_mode" in sv_cfg):
             args.section_view_mode = sv_cfg["section_view_mode"]
+        if (getattr(args, "section_view_background_alpha", 0.3) == 0.3
+                and "section_view_background_alpha" in sv_cfg):
+            args.section_view_background_alpha = sv_cfg["section_view_background_alpha"]
         if (not getattr(args, "section_view_per_part", False)
                 and "section_view_per_part" in sv_cfg):
             args.section_view_per_part = bool(sv_cfg["section_view_per_part"])
@@ -772,6 +785,7 @@ def run_single(args: argparse.Namespace) -> None:
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
+            background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
@@ -954,6 +968,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
+            background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
             target_part_ids=getattr(args, "section_view_target_ids", None) or [],
