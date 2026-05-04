@@ -220,38 +220,55 @@ void StateDataParser::parse_nodal_data_fast(data::StateData& state, size_t& offs
         return;
     }
 
-    // Determine N from IT (ls-dyna_database.txt lines 1832-1837)
-    int N = 0;
-    if (it == 2) N = 2;
-    else if (it == 3) N = 3;
-    else if (it / 10 == 1) N = 1;
+    // IT is decimal-encoded: tens=mass-scaling, units=temp mode.
+    int temp_code = it % 10;
+    int mass_flag = (it / 10) > 0 ? 1 : 0;
+    int n_temp_fields = 0;
+    if (temp_code == 1) n_temp_fields = 1;
+    else if (temp_code == 2) n_temp_fields = 3;
+    else if (temp_code == 3) n_temp_fields = 3;
 
-    // Read temperatures if IT > 0
-    if (it > 0) {
-        size_t count = static_cast<size_t>(numnp) * (it + N);
+    // CORRECT BINARY ORDER (verified empirically against d3plot01 layout):
+    //   1. temperatures (if IT mod 10 > 0)
+    //   2. displacements (IU)
+    //   3. velocities    (IV)
+    //   4. accelerations (IA)
+    //   5. mass scaling  (if IT/10 == 1)   ← AFTER kinematics, NOT before
+    //
+    // Earlier the parser read "(IT+N)" combined fields up front, putting
+    // mass scaling words BEFORE displacement. That offsets every read by
+    // NUMNP words, mangling displacements / velocities / accelerations and
+    // — once the cumulative offset exceeds the per-state stride — also
+    // every subsequent state's time word.
+
+    if (n_temp_fields > 0) {
+        size_t count = static_cast<size_t>(numnp) * n_temp_fields;
         state.node_temperatures = reader_->read_double_array(offset, count);
         offset += count;
     }
 
-    // Read displacements if IU > 0
     if (iu > 0) {
         size_t count = static_cast<size_t>(numnp) * effective_ndim;
         state.node_displacements = reader_->read_double_array(offset, count);
         offset += count;
     }
 
-    // Read velocities if IV > 0
     if (iv > 0) {
         size_t count = static_cast<size_t>(numnp) * effective_ndim;
         state.node_velocities = reader_->read_double_array(offset, count);
         offset += count;
     }
 
-    // Read accelerations if IA > 0
     if (ia > 0) {
         size_t count = static_cast<size_t>(numnp) * effective_ndim;
         state.node_accelerations = reader_->read_double_array(offset, count);
         offset += count;
+    }
+
+    if (mass_flag > 0) {
+        // Mass scaling values (NUMNP words). Stored — typically unused by
+        // visualisation, but advances the offset to keep state alignment.
+        offset += static_cast<size_t>(numnp);
     }
 }
 
@@ -340,17 +357,20 @@ void StateDataParser::parse_nodal_data_legacy(data::StateData& state, size_t& of
         return;
     }
 
-    // Determine N from IT (ls-dyna_database.txt lines 1832-1837)
-    int N = 0;
-    if (it == 2) N = 2;
-    else if (it == 3) N = 3;
-    else if (it / 10 == 1) N = 1;
+    // IT is decimal-encoded: tens=mass scaling, units=temp mode.
+    int temp_code = it % 10;
+    int mass_flag = (it / 10) > 0 ? 1 : 0;
+    int n_temp_fields = 0;
+    if (temp_code == 1) n_temp_fields = 1;
+    else if (temp_code == 2) n_temp_fields = 3;
+    else if (temp_code == 3) n_temp_fields = 3;
 
-    // Read temperatures if IT > 0
-    if (it > 0) {
-        int temp_values_per_node = it + N;
-        state.node_temperatures.resize(numnp * temp_values_per_node);
-        for (int i = 0; i < numnp * temp_values_per_node; ++i) {
+    // Binary order (legacy slow path): temperatures → disp → vel → accel
+    // → mass scaling. Same as the fast path.
+
+    if (n_temp_fields > 0) {
+        state.node_temperatures.resize(numnp * n_temp_fields);
+        for (int i = 0; i < numnp * n_temp_fields; ++i) {
             state.node_temperatures[i] = reader_->read_double(offset++);
         }
     }
@@ -377,6 +397,12 @@ void StateDataParser::parse_nodal_data_legacy(data::StateData& state, size_t& of
         for (int i = 0; i < numnp * effective_ndim; ++i) {
             state.node_accelerations[i] = reader_->read_double(offset++);
         }
+    }
+
+    if (mass_flag > 0) {
+        // Mass scaling values come AFTER the kinematics block. Skip
+        // (offset advance only — value not used by visualisation).
+        offset += static_cast<size_t>(numnp);
     }
 }
 

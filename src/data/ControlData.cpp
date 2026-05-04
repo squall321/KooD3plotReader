@@ -89,28 +89,40 @@ void ControlData::compute_derived_values() {
         }
     }
 
-    // Compute NND (ls-dyna_database.txt line 1838)
-    // NND = ((IT+N)+NDIM*(IU+IV+IA))*NUMNP
-    // where N depends on IT value
-    int N = 0;
-    if (IT == 2) {
-        N = 2;  // node temperature and flux
-    } else if (IT == 3) {
-        N = 3;  // 3 temperatures per node
-    } else if (IT / 10 == 1) {
-        N = 1;  // mass scaling
-    }
+    // Compute NND (ls-dyna_database.txt line 1838).
+    //
+    // IT is decimal-encoded:
+    //   tens digit = mass scaling flag (0 or 1)
+    //   units digit = temperature mode:
+    //     0 = no temperature
+    //     1 = 1 temp per node
+    //     2 = 1 temp + 2 flux components per node     (3 fields)
+    //     3 = 3 temperatures per node                 (3 fields)
+    // Per-node "extra" fields = (mass_flag) + temp_fields.
+    //
+    // The OLD formula `((IT + N) + ndim*(IU+IV+IA)) * NUMNP` mistakenly
+    // added IT itself (the encoded flag) instead of just the field count.
+    // For IT=10 (mass scaling, no temp) the correct count is 1 — not 11 —
+    // and getting this wrong silently doubles the apparent state size,
+    // causing every state's time/displacement read to land on the wrong
+    // offset for d3plots that use IT=10 (a common LS-DYNA default).
+    int temp_code = IT % 10;
+    int mass_flag = (IT / 10) > 0 ? 1 : 0;
+    int n_temp_fields = 0;
+    if (temp_code == 1) n_temp_fields = 1;       // 1 temp
+    else if (temp_code == 2) n_temp_fields = 3;  // temp + 2 flux
+    else if (temp_code == 3) n_temp_fields = 3;  // 3 temps
+    int per_node_extra = n_temp_fields + mass_flag;
 
     // ls-dyna_database.txt lines 230-231:
     // "If 4 then element connectivities are unpacked in the DYNA3D database and NDIM is reset to 3."
-    // NDIM=4 means unpacked connectivity format, but actual dimensions is 3
-    // NDIM=5,7 means MATTYP array present, actual dimensions is still 3
+    // NDIM=4,5,7 means special formats, actual spatial dimensions is 3
     int effective_ndim = NDIM;
     if (NDIM == 4 || NDIM == 5 || NDIM == 7) {
         effective_ndim = 3;
     }
 
-    NND = ((IT + N) + effective_ndim * (IU + IV + IA)) * NUMNP;
+    NND = (per_node_extra + effective_ndim * (IU + IV + IA)) * NUMNP;
 
     // Compute ENN (ls-dyna_database.txt lines 1868-1869)
     // ENN = NEL8*NV3D + NELT*NV3DT + NEL2*NV1D + NEL4*NV2D + NMSPH*NUM_SPH_VARS
