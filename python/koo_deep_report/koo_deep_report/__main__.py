@@ -117,8 +117,13 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut 없는 iso 외곽 (기본: section)")
     p.add_argument("--section-view-background-alpha", type=float, default=0.3, metavar="A",
                    help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70% 투명)")
-    p.add_argument("--section-view-per-part", action="store_true",
-                   help="파트별 단면뷰 렌더링 활성화")
+    p.add_argument("--section-view-per-part", dest="section_view_per_part",
+                   action="store_true",
+                   help="파트별 단면뷰 렌더링 강제 ON (기본은 target ID/pattern 미지정 시 자동 ON)")
+    p.add_argument("--no-section-view-per-part", dest="section_view_per_part",
+                   action="store_false",
+                   help="파트별 단면뷰 렌더링 강제 OFF")
+    p.set_defaults(section_view_per_part=None)
     p.add_argument("--section-view-axes", nargs="+", default=["x", "y", "z"],
                    choices=["x", "y", "z"], metavar="AXIS",
                    help="단면 축 목록 (기본: x y z). 예: --section-view-axes x y z")
@@ -781,6 +786,16 @@ def run_single(args: argparse.Namespace) -> None:
     sv_cfg = None
     if getattr(args, "section_view", False):
         sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
+        # per-part default: ON when neither target_ids nor target_patterns
+        # specified — covers every part of the model. User can force OFF
+        # with --no-section-view-per-part.
+        _ids = getattr(args, "section_view_target_ids", None) or []
+        _pats = getattr(args, "section_view_target_patterns", None) or []
+        _user_pp = getattr(args, "section_view_per_part", None)  # tri-state (None=auto)
+        if _user_pp is None:
+            sv_per_part = (not _ids) and (not _pats)
+        else:
+            sv_per_part = bool(_user_pp)
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
@@ -788,10 +803,10 @@ def run_single(args: argparse.Namespace) -> None:
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
-            target_part_ids=getattr(args, "section_view_target_ids", None) or [],
-            target_patterns=getattr(args, "section_view_target_patterns", None) or [],
+            target_part_ids=_ids,
+            target_patterns=_pats,
             fade_distance=getattr(args, "section_view_fade", 0.0),
-            per_part_render=getattr(args, "section_view_per_part", False),
+            per_part_render=sv_per_part,
             sv_threads=getattr(args, "sv_threads", 2),
             iso_clip_view=getattr(args, "section_view_iso_clip", True),
             section_position=getattr(args, "section_view_section_position", 0.5),
@@ -964,6 +979,14 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
     sv_cfg = None
     if getattr(args, "section_view", False):
         sv_fields = getattr(args, "section_view_fields", None) or ["von_mises", "strain"]
+        # Same auto-enable rule as single mode.
+        _ids = getattr(args, "section_view_target_ids", None) or []
+        _pats = getattr(args, "section_view_target_patterns", None) or []
+        _user_pp = getattr(args, "section_view_per_part", None)
+        if _user_pp is None:
+            sv_per_part = (not _ids) and (not _pats)
+        else:
+            sv_per_part = bool(_user_pp)
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
@@ -971,10 +994,10 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
-            target_part_ids=getattr(args, "section_view_target_ids", None) or [],
-            target_patterns=getattr(args, "section_view_target_patterns", None) or [],
+            target_part_ids=_ids,
+            target_patterns=_pats,
             fade_distance=getattr(args, "section_view_fade", 0.0),
-            per_part_render=getattr(args, "section_view_per_part", False),
+            per_part_render=sv_per_part,
             sv_threads=getattr(args, "sv_threads", 2),
             iso_clip_view=getattr(args, "section_view_iso_clip", True),
             section_position=getattr(args, "section_view_section_position", 0.5),

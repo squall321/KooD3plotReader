@@ -137,18 +137,10 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         // If target_parts has specific IDs, compute AABB from target part nodes only
         bool use_target_bbox = config.target_parts.hasSpecificIds();
         if (use_target_bbox) {
-            // Build node-id → index map (same as SectionClipper)
-            std::unordered_map<int32_t, int32_t> nid_to_idx;
-            if (!mesh.real_node_ids.empty()) {
-                for (int32_t i = 0; i < static_cast<int32_t>(mesh.real_node_ids.size()); ++i)
-                    nid_to_idx[mesh.real_node_ids[i]] = i;
-            }
+            // Element node_ids in d3plot are 1-based internal indices
+            // (not real IDs) — see resolveNodeIdx note. Just decrement.
             auto resolveIdx = [&](int32_t nid) -> int32_t {
-                if (!nid_to_idx.empty()) {
-                    auto it = nid_to_idx.find(nid);
-                    return (it != nid_to_idx.end()) ? it->second : -1;
-                }
-                return nid - 1;  // 1-based fallback
+                return nid - 1;
             };
 
             // Collect node positions from target part elements
@@ -563,6 +555,26 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
             } else if (poly.size() == 2) {
                 rasterizer.drawEdge(poly, cmap, camera, 2);
             }
+        }
+
+        // Colorbar overlay (right side of frame)
+        {
+            int32_t bar_w = std::max(8, rasterizer.ssWidth() / 60);
+            int32_t bar_h = std::max(80, rasterizer.ssHeight() / 3);
+            int32_t bar_x = rasterizer.ssWidth() - bar_w - 9 * 6 * std::max(1, rasterizer.ssWidth()/640);
+            int32_t bar_y = (rasterizer.ssHeight() - bar_h) / 2;
+            const char* title = "VM";
+            switch (config.field) {
+                case FieldSelector::VonMises:                title = "VM MPa";  break;
+                case FieldSelector::EffectivePlasticStrain:  title = "ePS";     break;
+                case FieldSelector::PressureStress:          title = "P MPa";   break;
+                case FieldSelector::MaxShearStress:          title = "MaxSS";   break;
+                case FieldSelector::TotalStrain:             title = "ePS";     break;
+                case FieldSelector::DisplacementMagnitude:   title = "Disp mm"; break;
+                default:                                     title = "VM";      break;
+            }
+            rasterizer.drawColorBar(bar_x, bar_y, bar_w, bar_h,
+                                    cmap.vmin(), cmap.vmax(), title);
         }
 
         std::string frame_path = out_dir + "/" + frameName(static_cast<int>(si),
@@ -1259,6 +1271,26 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
             }
         }
 
+        // Colorbar overlay
+        {
+            int32_t bar_w = std::max(8, rasterizer.ssWidth() / 60);
+            int32_t bar_h = std::max(80, rasterizer.ssHeight() / 3);
+            int32_t bar_x = rasterizer.ssWidth() - bar_w - 9 * 6 * std::max(1, rasterizer.ssWidth()/640);
+            int32_t bar_y = (rasterizer.ssHeight() - bar_h) / 2;
+            const char* title = "VM";
+            switch (config.field) {
+                case FieldSelector::VonMises:                title = "VM MPa";  break;
+                case FieldSelector::EffectivePlasticStrain:  title = "ePS";     break;
+                case FieldSelector::PressureStress:          title = "P MPa";   break;
+                case FieldSelector::MaxShearStress:          title = "MaxSS";   break;
+                case FieldSelector::TotalStrain:             title = "ePS";     break;
+                case FieldSelector::DisplacementMagnitude:   title = "Disp mm"; break;
+                default:                                     title = "VM";      break;
+            }
+            rasterizer.drawColorBar(bar_x, bar_y, bar_w, bar_h,
+                                    cmap.vmin(), cmap.vmax(), title);
+        }
+
         // Save frame
         std::string frame_path = out_dir + "/" + frameName(static_cast<int>(si),
                                                             static_cast<int>(num_states));
@@ -1925,6 +1957,28 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
 
             rasterizer.compositePartSilhouette(mask, pdepth, shade,
                                                pcol, (float)part_alpha);
+        }
+
+        // Colorbar overlay — show min/max range used for the target's
+        // contour. Position bottom-right of the frame, sized with the
+        // supersampled buffer so it scales with resolution.
+        {
+            int32_t bar_w = std::max(8, rasterizer.ssWidth() / 60);
+            int32_t bar_h = std::max(80, rasterizer.ssHeight() / 3);
+            int32_t bar_x = rasterizer.ssWidth() - bar_w - 9 * 6 * std::max(1, rasterizer.ssWidth()/640);
+            int32_t bar_y = (rasterizer.ssHeight() - bar_h) / 2;
+            const char* title = "VM";
+            switch (config.field) {
+                case FieldSelector::VonMises:                title = "VM MPa";  break;
+                case FieldSelector::EffectivePlasticStrain:  title = "ePS";     break;
+                case FieldSelector::PressureStress:          title = "P MPa";   break;
+                case FieldSelector::MaxShearStress:          title = "Max SS";  break;
+                case FieldSelector::TotalStrain:             title = "ePS";     break;
+                case FieldSelector::DisplacementMagnitude:   title = "Disp mm"; break;
+                default:                                     title = "VM";      break;
+            }
+            rasterizer.drawColorBar(bar_x, bar_y, bar_w, bar_h,
+                                    cmap.vmin(), cmap.vmax(), title);
         }
 
         std::string frame_path = out_dir + "/" + frameName((int)si, (int)num_states);

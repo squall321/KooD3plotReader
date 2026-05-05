@@ -59,7 +59,6 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (callback) callback("Reading all states (parallel)...");
 
     // Read all states in parallel (family files read concurrently)
-    // Use configured thread count (0 = auto-detect)
     auto all_states = reader.read_all_states_parallel(config.num_threads);
     if (all_states.empty()) {
         last_error_ = "No states found in d3plot";

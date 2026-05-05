@@ -60,11 +60,10 @@ SectionClipper::SectionClipper(const data::Mesh& mesh,
                                 double slab_thickness)
     : mesh_(mesh), control_(control), plane_(plane), slab_half_(slab_thickness * 0.5)
 {
-    if (!mesh_.real_node_ids.empty()) {
-        for (int32_t i = 0; i < static_cast<int32_t>(mesh_.real_node_ids.size()); ++i) {
-            node_id_to_index_[mesh_.real_node_ids[i]] = i;
-        }
-    }
+    // Element node_ids in d3plot are 1-based internal indices, not real
+    // IDs — the real_node_ids[] table is for user-facing real-ID lookups,
+    // not for this map. Misusing it would re-route element node refs.
+    (void)node_id_to_index_;
 }
 
 // ============================================================
@@ -73,9 +72,7 @@ SectionClipper::SectionClipper(const data::Mesh& mesh,
 
 int32_t SectionClipper::nodeIndex(int32_t node_id) const
 {
-    if (mesh_.real_node_ids.empty()) return node_id - 1;
-    auto it = node_id_to_index_.find(node_id);
-    return (it != node_id_to_index_.end()) ? it->second : -1;
+    return node_id - 1;  // 1-based internal index → 0-based mesh.nodes
 }
 
 Vec3 SectionClipper::nodePos(const data::StateData& state, int32_t idx) const

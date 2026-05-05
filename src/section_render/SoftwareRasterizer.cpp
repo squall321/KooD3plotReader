@@ -766,5 +766,156 @@ RGBA SoftwareRasterizer::interpolateColor(const std::vector<Vec2>& /*verts*/,
                                            double /*px*/, double /*py*/) const
 { return {}; }
 
+// ============================================================
+// 5×7 bitmap font (digits + symbols + a few letters)
+// Each glyph is 5 columns × 7 rows; bit (row,col) = MSB-aligned in uint64
+// row 0 = top, col 0 = left. Bit k = (1 << (34 - k)) where k = row*5+col.
+// ============================================================
+namespace {
+
+// Glyph generator: 7 rows of 5-bit patterns (left to right, MSB=col0).
+// Pack into uint64 with row0 in highest bits.
+constexpr uint64_t G(uint8_t r0, uint8_t r1, uint8_t r2, uint8_t r3,
+                      uint8_t r4, uint8_t r5, uint8_t r6) {
+    return (uint64_t(r0) << 30) | (uint64_t(r1) << 25) | (uint64_t(r2) << 20) |
+           (uint64_t(r3) << 15) | (uint64_t(r4) << 10) | (uint64_t(r5) <<  5) |
+            uint64_t(r6);
+}
+
+uint64_t glyphBits(char c) {
+    switch (c) {
+        case '0': return G(0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110);
+        case '1': return G(0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110);
+        case '2': return G(0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111);
+        case '3': return G(0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110);
+        case '4': return G(0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010);
+        case '5': return G(0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110);
+        case '6': return G(0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110);
+        case '7': return G(0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000);
+        case '8': return G(0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110);
+        case '9': return G(0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100);
+        case '.': return G(0,0,0,0,0, 0b01100, 0b01100);
+        case '-': return G(0,0,0, 0b01110, 0,0,0);
+        case '+': return G(0,0, 0b00100, 0b01110, 0b00100, 0,0);
+        case 'e': return G(0,0, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110);
+        case 'E': return G(0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111);
+        case 'M': return G(0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001);
+        case 'P': return G(0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000);
+        case 'a': return G(0,0, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111);
+        case 'p': return G(0,0, 0b11110, 0b10001, 0b11110, 0b10000, 0b10000);
+        case 'V': return G(0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100);
+        case 'm': return G(0,0, 0b11010, 0b10101, 0b10101, 0b10001, 0b10001);
+        case 's': return G(0,0, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110);
+        case 'i': return G(0b00100, 0, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110);
+        case 'n': return G(0,0, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001);
+        case 'x': return G(0,0, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001);
+        case ' ': return 0;
+        case ':': return G(0,0, 0b01100, 0,0, 0b01100, 0);
+        default:  return 0;
+    }
+}
+
+} // anonymous
+
+void SoftwareRasterizer::drawText(int32_t x, int32_t y, const std::string& text,
+                                   RGBA color, int32_t scale)
+{
+    if (scale < 1) scale = 1;
+    int cx = x;
+    for (char c : text) {
+        uint64_t bits = glyphBits(c);
+        for (int row = 0; row < 7; ++row) {
+            uint64_t row_bits = (bits >> (30 - row * 5)) & 0x1F;
+            for (int col = 0; col < 5; ++col) {
+                if (row_bits & (1 << (4 - col))) {
+                    for (int dy = 0; dy < scale; ++dy)
+                        for (int dx = 0; dx < scale; ++dx)
+                            setPixel(cx + col * scale + dx,
+                                     y + row * scale + dy, color);
+                }
+            }
+        }
+        cx += (5 + 1) * scale;  // advance one glyph + 1px gap
+    }
+}
+
+namespace {
+
+// Format a numeric value compactly: scientific notation when very large /
+// small, fixed otherwise. Targets <= 8 chars.
+std::string formatLabel(double v) {
+    char buf[32];
+    double a = std::abs(v);
+    if (a == 0.0) {
+        std::snprintf(buf, sizeof(buf), "0");
+    } else if (a >= 100000.0 || a < 0.01) {
+        std::snprintf(buf, sizeof(buf), "%.2e", v);
+    } else if (a >= 100.0) {
+        std::snprintf(buf, sizeof(buf), "%.1f", v);
+    } else if (a >= 10.0) {
+        std::snprintf(buf, sizeof(buf), "%.2f", v);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%.3f", v);
+    }
+    return std::string(buf);
+}
+
+// Inline simple rainbow colormap (matches ColorMap kind 0).
+RGBA rainbowAt(double t) {
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    double r = 0, g = 0, b = 0;
+    if (t < 0.25) {
+        r = 0; g = 4*t; b = 1;
+    } else if (t < 0.5) {
+        r = 0; g = 1; b = 1 - 4*(t - 0.25);
+    } else if (t < 0.75) {
+        r = 4*(t - 0.5); g = 1; b = 0;
+    } else {
+        r = 1; g = 1 - 4*(t - 0.75); b = 0;
+    }
+    return { (uint8_t)(r*255), (uint8_t)(g*255), (uint8_t)(b*255), 255 };
+}
+
+} // anonymous
+
+void SoftwareRasterizer::drawColorBar(int32_t x, int32_t y,
+                                       int32_t width, int32_t height,
+                                       double vmin, double vmax,
+                                       const std::string& title,
+                                       int /*colormap_kind*/)
+{
+    // Vertical gradient: top = vmax, bottom = vmin.
+    for (int j = 0; j < height; ++j) {
+        double t = 1.0 - (double)j / (double)(height - 1);  // top→1, bottom→0
+        RGBA c = rainbowAt(t);
+        for (int i = 0; i < width; ++i) {
+            setPixel(x + i, y + j, c);
+        }
+    }
+    // 1-pixel black border around the bar
+    RGBA black{0, 0, 0, 255};
+    for (int i = -1; i <= width; ++i) {
+        setPixel(x + i, y - 1, black);
+        setPixel(x + i, y + height, black);
+    }
+    for (int j = -1; j <= height; ++j) {
+        setPixel(x - 1, y + j, black);
+        setPixel(x + width, y + j, black);
+    }
+
+    // Labels (right of bar). Scale chosen for readability vs. supersampling.
+    int32_t label_scale = std::max(1, ss_width_ / 640);
+    int32_t label_x = x + width + 6 * label_scale;
+    drawText(label_x, y - label_scale,                                     formatLabel(vmax), black, label_scale);
+    drawText(label_x, y + height/2 - 4 * label_scale,                       formatLabel((vmin + vmax) * 0.5), black, label_scale);
+    drawText(label_x, y + height - 7 * label_scale,                         formatLabel(vmin), black, label_scale);
+
+    // Title above the bar
+    if (!title.empty()) {
+        drawText(x, y - 12 * label_scale, title, black, label_scale);
+    }
+}
+
 } // namespace section_render
 } // namespace kood3plot

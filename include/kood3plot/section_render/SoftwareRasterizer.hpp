@@ -164,6 +164,30 @@ public:
     int32_t ssHeight() const { return ss_height_; }
 
     /**
+     * @brief Draw a 5×7 bitmap font glyph string at (x,y).
+     *
+     * Supports digits 0-9, '.', '-', '+', 'e', 'E', and a small set of
+     * letters useful for unit labels (M, P, a, etc.). Unknown characters
+     * are rendered as blank space.
+     */
+    void drawText(int32_t x, int32_t y, const std::string& text,
+                  RGBA color, int32_t scale = 1);
+
+    /**
+     * @brief Draw a vertical colorbar with rainbow gradient and labels.
+     *
+     * Bar spans (x, y) to (x+width, y+height). Top of bar = vmax, bottom
+     * = vmin. Min, mid, max numeric labels are drawn to the right of the
+     * bar. A 1-pixel black border outlines the gradient.
+     *
+     * @param colormap_kind  0=rainbow, 1=heat, 2=jet (matches ColorMap)
+     */
+    void drawColorBar(int32_t x, int32_t y, int32_t width, int32_t height,
+                      double vmin, double vmax,
+                      const std::string& title,
+                      int colormap_kind = 0);
+
+    /**
      * @brief Draw a Z-buffered line (for mesh edge wireframe)
      */
     void drawLine3D(double ax, double ay, double az,
