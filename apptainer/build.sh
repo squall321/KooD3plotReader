@@ -8,7 +8,8 @@
 #   ./apptainer/build.sh full        # Desktop (with GUI viewer)
 #   ./apptainer/build.sh both        # Both variants
 #
-# Output: apptainer/kood3plot_{headless,full}.sif
+# Output: apptainer/SmartTwinPostprocessor.sif,
+#         apptainer/SmartTwinPostProcessorGUI.sif
 # ============================================================
 set -e
 
@@ -19,8 +20,23 @@ VARIANT="${1:-headless}"
 
 build_one() {
     local variant="$1"
-    local def_file="KooD3plotReader_${variant}.def"
-    local sif_file="kood3plot_${variant}.sif"
+    local def_file
+    local sif_file
+
+    case "${variant}" in
+        headless)
+            def_file="SmartTwinPostprocessor.def"
+            sif_file="SmartTwinPostprocessor.sif"
+            ;;
+        full)
+            def_file="SmartTwinPostProcessorGUI.def"
+            sif_file="SmartTwinPostProcessorGUI.sif"
+            ;;
+        *)
+            echo "ERROR: unknown variant: ${variant}"
+            exit 1
+            ;;
+    esac
 
     if [ ! -f "${def_file}" ]; then
         echo "ERROR: ${def_file} not found"

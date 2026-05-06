@@ -56,6 +56,7 @@ From: ubuntu:22.04
         mkdir -p /opt/kood3plot/lsprepost
         cp -r /opt/_lsprepost_staging/* /opt/kood3plot/lsprepost/
         chmod +x /opt/kood3plot/lsprepost/lsprepost 2>/dev/null || true
+        sed -i 's/^LSPrePost:.*/LSPrePost:  bundled/' /opt/kood3plot/VERSION 2>/dev/null || true
         rm -rf /opt/_lsprepost_staging
         echo "LSPrePost bundled → /opt/kood3plot/lsprepost/"
     fi
