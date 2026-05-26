@@ -1,0 +1,171 @@
+"""CLI entry point: python -m koo_impact_report"""
+from __future__ import annotations
+import argparse
+import sys
+import time
+from pathlib import Path
+
+
+def _parse_severity_weights(spec: str) -> dict[str, float]:
+    """Parse ``g=0.5,s=0.3,e=0.2`` → {'g':0.5,'s':0.3,'e':0.2}."""
+    out: dict[str, float] = {}
+    if not spec:
+        return out
+    for token in spec.split(","):
+        if "=" not in token:
+            continue
+        k, v = token.split("=", 1)
+        try:
+            out[k.strip()] = float(v.strip())
+        except ValueError:
+            continue
+    return out
+
+
+def _parse_face_list(spec: str | None) -> list[str] | None:
+    if not spec:
+        return None
+    return [s.strip() for s in spec.split(",") if s.strip()]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="koo_impact_report",
+        description="Multi-face partial-impact (DWI) DOE analysis report generator",
+    )
+
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--test-dir",
+        help="Path to test directory (scenario.json + F*/Run_*/analysis_result.json layout)",
+    )
+    input_group.add_argument(
+        "--from-json",
+        metavar="JSON_FILE",
+        help="Re-generate report from a previously saved report.json",
+    )
+
+    parser.add_argument("--output", "-o", default=None, help="Output HTML file")
+    parser.add_argument("--json", default=None, help="Also save report JSON to this path")
+    parser.add_argument(
+        "--format", nargs="+", default=["html", "terminal"],
+        choices=["html", "json", "terminal"],
+        help="Output formats (default: html terminal)",
+    )
+
+    parser.add_argument(
+        "--metric", default="peak_g",
+        choices=["peak_g", "peak_stress", "peak_strain", "peak_disp"],
+        help="Primary metric used in plots & rankings",
+    )
+    parser.add_argument("--threshold-critical", type=float, default=500_000.0,
+                        help="Critical threshold for the primary metric (default 5e5 ~ peak_g in mm/s²)")
+    parser.add_argument("--threshold-warning", type=float, default=100_000.0,
+                        help="Warning threshold for the primary metric")
+    parser.add_argument("--yield-stress", type=float, default=0.0,
+                        help="Material yield stress (MPa) for safety-factor checks")
+    parser.add_argument("--faces", default=None,
+                        help="Comma-separated face subset (e.g. F1,F2,F5). Default: all discovered.")
+    parser.add_argument("--compare-faces", action="store_true",
+                        help="Force the 'ALL faces compare' visualization mode")
+    parser.add_argument("--severity-weight", default="g=0.5,s=0.3,e=0.2",
+                        help="Severity weights (e.g. g=0.5,s=0.3,e=0.2)")
+
+    args = parser.parse_args()
+
+    # Sibling modules — import lazily so missing pieces don't kill --help
+    from . import loader, analyzer
+    try:
+        from .report.html_report import generate_html
+    except ImportError:
+        def generate_html(report, path: str | None = None, **_):  # type: ignore
+            html = "<html><body>STUB - html_report not available</body></html>"
+            if path:
+                Path(path).write_text(html, encoding="utf-8")
+            return html
+    try:
+        from .report.json_report import save_json
+    except ImportError:
+        save_json = None  # type: ignore
+    try:
+        from .report.terminal import print_report
+    except ImportError:
+        print_report = None  # type: ignore
+
+    # ── Load ──────────────────────────────────────────────────────
+    if args.from_json:
+        json_in = Path(args.from_json)
+        if not json_in.exists():
+            print(f"Error: {json_in} does not exist", file=sys.stderr)
+            sys.exit(1)
+        # No from_json loader implemented yet — placeholder
+        print(f"[main] --from-json not yet implemented — please rebuild via --test-dir.")
+        sys.exit(2)
+    else:
+        test_dir = Path(args.test_dir)
+        if not test_dir.exists():
+            print(f"Error: {test_dir} does not exist", file=sys.stderr)
+            sys.exit(1)
+        print(f"[main] Loading {test_dir} …")
+        t0 = time.time()
+        report = loader.load_impact_report(test_dir)
+        print(f"[main] Loaded in {time.time() - t0:.1f}s")
+
+    # Optional face filter
+    face_subset = _parse_face_list(args.faces)
+    if face_subset:
+        before = len(report.results)
+        report.results = [r for r in report.results if r.face in face_subset]
+        report.faces = [f for f in report.faces if f.code in face_subset]
+        report.positions_by_face = {
+            k: v for k, v in report.positions_by_face.items() if k in face_subset
+        }
+        print(f"[main] Face filter {face_subset}: {before} → {len(report.results)} pair results")
+
+    # Severity weights are parsed for downstream report layers (HTML/severity)
+    _ = _parse_severity_weights(args.severity_weight)
+    _ = args.compare_faces  # consumed by html_report
+
+    # ── Analyze ───────────────────────────────────────────────────
+    analyzer.analyze(
+        report,
+        threshold_critical=args.threshold_critical,
+        threshold_warning=args.threshold_warning,
+        yield_stress=args.yield_stress,
+    )
+
+    # ── Output ────────────────────────────────────────────────────
+    formats = set(args.format)
+
+    if "terminal" in formats and print_report is not None:
+        try:
+            print_report(report)
+        except Exception as e:  # noqa: BLE001
+            print(f"[main] terminal output failed: {e}", file=sys.stderr)
+
+    if "html" in formats:
+        html_path = args.output or (
+            str(Path(args.test_dir) / "report.html") if args.test_dir else "report.html"
+        )
+        print(f"[main] Generating HTML report: {html_path}")
+        t0 = time.time()
+        html_str = generate_html(report)
+        Path(html_path).write_text(html_str, encoding="utf-8")
+        try:
+            size_kb = Path(html_path).stat().st_size / 1024
+        except OSError:
+            size_kb = 0
+        print(f"[main] HTML saved in {time.time() - t0:.1f}s ({size_kb:.0f} KB)")
+
+    if "json" in formats and save_json is not None:
+        json_path = args.json or (
+            str(Path(args.test_dir) / "report.json") if args.test_dir else "report.json"
+        )
+        save_json(report, json_path)
+        print(f"[main] JSON saved: {json_path}")
+
+    print("[main] Done.")
+
+
+if __name__ == "__main__":
+    main()

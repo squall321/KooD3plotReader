@@ -1,0 +1,7 @@
+# Generated sample dataset (regenerable via tests/generate_sample.py)
+examples/sample_multiface_dataset/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+*.egg-info/
