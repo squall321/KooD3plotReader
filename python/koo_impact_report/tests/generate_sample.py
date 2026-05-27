@@ -40,43 +40,61 @@ import numpy as np
 
 DEVICE_BBOX = {"x_min": -50.0, "x_max": 50.0, "y_min": -40.0, "y_max": 40.0, "z_min": 0.0, "z_max": 15.0}
 
-# 12 parts: (id, name, footprint xy-rect, z_range).
-# footprint = (x0, y0, x1, y1) within device bbox.
-# z_range = (zmin, zmax).
+# 12 parts arranged for a smartphone analogy.
+#   z_max = 15.0 → "Front" surface (screen side, hit by F2 Front impacts)
+#   z_min =  0.0 → "Back"  surface (back cover, hit by F1 Back  impacts)
+#
+# Front-side parts (near z=top, z_max=15):
+#   PCB\Main, Motor, PKG\IC1, PKG\IC2 → exposed to F2 (Front) impacts.
+# Mid-stack parts:
+#   PKG\Memory_1, PKG\Memory_2, Connector.
+# Back-side parts (near z=bottom, z_min=0):
+#   Battery, Frame, Housing\Back → exposed to F1 (Back) impacts.
+# Mid-side (full z-extent rim parts):
+#   Front\Wall, Housing\Frame.
+#
+# footprint = (x0, y0, x1, y1) within device bbox; z_range = (zmin, zmax).
 PARTS: list[dict] = [
-    {"id": 1,  "name": r"Front\Metal",      "fp": (-48, -38,  48,  38), "z": (13.5, 15.0)},  # front cover
-    {"id": 2,  "name": r"Front\Wall",       "fp": (-48, -38, -45,  38), "z": ( 0.0, 15.0)},  # front side wall
-    {"id": 3,  "name": r"PCB\Main",         "fp": (-35, -25,  35,  25), "z": ( 6.5,  7.5)},  # main PCB
-    {"id": 4,  "name": r"PCB\Sub",          "fp": ( 15,  10,  35,  30), "z": ( 8.5,  9.5)},  # sub PCB
-    {"id": 5,  "name": r"PKG\Main_IC",      "fp": (-10,  -5,  10,   8), "z": ( 7.5,  9.5)},  # main IC
-    {"id": 6,  "name": r"PKG\Memory_1",     "fp": ( 18,  12,  28,  22), "z": ( 9.5, 10.5)},
-    {"id": 7,  "name": r"PKG\Memory_2",     "fp": (-28, -22, -18, -12), "z": ( 9.5, 10.5)},
-    {"id": 8,  "name": r"Housing\Back",     "fp": (-48, -38,  48,  38), "z": ( 0.0,  1.5)},  # back cover
-    {"id": 9,  "name": r"Housing\Frame",    "fp": (-48, -38,  48,  38), "z": ( 1.5, 14.5)},  # mid frame (ring)
-    {"id": 10, "name": r"Motor",            "fp": (-40, -15, -30,  -5), "z": ( 2.0,  6.0)},  # vibration motor
-    {"id": 11, "name": r"Battery",          "fp": (-15, -30,  25,  10), "z": ( 1.5,  6.0)},
-    {"id": 12, "name": r"Connector",        "fp": ( 30, -10,  45,  10), "z": ( 2.0,  8.0)},
+    # --- Front-side (z ≈ 11-14) ---
+    {"id": 1,  "name": r"PCB\Main",         "fp": (-35, -25,  35,  25), "z": (11.0, 12.5)},
+    {"id": 2,  "name": r"Motor",            "fp": (-40, -15, -30,  -5), "z": (11.5, 13.5)},
+    {"id": 3,  "name": r"PKG\IC1",          "fp": (-10,  -5,  10,   8), "z": (12.5, 13.8)},
+    {"id": 4,  "name": r"PKG\IC2",          "fp": ( 15,  10,  35,  25), "z": (12.5, 13.8)},
+    # --- Mid stack (z ≈ 6-10) ---
+    {"id": 5,  "name": r"PKG\Memory_1",     "fp": ( 18,  12,  28,  22), "z": ( 8.5,  9.5)},
+    {"id": 6,  "name": r"PKG\Memory_2",     "fp": (-28, -22, -18, -12), "z": ( 8.5,  9.5)},
+    {"id": 7,  "name": r"Connector",        "fp": ( 30, -10,  45,  10), "z": ( 6.0, 10.0)},
+    # --- Back-side (z ≈ 0-5) ---
+    {"id": 8,  "name": r"Battery",          "fp": (-15, -30,  25,  10), "z": ( 1.5,  5.0)},
+    {"id": 9,  "name": r"Frame",            "fp": (-40, -32,  40,  32), "z": ( 0.5,  3.0)},
+    {"id": 10, "name": r"Housing\Back",     "fp": (-48, -38,  48,  38), "z": ( 0.0,  1.0)},
+    # --- Mid-side rims (full-height side walls) ---
+    {"id": 11, "name": r"Front\Wall",       "fp": (-48, -38, -45,  38), "z": ( 0.0, 15.0)},
+    {"id": 12, "name": r"Housing\Frame",    "fp": (-48, -38,  48,  38), "z": ( 1.5, 14.5)},
 ]
 
 # Each part's per-metric vulnerability multiplier (Bayesian "prior" on how
 # fragile this part is). 1.0 = baseline, >1 = fragile.
 PART_FRAGILITY: dict[int, dict] = {
-    1: {"g": 0.8, "stress": 1.5, "strain": 0.8, "disp": 1.2},  # metal cover: high stress, mild disp
-    2: {"g": 0.6, "stress": 1.2, "strain": 0.6, "disp": 0.5},
-    3: {"g": 1.8, "stress": 1.3, "strain": 1.5, "disp": 1.0},  # PCB Main: SHOCK-sensitive
-    4: {"g": 1.5, "stress": 1.1, "strain": 1.3, "disp": 0.9},
-    5: {"g": 1.4, "stress": 1.2, "strain": 1.0, "disp": 0.8},  # main IC
-    6: {"g": 1.3, "stress": 1.0, "strain": 1.1, "disp": 0.7},  # mem1
-    7: {"g": 1.3, "stress": 1.0, "strain": 1.1, "disp": 0.7},  # mem2
-    8: {"g": 0.5, "stress": 0.9, "strain": 0.4, "disp": 0.6},  # housing back: stiff
-    9: {"g": 0.5, "stress": 1.0, "strain": 0.4, "disp": 0.5},
-    10: {"g": 1.0, "stress": 0.8, "strain": 0.9, "disp": 1.4},  # motor: displacement-sensitive
-    11: {"g": 0.7, "stress": 0.6, "strain": 0.8, "disp": 1.3},  # battery: disp matters
-    12: {"g": 0.9, "stress": 1.1, "strain": 1.0, "disp": 1.0},
+    1:  {"g": 1.8, "stress": 1.3, "strain": 1.5, "disp": 1.0},  # PCB\Main: shock-sensitive
+    2:  {"g": 1.0, "stress": 0.8, "strain": 0.9, "disp": 1.4},  # Motor: displacement-sensitive
+    3:  {"g": 1.4, "stress": 1.2, "strain": 1.0, "disp": 0.8},  # IC1
+    4:  {"g": 1.4, "stress": 1.2, "strain": 1.0, "disp": 0.8},  # IC2
+    5:  {"g": 1.3, "stress": 1.0, "strain": 1.1, "disp": 0.7},  # Memory_1
+    6:  {"g": 1.3, "stress": 1.0, "strain": 1.1, "disp": 0.7},  # Memory_2
+    7:  {"g": 0.9, "stress": 1.1, "strain": 1.0, "disp": 1.0},  # Connector
+    8:  {"g": 0.7, "stress": 0.6, "strain": 0.8, "disp": 1.3},  # Battery: disp matters
+    9:  {"g": 0.5, "stress": 1.0, "strain": 0.4, "disp": 0.5},  # Frame: stiff
+    10: {"g": 0.5, "stress": 0.9, "strain": 0.4, "disp": 0.6},  # Housing\Back: stiff
+    11: {"g": 0.6, "stress": 1.2, "strain": 0.6, "disp": 0.5},  # Front\Wall
+    12: {"g": 0.5, "stress": 1.0, "strain": 0.4, "disp": 0.5},  # Housing\Frame
 }
 
 # Faces: cuboid-6 standard (plan §15.2). Grid per face per spec.
 # Each entry: (code, name, roll, pitch, yaw, nx, ny).
+# The model layer still supports all 6 faces; the smartphone-scope default
+# generation only uses F1 (Back) and F2 (Front). Pass ``--faces all`` (or a
+# comma-separated subset) to override.
 FACES: list[dict] = [
     {"code": "F1", "name": "Back",   "roll":    0, "pitch":   0, "yaw": 0, "nx": 5, "ny": 5},
     {"code": "F2", "name": "Front",  "roll":  180, "pitch":   0, "yaw": 0, "nx": 5, "ny": 5},
@@ -85,6 +103,9 @@ FACES: list[dict] = [
     {"code": "F5", "name": "Top",    "roll":   90, "pitch":   0, "yaw": 0, "nx": 5, "ny": 3},
     {"code": "F6", "name": "Bottom", "roll":  -90, "pitch":   0, "yaw": 0, "nx": 5, "ny": 3},
 ]
+
+# Smartphone-scope default: only Front + Back impacts.
+DEFAULT_FACES: list[str] = ["F1", "F2"]
 
 # Impactor: Sphere, r=5mm, h=100mm drop, density=7850 kg/m^3.
 IMPACTOR_SPEC = {
@@ -249,19 +270,24 @@ def per_part_response(
 
     spatial = decay * (0.4 + 0.6 * depth_decay)   # combine planar + depth
 
-    # Scenario-specific vulnerabilities (plan: "PCB\Main is killer on F1 …").
+    # Scenario-specific vulnerabilities (smartphone analogy):
+    #   F2 (Front, z_max=15) → PCB\Main(1), Motor(2), IC1(3), IC2(4) take the hit.
+    #   F1 (Back,  z_min= 0) → Battery(8), Frame(9), Housing\Back(10) take the hit.
+    # F5/F6/F3/F4 patterns remain for optional all-faces mode.
     scenario_boost = 1.0
     pid = part["id"]
-    if face_code == "F1" and pid == 3:
-        scenario_boost = 1.8   # PCB Main vulnerable on back-face impacts
-    elif face_code == "F2" and pid == 10:
-        # Motor sensitive to F2 center
-        cx, cy = impact_xyz[0], impact_xyz[1]
-        center_dist = math.sqrt(cx ** 2 + cy ** 2)
-        if center_dist < 15.0:
-            scenario_boost = 2.0
-    elif face_code == "F5" and pid in (6, 7):
-        # memory sensitive to F5 (top) right side
+    if face_code == "F2" and pid in (1, 2, 3, 4):
+        # Front impact exposes front-side electronics; Motor near center peaks hardest.
+        scenario_boost = 1.6
+        if pid == 2:
+            cx, cy = impact_xyz[0], impact_xyz[1]
+            if math.sqrt(cx ** 2 + cy ** 2) < 15.0:
+                scenario_boost = 2.0
+    elif face_code == "F1" and pid in (8, 9, 10):
+        # Back impact exposes battery + frame + back-cover; battery is the killer.
+        scenario_boost = 1.8 if pid == 8 else 1.5
+    elif face_code == "F5" and pid in (5, 6):
+        # memory sensitive to F5 (top) right side (legacy all-faces pattern)
         if impact_xyz[0] > 10.0:
             scenario_boost = 1.7
 
@@ -545,7 +571,7 @@ def build_face_positions(face: dict) -> list[dict]:
     return out
 
 
-def write_scenario(output: Path) -> None:
+def write_scenario(output: Path, selected_faces: list[dict]) -> None:
     """Write multi-face scenario.json (plan §15.5 format)."""
     faces_payload = [
         {
@@ -553,14 +579,16 @@ def write_scenario(output: Path) -> None:
             "orientation": {"roll": f["roll"], "pitch": f["pitch"], "yaw": f["yaw"]},
             "locations": {"mode": "grid", "x_count": f["nx"], "y_count": f["ny"], "margin": 0.9},
         }
-        for f in FACES
+        for f in selected_faces
     ]
+    total_positions = sum(f["nx"] * f["ny"] for f in selected_faces)
     scenario = {
         "_comment": "Synthetic multi-face partial impact dataset (generated by tests/generate_sample.py)",
         "project_name": "MultiFaceImpactTest_Sample",
         "mode": "drop_weight_impact_multiface",
         "model_file": "device.k",
         "output_dir": "mf_output",
+        "total_positions": total_positions,
         "simulation_params": {
             "tFinal": T_FINAL,
             "dt": 1.0e-6,
@@ -683,12 +711,42 @@ def write_analysis_result(
     (run_dir / "analysis_result.json").write_text(json.dumps(payload, indent=2))
 
 
+def _parse_faces_arg(raw: str) -> list[dict]:
+    """Resolve a ``--faces`` CLI value to the corresponding FACES entries.
+
+    Accepts ``all`` (= F1..F6) or a comma-separated list of face codes
+    (e.g. ``F1,F2,F5``). Order in the input is preserved; unknown codes raise.
+    """
+    raw = raw.strip()
+    if raw.lower() == "all":
+        return list(FACES)
+    by_code = {f["code"]: f for f in FACES}
+    selected: list[dict] = []
+    for tok in raw.split(","):
+        code = tok.strip()
+        if not code:
+            continue
+        if code not in by_code:
+            raise SystemExit(f"--faces: unknown face code {code!r}; "
+                             f"valid: {sorted(by_code)} or 'all'")
+        selected.append(by_code[code])
+    if not selected:
+        raise SystemExit("--faces: at least one face code required")
+    return selected
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", "-o", required=True, type=Path,
                         help="Output directory for the synthetic dataset")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed")
+    parser.add_argument("--faces", type=str, default=",".join(DEFAULT_FACES),
+                        help=("Comma-separated face codes to generate "
+                              "(e.g. 'F1,F2,F5') or 'all' for F1-F6. "
+                              "Default: F1,F2 (smartphone Back+Front)."))
     args = parser.parse_args()
+
+    selected_faces = _parse_faces_arg(args.faces)
 
     output: Path = args.output
     output.mkdir(parents=True, exist_ok=True)
@@ -697,7 +755,7 @@ def main() -> None:
     random.seed(args.seed)
 
     # Top-level files
-    write_scenario(output)
+    write_scenario(output, selected_faces)
     write_impactor_spec(output)
     write_device_layout(output)
 
@@ -705,7 +763,7 @@ def main() -> None:
 
     manifest: list[dict] = []
 
-    for face in FACES:
+    for face in selected_faces:
         face_dir_name = f"{face['code']}_{face['name'].lower()}"
         face_dir = output / face_dir_name
         face_dir.mkdir(exist_ok=True)
@@ -768,7 +826,9 @@ def main() -> None:
     }, indent=2))
 
     # Summary print.
-    print(f"Generated {len(manifest)} runs across {len(FACES)} faces in {output}")
+    face_codes = ",".join(f["code"] for f in selected_faces)
+    print(f"Generated {len(manifest)} runs across {len(selected_faces)} faces "
+          f"({face_codes}) in {output}")
     print(f"Impactor KE_initial = {ke_initial:.4g} J")
     print(f"Files per run: analysis_result.json, glstat.csv, matsum.csv, rcforc.csv")
 

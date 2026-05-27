@@ -24,6 +24,7 @@ import dataclasses
 import html
 import json
 import math
+import os
 import statistics
 from enum import Enum
 from typing import Any
@@ -373,6 +374,80 @@ def _build_payload(report: ImpactReport) -> dict:
         positions = mock["positions"]
         results = mock["results"]
 
+    # --- restrict to bi-face (F1/F2) for the redesigned report --------------
+    keep_faces = {"F1", "F2"}
+    faces = [f for f in faces if f["code"] in keep_faces]
+    positions = [p for p in positions if p["face"] in keep_faces]
+    results = [r for r in results if r["face"] in keep_faces]
+
+    # --- device layout: bbox + per-part footprint from device_layout.json ---
+    device_bbox = None
+    device_outline = None
+    layout_path = ""
+    if report.test_dir:
+        layout_path = os.path.join(str(report.test_dir), "device_layout.json")
+    if layout_path and os.path.isfile(layout_path):
+        try:
+            with open(layout_path, "r", encoding="utf-8") as fh:
+                layout = json.load(fh)
+            bb = layout.get("bounding_box") or {}
+            if bb:
+                device_bbox = {
+                    "xmin": _safe(bb.get("x_min", 0.0)),
+                    "xmax": _safe(bb.get("x_max", 0.0)),
+                    "ymin": _safe(bb.get("y_min", 0.0)),
+                    "ymax": _safe(bb.get("y_max", 0.0)),
+                }
+            device_outline = layout.get("outline_xy") or None
+            lp_by_id = {int(p["id"]): p for p in layout.get("parts", []) if "id" in p}
+            for prec in parts:
+                lp = lp_by_id.get(int(prec["id"]))
+                if not lp:
+                    continue
+                if not prec.get("footprint") and lp.get("footprint"):
+                    prec["footprint"] = lp["footprint"]
+        except Exception:  # noqa: BLE001 - best-effort enrichment
+            pass
+
+    # fallback: derive bbox from positions if device_layout.json missing
+    if device_bbox is None:
+        xs = [p["x"] for p in positions if p["x"] is not None]
+        ys = [p["y"] for p in positions if p["y"] is not None]
+        if xs and ys:
+            pad_x = (max(xs) - min(xs)) * 0.15 or 5.0
+            pad_y = (max(ys) - min(ys)) * 0.15 or 5.0
+            device_bbox = {
+                "xmin": round(min(xs) - pad_x, 2), "xmax": round(max(xs) + pad_x, 2),
+                "ymin": round(min(ys) - pad_y, 2), "ymax": round(max(ys) + pad_y, 2),
+            }
+        else:
+            device_bbox = {"xmin": -50.0, "xmax": 50.0, "ymin": -40.0, "ymax": 40.0}
+
+    # fallback footprints: synthesize a small rect near device center for parts
+    # without a real footprint (deterministic seed by part id).
+    bb_w = device_bbox["xmax"] - device_bbox["xmin"]
+    bb_h = device_bbox["ymax"] - device_bbox["ymin"]
+    bb_cx = (device_bbox["xmax"] + device_bbox["xmin"]) / 2.0
+    bb_cy = (device_bbox["ymax"] + device_bbox["ymin"]) / 2.0
+    for prec in parts:
+        if prec.get("footprint"):
+            continue
+        # deterministic offset by part id so different parts don't overlap
+        pid = int(prec.get("id", 1))
+        ang = (pid * 0.6180339887) * 2 * math.pi
+        rad = 0.30 * min(bb_w, bb_h) * (0.4 + 0.5 * ((pid * 7) % 11) / 10.0)
+        cx = bb_cx + rad * math.cos(ang)
+        cy = bb_cy + rad * math.sin(ang)
+        hw = max(2.0, 0.10 * bb_w * (0.5 + ((pid * 13) % 9) / 18.0))
+        hh = max(2.0, 0.10 * bb_h * (0.5 + ((pid * 17) % 9) / 18.0))
+        prec["footprint"] = [
+            [round(cx - hw, 2), round(cy - hh, 2)],
+            [round(cx + hw, 2), round(cy - hh, 2)],
+            [round(cx + hw, 2), round(cy + hh, 2)],
+            [round(cx - hw, 2), round(cy + hh, 2)],
+        ]
+        prec["_synthetic_footprint"] = True
+
     # --- energy flow --------------------------------------------------------
     energy_flows: dict[str, dict] = {}
     if report.energy_flows:
@@ -444,6 +519,8 @@ def _build_payload(report: ImpactReport) -> dict:
         "results": results,
         "energy_flows": energy_flows,
         "findings": findings,
+        "device_bbox": device_bbox,
+        "device_outline": device_outline,
     }
 
 
@@ -624,6 +701,54 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
   .topbar { padding: 10px 16px; }
   .page { padding: 20px 16px; }
 }
+
+/* ---------- Bi-Face Split (Page 1) ---------- */
+.biface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 980px) { .biface-grid { grid-template-columns: 1fr; } }
+.biface-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px 8px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.biface-cell:hover { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(77,214,255,0.25) inset; }
+.biface-cell .bf-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.biface-cell .bf-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); letter-spacing: 1px; font-weight: 700; }
+.biface-cell .bf-sub { font-size: 9px; color: var(--dim); letter-spacing: 2px; }
+.biface-cell svg { width: 100%; display: block; aspect-ratio: 5/3; }
+.biface-cell .bf-foot { display: flex; justify-content: space-between; font-size: 10px; color: var(--fg2); padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; }
+.biface-cell .bf-foot b { color: var(--crit); }
+
+/* ---------- Impact Inspector (Page 2) ---------- */
+.ii-wrap { display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
+@media (max-width: 1100px) { .ii-wrap { grid-template-columns: 1fr; } }
+.ii-main { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.ii-side { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; max-height: 660px; overflow-y: auto; }
+.ii-canvas-wrap { position: relative; background: #0e1320; border-radius: 6px; padding: 4px; }
+.ii-canvas-wrap svg { width: 100%; display: block; aspect-ratio: 4/3; cursor: crosshair; }
+.ii-cbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.ii-cbar .grad { flex: 1; height: 10px; border-radius: 2px;
+  background: linear-gradient(90deg, rgb(68,1,84) 0%, rgb(59,82,139) 20%, rgb(33,144,141) 40%, rgb(93,201,99) 60%, rgb(253,231,37) 80%, rgb(253,80,60) 100%); }
+.ii-side .iibox { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+.ii-side .iibox .iihd { font-size: 9px; color: var(--accent); letter-spacing: 2px; font-weight: 700; margin-bottom: 4px; }
+.ii-side .iirow { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.ii-side .iirow b { color: var(--fg); font-family: 'JetBrains Mono', monospace; }
+.ii-bar-row { display: grid; grid-template-columns: 90px 1fr 50px; gap: 6px; align-items: center; font-size: 10px; padding: 2px 0; cursor: pointer; border-radius: 3px; }
+.ii-bar-row:hover { background: rgba(77,214,255,0.08); }
+.ii-bar-row.is-max b { color: var(--crit); }
+.ii-bar-row .nm { color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; }
+.ii-bar-row .bw { background: var(--bg4); border-radius: 2px; height: 8px; overflow: hidden; }
+.ii-bar-row .bw .fl { display: block; height: 100%; border-radius: 2px; }
+.ii-bar-row .vl { text-align: right; color: var(--num); font-family: 'JetBrains Mono', monospace; }
+.ii-th { width: 100%; height: 70px; display: block; }
+.ii-empty { color: var(--dim); font-size: 10px; padding: 6px 2px; font-style: italic; }
+.ii-pin { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; font-size: 10px; color: var(--fg2); letter-spacing: 1px; }
+.ii-pin input { accent-color: var(--accent); }
+.ii-pin.locked { color: var(--accent2); }
+.ii-thresh { display: flex; align-items: center; gap: 8px; }
+.ii-thresh input[type=range] { flex: 1; accent-color: var(--accent); min-width: 100px; }
+.ii-thresh .vlab { font-size: 10px; color: var(--num); font-family: 'JetBrains Mono', monospace; min-width: 60px; text-align: right; }
+
+@keyframes ii-pulse {
+  0%   { r: 6;  opacity: 0.9; }
+  100% { r: 14; opacity: 0;   }
+}
+.ii-halo { animation: ii-pulse 1.1s linear infinite; }
 """
 
 
@@ -649,7 +774,7 @@ def _build_topbar(meta: dict) -> str:
   </div>
   <div class="nav">
     <a data-target="s1" class="active">OVERVIEW</a>
-    <a data-target="s2">TRANSFER</a>
+    <a data-target="s2">INSPECTOR</a>
     <a data-target="s3">VERDICT</a>
   </div>
 </div>
@@ -689,9 +814,9 @@ _PAGE1 = """
     </div>
 
     <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
-      <div class="band-head"><span>CUBE NET</span><span class="band-sub">6-face cross unfold</span></div>
-      <div class="cube-net" id="cube-net-mini"></div>
-      <div class="band-cap">각 면에 worst-G 미니 히트맵. 빨간 외곽 펄스 = 가장 위험한 자세.</div>
+      <div class="band-head"><span>BI-FACE OVERVIEW</span><span class="band-sub">front · back</span></div>
+      <div class="biface-grid" id="biface-mini" style="grid-template-columns:1fr 1fr;gap:6px"></div>
+      <div class="band-cap">자유낙하 정면(F2)과 배면(F1) 충돌 위치 위험도. 클릭 시 INSPECTOR로 점프.</div>
     </div>
 
     <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
@@ -765,29 +890,30 @@ _PAGE1 = """
   <div class="grid g-12" style="margin-top:14px">
     <div class="panel col-7 r">
       <div class="ph">
-        <span class="pt">GLOBAL RISK MAP &middot; CUBE NET</span>
-        <span class="pd">per-face XY heatmaps &middot; click cell to jump</span>
+        <span class="pt">BI-FACE RISK MAPS</span>
+        <span class="pd">front (F2) vs back (F1) &middot; impact-position colored by max response</span>
       </div>
-      <div class="cube-net" style="aspect-ratio: 3/2" id="cube-net-big"></div>
+      <div class="biface-grid" id="biface-split"></div>
       <div class="pcap">
-        한 셀 = 한 임팩트 위치. 색상 = 그 위치에서 발생한 부품 중 최대 Peak G.
-        상위 1% 셀은 펄스링. 클릭 시 그 자세로 점프.
+        한 점 = 한 임팩트 위치. 색상 = 그 위치에서 모든 부품 중 최대 Peak G.
+        ★ = 최악 셀. 클릭 시 INSPECTOR로 점프.
       </div>
     </div>
 
     <div class="panel col-5 r">
       <div class="ph">
         <span class="pt">PER-FACE KPI</span>
-        <span class="pd">n &middot; max G &middot; worst (x,y) &middot; driver &middot; risk score</span>
+        <span class="pd">n &middot; max G &middot; worst (x,y) &middot; driver &middot; risk score &middot; &Delta;</span>
       </div>
       <table class="dt" id="face-kpi-tbl">
         <thead>
-          <tr><th class="tl">FACE</th><th>n</th><th>MAX G</th><th>WORST (X,Y)</th><th class="tl">DRIVER</th><th>SCORE</th></tr>
+          <tr><th class="tl">FACE</th><th>n</th><th>MAX G</th><th>WORST (X,Y)</th><th class="tl">DRIVER</th><th>SCORE</th><th>vs OTHER</th></tr>
         </thead>
         <tbody></tbody>
       </table>
       <div class="pcap">
         Risk Score = 0.5&middot;(maxG/Gmax) + 0.3&middot;(P95/Gmax) + 0.2&middot;(crit_count/n) &middot; 10.
+        &Delta; = Risk Score - other face's score.
       </div>
     </div>
 
@@ -810,71 +936,66 @@ _PAGE1 = """
 _PAGE2 = """
 <section class="page" id="s2">
   <div class="page-head r">
-    <span class="num">02</span><span class="tagline">TRANSFER MAPS</span>
-    <span class="ttl">어디를 때리면 어느 부품이 깨지는가</span>
-    <span class="sub">PER-PART XY VULNERABILITY &middot; MULTI-FACE</span>
+    <span class="num">02</span><span class="tagline">IMPACT INSPECTOR</span>
+    <span class="ttl">충격 위치 = 화면, 부품 응답 = 부품 라이트업</span>
+    <span class="sub">HOVER-DRIVEN BI-FACE STRESS EXPLORER</span>
   </div>
 
   <div class="ctlbar r">
-    <div class="grp"><span class="lbl">METRIC</span>
-      <button class="btn active" data-metric="g">PEAK G</button>
-      <button class="btn" data-metric="s">&sigma;</button>
-      <button class="btn" data-metric="e">&epsilon;</button>
-      <button class="btn" data-metric="d">d</button>
-    </div>
     <div class="grp"><span class="lbl">FACE</span>
-      <button class="btn active" data-face="ALL">ALL</button>
-      <button class="btn" data-face="F1">F1</button>
-      <button class="btn" data-face="F2">F2</button>
-      <button class="btn" data-face="F3">F3</button>
-      <button class="btn" data-face="F4">F4</button>
-      <button class="btn" data-face="F5">F5</button>
-      <button class="btn" data-face="F6">F6</button>
+      <button class="btn active" data-ii-face="F2">FRONT &middot; F2</button>
+      <button class="btn" data-ii-face="F1">BACK &middot; F1</button>
     </div>
-    <div class="grp"><span class="lbl">SCALE</span>
-      <button class="btn active" data-scale="linear">LINEAR</button>
-      <button class="btn" data-scale="log">LOG</button>
-      <button class="btn" data-scale="pct">PCT</button>
+    <div class="grp"><span class="lbl">METRIC</span>
+      <button class="btn active" data-ii-metric="g">PEAK G</button>
+      <button class="btn" data-ii-metric="s">&sigma;</button>
+      <button class="btn" data-ii-metric="e">&epsilon;</button>
+      <button class="btn" data-ii-metric="d">d</button>
     </div>
-    <div class="grp"><span class="lbl">SEARCH</span>
-      <input type="text" id="part-filter" placeholder="part name filter">
+    <div class="grp"><span class="lbl">NORM</span>
+      <button class="btn active" data-ii-norm="abs">ABS</button>
+      <button class="btn" data-ii-norm="rel">RELATIVE</button>
     </div>
+    <div class="grp ii-thresh"><span class="lbl">THRESH</span>
+      <input type="range" id="ii-thresh" min="0" max="100" value="0">
+      <span class="vlab" id="ii-thresh-val">0%</span>
+    </div>
+    <label class="ii-pin" id="ii-pin-lab">
+      <input type="checkbox" id="ii-pin"> PIN
+    </label>
   </div>
 
-  <div class="grid g-12" id="mode-single" style="display:none">
-    <div class="panel col-7 r">
+  <div class="ii-wrap r">
+    <div class="ii-main">
       <div class="ph">
-        <span class="pt">FACE GLOBAL MAP</span>
-        <span class="pd" id="single-face-sub">F? &middot; worst-G per position</span>
+        <span class="pt">IMPACT INSPECTOR &middot; <span id="ii-face-label">FRONT (F2)</span></span>
+        <span class="pd">hover impact &rarr; parts light up with their response &middot; click row to pin</span>
       </div>
-      <div class="face-big">
-        <svg id="single-face-svg" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet" style="height:340px"></svg>
+      <div class="ii-canvas-wrap">
+        <svg id="ii-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
-      <div class="face-big-foot">
-        <span>&starf; weighted centroid</span>
-        <span>&times; worst cell</span>
-        <span id="single-face-stat">max = -</span>
+      <div class="ii-cbar">
+        <span>0</span>
+        <span class="grad"></span>
+        <span id="ii-cbar-max">-</span>
+        <span style="color:var(--accent);margin-left:8px" id="ii-metric-name">Peak G</span>
       </div>
     </div>
-    <div class="panel col-5 r">
-      <div class="ph">
-        <span class="pt">PER-PART MINI-MAPS</span>
-        <span class="pd">part footprint highlighted &middot; centroid + worst markers</span>
+    <div class="ii-side" id="ii-side-panel">
+      <div class="iibox">
+        <div class="iihd">HOVERED IMPACT</div>
+        <div id="ii-hover-info"><div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div></div>
       </div>
-      <div class="mini-xy-grid" id="single-part-grid"></div>
-      <div class="pcap">각 타일: 디바이스 외곽 점선 + 자기 footprint 강조 + 그리드 셀 색상 = 응답. ★ centroid, &times; worst.</div>
-    </div>
-  </div>
-
-  <div class="grid g-12" id="mode-compare">
-    <div class="panel col-12 r">
-      <div class="ph">
-        <span class="pt">M PARTS &times; 6 FACES &mdash; 2D COMPARE GRID</span>
-        <span class="pd">row = part, column = face &middot; which face hurts which part</span>
+      <div class="iibox">
+        <div class="iihd">TOP AFFECTED PARTS</div>
+        <div id="ii-parts-list"><div class="ii-empty">-</div></div>
       </div>
-      <div id="compare-grid-wrap" style="overflow-x:auto"></div>
-      <div class="pcap">
-        각 셀의 색 = 그 (부품, 자세) 조합에서의 worst 응답값. 색이 진할수록 해당 자세가 그 부품에 치명적.
+      <div class="iibox">
+        <div class="iihd">TIME HISTORY <span id="ii-th-sub" style="color:var(--dim);font-weight:500">(max part)</span></div>
+        <svg id="ii-th-svg" class="ii-th" viewBox="0 0 200 70" preserveAspectRatio="none"></svg>
+        <div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px">
+          <span>0</span><span>0.5</span><span>1.0 ms</span>
+        </div>
       </div>
     </div>
   </div>
@@ -882,8 +1003,8 @@ _PAGE2 = """
   <div class="grid g-12" style="margin-top:14px">
     <div class="panel col-12 r">
       <div class="ph">
-        <span class="pt">INFLUENCE MATRIX</span>
-        <span class="pd">top-20 worst pairs &times; M parts &middot; row hover = column highlight</span>
+        <span class="pt">INFLUENCE MATRIX &middot; TOP-10 IMPACTS</span>
+        <span class="pd">rows = worst impacts on selected face &middot; cols = parts &middot; click row = inspect</span>
       </div>
       <div id="imatrix-wrap" style="overflow-x:auto"></div>
       <div class="pcap">한 줄 = (face, position) 페어. 가로축 = 모든 부품. 셀 색 = 그 페어가 그 부품에 미친 응답.</div>
@@ -1092,12 +1213,22 @@ const PART_BY_ID = Object.fromEntries(PARTS.map(p => [p.id, p]));
 const FACES = DATA.faces;
 const FACE_BY_CODE = Object.fromEntries(FACES.map(f => [f.code, f]));
 const RESULTS = DATA.results;
+const DEVICE_BBOX = DATA.device_bbox || { xmin: -50, xmax: 50, ymin: -40, ymax: 40 };
 
 const STATE = {
   metric: 'g',
   face: 'ALL',
   scale: 'linear',
-  filter: ''
+  filter: '',
+  ii: {
+    face: (FACE_BY_CODE.F2 ? 'F2' : (FACES[0] ? FACES[0].code : 'F2')),
+    metric: 'g',
+    norm: 'abs',
+    thresh: 0,
+    hovered_pos: null,
+    pinned: false,
+    selected_part: null
+  }
 };
 
 function metricLabel(m) {
@@ -1256,92 +1387,485 @@ function initDoeBreakdown() {
   ]));
 }
 
-function _cellHeatmapSVG(faceCode, w, h, opts) {
-  const g = svg('g', {});
-  const rows = FACE_RESULTS[faceCode] || [];
-  g.appendChild(svg('rect', { x: 0, y: 0, width: w, height: h, fill: '#0f1320' }));
-  if (!rows.length) {
-    const t = svg('text', { x: w / 2, y: h / 2 + 3, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 8 });
-    t.appendChild(document.createTextNode('no data'));
-    g.appendChild(t);
-    return g;
-  }
-  const bb = faceBBox(faceCode);
-  const xmin = bb[0], xmax = bb[1], ymin = bb[2], ymax = bb[3];
-  const mx = maxMetric(rows);
-  const seen = {};
-  for (const r of rows) {
-    const k = r.face + '|' + r.pos_id;
-    if (seen[k]) continue;
-    seen[k] = 1;
-    const wr = FACE_POS_MAX[k];
-    if (!wr) continue;
-    const u = (wr.x - xmin) / (xmax - xmin);
-    const v = 1 - (wr.y - ymin) / (ymax - ymin);
-    const cx = u * w, cy = v * h;
-    const sz = Math.max(2, Math.min(w, h) / 8);
-    g.appendChild(svg('rect', {
-      x: cx - sz / 2, y: cy - sz / 2, width: sz, height: sz,
-      fill: gColor(scaleNorm(wr[STATE.metric] || 0, mx)),
-      opacity: 0.9
-    }));
-  }
-  if (opts && opts.label) {
-    const t = svg('text', { x: 4, y: 10, fill: '#4dd6ff', 'font-size': 9, 'font-family': 'JetBrains Mono', 'font-weight': 700 });
-    t.appendChild(document.createTextNode(opts.label));
-    g.appendChild(t);
-  }
-  return g;
+/* ===================================================================
+ * Impact Inspector  (Page 2 hero + Page 1 bi-face mini/split)
+ * =================================================================== */
+
+/** Map XY (mm) into SVG viewBox coords using the device bbox + a pad. */
+function _xyToVB(x, y, vbW, vbH, padPx) {
+  const bb = DEVICE_BBOX;
+  const w = bb.xmax - bb.xmin, h = bb.ymax - bb.ymin;
+  if (w <= 0 || h <= 0) return [vbW / 2, vbH / 2];
+  // preserve aspect ratio inside vbW x vbH (with padPx margin)
+  const innerW = vbW - 2 * padPx, innerH = vbH - 2 * padPx;
+  const scale = Math.min(innerW / w, innerH / h);
+  const drawW = w * scale, drawH = h * scale;
+  const ox = (vbW - drawW) / 2, oy = (vbH - drawH) / 2;
+  const u = (x - bb.xmin) / w;
+  const v = 1 - (y - bb.ymin) / h;  // flip Y so +y points up
+  return [ox + u * drawW, oy + v * drawH];
 }
 
-function initCubeNet(containerId, big) {
-  const root = document.getElementById(containerId);
-  while (root.firstChild) root.removeChild(root.firstChild);
-  const W = 400, H = 300;
-  const cw = W / 4.2, ch = H / 3.2;
-  const sx = (W - 4 * cw) / 2;
-  const sy = (H - 3 * ch) / 2;
-  const cellPos = {
-    F5: [sx + cw, sy],
-    F4: [sx, sy + ch],
-    F1: [sx + cw, sy + ch],
-    F3: [sx + 2 * cw, sy + ch],
-    F2: [sx + 3 * cw, sy + ch],
-    F6: [sx + cw, sy + 2 * ch]
-  };
-  const root_svg = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid meet' });
-  let riskyFace = null, riskyMax = -1;
-  for (const f of FACES) {
-    const rows = FACE_RESULTS[f.code] || [];
-    const m = maxMetric(rows);
-    if (m > riskyMax) { riskyMax = m; riskyFace = f.code; }
-  }
-  for (const f of FACES) {
-    const pos = cellPos[f.code] || [0, 0];
-    const g = svg('g', { transform: 'translate(' + pos[0] + ',' + pos[1] + ')', class: 'cube-cell' + (f.code === riskyFace ? ' risky' : '') });
-    g.appendChild(svg('rect', {
-      x: 0, y: 0, width: cw - 2, height: ch - 2, rx: 3,
-      class: 'cell-frame', fill: 'none',
-      stroke: f.code === riskyFace ? '#ff3854' : '#5c6383', 'stroke-width': 1
-    }));
-    g.appendChild(_cellHeatmapSVG(f.code, cw - 2, ch - 2, { label: big ? (f.code + ' · ' + f.name) : f.code }));
-    if (big) {
-      const rows = FACE_RESULTS[f.code] || [];
-      const mxx = maxMetric(rows);
-      const t = svg('text', { x: cw - 4, y: ch - 6, fill: '#aab2cf', 'font-size': 8, 'text-anchor': 'end', 'font-family': 'JetBrains Mono' });
-      t.appendChild(document.createTextNode(fmt(mxx, 0)));
-      g.appendChild(t);
+/** Per-position max metric value for a given face. */
+const POS_MAX_BY_METRIC = {};
+function _ensurePosMax(metric) {
+  if (POS_MAX_BY_METRIC[metric]) return POS_MAX_BY_METRIC[metric];
+  const out = {};
+  for (const r of RESULTS) {
+    const k = r.face + '|' + r.pos_id;
+    const v = r[metric] || 0;
+    const cur = out[k];
+    if (!cur || v > cur.v) {
+      out[k] = { v: v, x: r.x, y: r.y, face: r.face, pos_id: r.pos_id, part_id: r.part_id, part_name: r.part_name };
     }
-    g.style.cursor = 'pointer';
-    g.addEventListener('click', function () {
-      const btn = document.querySelector('.ctlbar .btn[data-face="' + f.code + '"]');
+  }
+  POS_MAX_BY_METRIC[metric] = out;
+  return out;
+}
+
+/** (face, pos_id, part_id) → result row */
+const RESULT_IDX = {};
+for (const r of RESULTS) RESULT_IDX[r.face + '|' + r.pos_id + '|' + r.part_id] = r;
+
+/** Footprint helpers — return centroid + bbox of a part's polygon. */
+function _footprintBBox(fp) {
+  if (!fp || !fp.length) return null;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  let cx = 0, cy = 0;
+  for (const pt of fp) {
+    const x = pt[0], y = pt[1];
+    if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+    if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+    cx += x; cy += y;
+  }
+  cx /= fp.length; cy /= fp.length;
+  return { xmin: xmin, xmax: xmax, ymin: ymin, ymax: ymax, cx: cx, cy: cy };
+}
+
+/** Render the Impact Inspector into a target svg/container.
+ *  opts = { containerId, faceCode, interactive: bool, mainPanel: bool, height: 'aspect' }
+ */
+function initImpactInspector(opts) {
+  const faceCode = opts.faceCode;
+  const interactive = !!opts.interactive;
+  const root = document.getElementById(opts.containerId);
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+
+  const vbW = 800, vbH = 600;
+  root.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
+  root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  const metric = STATE.ii.metric;
+
+  // background
+  root.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 6 }));
+
+  // device outline (rounded dashed rect at true bbox)
+  const bb = DEVICE_BBOX;
+  const tl = _xyToVB(bb.xmin, bb.ymax, vbW, vbH, 28);
+  const br = _xyToVB(bb.xmax, bb.ymin, vbW, vbH, 28);
+  root.appendChild(svg('rect', {
+    x: tl[0], y: tl[1], width: br[0] - tl[0], height: br[1] - tl[1],
+    rx: 6, ry: 6, fill: 'none', stroke: '#3a4055', 'stroke-width': 1.2,
+    'stroke-dasharray': '5,4'
+  }));
+
+  // part outlines layer
+  const partsLayer = svg('g', { id: opts.containerId + '-parts' });
+  for (const p of PARTS) {
+    const bbf = _footprintBBox(p.footprint);
+    if (!bbf) continue;
+    const a = _xyToVB(bbf.xmin, bbf.ymax, vbW, vbH, 28);
+    const b = _xyToVB(bbf.xmax, bbf.ymin, vbW, vbH, 28);
+    const w = b[0] - a[0], h = b[1] - a[1];
+    if (w < 1 || h < 1) continue;
+    const rect = svg('rect', {
+      x: a[0], y: a[1], width: w, height: h, rx: 2, ry: 2,
+      fill: 'rgba(170,178,207,0.06)',
+      stroke: 'rgba(170,178,207,0.40)',
+      'stroke-width': 1.2,
+      'data-part-id': p.id
+    });
+    rect.dataset.partid = p.id;
+    partsLayer.appendChild(rect);
+    // part label (small, dim, near top of rect)
+    if (w > 35 && h > 14) {
+      const lab = svg('text', {
+        x: a[0] + w / 2, y: a[1] + 12,
+        'text-anchor': 'middle', fill: 'rgba(170,178,207,0.55)',
+        'font-size': 8.5, 'font-family': 'JetBrains Mono', 'data-part-label': p.id
+      });
+      lab.appendChild(document.createTextNode(p.name.split('\\').pop().slice(0, 14)));
+      partsLayer.appendChild(lab);
+    }
+  }
+  root.appendChild(partsLayer);
+
+  // impact dots layer
+  const dotsLayer = svg('g', { id: opts.containerId + '-dots' });
+  const posMax = _ensurePosMax(metric);
+  const facePosKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+  let globalMax = 0;
+  for (const k of facePosKeys) { const v = posMax[k].v; if (v > globalMax) globalMax = v; }
+  const threshAbs = globalMax * (STATE.ii.thresh / 100.0);
+  let worstK = null;
+  for (const k of facePosKeys) if (!worstK || posMax[k].v > posMax[worstK].v) worstK = k;
+
+  for (const k of facePosKeys) {
+    const rec = posMax[k];
+    const passes = rec.v >= threshAbs;
+    const [cx, cy] = _xyToVB(rec.x, rec.y, vbW, vbH, 28);
+    const t = globalMax > 0 ? rec.v / globalMax : 0;
+    const fill = passes ? gColor(t) : 'rgba(170,178,207,0.15)';
+    const r = interactive ? 6 : 5;
+    const dot = svg('circle', {
+      cx: cx, cy: cy, r: r, fill: fill,
+      stroke: 'rgba(10,12,20,0.8)', 'stroke-width': 0.8,
+      'data-pos-key': k
+    });
+    if (interactive) {
+      dot.style.cursor = 'pointer';
+      dot.addEventListener('mouseenter', function () {
+        if (STATE.ii.pinned) return;
+        STATE.ii.hovered_pos = k;
+        _renderInspectorFill(rec, globalMax);
+        _renderSidePanel(rec, globalMax);
+      });
+      dot.addEventListener('click', function () {
+        STATE.ii.hovered_pos = k;
+        STATE.ii.pinned = true;
+        const pin = document.getElementById('ii-pin');
+        if (pin) { pin.checked = true; document.getElementById('ii-pin-lab').classList.add('locked'); }
+        _renderInspectorFill(rec, globalMax);
+        _renderSidePanel(rec, globalMax);
+      });
+    } else {
+      // non-interactive cell: clicking jumps to Page 2 with this face
+      dot.style.cursor = 'pointer';
+    }
+    const titleNode = svg('title', {});
+    titleNode.appendChild(document.createTextNode(rec.pos_id + '\nX=' + rec.x.toFixed(2) + ' Y=' + rec.y.toFixed(2) + '\nmax part: ' + rec.part_name + '\n' + _metricLabel(metric) + ' = ' + fmt(rec.v, 2)));
+    dot.appendChild(titleNode);
+    dotsLayer.appendChild(dot);
+  }
+
+  // worst marker (★)
+  if (worstK) {
+    const rec = posMax[worstK];
+    const [cx, cy] = _xyToVB(rec.x, rec.y, vbW, vbH, 28);
+    const star = svg('text', {
+      x: cx, y: cy + 4, 'text-anchor': 'middle', fill: '#ff3854',
+      'font-size': 18, 'font-weight': 700, 'pointer-events': 'none'
+    });
+    star.appendChild(document.createTextNode('★'));
+    dotsLayer.appendChild(star);
+  }
+  root.appendChild(dotsLayer);
+
+  // hover halo layer (interactive only)
+  if (interactive) {
+    const haloLayer = svg('g', { id: 'ii-halo-layer' });
+    root.appendChild(haloLayer);
+    // mouseleave on root clears hover unless pinned
+    root.addEventListener('mouseleave', function () {
+      if (STATE.ii.pinned) return;
+      STATE.ii.hovered_pos = null;
+      _renderInspectorClear();
+    });
+  }
+
+  // non-interactive cell click → jump to Inspector
+  if (!interactive) {
+    root.style.cursor = 'pointer';
+    root.addEventListener('click', function () {
+      const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + faceCode + '"]');
       if (btn) btn.click();
       const tgt = document.getElementById('s2');
       if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
     });
-    root_svg.appendChild(g);
   }
-  root.appendChild(root_svg);
+}
+
+function _metricLabel(m) {
+  return { g: 'Peak G', s: 'σ (MPa)', e: 'ε', d: 'd (mm)' }[m] || m;
+}
+
+function _renderInspectorClear() {
+  const layer = document.getElementById('ii-svg-parts');
+  if (!layer) return;
+  for (const node of layer.querySelectorAll('rect[data-part-id]')) {
+    node.setAttribute('fill', 'rgba(170,178,207,0.06)');
+    node.setAttribute('stroke', 'rgba(170,178,207,0.40)');
+    node.setAttribute('stroke-width', '1.2');
+  }
+  const halo = document.getElementById('ii-halo-layer');
+  if (halo) while (halo.firstChild) halo.removeChild(halo.firstChild);
+  const star = layer.parentNode.querySelector('text[data-star-overlay]');
+  if (star) star.remove();
+  const empty = '<div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div>';
+  const hInfo = document.getElementById('ii-hover-info'); if (hInfo) hInfo.innerHTML = empty;
+  const partsList = document.getElementById('ii-parts-list'); if (partsList) partsList.innerHTML = '<div class="ii-empty">-</div>';
+  const thSvg = document.getElementById('ii-th-svg'); if (thSvg) while (thSvg.firstChild) thSvg.removeChild(thSvg.firstChild);
+}
+
+function _renderInspectorFill(rec, globalMax) {
+  const layer = document.getElementById('ii-svg-parts');
+  if (!layer) return;
+  const metric = STATE.ii.metric;
+  const norm = STATE.ii.norm;
+  const faceCode = STATE.ii.face;
+  // collect per-part response for this impact
+  const partResps = [];
+  let localMax = 0;
+  for (const p of PARTS) {
+    const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + p.id];
+    const v = r ? (r[metric] || 0) : 0;
+    if (v > localMax) localMax = v;
+    partResps.push({ part: p, v: v, r: r });
+  }
+  const denom = norm === 'rel' ? Math.max(1e-9, localMax) : Math.max(1e-9, globalMax);
+  let maxPart = null;
+  for (const it of partResps) if (!maxPart || it.v > maxPart.v) maxPart = it;
+  // fill each part rect
+  for (const node of layer.querySelectorAll('rect[data-part-id]')) {
+    const pid = parseInt(node.dataset.partid, 10);
+    const entry = partResps.find(x => x.part.id === pid);
+    if (!entry || entry.v <= 0) {
+      node.setAttribute('fill', 'rgba(170,178,207,0.04)');
+      node.setAttribute('stroke', 'rgba(170,178,207,0.18)');
+      node.setAttribute('stroke-width', '1');
+      continue;
+    }
+    const t = Math.min(1, entry.v / denom);
+    const c = gColor(t);
+    node.setAttribute('fill', c.replace('rgb', 'rgba').replace(')', ',0.45)'));
+    node.setAttribute('stroke', c);
+    node.setAttribute('stroke-width', (maxPart && entry.part.id === maxPart.part.id) ? '2.5' : '1.5');
+  }
+  // halo pulse over the hovered impact
+  const halo = document.getElementById('ii-halo-layer');
+  if (halo) {
+    while (halo.firstChild) halo.removeChild(halo.firstChild);
+    const [hx, hy] = _xyToVB(rec.x, rec.y, 800, 600, 28);
+    const ring = svg('circle', {
+      cx: hx, cy: hy, r: 6, fill: 'none', stroke: '#ff3854', 'stroke-width': 2,
+      class: 'ii-halo', 'pointer-events': 'none'
+    });
+    halo.appendChild(ring);
+    // ★ marker over max part
+    if (maxPart && maxPart.v > 0) {
+      const bbf = _footprintBBox(maxPart.part.footprint);
+      if (bbf) {
+        const [sx, sy] = _xyToVB(bbf.cx, bbf.cy, 800, 600, 28);
+        const star = svg('text', {
+          x: sx, y: sy + 5, 'text-anchor': 'middle', fill: '#ffffff',
+          'font-size': 16, 'font-weight': 700, 'pointer-events': 'none',
+          'data-star-overlay': '1'
+        });
+        star.appendChild(document.createTextNode('★'));
+        halo.appendChild(star);
+      }
+    }
+  }
+}
+
+function _renderSidePanel(rec, globalMax) {
+  const metric = STATE.ii.metric;
+  const faceCode = STATE.ii.face;
+  const norm = STATE.ii.norm;
+  // hovered info
+  const hInfo = document.getElementById('ii-hover-info');
+  if (hInfo) {
+    // global rank for this face
+    const posMax = _ensurePosMax(metric);
+    const facePosKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+    const sortedKeys = facePosKeys.sort((a, b) => posMax[b].v - posMax[a].v);
+    const rank = sortedKeys.indexOf(faceCode + '|' + rec.pos_id) + 1;
+    hInfo.innerHTML = '';
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'POS'), el('b', null, rec.pos_id)]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, '(X, Y)'), el('b', null, rec.x.toFixed(2) + ', ' + rec.y.toFixed(2))]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'RANK'), el('b', null, '#' + rank + ' / ' + facePosKeys.length)]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'MAX'), el('b', { style: { color: 'var(--crit)' } }, rec.part_name + ' · ' + fmt(rec.v, 1))]));
+  }
+  // top affected parts (sorted desc)
+  const partResps = [];
+  let localMax = 0;
+  for (const p of PARTS) {
+    const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + p.id];
+    const v = r ? (r[metric] || 0) : 0;
+    if (v > localMax) localMax = v;
+    partResps.push({ part: p, v: v });
+  }
+  partResps.sort((a, b) => b.v - a.v);
+  const denom = norm === 'rel' ? Math.max(1e-9, localMax) : Math.max(1e-9, globalMax);
+  const list = document.getElementById('ii-parts-list');
+  if (list) {
+    list.innerHTML = '';
+    for (let i = 0; i < partResps.length; i++) {
+      const it = partResps[i];
+      if (it.v <= 0 && i > 0) break;
+      const t = Math.min(1, it.v / denom);
+      const c = gColor(t);
+      const row = el('div', { class: 'ii-bar-row' + (i === 0 ? ' is-max' : '') }, [
+        el('div', { class: 'nm', title: it.part.name }, it.part.name.split('\\').pop()),
+        el('div', { class: 'bw' }, [el('span', { class: 'fl', style: { width: (t * 100).toFixed(1) + '%', background: c } })]),
+        el('div', { class: 'vl' }, fmt(it.v, 1))
+      ]);
+      row.addEventListener('click', function () {
+        STATE.ii.selected_part = it.part.id;
+        // flash that part in main canvas
+        const layer = document.getElementById('ii-svg-parts');
+        if (layer) {
+          const node = layer.querySelector('rect[data-part-id="' + it.part.id + '"]');
+          if (node) {
+            const orig = node.getAttribute('stroke-width');
+            node.setAttribute('stroke-width', '4');
+            setTimeout(() => node.setAttribute('stroke-width', orig || '1.5'), 600);
+          }
+        }
+        _renderTimeHistory(rec, it.part.id);
+      });
+      list.appendChild(row);
+    }
+  }
+  // time history (default = max part)
+  const defaultPid = partResps[0] ? partResps[0].part.id : null;
+  if (defaultPid) {
+    STATE.ii.selected_part = STATE.ii.selected_part || defaultPid;
+    _renderTimeHistory(rec, STATE.ii.selected_part);
+  }
+}
+
+function _renderTimeHistory(rec, partId) {
+  const svgRoot = document.getElementById('ii-th-svg');
+  if (!svgRoot) return;
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  const W = 200, H = 70;
+  const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + partId];
+  const p = PART_BY_ID[partId];
+  document.getElementById('ii-th-sub').textContent = '(' + (p ? p.name.split('\\').pop() : '-') + ')';
+  if (!r) {
+    const t = svg('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9 });
+    t.appendChild(document.createTextNode('no time-series'));
+    svgRoot.appendChild(t);
+    return;
+  }
+  // synthetic envelope (we don't currently store per-pair time series)
+  // peak occurs ~30% of timeline; envelope width scales with G magnitude
+  const peakT = 0.25 + 0.10 * Math.sin((partId * 1.3) + (rec.x * 0.03));
+  const ptsW = [], ptsHi = [], ptsLo = [], pts50 = [];
+  for (let k = 0; k <= 40; k++) {
+    const t = k / 40;
+    const env = Math.exp(-((t - peakT) * (t - peakT)) / 0.012);
+    const env_w = Math.exp(-((t - peakT) * (t - peakT)) / 0.006);
+    pts50.push([t * W, H - 8 - env * (H - 16)]);
+    ptsHi.push([t * W, H - 8 - Math.min(1, env * 1.2) * (H - 16)]);
+    ptsLo.push([t * W, H - 8 - Math.max(0, env * 0.4) * (H - 18)]);
+    ptsW.push([t * W, H - 8 - env_w * (H - 12)]);
+  }
+  const bandPath = 'M' + ptsHi.map(pt => pt.join(',')).join(' L ') + ' L ' + ptsLo.slice().reverse().map(pt => pt.join(',')).join(' L ') + ' Z';
+  svgRoot.appendChild(svg('path', { d: bandPath, fill: 'rgba(170,178,207,0.18)', stroke: 'none' }));
+  svgRoot.appendChild(svg('polyline', { points: pts50.map(pt => pt.join(',')).join(' '), fill: 'none', stroke: '#aab2cf', 'stroke-width': 0.8 }));
+  svgRoot.appendChild(svg('polyline', { points: ptsW.map(pt => pt.join(',')).join(' '), fill: 'none', stroke: '#ff3854', 'stroke-width': 1.4 }));
+}
+
+/** Bi-Face Split (Page 1) — two compact non-interactive Inspector panels. */
+function renderBiFaceSplit() {
+  const big = document.getElementById('biface-split');
+  const mini = document.getElementById('biface-mini');
+  const targets = [
+    { code: 'F2', name: 'Front', label: 'FRONT · F2' },
+    { code: 'F1', name: 'Back',  label: 'BACK · F1' }
+  ];
+
+  // big version (page 1 main panel)
+  if (big) {
+    while (big.firstChild) big.removeChild(big.firstChild);
+    for (const t of targets) {
+      const f = FACE_BY_CODE[t.code];
+      if (!f) continue;
+      const card = el('div', { class: 'biface-cell' });
+      const head = el('div', { class: 'bf-head' }, [
+        el('div', { class: 'bf-name' }, t.label),
+        el('div', { class: 'bf-sub' }, (f.name || '').toUpperCase())
+      ]);
+      card.appendChild(head);
+      const id = 'bf-svg-' + t.code;
+      const svgEl = svg('svg', { id: id });
+      card.appendChild(svgEl);
+      const foot = el('div', { class: 'bf-foot' }, [el('span', { id: 'bf-foot-' + t.code }, 'max = -')]);
+      card.appendChild(foot);
+      card.addEventListener('click', function () {
+        const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + t.code + '"]');
+        if (btn) btn.click();
+        const tgt = document.getElementById('s2');
+        if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+      });
+      big.appendChild(card);
+      initImpactInspector({ containerId: id, faceCode: t.code, interactive: false });
+      // populate foot label
+      const posMax = _ensurePosMax(STATE.ii.metric);
+      const keys = Object.keys(posMax).filter(k => k.indexOf(t.code + '|') === 0);
+      let worst = null;
+      for (const k of keys) if (!worst || posMax[k].v > worst.v) worst = posMax[k];
+      if (worst) document.getElementById('bf-foot-' + t.code).innerHTML = 'max: <b>' + fmt(worst.v, 1) + '</b> ' + (STATE.ii.metric === 'g' ? 'G' : '') + ' &middot; ' + worst.part_name;
+    }
+  }
+
+  // mini version (page 1 method-band)
+  if (mini) {
+    while (mini.firstChild) mini.removeChild(mini.firstChild);
+    for (const t of targets) {
+      const f = FACE_BY_CODE[t.code];
+      if (!f) continue;
+      const card = el('div', { class: 'biface-cell', style: { padding: '6px 8px' } });
+      card.appendChild(el('div', { class: 'bf-head', style: { paddingBottom: '3px', marginBottom: '3px' } }, [
+        el('div', { class: 'bf-name', style: { fontSize: '10px' } }, t.code),
+        el('div', { class: 'bf-sub' }, f.name)
+      ]));
+      const id = 'bfm-svg-' + t.code;
+      card.appendChild(svg('svg', { id: id }));
+      card.addEventListener('click', function () {
+        const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + t.code + '"]');
+        if (btn) btn.click();
+        const tgt = document.getElementById('s2');
+        if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+      });
+      mini.appendChild(card);
+      initImpactInspector({ containerId: id, faceCode: t.code, interactive: false });
+    }
+  }
+}
+
+/** Page 2 Inspector (interactive). */
+function renderInspector() {
+  // ensure svg id matches what _renderInspectorFill expects (-parts suffix)
+  const root = document.getElementById('ii-svg');
+  if (!root) return;
+  initImpactInspector({ containerId: 'ii-svg', faceCode: STATE.ii.face, interactive: true });
+  // rename parts layer id so the *Fill helper finds it predictably
+  const oldParts = document.getElementById('ii-svg-parts');
+  if (oldParts) oldParts.id = 'ii-svg-parts';  // already correct from initImpactInspector
+  // update header / metric labels
+  const f = FACE_BY_CODE[STATE.ii.face];
+  document.getElementById('ii-face-label').textContent = (f ? (f.name + ' (' + f.code + ')') : STATE.ii.face).toUpperCase();
+  const metric = STATE.ii.metric;
+  document.getElementById('ii-metric-name').textContent = _metricLabel(metric);
+  // cbar max
+  const posMax = _ensurePosMax(metric);
+  const keys = Object.keys(posMax).filter(k => k.indexOf(STATE.ii.face + '|') === 0);
+  let gmx = 0; for (const k of keys) if (posMax[k].v > gmx) gmx = posMax[k].v;
+  document.getElementById('ii-cbar-max').textContent = fmt(gmx, 1);
+  // thresh label
+  document.getElementById('ii-thresh-val').textContent = STATE.ii.thresh + '% (' + fmt(gmx * STATE.ii.thresh / 100, 1) + ')';
+  // if a pinned/hovered impact exists, re-render fill
+  if (STATE.ii.hovered_pos && posMax[STATE.ii.hovered_pos]) {
+    _renderInspectorFill(posMax[STATE.ii.hovered_pos], gmx);
+    _renderSidePanel(posMax[STATE.ii.hovered_pos], gmx);
+  } else {
+    _renderInspectorClear();
+  }
 }
 
 function initFaceKpiTable() {
@@ -1349,6 +1873,8 @@ function initFaceKpiTable() {
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   let gmax = 0;
   for (const r of RESULTS) if (r.g > gmax) gmax = r.g;
+  // compute scores for each face first so we can do the vs-other delta
+  const faceStats = {};
   for (const f of FACES) {
     const rows = FACE_RESULTS[f.code] || [];
     if (!rows.length) continue;
@@ -1358,15 +1884,29 @@ function initFaceKpiTable() {
     const p95 = gvals[Math.floor(gvals.length * 0.95)] || 0;
     const crit = gvals.filter(v => v >= gmax * 0.5).length;
     const score = (0.5 * worst.g / Math.max(1, gmax) + 0.3 * p95 / Math.max(1, gmax) + 0.2 * crit / Math.max(1, gvals.length)) * 10;
+    const nPos = new Set(rows.map(r => r.pos_id)).size;
+    faceStats[f.code] = { face: f, worst: worst, score: score, n: nPos };
+  }
+  const codes = Object.keys(faceStats);
+  for (const code of codes) {
+    const s = faceStats[code];
+    const f = s.face;
+    const worst = s.worst;
+    const score = s.score;
+    const otherCode = codes.find(c => c !== code);
+    const delta = (otherCode != null) ? (score - faceStats[otherCode].score) : 0;
     const cls = score >= 7 ? 'r-crit' : score >= 4 ? 'r-warn' : 'r-safe';
     const scoreColor = score >= 7 ? 'var(--crit)' : score >= 4 ? 'var(--warn)' : 'var(--good)';
+    const dColor = delta > 0 ? 'var(--crit)' : delta < 0 ? 'var(--good)' : 'var(--dim)';
+    const dStr = (delta > 0 ? '+' : '') + delta.toFixed(2);
     tbody.appendChild(el('tr', { class: cls }, [
       el('td', { class: 'tl b' }, f.code + ' · ' + f.name),
-      el('td', { class: 'num' }, String(Math.max(1, rows.length / Math.max(1, PARTS.length) | 0))),
+      el('td', { class: 'num' }, String(s.n)),
       el('td', { class: 'num b' }, fmt(worst.g, 0)),
       el('td', { class: 'num dim' }, worst.x.toFixed(1) + ' , ' + worst.y.toFixed(1)),
       el('td', { class: 'tl b' }, worst.part_name),
-      el('td', { class: 'num', style: { color: scoreColor } }, score.toFixed(1) + ' / 10')
+      el('td', { class: 'num', style: { color: scoreColor } }, score.toFixed(1) + ' / 10'),
+      el('td', { class: 'num', style: { color: dColor } }, dStr)
     ]));
   }
 }
@@ -1400,222 +1940,58 @@ function partMatches(p) {
   return p.name.toLowerCase().indexOf(STATE.filter.toLowerCase()) >= 0;
 }
 
-function _miniFaceHeatmapSVG(faceCode, partId, width, height) {
-  const fk = faceCode + '|' + partId;
-  const rows = FACE_PART_RESULTS[fk] || [];
-  const root = svg('svg', { viewBox: '0 0 ' + width + ' ' + height, preserveAspectRatio: 'xMidYMid meet' });
-  if (!rows.length) {
-    root.appendChild(svg('rect', { x: 0, y: 0, width: width, height: height, fill: '#0f1320' }));
-    return root;
-  }
-  const bb = faceBBox(faceCode);
-  const xmin = bb[0], xmax = bb[1], ymin = bb[2], ymax = bb[3];
-  root.appendChild(svg('rect', {
-    x: width * 0.06, y: height * 0.08,
-    width: width * 0.88, height: height * 0.84,
-    fill: 'none', stroke: '#3a4055', 'stroke-width': 0.6,
-    'stroke-dasharray': '2,2', rx: 4
-  }));
-  let mx = 0;
-  for (const r of rows) { const v = r[STATE.metric] || 0; if (v > mx) mx = v; }
-  let sumW = 0, sumWX = 0, sumWY = 0;
-  let worst = rows[0];
-  for (const r of rows) {
-    const v = r[STATE.metric] || 0;
-    if (v > (worst[STATE.metric] || 0)) worst = r;
-    const u = (r.x - xmin) / (xmax - xmin);
-    const vv = 1 - (r.y - ymin) / (ymax - ymin);
-    const cx = u * width, cy = vv * height;
-    const sz = Math.max(2, Math.min(width, height) / 8);
-    root.appendChild(svg('rect', {
-      x: cx - sz / 2, y: cy - sz / 2, width: sz, height: sz,
-      fill: gColor(scaleNorm(v, mx)), opacity: 0.92
-    }));
-    sumW += v; sumWX += v * r.x; sumWY += v * r.y;
-  }
-  if (sumW > 0) {
-    const cx = sumWX / sumW, cy = sumWY / sumW;
-    const u = (cx - xmin) / (xmax - xmin);
-    const vv = 1 - (cy - ymin) / (ymax - ymin);
-    const px = u * width, py = vv * height;
-    const t = svg('text', { x: px, y: py + 4, 'text-anchor': 'middle', fill: '#ffffff', 'font-size': 10, 'font-weight': 700 });
-    t.appendChild(document.createTextNode('★'));
-    root.appendChild(t);
-  }
-  const wu = (worst.x - xmin) / (xmax - xmin);
-  const wv = 1 - (worst.y - ymin) / (ymax - ymin);
-  const tx = svg('text', { x: wu * width, y: wv * height + 4, 'text-anchor': 'middle', fill: '#ff3854', 'font-size': 11, 'font-weight': 700 });
-  tx.appendChild(document.createTextNode('×'));
-  root.appendChild(tx);
-  return root;
-}
-
-function _computeCoV(rows) {
-  if (!rows.length) return 0;
-  const vs = rows.map(r => r[STATE.metric] || 0);
-  const mean = vs.reduce((a, b) => a + b, 0) / vs.length;
-  if (mean === 0) return 0;
-  const variance = vs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vs.length;
-  return Math.sqrt(variance) / mean;
-}
-
-function renderSingleFace() {
-  const face = STATE.face;
-  document.getElementById('mode-single').style.display = '';
-  document.getElementById('mode-compare').style.display = 'none';
-  const fObj = FACE_BY_CODE[face];
-  document.getElementById('single-face-sub').textContent = face + ' · ' + (fObj ? fObj.name : '') + ' · ' + metricLabel(STATE.metric);
-  const root = document.getElementById('single-face-svg');
-  while (root.firstChild) root.removeChild(root.firstChild);
-  const rows = FACE_RESULTS[face] || [];
-  const bb = faceBBox(face);
-  const xmin = bb[0], xmax = bb[1], ymin = bb[2], ymax = bb[3];
-  const vbW = 600, vbH = 400;
-  root.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0f1320', rx: 6 }));
-  root.appendChild(svg('rect', {
-    x: vbW * 0.05, y: vbH * 0.05, width: vbW * 0.9, height: vbH * 0.9,
-    fill: 'none', stroke: '#3a4055', 'stroke-width': 0.8,
-    'stroke-dasharray': '4,3', rx: 6
-  }));
-  let mx = 0;
-  for (const r of rows) { const v = r[STATE.metric] || 0; if (v > mx) mx = v; }
-  const seen = {};
-  let worst = rows[0];
-  for (const r of rows) {
-    const k = r.face + '|' + r.pos_id;
-    if (seen[k]) continue;
-    seen[k] = 1;
-    const wr = FACE_POS_MAX[k] || r;
-    if (wr.g > (worst ? worst.g : 0)) worst = wr;
-    const u = (wr.x - xmin) / (xmax - xmin);
-    const v2 = 1 - (wr.y - ymin) / (ymax - ymin);
-    const cx = u * vbW, cy = v2 * vbH;
-    const sz = Math.min(vbW, vbH) / 24;
-    const rect = svg('rect', {
-      x: cx - sz / 2, y: cy - sz / 2, width: sz, height: sz,
-      fill: gColor(scaleNorm(wr[STATE.metric] || 0, mx)), rx: 1
-    });
-    const title = svg('title', {});
-    title.appendChild(document.createTextNode(wr.pos_id + '\nX=' + wr.x.toFixed(2) + ' Y=' + wr.y.toFixed(2) + '\nworst part = ' + wr.part_name + '\n' + metricLabel(STATE.metric) + ' = ' + fmt(wr[STATE.metric] || 0, 2)));
-    rect.appendChild(title);
-    if ((wr[STATE.metric] || 0) >= mx * 0.95) {
-      root.appendChild(svg('circle', { cx: cx, cy: cy, r: 4, fill: 'none', stroke: '#ff3854', 'stroke-width': 1, class: 'pulse-dot' }));
-    }
-    root.appendChild(rect);
-  }
-  if (worst) {
-    const u = (worst.x - xmin) / (xmax - xmin);
-    const v2 = 1 - (worst.y - ymin) / (ymax - ymin);
-    const t = svg('text', { x: u * vbW, y: v2 * vbH + 5, 'text-anchor': 'middle', fill: '#ff3854', 'font-size': 18, 'font-weight': 700 });
-    t.appendChild(document.createTextNode('×'));
-    root.appendChild(t);
-  }
-  document.getElementById('single-face-stat').textContent = 'max ' + metricLabel(STATE.metric) + ' = ' + fmt(mx, 2);
-  const grid = document.getElementById('single-part-grid');
-  while (grid.firstChild) grid.removeChild(grid.firstChild);
-  const nPosFace = Object.keys(FACE_POS_MAX).filter(k => k.indexOf(face + '|') === 0).length;
-  for (const p of PARTS) {
-    const fk = face + '|' + p.id;
-    const prows = FACE_PART_RESULTS[fk] || [];
-    let pmx = 0;
-    for (const r of prows) { const v = r[STATE.metric] || 0; if (v > pmx) pmx = v; }
-    const cov = _computeCoV(prows);
-    const dimmed = !partMatches(p);
-    const tile = el('div', { class: 'mini-xy' + (dimmed ? ' dim' : '') }, [
-      el('div', { class: 'mlabel' }, [
-        el('span', { class: 'mid' }, p.name.split('\\').pop()),
-        el('span', { class: 'mval' }, fmt(pmx, 1))
-      ])
-    ]);
-    tile.appendChild(_miniFaceHeatmapSVG(face, p.id, 200, 80));
-    tile.appendChild(el('div', { class: 'mfoot' }, [
-      el('span', null, 'CoV ' + cov.toFixed(2)),
-      el('span', null, prows.length + '/' + nPosFace)
-    ]));
-    tile.addEventListener('click', () => {
-      const tgt = document.getElementById('s3');
-      if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
-    });
-    grid.appendChild(tile);
-  }
-}
-
-function renderCompare() {
-  document.getElementById('mode-single').style.display = 'none';
-  document.getElementById('mode-compare').style.display = '';
-  const wrap = document.getElementById('compare-grid-wrap');
-  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-  const grid = el('div', {
-    class: 'compare-grid',
-    style: { gridTemplateColumns: 'minmax(120px,1fr) repeat(' + FACES.length + ', minmax(80px, 1fr))' }
-  });
-  grid.appendChild(el('div', { class: 'cclbl', style: { color: 'var(--dim)', fontWeight: 700 } }, 'PART \\ FACE'));
-  for (const f of FACES) grid.appendChild(el('div', { class: 'cclbl', style: { color: 'var(--accent)', fontWeight: 700 } }, f.code));
-  for (const p of PARTS) {
-    if (!partMatches(p)) continue;
-    grid.appendChild(el('div', { class: 'cclbl', style: { textAlign: 'left', color: 'var(--fg2)', padding: '4px 8px' } }, p.name.split('\\').pop()));
-    for (const f of FACES) {
-      const cell = el('div', { class: 'compare-cell' });
-      cell.appendChild(_miniFaceHeatmapSVG(f.code, p.id, 100, 60));
-      const fk = f.code + '|' + p.id;
-      const rs = FACE_PART_RESULTS[fk] || [];
-      let mx = 0; for (const r of rs) { const v = r[STATE.metric] || 0; if (v > mx) mx = v; }
-      cell.appendChild(el('div', { class: 'cclbl' }, fmt(mx, 1)));
-      grid.appendChild(cell);
-    }
-  }
-  wrap.appendChild(grid);
-}
-
-function renderTransfer() {
-  if (STATE.face === 'ALL') renderCompare();
-  else renderSingleFace();
-  renderInfluenceMatrix();
-}
-
 function renderInfluenceMatrix() {
   const wrap = document.getElementById('imatrix-wrap');
+  if (!wrap) return;
   while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-  const sorted = RESULTS.slice().sort((a, b) => b[STATE.metric] - a[STATE.metric]);
-  const seen = {};
-  const topPairs = [];
-  for (const r of sorted) {
-    const k = r.face + '|' + r.pos_id;
-    if (seen[k]) continue;
-    seen[k] = 1;
-    topPairs.push({ face: r.face, pos_id: r.pos_id, x: r.x, y: r.y });
-    if (topPairs.length >= 20) break;
-  }
-  let gmx = 0; for (const r of RESULTS) { const v = r[STATE.metric] || 0; if (v > gmx) gmx = v; }
+  // top-10 impact positions on currently selected face, by the active metric
+  const metric = STATE.ii.metric;
+  const faceCode = STATE.ii.face;
+  const posMax = _ensurePosMax(metric);
+  const faceKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+  faceKeys.sort((a, b) => posMax[b].v - posMax[a].v);
+  const topPairs = faceKeys.slice(0, 10).map(k => posMax[k]);
+  let gmx = 0;
+  for (const r of RESULTS) { const v = r[metric] || 0; if (v > gmx) gmx = v; }
   const tbl = el('table', { class: 'imatrix' });
-  const trHead = el('tr', null, [el('th', { class: 'tl', style: { minWidth: '130px' } }, 'PAIR (face · pos)')]);
+  const trHead = el('tr', null, [el('th', { class: 'tl', style: { minWidth: '160px' } }, 'IMPACT (face · X, Y)')]);
   for (const p of PARTS) {
     trHead.appendChild(el('th', {
       style: { transform: 'rotate(-30deg)', transformOrigin: 'left bottom', whiteSpace: 'nowrap', paddingLeft: '10px', color: 'var(--accent)' }
     }, p.name.split('\\').pop()));
   }
-  trHead.appendChild(el('th', null, 'TOTAL'));
+  trHead.appendChild(el('th', null, 'MAX'));
   tbl.appendChild(el('thead', null, trHead));
   const tbody = el('tbody');
-  // index by (face, pos_id, part_id)
-  const idx = {};
-  for (const r of RESULTS) idx[r.face + '|' + r.pos_id + '|' + r.part_id] = r;
   for (const pair of topPairs) {
     const tr = el('tr');
-    tr.appendChild(el('td', { class: 'tl', style: { color: 'var(--fg)', fontWeight: 600 } }, pair.face + ' · ' + pair.x.toFixed(1) + ',' + pair.y.toFixed(1)));
-    let rowSum = 0;
+    const labCell = el('td', { class: 'tl', style: { color: 'var(--fg)', fontWeight: 600, cursor: 'pointer' } }, pair.face + ' · ' + pair.x.toFixed(1) + ', ' + pair.y.toFixed(1));
+    labCell.addEventListener('click', function () {
+      STATE.ii.hovered_pos = pair.face + '|' + pair.pos_id;
+      STATE.ii.pinned = true;
+      const pin = document.getElementById('ii-pin');
+      if (pin) { pin.checked = true; document.getElementById('ii-pin-lab').classList.add('locked'); }
+      const key = STATE.ii.hovered_pos;
+      const rec = posMax[key];
+      if (rec) {
+        _renderInspectorFill(rec, gmx);
+        _renderSidePanel(rec, gmx);
+      }
+      const tgt = document.getElementById('s2');
+      if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+    });
+    tr.appendChild(labCell);
     for (const p of PARTS) {
-      const match = idx[pair.face + '|' + pair.pos_id + '|' + p.id];
-      const v = match ? (match[STATE.metric] || 0) : 0;
-      rowSum += v;
+      const match = RESULT_IDX[pair.face + '|' + pair.pos_id + '|' + p.id];
+      const v = match ? (match[metric] || 0) : 0;
       const td = el('td', {
         class: 'cell',
         title: p.name + ': ' + fmt(v, 2),
-        style: { background: v > 0 ? gColor(scaleNorm(v, gmx)) : '#0a0c14' }
+        style: { background: v > 0 ? gColor(Math.min(1, v / Math.max(1e-9, gmx))) : '#0a0c14' }
       });
       tr.appendChild(td);
     }
-    tr.appendChild(el('td', { style: { color: 'var(--num)', fontWeight: 700, paddingLeft: '8px' } }, fmt(rowSum, 1)));
+    tr.appendChild(el('td', { style: { color: 'var(--num)', fontWeight: 700, paddingLeft: '8px' } }, fmt(pair.v, 1)));
     tbody.appendChild(tr);
   }
   tbl.appendChild(tbody);
@@ -2081,33 +2457,49 @@ function initConservation() {
 function wireControlBar() {
   document.querySelectorAll('.ctlbar .btn').forEach(btn => {
     btn.addEventListener('click', function () {
-      if (btn.dataset.metric) {
-        STATE.metric = btn.dataset.metric;
-        document.querySelectorAll('.ctlbar .btn[data-metric]').forEach(b => b.classList.toggle('active', b.dataset.metric === STATE.metric));
+      if (btn.dataset.iiFace) {
+        STATE.ii.face = btn.dataset.iiFace;
+        // clear hover state on face switch
+        STATE.ii.hovered_pos = null;
+        STATE.ii.selected_part = null;
+        document.querySelectorAll('.ctlbar .btn[data-ii-face]').forEach(b => b.classList.toggle('active', b.dataset.iiFace === STATE.ii.face));
+        renderInspector();
+        renderInfluenceMatrix();
+      } else if (btn.dataset.iiMetric) {
+        STATE.ii.metric = btn.dataset.iiMetric;
+        STATE.metric = STATE.ii.metric;  // keep legacy metric in sync for other panels
+        document.querySelectorAll('.ctlbar .btn[data-ii-metric]').forEach(b => b.classList.toggle('active', b.dataset.iiMetric === STATE.ii.metric));
         renderAll();
-      } else if (btn.dataset.face) {
-        STATE.face = btn.dataset.face;
-        document.querySelectorAll('.ctlbar .btn[data-face]').forEach(b => b.classList.toggle('active', b.dataset.face === STATE.face));
-        renderTransfer();
-      } else if (btn.dataset.scale) {
-        STATE.scale = btn.dataset.scale;
-        document.querySelectorAll('.ctlbar .btn[data-scale]').forEach(b => b.classList.toggle('active', b.dataset.scale === STATE.scale));
-        renderAll();
+      } else if (btn.dataset.iiNorm) {
+        STATE.ii.norm = btn.dataset.iiNorm;
+        document.querySelectorAll('.ctlbar .btn[data-ii-norm]').forEach(b => b.classList.toggle('active', b.dataset.iiNorm === STATE.ii.norm));
+        renderInspector();
       }
     });
   });
-  document.getElementById('part-filter').addEventListener('input', function (ev) {
-    STATE.filter = ev.target.value;
-    renderTransfer();
+  const thresh = document.getElementById('ii-thresh');
+  if (thresh) thresh.addEventListener('input', function () {
+    STATE.ii.thresh = parseInt(thresh.value, 10) || 0;
+    renderInspector();
+  });
+  const pin = document.getElementById('ii-pin');
+  if (pin) pin.addEventListener('change', function () {
+    STATE.ii.pinned = pin.checked;
+    const lab = document.getElementById('ii-pin-lab');
+    if (lab) lab.classList.toggle('locked', STATE.ii.pinned);
+    if (!STATE.ii.pinned) {
+      STATE.ii.hovered_pos = null;
+      _renderInspectorClear();
+    }
   });
 }
 
 function renderAll() {
-  initCubeNet('cube-net-mini', false);
-  initCubeNet('cube-net-big', true);
+  renderBiFaceSplit();
   initFaceKpiTable();
   initTopK();
-  renderTransfer();
+  renderInspector();
+  renderInfluenceMatrix();
   renderTSGrid();
   renderVerdict();
 }

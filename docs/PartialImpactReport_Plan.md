@@ -17,6 +17,30 @@
 - **part_center DOE** + **누적 충격(cumulative)** 시나리오 호환
 - pyKooCAE `scenario.json` / `step_config` 포맷 정확히 매핑
 
+## v2 → v3 주요 변경 (스마트폰 도메인 + Impact Inspector)
+
+본 보고서는 스마트폰 부분 충격(drop test) 후처리를 **시그니처 도메인**으로 확정한다.
+스마트폰은 현실적으로 Front(F2)·Back(F1) 두 면이 압도적 다수의 사용자 손상 케이스를 차지하며,
+측면·상단·하단은 단일 면 충격으로 보기 어렵다(낙하 시 모서리·꼭짓점 충격이 더 우세).
+따라서 **기본 분석 구성을 Bi-Face(F1+F2)로 축소**하고, 그 대신 페이지 2를
+"여러 미니 히트맵"이 아닌 **하나의 큰 Impact Inspector** 컴포넌트로 재설계한다.
+
+- **Bi-Face 기본화**: 기본 분석은 **Front(F2) + Back(F1)** 2면. 6면(F1~F6) 데이터 모델·로더는 그대로 유지되지만
+  더 이상 기본값이 아니며, 측면·상하단(F3~F6)은 "스마트폰 외 디바이스용 옵션"으로 격하.
+- **Page 2 패러다임 전환 — Impact Inspector**: "부품 × 자세 mini-heatmap small-multiples" 와
+  "ALL face compare grid" 는 모두 제거. 대신 **위치 중심(position-centric)** 의 단일 큰 캔버스로,
+  배경 = 디바이스 외곽 + 부품 footprint **외곽선만**, 전경 = 충격 위치 점(색 = max 응답),
+  **호버 시 모든 부품 외곽선이 그 충격에 대한 자기 응답값으로 fill** 되어 사이드 패널에 부품 순위가 즉시 표시.
+  분석가는 첫 5초에 "어디가 위험" + "그 위치가 어느 부품들을 어떤 비율로 위협" 을 동시 파악한다.
+- **Cube Net 은퇴**: Page 1에서 6면 펼침도(Cube Net)는 2 face 만 다룰 때 오버킬이라 제거.
+  대신 **Bi-Face Split** (좌 Front · 우 Back 두 큰 패널 + 선택적 Δ Map) 으로 교체.
+- **샘플 데이터셋 축소**: P0b 기본 샘플 110 runs → **50 runs (F1 25 + F2 25)** 로 단축.
+  MVP 일정도 ~10주에서 ~9주로 단축.
+
+> 핵심 인사이트: "면 정보가 많이 나와서 보는게 뭔가 인사이트 있는건지 모르겠어. … 그림은 때린 위치고,
+> 나오는건 패키지 응력. 패키지 크기로 외곽라인만 잡아줘도 대충 때린 위치와 실제 응력 스케일이 보인다."
+> — 사용자 의도 = **공간 매칭이 정보다**. 그래서 mini-heatmap 12개 대신 footprint outline 1장.
+
 ---
 
 ## 1. 문제 정의
@@ -607,69 +631,68 @@ YoungsModulusWall,2.0e11
 
 ---
 
-## 15. 다면(Multi-Face) 부분 충격 — 핵심 확장
+## 15. Bi-Face 부분 충격 (Smartphone 전용 기본 구성)
 
 ### 15.1 사용자의 진짜 요구
 
 > **"전면 충격 후면 충격도 따져야해 ㅋㅋ"**
 
-= 동일 디바이스를 여러 자세(face orientation)로 세워놓고, 각 자세에서
+= 동일 디바이스를 **Front(F2)·Back(F1) 두 자세**로 세워놓고, 각 자세에서
    드러난 면 위에 XY 격자 부분 충격을 수행한 데이터를 **하나의 리포트**에서 통합 분석.
 
-### 15.2 자세(Face) 분류 — cuboid 26 표준
+스마트폰 도메인에서는 측면·상단·하단(F3~F6) 단일 면 충격은 현실성이 떨어지므로
+**Bi-Face(F1+F2)** 가 기본. 6면(F1~F6)을 모두 다루는 기능은 비스마트폰 디바이스용 옵션으로 잔류.
 
-pyKooCAE의 `MODE_CONDITION_Reference.md`에서 정의된 표준:
+### 15.2 자세(Face) 분류 — cuboid 26 표준 (참고)
 
-| 코드 | 면 | Roll | Pitch | Yaw |
-|---|---|---|---|---|
-| **F1** | Back (후면) | 0° | 0° | 0° |
-| **F2** | Front (전면) | 180° | 0° | 0° |
-| **F3** | Right (우측면) | 0° | -90° | 0° |
-| **F4** | Left (좌측면) | 0° | 90° | 0° |
-| **F5** | Top (상단) | 90° | 0° | 0° |
-| **F6** | Bottom (하단) | -90° | 0° | 0° |
+pyKooCAE의 `MODE_CONDITION_Reference.md`에서 정의된 표준 (smartphone 기본은 F1·F2만 사용):
 
-확장 시: E1~E12 (12 모서리) · C1~C8 (8 꼭짓점) 까지.
-부분 충격은 통상 F1~F6 (6면)만 의미 있음 — edge/corner는 임팩터가 미끄러짐.
+| 코드 | 면 | Roll | Pitch | Yaw | smartphone 기본 |
+|---|---|---|---|---|---|
+| **F1** | Back (후면) | 0° | 0° | 0° | ✅ 기본 |
+| **F2** | Front (전면) | 180° | 0° | 0° | ✅ 기본 |
+| F3 | Right (우측면) | 0° | -90° | 0° | 옵션 (smartphone 외 디바이스용) |
+| F4 | Left (좌측면) | 0° | 90° | 0° | 옵션 (smartphone 외 디바이스용) |
+| F5 | Top (상단) | 90° | 0° | 0° | 옵션 (smartphone 외 디바이스용) |
+| F6 | Bottom (하단) | -90° | 0° | 0° | 옵션 (smartphone 외 디바이스용) |
 
-### 15.3 데이터 차원 — 3D DOE
+확장 시: E1~E12 (12 모서리) · C1~C8 (8 꼭짓점) 까지. 단 본 보고서는 **면 부분 충격에 집중** —
+edge/corner는 임팩터가 미끄러져 부분 충격으로 보기 어려움.
+
+### 15.3 데이터 차원 — Bi-Face DOE (smartphone 기본)
 
 ```
-F (자세 6) × Position (위치 N) × Part (부품 M) → 응답 (G, σ, ε, d)
+F (자세 2: F1·F2) × Position (위치 N) × Part (부품 M) → 응답 (G, σ, ε, d)
 ```
 
-예시:
+예시 (스마트폰 5×5 격자):
 - F1 (후면) × 5×5 격자 = 25 위치
 - F2 (전면) × 5×5 격자 = 25 위치
-- F5 (상단) × 5×5 격자 = 25 위치
-- ... 6면 × 25 = 150 시뮬레이션
-- 부품 20개 → 150 × 20 = **3,000 pair**
+- 합계 50 시뮬레이션
+- 부품 12개 → 50 × 12 = **600 pair**
 
 자세마다 격자 수가 다를 수도 있음(face_grid 별도):
-- F1: 7×13 = 91 (가장 넓은 면)
-- F2: 7×13 = 91
-- F3: 3×13 = 39 (좁은 측면)
-- F4: 3×13 = 39
-- F5: 7×3 = 21 (상단)
-- F6: 7×3 = 21
-- 합계 N_total = 302 위치
+- F1: 5×5 = 25 또는 7×13 = 91 (대형 모델)
+- F2: 5×5 = 25 또는 7×13 = 91
 
-### 15.4 디렉토리 구조 v2 — multi-face
+6-face 분석(옵션)이 켜진 경우에만 F3~F6이 추가됨.
+
+### 15.4 디렉토리 구조 v2 — Bi-Face 기본
 
 ```
 Tests/ImpactTest_004_MultiFace/
-├── scenario.json                  # 전체 시나리오 (multi-face 설정)
+├── scenario.json                  # 전체 시나리오 (bi-face 설정)
 ├── manifest.json                  # 전체 (face, position) 매핑
 ├── F1_back/
 │   ├── face_config.json           # 그 면의 자세 행렬 + bbox
 │   ├── Run_001_pos_x010_y020/
 │   ├── Run_002_pos_x020_y020/
 │   └── ...
-├── F2_front/
-│   └── ...
-├── F5_top/
-│   └── ...
-└── ...
+└── F2_front/
+    ├── face_config.json
+    ├── Run_001_pos_x010_y020/
+    └── ...
+# (옵션) F3_right / F4_left / F5_top / F6_bottom — 비스마트폰 디바이스에서만 추가됨
 ```
 
 ### 15.5 scenario.json v2 — multi-face 지원 (제안)
@@ -718,110 +741,150 @@ Tests/ImpactTest_004_MultiFace/
 
 ---
 
-## 16. 리포트 구조 v2 — Multi-Face 반영
+## 16. 리포트 구조 v3 — Bi-Face + Impact Inspector (시그니처)
 
-### 16.1 페이지 흐름 재설계
+본 v3에서는 Page 2가 보고서의 **시그니처 컴포넌트** 인 **Impact Inspector** 로 재설계된다.
+Cube Net과 부품×자세 mini-heatmap 매트릭스는 모두 제거되었다.
 
-| 페이지 | 변경점 | 핵심 시각화 |
+### 16.1 페이지 흐름 (smartphone 기준)
+
+3 페이지 구조는 유지, 콘텐츠 재구성:
+
+| 페이지 | 핵심 | 변경 |
 |---|---|---|
-| **01 OVERVIEW** | 6면 큐브 펼침도 추가 / 자세별 KPI | Cube Net + Face Risk Summary |
-| **02 TRANSFER MAPS** | 자세 토글 + 자세별 부품 히트맵 | Face Selector + Multi-Face Mini-Maps |
-| **03 PAIR DYNAMICS + VERDICT** | (face, position, part) 3-tuple Verdict | 3D 매트릭스 + 통합 권고 |
+| **01 OVERVIEW** | Bi-Face Split + KPI + 임팩터 spec | Cube Net 제거 → Bi-Face Split 로 대체 |
+| **02 IMPACT INSPECTOR** | 단일 메인 뷰 — 호버 인터랙션 중심 | 12 mini-heatmap, compare grid 모두 제거 |
+| **03 VERDICT + ENERGY FLOW** | 기존 유지 | face 컬럼 2값(F1/F2)으로 단순화 |
 
-### 16.2 Page 1 추가 컴포넌트
+### 16.2 Page 1 — Bi-Face Split + Methodology
 
-#### A. **Cube Net (큐브 펼침도)** — col-5
+#### A. Method 밴드 (4 컴팩트 패널, 기존 유지)
+
+기존 §4의 4-패널 method strip(분석 시나리오 / 임팩터 spec / 생성 모드 / DOE 격자 요약)
+은 그대로 상단 col-12 strip 으로 유지.
+
+#### B. **Bi-Face Split** (col-12, Cube Net 대체)
+
+좌·우 두 큰 패널로 Front · Back을 동시에 비교:
+
 ```
-       ┌─────┐
-       │ F5  │  Top
-       │     │
-       └─────┘
-┌─────┐┌─────┐┌─────┐┌─────┐
-│ F4  ││ F1  ││ F3  ││ F2  │  Left / Back / Right / Front
-│Left ││Back ││Right││Front│
-└─────┘└─────┘└─────┘└─────┘
-       ┌─────┐
-       │ F6  │  Bottom
-       │     │
-       └─────┘
+┌──── FRONT (F2) ────────────────┐ ┌──── BACK (F1) ─────────────────┐
+│  max G: 1.45 MG  ▌ driving:    │ │  max G: 0.87 MG  ▌ driving:    │
+│  PCB\Main (15,-23)             │ │  Motor (-8,12)                 │
+│                                │ │                                │
+│  ┌──────────────────────────┐  │ │  ┌──────────────────────────┐  │
+│  │  디바이스 외곽선          │  │ │  │  디바이스 외곽선          │  │
+│  │  + 부품 footprint 외곽선  │  │ │  │  + 부품 footprint 외곽선  │  │
+│  │  + 충격 위치 점          │  │ │  │  + 충격 위치 점          │  │
+│  │    (색 = max 응답)       │  │ │  │    (색 = max 응답)       │  │
+│  │  + ✕ worst 마커          │  │ │  │  + ✕ worst 마커          │  │
+│  └──────────────────────────┘  │ │  └──────────────────────────┘  │
+└────────────────────────────────┘ └────────────────────────────────┘
 ```
-- 각 면에 그 자세의 **글로벌 위험맵 미니버전** 임베드 (색상 인코딩)
-- 가장 위험한 면 = 빨간 외곽선 펄스
-- 호버 시 그 면의 worst (X, Y) 좌표·부품·값 툴팁
-- 클릭 → Page 2의 그 자세로 점프
 
-#### B. **Face-by-Face KPI 표** — col-7
+각 패널 상단에 **max G / driving part** 강조 라벨. 두 면이 즉시 비교됨.
+
+#### C. Per-face KPI 표 (col-12, 2행)
+
 | Face | N positions | Max G | Worst position | Driving Part | Risk Score |
 |---|---|---|---|---|---|
-| F1 Back | 91 | 1.45 MG | (15, -23) | PCB\Main | 9.2/10 |
-| F2 Front | 91 | 0.87 MG | (-8, 12) | Motor | 7.1/10 |
-| F5 Top | 21 | 0.42 MG | (0, 0) | Housing | 4.3/10 |
-| ... | | | | | |
+| F1 Back | 25 | 0.87 MG | (-8, 12) | Motor | 7.1/10 |
+| F2 Front | 25 | 1.45 MG | (15, -23) | PCB\Main | 9.2/10 |
 
-행 호버 → Cube Net에서 해당 면 하이라이트.
+행 호버 → Bi-Face Split 의 해당 면 패널 외곽선 펄스.
 
-#### C. **임팩터 형상 시각화** — col-3 (sphere/cylinder 자동)
-- Sphere: 3D 와이어프레임 구 + 반경 표시
-- Cylinder: **비대칭 측면도** (front_radius / outer_radius / back_radius 비례 그림)
-  ```
-  ◢━━━━━━━━━━┓
-   ▌  front  ▌ outer  ▌
-   ▌  ▼      ▌  ▼     ▌
-  ◣━━━━━━━━━━┛
-        ← front_h →  ← back_h →
-  ```
-- 옆에 **운동에너지 KE = ½·m·v² 계산값** 표시
+#### D. **Δ Map (선택 col-12)**: BACK − FRONT 차이맵
 
-#### D. **Generation Mode + Boundary 시각화** — col-3
-- 디바이스 위에 충격점 + boundary_distance 원 표시
-- DampingSpring: 외곽에 스프링 기호
-- OutsideRigidPart: 외곽 파트 회색 음영
-- OffsetDistance: 임팩터-디바이스 간격 표시 (실제 단위)
+같은 정규화 좌표(u,v) 상에서 (BACK 응답) − (FRONT 응답) 차이를 한 장의 발산색(red↔blue) 맵으로:
 
-### 16.3 Page 2 — Face 차원 추가
+- 양수(빨강): BACK 충격이 더 위험한 위치
+- 음수(파랑): FRONT 충격이 더 위험한 위치
+- 0 부근(흰색): 두 면이 비슷한 위험도
 
-#### 컨트롤 바 v2
-- **Face Selector**: F1 ⏐ F2 ⏐ F3 ⏐ F4 ⏐ F5 ⏐ F6 ⏐ ALL (compare)
-- **Metric**: Peak G ⏐ σ ⏐ ε ⏐ d (기존)
-- **Scale**: linear ⏐ log ⏐ percentile (기존)
+→ "어느 면을 우선 보강할지" 한 장으로 정답.
 
-#### 시각화 모드 2가지
+#### E. Top-K worst pairs 표 (col-12)
 
-**Mode A: 단일 Face 모드** (Face Selector = F1, F2, ...)
-- 그 face의 부품별 XY 히트맵 small-multiples (기존 5.3절)
-- 좌측에 그 face의 큰 글로벌 위험맵
-- 면의 ★ centroid + ✕ worst 표시
+전체 50 run × 12 부품 = 600 pair 중 응답이 큰 상위 K (예: 20) 페어를 정렬하여 표시.
+각 행: Face / (X,Y) / Part / Max G / σ / ε / d / 시간이력 미니 sparkline.
 
-**Mode B: ALL Face 비교 모드** (Face Selector = ALL)
-- M개 부품 × F개 자세 = M·F 미니 히트맵 그리드 (small multiples 2축)
-- 행 = 부품, 열 = 자세 (F1~F6)
-- 각 셀 = 그 (부품, 자세) 조합의 XY 히트맵 (작게)
-- → **"부품 X는 어느 자세에 가장 약한가"** 한눈에 비교
+### 16.3 Page 2 — IMPACT INSPECTOR (메인 컴포넌트)
 
-#### 자세별 Influence Matrix
-- 행 = 자세(F1~F6) × Top 위치
-- 열 = 부품
-- 셀 = 응답값
-- 자세 그룹 컬러 밴드로 시각 구분
+**페이지 대부분을 차지하는 단일 큰 컴포넌트**. 이 보고서의 시그니처.
 
-### 16.4 Page 3 — 3D Verdict
+```
+┌──── 컨트롤 바 ─────────────────────────────────┐
+│ Face: [FRONT|BACK]    Metric: G|σ|ε|d           │
+│ 정렬: max|first-engage  Threshold: [─slider─]   │
+└─────────────────────────────────────────────────┘
 
-#### Verdict 매트릭스 v2 — 컬럼 추가
+┌──── FRONT IMPACT 메인 캔버스 ────┐ ┌── 사이드 패널 ──┐
+│                                  │ │                 │
+│  [디바이스 외곽선]                │ │ HOVERED:        │
+│                                  │ │ P_F03 (15,-10)  │
+│  [부품 외곽선들 — 실제 크기/위치] │ │                 │
+│  ┌──────┐  ┌─────────┐  ┌─┐      │ │ Top affected:   │
+│  │ Mot  │  │ PCB\Main│  │I│      │ │ ▓▓▓ PCB 1.2MG  │
+│  └──────┘  └─────────┘  └─┘      │ │ ▓▓░ PKG 0.8MG  │
+│                                  │ │ ▓░░ IC 0.6MG   │
+│  • • • • • • [⊙ HOVER]• • •     │ │ ░░░ Frame 0.1MG│
+│  • • • • • • • • • • • •         │ │                 │
+│  • • • • • • • • • • • •         │ │ [시간 이력      │
+│                                  │ │  mini chart]    │
+└──────────────────────────────────┘ └─────────────────┘
+```
+
+#### 동작 사양
+
+- **정적 배경**: 디바이스 외곽 + 부품 footprints는 항상 회색 외곽선으로만 표시 (true-to-scale, 실제 크기·위치)
+- **충격 위치 점**: 모든 충격 위치를 점으로 표시. **점의 색 = 그 충격의 글로벌 max 응답** (선택된 Metric 기준)
+- **마우스 호버 시**:
+  - 호버 점에 빨간 펄스링 표시
+  - 모든 부품 외곽선이 **그 충격에 대한 자기 응답값으로 fill** (단색 채움 또는 그라데이션)
+  - 사이드 패널에 부품 순위 표 (Top 12, 응답값 막대 + 수치)
+  - 사이드 패널 하단에 그 (위치, top-part) 페어의 **시간 이력 미니차트** 표시
+- **호버 해제**: 부품은 회색 외곽선으로 즉시 복귀
+- **클릭 = pin**: 호버를 떼도 그 상태가 유지됨. 다시 클릭하면 해제. (분석가가 차분히 사이드 패널을 들여다볼 수 있게)
+- **Face 토글**: FRONT ↔ BACK 한 클릭으로 전환. 같은 인스펙터 UI가 반대 면 데이터를 보여줌
+- **Threshold slider**: 일정 응답값 이하의 점은 회색/투명 처리해서 "위험 점들" 만 부각
+
+#### 보조 컴포넌트 — Influence Matrix (단순화 형태로 잔류)
+
+페이지 하단 보조:
+- **행** = 위치 (상위 10개; 응답값 큰 순)
+- **열** = 부품 (M개)
+- **셀** = 응답값 (히트맵)
+- 행 호버 → Impact Inspector 의 그 점이 펄스
+- 셀 클릭 → 그 (위치, 부품) 페어의 시간이력으로 Page 3 점프
+
+> 12 mini-heatmap small-multiples (구 §16.3 Mode A) 와 ALL face compare grid (구 Mode B) 는 **모두 제거**.
+
+### 16.4 Page 3 — VERDICT + ENERGY FLOW
+
+#### Verdict 매트릭스 (face 컬럼은 [F2|F1] 2값)
+
 | Part | Face | X (mm) | Y (mm) | Max G | σ | ε | d | CoV | Influence Area | Failure Mode |
 |---|---|---|---|---|---|---|---|---|---|---|
 
-→ 한 부품이 여러 자세에서 위험하면 여러 행으로 등장 (face별 분리).
+옵션: Face 컬럼 대신 **Δ (BACK−FRONT)** 컬럼을 두어 면별 응답차를 한 행에 압축.
 
-#### 자세별 Verdict 카드 (NEW)
-- 6개 카드 (각 자세)
-- 카드 내: 그 자세의 worst 위치 + 영향받는 부품 리스트 + 권고
-- "F2 전면 충격은 PCB\Main을 ___% 영구 변형 → 보강 필요"
+#### Per-face Verdict 카드 (NEW, 2개)
 
-#### 통합 권장 액션 v2
-1. **다중 자세에 공통 취약 부품** → 부품 자체 보강
-2. **특정 자세에만 위험** → 그 자세 외부 케이스 보강
-3. **자세 무관 위치 hot spot** → 디바이스 그 영역 충격 완화 패드
+- **F2 FRONT 카드**: 그 face의 worst 위치 + 영향받는 부품 리스트 + 권고
+- **F1 BACK 카드**: 동일 구조
+- 예: "F2 전면 충격은 PCB\Main을 ___% 영구 변형 → 보강 필요"
+
+#### 통합 권장 액션 v3
+
+1. **양 면에 공통 취약 부품** → 부품 자체 보강 (이 부품을 더 단단하게)
+2. **한 면에서만 위험한 부품** → 그 면 외부 케이스/완충재 보강
+3. **두 면 모두 안전한 위치** → 그 영역은 더 가볍게 설계 가능 (cost/weight 절감 기회)
 4. **Cylinder vs Sphere 비교** (있는 경우) → 임팩터 타입별 위험 분포 차이
+
+#### Energy Flow 섹션 (기존 §22 그대로 통합)
+
+Sankey + Time-Force Heatmap + Force-Directed Live Graph 는 face와 무관하므로
+Bi-Face 전환의 영향을 받지 않음. F1 / F2 case 별로 동일 분석을 토글로 전환.
 
 ---
 
@@ -915,9 +978,13 @@ for part in parts:
         part.tag = f"face_specific:{weakest_face}"
 ```
 
-### 18.3 큐브 펼침도 좌표 변환
+### 18.3 큐브 펼침도 좌표 변환 (DEPRECATED in v3)
+
+> v3에서 Cube Net 컴포넌트가 Bi-Face Split 으로 교체되어 본 함수는 **6-face 옵션 모드에서만** 사용됨.
+> Bi-Face(F1+F2) 기본 구성에서는 사용하지 않음.
+
 ```python
-# 6면 큐브 네트 (cross 형태) — Page 1 컴포넌트
+# 6면 큐브 네트 (cross 형태) — 6-face 옵션 전용 (smartphone 기본 Bi-Face에서는 미사용)
 def cube_net_layout(W, H, cell_w, cell_h):
     cx = W / 2
     cy = H / 2
@@ -962,26 +1029,33 @@ koo_impact_report \
 
 ---
 
-## 20. 마일스톤 v2 — Multi-Face 반영
+## 20. 마일스톤 v3 — Bi-Face + Impact Inspector
 
 | Phase | 산출물 | 기간 |
 |---|---|---|
-| P0 | scenario.json v2 스키마 + 샘플 multi-face 데이터셋 | 1주 |
-| P1 | loader (pyKooCAE manifest 매핑) + 단위 테스트 | 1주 |
+| P0 | scenario.json v3 스키마 + **샘플 50 runs (F1×25 + F2×25)** | 1주 |
+| P1 | loader (pyKooCAE manifest 매핑, bi-face) + 단위 테스트 | 1주 |
 | P2 | analyzer (face × position × part 통계) | 0.5주 |
-| P3 | HTML Page 1 + **Cube Net** + 임팩터 형상 viz | 1.5주 |
-| P4 | HTML Page 2 + **Face Selector** + small-multiples 2축 | 2주 |
-| P5 | HTML Page 3 + 자세별 verdict + 3D matrix | 1주 |
-| P6 | Linked highlighting (face↔position↔part 3중) | 1주 |
+| P3 | HTML Page 1 + **Bi-Face Split** + Δ Map + 임팩터 형상 viz | 1주 |
+| P4 | HTML Page 2 — **Impact Inspector** (호버 인터랙션, 부품 footprint outline, 사이드 패널) | 1.5주 |
+| P5 | HTML Page 3 + per-face verdict (2개 카드) | 1주 |
+| P6 | Linked highlighting (Page1 Δ Map ↔ Inspector ↔ Verdict) | 1주 |
 | P7 | pyKooCAE 통합 + SIF 빌드 + 예제 + 문서 | 1주 |
 | **합계** | **MVP** | **~9주** |
+
+v2 대비 변동:
+- P0b 샘플 데이터 110 runs → **50 runs** (bi-face 만 필요)
+- P3 Cube Net 제거 → Bi-Face Split + Δ Map 로 1주로 단축
+- P4 Multi-Face Transfer Maps (2주) → **Impact Inspector** (1.5주). 시각화 단순 + 단일 컴포넌트라 일정 단축
+- P5 3D matrix → 2-face verdict 카드 단순화
+- 전체 MVP ~10주 → **~9주**
 
 ---
 
 ## 21. 우선순위 결정 — 사용자 확인 필요
 
-`q1`: 첫 MVP는 **단일 face (F1만)** + XY 격자로 빠르게 vs **multi-face full**로 한방에?
-→ 권장: **F1만 MVP** (2-3주) → 데모 → 피드백 후 multi-face 확장
+> v3 업데이트: q1은 **Bi-Face(F1+F2)를 MVP 기본 구성으로 확정** (스마트폰 도메인 결정).
+> Cube Net 관련 의사결정 항목들은 §16 재설계로 무효화되어 제거. q2는 그대로 유지.
 
 `q2`: 임팩터 형상은 **Sphere만 우선** vs **Cylinder까지 동시**?
 → 권장: Sphere 먼저 (Cylinder는 비대칭 형상 시각화 추가 작업 필요)
@@ -994,7 +1068,21 @@ koo_impact_report \
 `q5`: 디바이스 외곽 폴리곤(`device_layout.json`)을 어떻게 얻나?
 → 자동 추출 (d3plot mesh → XY 투영) vs 사용자 제공 vs k파일 *NODE 파싱?
 
-이 5개 답이 정해지면 P0 (DOE 표준) 진입 가능.
+(v3 신규)
+
+`q11`: Impact Inspector 의 부품 fill 컬러맵 기준은?
+- (a) **절대값 기준** (MPa / G 등 물리 단위) — 면 간 / 위치 간 직접 비교 가능
+- (b) **호버 위치 내부 정규화** (그 위치에서 가장 큰 부품 = 1.0, 나머지 비율) — 그 위치 내 상대 영향도가 강조됨
+
+→ 권장: **기본 = 절대값**, 토글로 정규화 모드 제공 (분석가가 의도에 따라 전환)
+
+`q12`: **Δ Map (BACK − FRONT)** 의 위상은?
+- (a) Page 1 의 **메인 컴포넌트** 로 승격 (Bi-Face Split 옆/아래 큰 col-12 차지)
+- (b) Page 1 의 **옵션 보조 컴포넌트** (접혀 있다가 사용자가 펼침)
+
+→ 권장: 초기엔 (b) 보조, 사용자 피드백 후 (a) 승격 검토. "면을 한 장으로 결판내는" 강력한 슬라이드라 데모용으로 가치 높음.
+
+이 항목들에 대한 답이 정해지면 P0 (DOE 표준) 진입 가능.
 
 ---
 
@@ -1326,9 +1414,10 @@ def layout_nodes(depth_map, max_depth):
 
 3페이지 정책 유지 시 → Page 3의 verdict 영역과 결합해 **"에너지로 본 verdict"** 단일 페이지로 통합. 디자인 시 결정.
 
-### 22.13 다면 모드와 결합
+### 22.13 다면 모드와 결합 (Bi-Face 기본)
 
-`F1~F6` 각 자세별로 별도 energy graph 존재 → **자세 토글**로 어느 자세에서 에너지 전파 패턴이 가장 광범위한지 비교:
+smartphone 기본 구성에서는 **F1·F2 각 자세별로 별도 energy graph** 존재 → 2-way **자세 토글** 로 두 면의
+에너지 전파 패턴을 직접 비교. (6-face 옵션 모드에서는 F1~F6 6-way 토글로 확장):
 
 - F1 후면 충격 → 에너지가 PCB까지 도달 (depth 4)
 - F2 전면 충격 → 에너지가 Housing에서 멈춤 (depth 2) → 안전한 자세
@@ -1409,26 +1498,29 @@ P0c: EnergyFlow 데이터 모델 도출 + 단위 테스트
 | Phase | 산출물 | 기간 |
 |---|---|---|
 | P0a | CONTACT_AUTO_DECOMPOSITION 워크플로 통합 | 0.5주 |
-| P0b | 샘플 multi-face + decomposed contact 데이터셋 | 1주 |
-| P1 | loader (manifest + binout 통합) | 1주 |
+| P0b | 샘플 **Bi-Face 50 runs (F1×25 + F2×25)** + decomposed contact 데이터셋 | 1주 |
+| P1 | loader (manifest + binout 통합, bi-face) | 1주 |
 | P2 | analyzer + EnergyFlow 모델 | 1주 |
-| P3 | HTML Page 1 + Cube Net + 임팩터 viz | 1.5주 |
-| P4 | HTML Page 2 + Multi-Face Transfer Maps | 2주 |
+| P3 | HTML Page 1 + **Bi-Face Split + Δ Map** + 임팩터 viz | 1주 |
+| P4 | HTML Page 2 — **Impact Inspector** (호버 인터랙션) | 1.5주 |
 | P5 | HTML Page 3 + Verdict + Sankey + Heatmap (basic energy flow) | 2주 |
 | P5b | Page 4 ENERGY FLOW — Force-Directed Live Graph | 2주 |
 | P6 | Linked highlighting 3중 + Energy timeline 연동 | 1주 |
 | P7 | pyKooCAE 통합 + SIF + 문서 | 1주 |
-| **MVP (P5까지)** | **에너지 기본 분석 포함** | **~10주** |
-| **Full (P5b 포함)** | **라이브 그래프까지** | **~12주** |
+| **MVP (P5까지)** | **에너지 기본 분석 포함 (Bi-Face + Impact Inspector)** | **~9주** |
+| **Full (P5b 포함)** | **라이브 그래프까지** | **~11주** |
 
 ---
 
 ## 25. 핵심 차별점 요약 — 왜 이 보고서가 특별한가
 
-1. **자세 × 위치 × 부품** 3차원 통합 분석 (기존: 자세만 또는 위치만)
+1. **자세 × 위치 × 부품** 3차원 통합 분석 (smartphone: Bi-Face F1·F2 기본; 6-face 옵션)
 2. **에너지 회계** — 임팩트 KE 100%가 어디로 갔는지 보존 검증
 3. **지식그래프 모사** — 부품을 노드, 접촉을 엣지로 한 라이브 그래프
 4. **시간 스크러버** — 에너지가 도달하는 순간을 직접 관찰
 5. **자동 권고** — 데이터 기반 보강 위치 제안 (에너지 흡수 효율 분석)
 6. **단일 HTML 파일** — 보안망/오프라인/이메일 전달 가능
-7. **CONTACT_AUTO_DECOMPOSITION 활용** — 이미 존재하는 KooMeshModifier 모드를 100% 활용한 시너지
+7. **Position-centric Impact Inspector + CONTACT_AUTO_DECOMPOSITION** —
+   기존 KooMeshModifier 의 단일면 접촉 자동 분해 모드를 100% 활용해 부품 간 에너지 전달을 추출하고,
+   그 결과를 **호버 기반 Impact Inspector** 로 풀어 분석가의 **첫 5초에 "where to fix"** 를 알려준다.
+   즉 "어디가 위험한지" 와 "그 위치가 어느 부품을 어떤 비율로 위협하는지" 가 한 화면·한 동작으로 답해진다.
