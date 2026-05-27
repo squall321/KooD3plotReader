@@ -1,0 +1,2761 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ex02_BallDrop_Real — Multi-Face Impact Report</title>
+<style>
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0c14;
+  --bg2: #11141f;
+  --bg3: #1a1e2e;
+  --bg4: #232839;
+  --line: rgba(255,255,255,0.06);
+  --line2: rgba(255,255,255,0.10);
+  --fg: #e6ebff;
+  --fg2: #aab2cf;
+  --dim: #5c6383;
+  --num: #c8d4ff;
+  --accent: #4dd6ff;
+  --accent2: #ff5e84;
+  --warn: #f0a830;
+  --good: #4adfa1;
+  --crit: #ff3854;
+  --tag: #b46eff;
+}
+html, body {
+  background: var(--bg); color: var(--fg);
+  font-family: 'Inter', -apple-system, 'Pretendard', 'Segoe UI', system-ui, sans-serif;
+  font-size: 12px; -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.mono, .num { font-family: 'JetBrains Mono', 'SF Mono', Menlo, 'Courier New', monospace; font-variant-numeric: tabular-nums; }
+b { color: var(--fg); font-weight: 600; }
+.topbar { position: sticky; top: 0; z-index: 50; background: rgba(10,12,20,0.88); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr auto; align-items: center; padding: 10px 32px; gap: 24px; }
+.topbar .brand { font-size: 11px; letter-spacing: 4px; color: var(--accent); font-weight: 700; }
+.topbar .meta { display: flex; gap: 20px; font-size: 11px; color: var(--dim); overflow-x: auto; white-space: nowrap; }
+.topbar .meta b { color: var(--fg2); font-weight: 500; }
+.topbar .nav { display: flex; gap: 4px; }
+.topbar .nav a { text-decoration: none; color: var(--dim); padding: 4px 10px; border-radius: 4px; font-size: 11px; letter-spacing: 2px; font-weight: 600; transition: all 0.2s; cursor: pointer; }
+.topbar .nav a:hover { color: var(--fg); background: var(--bg3); }
+.topbar .nav a.active { color: var(--bg); background: var(--accent); }
+.page { padding: 28px 32px 60px; max-width: 1680px; margin: 0 auto; }
+.page-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.page-head .num { font-size: 24px; font-weight: 800; color: var(--accent); letter-spacing: -1px; }
+.page-head .ttl { font-size: 20px; font-weight: 700; }
+.page-head .sub { color: var(--dim); font-size: 12px; flex: 1; text-align: right; letter-spacing: 1px; }
+.page-head .tagline { color: var(--tag); font-size: 11px; letter-spacing: 4px; font-weight: 600; }
+.grid { display: grid; gap: 14px; }
+.g-12 { grid-template-columns: repeat(12, 1fr); }
+.panel { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; position: relative; overflow: hidden; }
+.panel .ph { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.panel .ph .pt { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--accent); }
+.panel .ph .pd { font-size: 10px; color: var(--dim); }
+.panel .pcap { font-size: 10px; color: var(--dim); margin-top: 8px; line-height: 1.5; }
+.col-3{grid-column:span 3;} .col-4{grid-column:span 4;} .col-5{grid-column:span 5;} .col-6{grid-column:span 6;} .col-7{grid-column:span 7;} .col-8{grid-column:span 8;} .col-9{grid-column:span 9;} .col-12{grid-column:span 12;}
+.kpi-strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg2); }
+.kpi-strip .k { padding: 10px 14px; border-right: 1px solid var(--line); }
+.kpi-strip .k:last-child { border-right: none; }
+.kpi-strip .k .v { font-size: 17px; font-weight: 700; color: var(--fg); font-family: 'JetBrains Mono', monospace; }
+.kpi-strip .k .v .u { color: var(--dim); font-size: 11px; font-weight: 500; margin-left: 4px; font-family: 'Inter', system-ui; }
+.kpi-strip .k .l { font-size: 9px; color: var(--dim); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+table.dt { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.dt th { color: var(--dim); font-weight: 600; text-align: right; padding: 6px 6px; border-bottom: 1px solid var(--line2); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+table.dt th.tl { text-align: left; }
+table.dt td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; white-space: nowrap; }
+table.dt td.tl { text-align: left; }
+table.dt tr:hover td { background: rgba(255,255,255,0.02); }
+table.dt tr.r-crit td:first-child::before { content: '\25A0 '; color: var(--crit); }
+table.dt tr.r-warn td:first-child::before { content: '\25A0 '; color: var(--warn); }
+table.dt tr.r-safe td:first-child::before { content: '\25A0 '; color: var(--good); }
+table.dt td.num { color: var(--num); font-family: 'JetBrains Mono', monospace; }
+table.dt td.dim { color: var(--dim); }
+table.dt td.b { color: var(--fg); font-weight: 600; }
+.hero-line { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; padding: 8px 0 18px; }
+.hero-line h1 { font-size: 28px; font-weight: 800; letter-spacing: -1px; line-height: 1.1; color: var(--fg); }
+.hero-line h1 .acc { color: var(--accent); }
+.hero-line .lede { color: var(--fg2); font-size: 12px; margin-top: 6px; max-width: 700px; line-height: 1.6; }
+.hero-line .right { text-align: right; }
+.hero-line .right .pk { color: var(--crit); font-size: 11px; letter-spacing: 3px; font-weight: 700; }
+.hero-line .right .pkv { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--fg); margin-top: 4px; }
+.method-band .band-head { display:flex; justify-content:space-between; font-size:9px; letter-spacing:2px; color:var(--accent); font-weight:700; margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid var(--line); }
+.method-band .band-head .band-sub { color: var(--dim); font-weight: 500; letter-spacing: 1px; }
+.method-band .band-cap { font-size: 9.5px; color: var(--dim); margin-top: 6px; line-height: 1.4; }
+.method-band .dt td { padding: 3px 6px; font-size: 10px; }
+.r { opacity: 0; transform: translateY(8px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.r.in { opacity: 1; transform: translateY(0); }
+.foot { text-align: center; padding: 24px 16px; color: var(--dim); font-size: 10px; letter-spacing: 2px; border-top: 1px solid var(--line); margin-top: 40px; }
+.cube-net { position: relative; width: 100%; aspect-ratio: 4/3; background: var(--bg3); border-radius: 6px; padding: 8px; }
+.cube-net svg { width: 100%; height: 100%; display: block; }
+.cube-cell text { font-family: 'JetBrains Mono', monospace; }
+.cube-cell.risky rect.cell-frame { stroke: var(--crit); stroke-width: 1.5; animation: pulse-stroke 1.6s infinite; }
+@keyframes pulse-stroke { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: 0.3; } }
+.pulse-dot { animation: pulse-dot 1.5s infinite; }
+@keyframes pulse-dot { 0%, 100% { r: 3; opacity: 1; } 50% { r: 6; opacity: 0.4; } }
+.ctlbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; }
+.ctlbar .grp { display: flex; gap: 4px; align-items: center; }
+.ctlbar .lbl { font-size: 9px; letter-spacing: 2px; color: var(--dim); font-weight: 700; margin-right: 4px; }
+.ctlbar .btn { background: var(--bg3); color: var(--fg2); border: 1px solid var(--line2); padding: 4px 10px; font-size: 11px; border-radius: 3px; cursor: pointer; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; transition: all 0.15s; }
+.ctlbar .btn:hover { background: var(--bg4); color: var(--fg); }
+.ctlbar .btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.ctlbar input[type=text] { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2); padding: 4px 10px; font-size: 11px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; width: 180px; }
+.mini-xy-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mini-xy { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 4px 4px 3px; cursor: pointer; transition: border-color 0.2s; }
+.mini-xy:hover { border-color: var(--accent); }
+.mini-xy.dim { opacity: 0.35; }
+.mini-xy .mlabel { display: flex; justify-content: space-between; font-size: 9px; font-weight: 600; color: var(--fg2); margin-bottom: 2px; line-height: 1.2; }
+.mini-xy .mlabel .mid { color: var(--accent); }
+.mini-xy .mlabel .mval { color: var(--num); font-family: 'JetBrains Mono', monospace; }
+.mini-xy svg { width: 100%; height: 80px; display: block; }
+.mini-xy .mfoot { display: flex; justify-content: space-between; font-size: 8.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--line); }
+.imatrix { width: 100%; border-collapse: collapse; font-size: 10px; }
+.imatrix th, .imatrix td { padding: 2px 4px; text-align: center; font-family: 'JetBrains Mono', monospace; }
+.imatrix th.tl { text-align: left; }
+.imatrix td.cell { width: 18px; height: 18px; border-radius: 2px; }
+.imatrix tr:hover td { background: rgba(77, 214, 255, 0.04); }
+.verdict-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.verdict-cell { padding: 12px 16px; background: var(--bg2); border-left: 3px solid var(--dim); border-radius: 4px; }
+.verdict-cell.crit { border-left-color: var(--crit); }
+.verdict-cell.warn { border-left-color: var(--warn); }
+.verdict-cell.safe { border-left-color: var(--good); }
+.verdict-cell .vl { font-size: 9px; color: var(--dim); letter-spacing: 3px; font-weight: 700; }
+.verdict-cell .vn { font-size: 24px; font-weight: 700; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+.verdict-cell.crit .vn { color: var(--crit); }
+.verdict-cell.warn .vn { color: var(--warn); }
+.verdict-cell.safe .vn { color: var(--good); }
+.verdict-cell .vd { font-size: 10px; color: var(--fg2); margin-top: 4px; line-height: 1.4; }
+.ts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ts-mini { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.ts-mini .tlabel { display: flex; justify-content: space-between; font-size: 9px; color: var(--fg2); margin-bottom: 3px; }
+.ts-mini svg { width: 100%; height: 64px; display: block; }
+.eg-wrap { position: relative; background: var(--bg3); border-radius: 4px; height: 420px; overflow: hidden; }
+.eg-wrap canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.eg-side { position: absolute; right: 8px; top: 8px; width: 200px; padding: 8px 10px; background: rgba(17,20,31,0.92); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; pointer-events: none; line-height: 1.5; display: none; }
+.eg-side.show { display: block; }
+.eg-side .ttl { color: var(--accent); font-weight: 700; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px; }
+.eg-side .row { display: flex; justify-content: space-between; color: var(--fg2); }
+.eg-side .row b { color: var(--fg); font-family: 'JetBrains Mono', monospace; }
+.scrub { display: flex; gap: 10px; align-items: center; padding: 8px 10px; background: var(--bg3); border-radius: 4px; margin-top: 8px; }
+.scrub input[type=range] { flex: 1; accent-color: var(--accent); }
+.scrub .btn { background: var(--bg4); color: var(--fg); border: 1px solid var(--line2); padding: 3px 10px; font-size: 11px; border-radius: 3px; cursor: pointer; font-family: 'JetBrains Mono', monospace; }
+.scrub .btn:hover { background: var(--bg2); }
+.scrub .tlabel { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; min-width: 90px; text-align: right; }
+.scrub .tlabel b { color: var(--accent); }
+.sankey-row { display: grid; grid-template-columns: 110px 1fr 110px 60px; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 10px; }
+.sankey-row .src { color: var(--fg); font-weight: 600; text-align: right; font-family: 'JetBrains Mono', monospace; }
+.sankey-row .dst { color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+.sankey-row .val { color: var(--num); text-align: right; font-family: 'JetBrains Mono', monospace; }
+.sankey-row .bar { height: 12px; background: linear-gradient(90deg, var(--tag), var(--accent)); border-radius: 2px; }
+.tfh { display: grid; gap: 1px; }
+.tfh-row { display: grid; grid-template-columns: 140px repeat(21, 1fr); gap: 1px; align-items: center; font-size: 9px; height: 16px; }
+.tfh-row .lab { color: var(--fg2); padding-right: 6px; text-align: right; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tfh-row .cell { background: var(--bg4); border-radius: 1px; height: 14px; }
+.tfh-head { display: grid; grid-template-columns: 140px repeat(21, 1fr); gap: 1px; font-size: 8px; color: var(--dim); padding-right: 6px; }
+.tfh-head .h0 { text-align: right; padding-right: 6px; }
+.tfh-head .ht { text-align: center; }
+.cons-box { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.cons-cell { background: var(--bg3); padding: 8px 10px; border-radius: 4px; border-left: 2px solid var(--tag); }
+.cons-cell.warn { border-left-color: var(--crit); }
+.cons-cell .v { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--fg); }
+.cons-cell .l { font-size: 9px; color: var(--dim); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+.cons-bar { margin-top: 8px; height: 8px; background: var(--bg4); border-radius: 4px; overflow: hidden; display: flex; }
+.cons-bar .seg { height: 100%; }
+.cons-banner { margin-top: 8px; padding: 6px 10px; background: rgba(255, 56, 84, 0.1); border-left: 2px solid var(--crit); font-size: 10px; color: var(--crit); border-radius: 3px; display: none; }
+.cons-banner.on { display: block; }
+.face-big { background: var(--bg3); border-radius: 4px; padding: 8px; }
+.face-big svg { width: 100%; display: block; }
+.face-big-foot { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; }
+.compare-grid { display: grid; gap: 4px; }
+.compare-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 3px; padding: 3px; }
+.compare-cell svg { width: 100%; height: 70px; display: block; }
+.compare-cell .cclbl { font-size: 8.5px; color: var(--fg2); font-family: 'JetBrains Mono', monospace; text-align: center; }
+@media (max-width: 1280px) {
+  .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9 { grid-column: span 12; }
+  .mini-xy-grid { grid-template-columns: repeat(2, 1fr); }
+  .ts-grid { grid-template-columns: repeat(2, 1fr); }
+  .topbar { padding: 10px 16px; }
+  .page { padding: 20px 16px; }
+}
+
+/* ---------- Bi-Face Split (Page 1) ---------- */
+.biface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 980px) { .biface-grid { grid-template-columns: 1fr; } }
+.biface-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px 8px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.biface-cell:hover { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(77,214,255,0.25) inset; }
+.biface-cell .bf-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.biface-cell .bf-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); letter-spacing: 1px; font-weight: 700; }
+.biface-cell .bf-sub { font-size: 9px; color: var(--dim); letter-spacing: 2px; }
+.biface-cell svg { width: 100%; display: block; aspect-ratio: 5/3; }
+.biface-cell .bf-foot { display: flex; justify-content: space-between; font-size: 10px; color: var(--fg2); padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; }
+.biface-cell .bf-foot b { color: var(--crit); }
+
+/* ---------- Impact Inspector (Page 2) ---------- */
+.ii-wrap { display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
+@media (max-width: 1100px) { .ii-wrap { grid-template-columns: 1fr; } }
+.ii-main { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.ii-side { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; max-height: 660px; overflow-y: auto; }
+.ii-canvas-wrap { position: relative; background: #0e1320; border-radius: 6px; padding: 4px; }
+.ii-canvas-wrap svg { width: 100%; display: block; aspect-ratio: 4/3; cursor: crosshair; }
+.ii-cbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.ii-cbar .grad { flex: 1; height: 10px; border-radius: 2px;
+  background: linear-gradient(90deg, rgb(68,1,84) 0%, rgb(59,82,139) 20%, rgb(33,144,141) 40%, rgb(93,201,99) 60%, rgb(253,231,37) 80%, rgb(253,80,60) 100%); }
+.ii-side .iibox { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+.ii-side .iibox .iihd { font-size: 9px; color: var(--accent); letter-spacing: 2px; font-weight: 700; margin-bottom: 4px; }
+.ii-side .iirow { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.ii-side .iirow b { color: var(--fg); font-family: 'JetBrains Mono', monospace; }
+.ii-bar-row { display: grid; grid-template-columns: 90px 1fr 50px; gap: 6px; align-items: center; font-size: 10px; padding: 2px 0; cursor: pointer; border-radius: 3px; }
+.ii-bar-row:hover { background: rgba(77,214,255,0.08); }
+.ii-bar-row.is-max b { color: var(--crit); }
+.ii-bar-row .nm { color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; }
+.ii-bar-row .bw { background: var(--bg4); border-radius: 2px; height: 8px; overflow: hidden; }
+.ii-bar-row .bw .fl { display: block; height: 100%; border-radius: 2px; }
+.ii-bar-row .vl { text-align: right; color: var(--num); font-family: 'JetBrains Mono', monospace; }
+.ii-th { width: 100%; height: 70px; display: block; }
+.ii-empty { color: var(--dim); font-size: 10px; padding: 6px 2px; font-style: italic; }
+.ii-pin { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; font-size: 10px; color: var(--fg2); letter-spacing: 1px; }
+.ii-pin input { accent-color: var(--accent); }
+.ii-pin.locked { color: var(--accent2); }
+.ii-thresh { display: flex; align-items: center; gap: 8px; }
+.ii-thresh input[type=range] { flex: 1; accent-color: var(--accent); min-width: 100px; }
+.ii-thresh .vlab { font-size: 10px; color: var(--num); font-family: 'JetBrains Mono', monospace; min-width: 60px; text-align: right; }
+
+@keyframes ii-pulse {
+  0%   { r: 6;  opacity: 0.9; }
+  100% { r: 14; opacity: 0;   }
+}
+.ii-halo { animation: ii-pulse 1.1s linear infinite; }
+
+/* ---------- Trajectory viz family (6 new panels) ---------- */
+.bvm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 980px) { .bvm-grid { grid-template-columns: 1fr; } }
+.bvm-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px 8px; }
+.bvm-cell .bf-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.bvm-cell .bf-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); letter-spacing: 1px; font-weight: 700; }
+.bvm-cell .bf-sub { font-size: 9px; color: var(--dim); letter-spacing: 2px; }
+.bvm-cell svg { width: 100%; aspect-ratio: 5/3; display: block; }
+.bvm-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; }
+.bvm-legend .lg { display: inline-flex; gap: 5px; align-items: center; color: var(--fg2); }
+.bvm-legend .lg .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.bvm-legend .lg b { color: var(--fg); }
+
+.tcm-archetypes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+@media (max-width: 980px) { .tcm-archetypes { grid-template-columns: repeat(2, 1fr); } }
+.tcm-arch { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+.tcm-arch .ah { display: flex; justify-content: space-between; align-items: baseline; }
+.tcm-arch .ah .nm { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; }
+.tcm-arch .ah .ct { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.tcm-arch svg { width: 100%; height: 36px; display: block; margin-top: 4px; }
+
+.phase-wrap { position: relative; }
+.phase-wrap svg { width: 100%; height: 380px; display: block; background: var(--bg3); border-radius: 4px; }
+
+.cseq-grid { display: grid; grid-template-columns: 110px 1fr; gap: 8px 4px; font-size: 10px; align-items: center; }
+.cseq-grid .lab { color: var(--fg2); font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cseq-row { display: grid; grid-template-columns: repeat(21, 1fr); gap: 1px; }
+.cseq-cell { height: 14px; background: var(--bg4); border-radius: 1px; }
+
+.tb3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 980px) { .tb3 { grid-template-columns: 1fr; } }
+.tb3-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.tb3-cell .h { display: flex; justify-content: space-between; font-size: 10px; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; padding-bottom: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.tb3-cell svg { width: 100%; height: 220px; display: block; }
+
+.bbadge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 1px; font-family: 'JetBrains Mono', monospace; color: var(--bg); margin-left: 6px; }
+.bbadge.bounce { background: var(--good); }
+.bbadge.rebound { background: var(--warn); }
+.bbadge.slide { background: #ff9e64; }
+.bbadge.embed { background: var(--crit); color: #fff; }
+.bbadge.unknown { background: var(--dim); }
+
+.traj-na { color: var(--dim); font-size: 10px; padding: 8px 4px; text-align: center; font-style: italic; }
+
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">KOOD3PLOT &middot; MULTI-FACE IMPACT</div>
+  <div class="meta">
+    <span>PROJECT <b>Ex02_BallDrop_Real</b></span>
+    <span>IMPACTOR <b>Sphere</b></span>
+    <span>RUNS <b>1</b></span>
+    <span>FACES <b>1</b></span>
+    <span>MODE <b>DampingSpring</b></span>
+    <span>&Delta;t <b>1.0 &micro;s</b></span>
+    <span>T <b>15.00 ms</b></span>
+  </div>
+  <div class="nav">
+    <a data-target="s1" class="active">OVERVIEW</a>
+    <a data-target="s2">INSPECTOR</a>
+    <a data-target="s3">VERDICT</a>
+  </div>
+</div>
+
+<section class="page" id="s1">
+  <div class="hero-line r">
+    <div>
+      <div class="page-head" style="margin-bottom:6px;border:none;padding:0">
+        <span class="num">01</span><span class="tagline">METHOD &middot; OVERVIEW</span>
+      </div>
+      <h1>전위치 부분충격 &mdash; <span class="acc">Multi-Face Pair-wise 해석</span></h1>
+      <div class="lede">
+        Cuboid-26 표준 자세 중 <b id="kHeroFaces">1</b>개 면 &times; XY 격자
+        <b id="kHeroPos">1</b> 위치 &times; <b id="kHeroParts">3</b> 부품
+        = <b id="kHeroPairs">3</b> 페어. 임팩터 운동에너지가 어디로 흘러가는지
+        실시간 그래프로 추적합니다.
+      </div>
+    </div>
+    <div class="right">
+      <div class="pk">&#9650; WORST CELL</div>
+      <div class="pkv" id="heroWorstCoord">F2 · X 60.0 / Y 60.0</div>
+      <div class="pkv" id="heroWorstPart" style="color:var(--crit)">0 G  ON  Aluminum_Plate_Rigid</div>
+    </div>
+  </div>
+
+  <div class="grid g-12 r method-band" style="margin-bottom:12px">
+    <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
+      <div class="band-head"><span>IMPACTOR</span><span class="band-sub" id="impSubLabel">Sphere</span></div>
+      <svg id="impactor-svg" viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet" style="width:100%;height:110px"></svg>
+      <table class="dt" style="margin-top:6px;font-size:10px">
+        <tbody id="impactor-tbl"></tbody>
+      </table>
+      <div class="band-cap" id="impCap">자유낙하 KE = &frac12; m v&sup2;.</div>
+    </div>
+
+    <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
+      <div class="band-head"><span>BI-FACE OVERVIEW</span><span class="band-sub">front · back</span></div>
+      <div class="biface-grid" id="biface-mini" style="grid-template-columns:1fr 1fr;gap:6px"></div>
+      <div class="band-cap">자유낙하 정면(F2)과 배면(F1) 충돌 위치 위험도. 클릭 시 INSPECTOR로 점프.</div>
+    </div>
+
+    <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
+      <div class="band-head"><span>DOE</span><span class="band-sub" id="doeSubLabel">grid &middot; per-face</span></div>
+      <table class="dt" style="font-size:10px">
+        <tbody id="doe-breakdown"></tbody>
+      </table>
+      <div class="band-cap" id="doeCap">자세별 격자 위치 수 &middot; generation mode</div>
+    </div>
+
+    <div class="panel" style="grid-column:span 3;padding:10px 12px;margin:0">
+      <div class="band-head"><span>PIPELINE</span><span class="band-sub" style="color:var(--tag)">scenario &rarr; report</span></div>
+      <svg viewBox="0 0 380 92" preserveAspectRatio="xMidYMid meet" style="width:100%;height:92px">
+        <defs>
+          <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="#4dd6ff"/>
+          </marker>
+        </defs>
+        <g font-family="Inter,system-ui" font-size="9" fill="#e6ebff">
+          <g transform="translate(2,22)">
+            <rect width="64" height="48" rx="4" fill="#1a1e2e" stroke="#4dd6ff" stroke-width="0.8"/>
+            <text x="32" y="14" text-anchor="middle" fill="#4dd6ff" font-size="7" letter-spacing="1">SCENARIO</text>
+            <text x="32" y="28" text-anchor="middle" font-weight="600" font-size="9">DOE</text>
+            <text x="32" y="40" text-anchor="middle" font-size="7" fill="#5c6383">grid/lhs</text>
+          </g>
+          <line x1="68" y1="46" x2="80" y2="46" stroke="#4dd6ff" stroke-width="1" marker-end="url(#arr2)"/>
+          <g transform="translate(82,22)">
+            <rect width="64" height="48" rx="4" fill="#1a1e2e" stroke="#b46eff" stroke-width="0.8"/>
+            <text x="32" y="14" text-anchor="middle" fill="#b46eff" font-size="7" letter-spacing="1">PREPARE</text>
+            <text x="32" y="28" text-anchor="middle" font-weight="600" font-size="9">DECOMP</text>
+            <text x="32" y="40" text-anchor="middle" font-size="7" fill="#5c6383">contacts</text>
+          </g>
+          <line x1="148" y1="46" x2="160" y2="46" stroke="#4dd6ff" stroke-width="1" marker-end="url(#arr2)"/>
+          <g transform="translate(162,22)">
+            <rect width="64" height="48" rx="4" fill="#1a1e2e" stroke="#f0a830" stroke-width="0.8"/>
+            <text x="32" y="14" text-anchor="middle" fill="#f0a830" font-size="7" letter-spacing="1">SOLVE</text>
+            <text x="32" y="28" text-anchor="middle" font-weight="600" font-size="9">N runs</text>
+            <text x="32" y="40" text-anchor="middle" font-size="7" fill="#5c6383">LS-DYNA</text>
+          </g>
+          <line x1="228" y1="46" x2="240" y2="46" stroke="#4dd6ff" stroke-width="1" marker-end="url(#arr2)"/>
+          <g transform="translate(242,22)">
+            <rect width="64" height="48" rx="4" fill="#1a1e2e" stroke="#4adfa1" stroke-width="0.8"/>
+            <text x="32" y="14" text-anchor="middle" fill="#4adfa1" font-size="7" letter-spacing="1">COLLECT</text>
+            <text x="32" y="28" text-anchor="middle" font-weight="600" font-size="9">binout</text>
+            <text x="32" y="40" text-anchor="middle" font-size="7" fill="#5c6383">G/&sigma;/IE/F</text>
+          </g>
+          <line x1="308" y1="46" x2="320" y2="46" stroke="#4dd6ff" stroke-width="1" marker-end="url(#arr2)"/>
+          <g transform="translate(322,22)">
+            <rect width="56" height="48" rx="4" fill="#1a1e2e" stroke="#ff3854" stroke-width="0.8"/>
+            <text x="28" y="14" text-anchor="middle" fill="#ff3854" font-size="7" letter-spacing="1">REPORT</text>
+            <text x="28" y="28" text-anchor="middle" font-weight="600" font-size="9">HTML</text>
+            <text x="28" y="40" text-anchor="middle" font-size="7" fill="#5c6383">single-file</text>
+          </g>
+        </g>
+      </svg>
+      <div class="band-cap">5단계 무손실 파이프라인. 원본 d3plot은 디스크 상주, 결과만 단일 HTML로.</div>
+    </div>
+  </div>
+
+  <div class="kpi-strip r">
+    <div class="k"><div class="v" id="kPositions">1<span class="u">pos</span></div><div class="l">TOTAL POSITIONS</div></div>
+    <div class="k"><div class="v" id="kFaces">1</div><div class="l">FACES</div></div>
+    <div class="k"><div class="v" id="kParts">3</div><div class="l">PARTS</div></div>
+    <div class="k"><div class="v" id="kWorstG">0<span class="u">G</span></div><div class="l">WORST PEAK G</div></div>
+    <div class="k"><div class="v" id="kWorstS">291715<span class="u">MPa</span></div><div class="l">WORST STRESS</div></div>
+    <div class="k"><div class="v" id="kCritPairs">0</div><div class="l">CRITICAL PAIRS</div></div>
+    <div class="k"><div class="v" id="kSafePos">0</div><div class="l">SAFE POSITIONS</div></div>
+    <div class="k"><div class="v" id="kDiss">18.5<span class="u">%</span></div><div class="l">ENERGY DISSIPATED</div></div>
+  </div>
+
+  <div class="grid g-12" style="margin-top:14px">
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">BI-FACE RISK MAPS</span>
+        <span class="pd">front (F2) vs back (F1) &middot; impact-position colored by max response</span>
+      </div>
+      <div class="biface-grid" id="biface-split"></div>
+      <div class="pcap">
+        한 점 = 한 임팩트 위치. 색상 = 그 위치에서 모든 부품 중 최대 Peak G.
+        ★ = 최악 셀. 클릭 시 INSPECTOR로 점프.
+      </div>
+    </div>
+
+    <div class="panel col-5 r">
+      <div class="ph">
+        <span class="pt">PER-FACE KPI</span>
+        <span class="pd">n &middot; max G &middot; worst (x,y) &middot; driver &middot; risk score &middot; &Delta;</span>
+      </div>
+      <table class="dt" id="face-kpi-tbl">
+        <thead>
+          <tr><th class="tl">FACE</th><th>n</th><th>MAX G</th><th>WORST (X,Y)</th><th class="tl">DRIVER</th><th>SCORE</th><th>vs OTHER</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="pcap">
+        Risk Score = 0.5&middot;(maxG/Gmax) + 0.3&middot;(P95/Gmax) + 0.2&middot;(crit_count/n) &middot; 10.
+        &Delta; = Risk Score - other face's score.
+      </div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">BOUNCE VECTOR MAP &middot; impactor fate per XY position</span>
+        <span class="pd">arrow tail = impact &middot; arrow dir = rebound XY &middot; color = behavior class</span>
+      </div>
+      <div class="bvm-grid" id="bvm-grid"></div>
+      <div class="bvm-legend" id="bvm-legend"></div>
+      <div class="pcap">
+        탄성 반사(bounce)는 녹색, 부분 반발(rebound) 노랑, 미끄러짐(slide) 주황, 박힘(embed) 빨강.
+        한눈에 어떤 영역이 임팩터를 튕겨내고 어디가 흡수하는지 보여줍니다.
+      </div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">TRAJECTORY CLUSTERING MAP</span>
+        <span class="pd">k-means archetypes &middot; positions colored by cluster &middot; sparkline = KE decay prototype</span>
+      </div>
+      <div class="bvm-grid" id="tcm-grid"></div>
+      <div class="tcm-archetypes" id="tcm-archetypes"></div>
+      <div class="pcap">
+        클러스터링은 KE retention, max penetration, rebound speed, behavior class 기반으로 임팩터의 거동 archetypes를 학습.
+        같은 클러스터 위치는 동일한 거동 패턴을 보입니다.
+      </div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">TOP-K WORST PAIRS</span>
+        <span class="pd">rank / face / position / part / response</span>
+      </div>
+      <table class="dt" id="topk-tbl">
+        <thead>
+          <tr><th class="tl">RANK</th><th class="tl">FACE</th><th>X (mm)</th><th>Y (mm)</th><th class="tl">PART</th><th>PEAK G</th><th>&sigma; (MPa)</th><th>INFLUENCE AREA</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="page" id="s2">
+  <div class="page-head r">
+    <span class="num">02</span><span class="tagline">IMPACT INSPECTOR</span>
+    <span class="ttl">충격 위치 = 화면, 부품 응답 = 부품 라이트업</span>
+    <span class="sub">HOVER-DRIVEN BI-FACE STRESS EXPLORER</span>
+  </div>
+
+  <div class="ctlbar r">
+    <div class="grp"><span class="lbl">FACE</span>
+      <button class="btn active" data-ii-face="F2">FRONT &middot; F2</button>
+      <button class="btn" data-ii-face="F1">BACK &middot; F1</button>
+    </div>
+    <div class="grp"><span class="lbl">METRIC</span>
+      <button class="btn active" data-ii-metric="g">PEAK G</button>
+      <button class="btn" data-ii-metric="s">&sigma;</button>
+      <button class="btn" data-ii-metric="e">&epsilon;</button>
+      <button class="btn" data-ii-metric="d">d</button>
+    </div>
+    <div class="grp"><span class="lbl">NORM</span>
+      <button class="btn active" data-ii-norm="abs">ABS</button>
+      <button class="btn" data-ii-norm="rel">RELATIVE</button>
+    </div>
+    <div class="grp ii-thresh"><span class="lbl">THRESH</span>
+      <input type="range" id="ii-thresh" min="0" max="100" value="0">
+      <span class="vlab" id="ii-thresh-val">0%</span>
+    </div>
+    <label class="ii-pin" id="ii-pin-lab">
+      <input type="checkbox" id="ii-pin"> PIN
+    </label>
+  </div>
+
+  <div class="ii-wrap r">
+    <div class="ii-main">
+      <div class="ph">
+        <span class="pt">IMPACT INSPECTOR &middot; <span id="ii-face-label">FRONT (F2)</span></span>
+        <span class="pd">hover impact &rarr; parts light up with their response &middot; click row to pin</span>
+      </div>
+      <div class="ii-canvas-wrap">
+        <svg id="ii-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="ii-cbar">
+        <span>0</span>
+        <span class="grad"></span>
+        <span id="ii-cbar-max">-</span>
+        <span style="color:var(--accent);margin-left:8px" id="ii-metric-name">Peak G</span>
+      </div>
+    </div>
+    <div class="ii-side" id="ii-side-panel">
+      <div class="iibox">
+        <div class="iihd">HOVERED IMPACT <span id="ii-behavior-badge"></span></div>
+        <div id="ii-hover-info"><div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div></div>
+        <div id="ii-traj-kpi" style="margin-top:6px"></div>
+      </div>
+      <div class="iibox">
+        <div class="iihd">TOP AFFECTED PARTS</div>
+        <div id="ii-parts-list"><div class="ii-empty">-</div></div>
+      </div>
+      <div class="iibox">
+        <div class="iihd">IMPACTOR KE @ POSITION <span id="ii-th-sub" style="color:var(--dim);font-weight:500"></span></div>
+        <svg id="ii-th-svg" class="ii-th" viewBox="0 0 200 70" preserveAspectRatio="none"></svg>
+        <div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px">
+          <span>0</span><span>0.5</span><span>1.0 ms</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g-12" style="margin-top:14px">
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">INFLUENCE MATRIX &middot; TOP-10 IMPACTS</span>
+        <span class="pd">rows = worst impacts on selected face &middot; cols = parts &middot; click row = inspect</span>
+      </div>
+      <div id="imatrix-wrap" style="overflow-x:auto"></div>
+      <div class="pcap">한 줄 = (face, position) 페어. 가로축 = 모든 부품. 셀 색 = 그 페어가 그 부품에 미친 응답.</div>
+    </div>
+  </div>
+</section>
+
+<section class="page" id="s3">
+  <div class="page-head r">
+    <span class="num">03</span><span class="tagline">VERDICT &middot; ENERGY FLOW</span>
+    <span class="ttl">충격은 어디로 흘러가며, 무엇을 결정해야 하는가</span>
+    <span class="sub">MULTI-CRITERIA VERDICT + ENERGY DYNAMICS</span>
+  </div>
+
+  <div class="grid g-12">
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">STRESS-TIME ENVELOPE &middot; CRITICAL PARTS</span>
+        <span class="pd">12 worst pairs &middot; P5-P95 gray band + P50 + red worst</span>
+      </div>
+      <div class="ts-grid" id="ts-grid"></div>
+      <div class="pcap">회색 띠 = 전체 페어의 P5-P95 envelope. 흰 라인 = P50. 빨간 라인 = worst pair.</div>
+    </div>
+
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">MULTI-CRITERIA VERDICT MATRIX</span>
+        <span class="pd">part &middot; face &middot; position &middot; class &middot; max G/&sigma;/&epsilon;/d &middot; influence area</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="dt" id="verdict-tbl">
+          <thead>
+            <tr>
+              <th class="tl">PART</th><th class="tl">FACE</th><th>X</th><th>Y</th>
+              <th class="tl">CLASS</th><th>MAX G</th><th>&sigma;</th><th>&epsilon;</th><th>d</th>
+              <th>CoV</th><th>INFL</th><th class="tl">MODE</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="col-5" style="display:grid;gap:14px">
+      <div class="verdict-row">
+        <div class="verdict-cell crit"><div class="vl">CRITICAL</div><div class="vn" id="vCrit">0</div><div class="vd">G &ge; P95 threshold &middot; 즉시 대응</div></div>
+        <div class="verdict-cell warn"><div class="vl">WARNING</div><div class="vn" id="vWarn">0</div><div class="vd">G &ge; P75 &middot; 모니터링</div></div>
+        <div class="verdict-cell safe"><div class="vl">PASSED</div><div class="vn" id="vSafe">0</div><div class="vd">G &lt; P75 &middot; 안전 마진</div></div>
+      </div>
+      <div class="panel r" style="padding:14px">
+        <div class="ph">
+          <span class="pt">FINDINGS</span>
+          <span class="pd">auto-derived recommendations</span>
+        </div>
+        <ul id="findings-list" style="list-style:none;padding:0;margin:6px 0 0 0;font-size:11px;line-height:1.55"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-head r" style="margin-top:36px">
+    <span class="num">&#9889;</span><span class="tagline" style="color:var(--accent2)">ENERGY FLOW DYNAMICS</span>
+    <span class="ttl">임팩트 KE의 경로 추적</span>
+    <span class="sub">FORCE GRAPH + SUNBURST + SANKEY + TIME-FORCE</span>
+  </div>
+
+  <div class="grid g-12">
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">FORCE-DIRECTED ENERGY GRAPH</span>
+        <span class="pd">node size &prop; IE &middot; edge thickness &prop; impulse</span>
+      </div>
+      <div class="eg-wrap">
+        <canvas id="eg-canvas"></canvas>
+        <div class="eg-side" id="eg-side"></div>
+      </div>
+      <div class="scrub">
+        <button class="btn" id="eg-play">&#9654; PLAY</button>
+        <button class="btn" id="eg-reset">&#11119; RESET</button>
+        <input type="range" id="eg-scrub" min="0" max="100" value="0">
+        <div class="tlabel">t = <b id="eg-t">0.000</b> ms</div>
+      </div>
+      <div class="pcap">중앙 = 임팩터. 동심원 = 전파 깊이. 외곽 펄스링 = 활성 contact. 흐르는 입자 = 순간 force.</div>
+    </div>
+
+    <div class="panel col-5 r">
+      <div class="ph">
+        <span class="pt">ENERGY BUDGET SUNBURST</span>
+        <span class="pd">KE_init &rarr; IE / dissipated / KE_left</span>
+      </div>
+      <svg id="sunburst-svg" viewBox="0 0 360 340" preserveAspectRatio="xMidYMid meet" style="width:100%;height:340px"></svg>
+      <div class="pcap">중심 = 임팩터 초기 KE 100%. 1차 링 = IE / 소산 / 잔존. 2차 링 = 부품별 흡수 비율.</div>
+    </div>
+
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">SANKEY-STYLE CUMULATIVE FLOW</span>
+        <span class="pd">impactor &rarr; parts &middot; edge bar &prop; total work</span>
+      </div>
+      <div id="sankey-rows"></div>
+      <div class="pcap">막대 길이 = 누적 work. 위에서 아래로 = first-engage 순서.</div>
+    </div>
+
+    <div class="panel col-5 r">
+      <div class="ph">
+        <span class="pt">TIME-FORCE HEATMAP MATRIX</span>
+        <span class="pd">rows = edges &middot; cols = 21 time bins &middot; sorted by first-engage</span>
+      </div>
+      <div class="tfh-head">
+        <div class="h0">EDGE</div>
+        <div class="ht">0</div><div class="ht"></div><div class="ht"></div><div class="ht"></div><div class="ht"></div>
+        <div class="ht">&frac14;</div><div class="ht"></div><div class="ht"></div><div class="ht"></div><div class="ht"></div>
+        <div class="ht">&frac12;</div><div class="ht"></div><div class="ht"></div><div class="ht"></div><div class="ht"></div>
+        <div class="ht">&frac34;</div><div class="ht"></div><div class="ht"></div><div class="ht"></div><div class="ht"></div>
+        <div class="ht">T</div>
+      </div>
+      <div class="tfh" id="tfh-rows"></div>
+      <div class="pcap">"몇 &micro;s 후에 어디까지 전파됐는가" &mdash; 위에서 아래로 = 시간순 전파 사슬.</div>
+    </div>
+
+    <div class="panel col-3 r">
+      <div class="ph">
+        <span class="pt">CONSERVATION CHECK</span>
+        <span class="pd">KE&#x2080; = IE + diss + KE&#x2099;</span>
+      </div>
+      <div class="cons-box">
+        <div class="cons-cell"><div class="v" id="consKE">0.0</div><div class="l">KE INITIAL (J)</div></div>
+        <div class="cons-cell"><div class="v" id="consIE">0.0</div><div class="l">IE FINAL (J)</div></div>
+        <div class="cons-cell"><div class="v" id="consDISS">0.0</div><div class="l">DISSIPATED</div></div>
+        <div class="cons-cell" id="consResCell"><div class="v" id="consRES">0.0</div><div class="l">RESIDUAL %</div></div>
+      </div>
+      <div class="cons-bar" id="consBar"></div>
+      <div class="cons-banner" id="consBanner">&#9888; Residual &gt; 5% &mdash; energy conservation suspect</div>
+    </div>
+
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">PHASE DIAGRAM &middot; KE vs IE</span>
+        <span class="pd">all runs overlaid &middot; color by behavior &middot; budget line = KE&#x2080;</span>
+      </div>
+      <div class="phase-wrap">
+        <svg id="phase-svg" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="bvm-legend" id="phase-legend"></div>
+      <div class="pcap">
+        가로축 = 누적 흡수 IE, 세로축 = 임팩터 KE. 대각선은 에너지 보존 budget. 곡선이 budget 위로 떨어질수록 소산이 크다는 뜻.
+      </div>
+    </div>
+
+    <div class="panel col-5 r">
+      <div class="ph">
+        <span class="pt">CONTACT ENGAGEMENT SEQUENCE</span>
+        <span class="pd">top-8 worst impacts &middot; 21 timesteps &middot; contact dominance</span>
+      </div>
+      <div class="cseq-grid" id="cseq-grid"></div>
+      <div class="pcap">셀 색상 = 그 시점의 dominant contact part. 회색 = 비접촉. 어느 시각에 어디까지 충격이 전파되는지 한눈에 추적 가능.</div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">TRAJECTORY BUNDLE 3D &middot; impactor envelopes</span>
+        <span class="pd">all runs &middot; 3 orthogonal projections &middot; XZ / YZ side + XY top</span>
+      </div>
+      <div class="tb3">
+        <div class="tb3-cell">
+          <div class="h"><span>SIDE &middot; XZ</span><span>color = face</span></div>
+          <svg id="tb3-xz" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="tb3-cell">
+          <div class="h"><span>SIDE &middot; YZ</span><span>color = face</span></div>
+          <svg id="tb3-yz" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="tb3-cell">
+          <div class="h"><span>TOP &middot; XY</span><span>color = behavior</span></div>
+          <svg id="tb3-xy" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+      <div class="pcap">
+        각 임팩터 경로의 envelope. 검은 점선 = device bbox. 회색 가로선(z=0) = 충돌면. embed 거동(빨강)은 z &lt; 0까지 침투.
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="foot">KOOD3PLOT &middot; MULTI-FACE IMPACT &middot; v0.1.0 &middot; single-file self-contained</div>
+<script>
+
+const DATA = {"meta":{"project":"Ex02_BallDrop_Real","generation_mode":"DampingSpring","boundary_distance":0.0,"offset_distance":0.05,"test_dir":"/data/ball_drop_test_v3/ex02_tet4_m027_baseline","is_mock":false,"doe_config":{"single_d3plot":true,"source":"/data/ball_drop_test_v3/ex02_tet4_m027_baseline/d3plot"},"sim_params":{"drop_height":100,"t_final":0.015,"dt":1e-06},"impactor":{"type":"Sphere","radius":5.0,"height":100.0,"density":7850.0,"youngs_modulus":200000000000.0,"poisson_ratio":0.3,"front_radius":0.0,"outer_radius":0.0,"front_height":0.0,"back_height":0.0,"back_radius":0.0,"mass":0.0041102503884466466,"velocity":1400.7141035914503,"kinetic_energy":4032.155631066161},"_n_faces":1,"_n_runs":1},"kpi":{"n_positions":1,"n_faces":1,"n_parts":3,"n_pairs":3,"worst_g":0.0,"worst_s":291715.0,"n_critical":0,"n_safe":0,"diss_pct":18.5,"worst":{"face":"F2","x":60.0,"y":60.0,"part_name":"Aluminum_Plate_Rigid","g":0.0},"crit_threshold":0.0},"faces":[{"code":"F2","name":"Front","roll":180.0,"pitch":0.0,"yaw":0.0}],"parts":[{"id":1,"name":"Aluminum_Plate_Rigid","group":"Aluminum","footprint":[[56.34,56.48],[60.34,56.48],[60.34,60.48],[56.34,60.48]],"zmin":null,"zmax":null,"_synthetic_footprint":true},{"id":2,"name":"Rubber_Block","group":"Rubber","footprint":[[58.14,59.64],[62.14,59.64],[62.14,63.64],[58.14,63.64]],"zmin":null,"zmax":null,"_synthetic_footprint":true},{"id":3,"name":"Steel_Impactor_Rigid","group":"Steel","footprint":[[59.64,55.86],[63.64,55.86],[63.64,59.86],[59.64,59.86]],"zmin":null,"zmax":null,"_synthetic_footprint":true}],"positions":[{"pos_id":"F2_P_0001","face":"F2","x":60.0,"y":60.0}],"results":[{"face":"F2","pos_id":"F2_P_0001","x":60.0,"y":60.0,"part_id":1,"g":0.0,"s":0.0,"e":0.0,"d":0.0,"part_name":"Aluminum_Plate_Rigid"},{"face":"F2","pos_id":"F2_P_0001","x":60.0,"y":60.0,"part_id":2,"g":0.0,"s":291715.03125,"e":0.0,"d":0.0,"part_name":"Rubber_Block"},{"face":"F2","pos_id":"F2_P_0001","x":60.0,"y":60.0,"part_id":3,"g":0.0,"s":0.0,"e":0.0,"d":0.0,"part_name":"Steel_Impactor_Rigid"}],"energy_flows":{"__mock__":{"ke_init":100.0,"ke_final":6.5,"dissipated":18.5,"nodes":[{"id":"impactor","name":"Impactor","is_impactor":true,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[100.0,98.3333,96.6667,95.0,93.3333,91.6667,90.0,88.3333,86.6667,85.0,83.3333,81.6667,80.0,78.3333,76.6667,75.0,73.3333,71.6667,70.0,68.3333,66.6667,65.0,63.3333,61.6667,60.0,58.3333,56.6667,55.0,53.3333,51.6667,50.0,48.3333,46.6667,45.0,43.3333,41.6667,40.0,38.3333,36.6667,35.0,33.3333,31.6667,30.0,28.3333,26.6667,25.0,23.3333,21.6667,20.0,18.3333,16.6667,15.0,13.3333,11.6667,10.0,8.3333,6.6667,5.0,3.3333,1.6667,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},{"id":"top_plate","name":"Top Plate","is_impactor":false,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[0.21968,0.29794,0.3978,0.5229,0.67668,0.86211,1.08133,1.33526,1.62326,1.94279,2.28917,2.65548,3.03265,3.4097,3.7742,4.11289,4.41248,4.66051,4.84617,4.96109,5.0,4.96109,4.84617,4.66051,4.41248,4.11289,3.7742,3.4097,3.03265,2.65548,2.28917,1.94279,1.62326,1.33526,1.08133,0.86211,0.67668,0.5229,0.3978,0.29794,0.21968,0.15947,0.11397,0.08019,0.05554,0.03788,0.02543,0.01681,0.01094,0.00701,0.00442,0.00274,0.00168,0.00101,0.0006,0.00035,0.0002,0.00011,6e-05,3e-05,2e-05,1e-05,1e-05,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,3.16667,6.33333,9.5,12.66667,15.83333,19.0,22.16667,25.33333,28.5,31.66667,34.83333,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0,38.0]},{"id":"frame","name":"Frame","is_impactor":false,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[0.03888,0.05222,0.06944,0.09142,0.11917,0.15378,0.19647,0.24852,0.31123,0.38588,0.47367,0.57566,0.69265,0.82511,0.97313,1.13628,1.31359,1.50345,1.70363,1.91126,2.12286,2.33442,2.54152,2.73947,2.92345,3.08874,3.23091,3.34599,3.4307,3.48254,3.5,3.48254,3.4307,3.34599,3.23091,3.08874,2.92345,2.73947,2.54152,2.33442,2.12286,1.91126,1.70363,1.50345,1.31359,1.13628,0.97313,0.82511,0.69265,0.57566,0.47367,0.38588,0.31123,0.24852,0.19647,0.15378,0.11917,0.09142,0.06944,0.05222,0.03888,0.02866,0.02092,0.01511,0.01081,0.00766,0.00537,0.00373,0.00256,0.00174,0.00117,0.00078,0.00052,0.00034,0.00022,0.00014,9e-05,6e-05,3e-05,2e-05,1e-05,1e-05,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.83333,3.66667,5.5,7.33333,9.16667,11.0,12.83333,14.66667,16.5,18.33333,20.16667,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0,22.0]},{"id":"sidewall","name":"Sidewall","is_impactor":false,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[0.00067,0.001,0.00146,0.00213,0.00307,0.00437,0.00618,0.00864,0.01195,0.01638,0.02222,0.02984,0.03968,0.05224,0.06809,0.08787,0.11227,0.14201,0.17784,0.2205,0.27067,0.32895,0.3958,0.47149,0.55607,0.6493,0.75062,0.85911,0.9735,1.09215,1.21306,1.33395,1.4523,1.56541,1.67054,1.76499,1.84623,1.91199,1.9604,1.99002,2.0,1.99002,1.9604,1.91199,1.84623,1.76499,1.67054,1.56541,1.4523,1.33395,1.21306,1.09215,0.9735,0.85911,0.75062,0.6493,0.55607,0.47149,0.3958,0.32895,0.27067,0.2205,0.17784,0.14201,0.11227,0.08787,0.06809,0.05224,0.03968,0.02984,0.02222,0.01638,0.01195,0.00864,0.00618,0.00437,0.00307,0.00213,0.00146,0.001,0.00067,0.00045,0.0003,0.00019,0.00013,8e-05,5e-05,3e-05,2e-05,1e-05,1e-05,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.91667,1.83333,2.75,3.66667,4.58333,5.5,6.41667,7.33333,8.25,9.16667,10.08333,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0,11.0]},{"id":"pcb","name":"PCB","is_impactor":false,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[2e-05,3e-05,5e-05,7e-05,0.0001,0.00014,0.00019,0.00027,0.00037,0.00052,0.00071,0.00096,0.0013,0.00175,0.00233,0.00309,0.00407,0.00532,0.0069,0.00889,0.01137,0.01445,0.01824,0.02285,0.02844,0.03515,0.04314,0.05258,0.06365,0.07651,0.09133,0.10827,0.12746,0.14902,0.17301,0.19948,0.22841,0.25972,0.29328,0.32889,0.36627,0.40507,0.44488,0.48522,0.52556,0.56532,0.60387,0.64059,0.67484,0.706,0.73348,0.75677,0.77539,0.78897,0.79723,0.8,0.79723,0.78897,0.77539,0.75677,0.73348,0.706,0.67484,0.64059,0.60387,0.56532,0.52556,0.48522,0.44488,0.40507,0.36627,0.32889,0.29328,0.25972,0.22841,0.19948,0.17301,0.14902,0.12746,0.10827,0.09133,0.07651,0.06365,0.05258,0.04314,0.03515,0.02844,0.02285,0.01824,0.01445,0.01137,0.00889,0.0069,0.00532,0.00407,0.00309,0.00233,0.00175,0.0013,0.00096,0.00071],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.75,1.5,2.25,3.0,3.75,4.5,5.25,6.0,6.75,7.5,8.25,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0]},{"id":"ic","name":"IC","is_impactor":false,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"ke":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,2e-05,3e-05,4e-05,6e-05,9e-05,0.00013,0.0002,0.00029,0.00043,0.00061,0.00087,0.00124,0.00173,0.00239,0.00328,0.00444,0.00597,0.00794,0.01045,0.01362,0.01757,0.02245,0.0284,0.03557,0.0441,0.05413,0.06579,0.07916,0.0943,0.11121,0.12986,0.15012,0.17182,0.1947,0.21843,0.24261,0.26679,0.29046,0.31308,0.33411,0.353,0.36925,0.3824,0.39208,0.398,0.4,0.398,0.39208,0.3824,0.36925,0.353,0.33411,0.31308,0.29046,0.26679,0.24261,0.21843,0.1947,0.17182,0.15012,0.12986,0.11121,0.0943,0.07916,0.06579,0.05413,0.0441,0.03557,0.0284,0.02245,0.01757,0.01362,0.01045,0.00794,0.00597,0.00444,0.00328,0.00239,0.00173,0.00124,0.00087,0.00061,0.00043,0.00029,0.0002,0.00013],"ie":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.33333,0.66667,1.0,1.33333,1.66667,2.0,2.33333,2.66667,3.0,3.33333,3.66667,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0]}],"edges":[{"src":"impactor","dst":"top_plate","cid":1,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[7908.64805,10104.25731,12780.96367,16005.89114,19845.09455,24360.35098,29605.40218,35621.76584,42434.29378,50046.71408,58437.44412,67555.99779,77320.32448,87615.40607,98293.3968,109175.51875,120055.82595,130706.82667,140886.81688,150348.63805,158849.44247,166160.94235,172079.54673,176435.7612,179102.24625,180000.0,179102.24625,176435.7612,172079.54673,166160.94235,158849.44247,150348.63805,140886.81688,130706.82667,120055.82595,109175.51875,98293.3968,87615.40607,77320.32448,67555.99779,58437.44412,50046.71408,42434.29378,35621.76584,29605.40218,24360.35098,19845.09455,16005.89114,12780.96367,10104.25731,7908.64805,6128.54185,4701.85377,3571.39705,2685.74149,1999.61938,1473.96618,1075.68412,777.2112,555.96877,393.7484,276.08592,191.65792,131.72444,89.63198,60.38327,40.27424,26.5947,17.38681,11.25387,7.21175,4.57548,2.87402,1.78731,1.10044,0.6708,0.40483,0.24189,0.14309,0.0838,0.04859,0.0279,0.01585,0.00892,0.00497,0.00274,0.0015,0.00081,0.00043,0.00023,0.00012,6e-05,3e-05,2e-05,1e-05,0.0,0.0,0.0,0.0,0.0,0.0],"imp":[0.0,0.10104,0.22885,0.38891,0.58736,0.83097,1.12702,1.48324,1.90758,2.40805,2.99242,3.66798,4.44118,5.31734,6.30027,7.39203,8.59259,9.89965,11.30852,12.81201,14.4005,16.06211,17.78291,19.54727,21.33829,23.13829,24.92931,26.69367,28.41446,30.07607,31.66457,33.16805,34.57692,35.88399,37.08455,38.1763,39.15924,40.03539,40.8086,41.48416,42.06853,42.569,42.99334,43.34956,43.64561,43.88922,44.08767,44.24773,44.37553,44.47658,44.55566,44.61695,44.66397,44.69968,44.72654,44.74654,44.76128,44.77203,44.7798,44.78536,44.7893,44.79206,44.79398,44.7953,44.79619,44.7968,44.7972,44.79746,44.79764,44.79775,44.79782,44.79787,44.7979,44.79792,44.79793,44.79793,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794,44.79794],"w":[0.0,0.06062,0.13731,0.23335,0.35242,0.49858,0.67621,0.88994,1.14455,1.44483,1.79545,2.20079,2.66471,3.1904,3.78016,4.43522,5.15555,5.93979,6.78511,7.68721,8.6403,9.63727,10.66975,11.72836,12.80297,13.88297,14.95759,16.0162,17.04868,18.04564,18.99874,19.90083,20.74615,21.53039,22.25073,22.90578,23.49554,24.02123,24.48516,24.8905,25.24112,25.5414,25.796,26.00974,26.18737,26.33353,26.4526,26.54864,26.62532,26.68595,26.7334,26.77017,26.79838,26.81981,26.83592,26.84792,26.85677,26.86322,26.86788,26.87122,26.87358,26.87524,26.87639,26.87718,26.87771,26.87808,26.87832,26.87848,26.87858,26.87865,26.87869,26.87872,26.87874,26.87875,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876,26.87876],"peak_f":180000.0,"total_imp":44.79794,"total_w":26.87876},{"src":"top_plate","dst":"frame","cid":2,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[196.8742,262.63347,347.93281,457.74623,598.05102,775.9536,999.80969,1279.33121,1625.67121,2051.47628,2570.89507,3199.53061,3954.32403,4853.35773,5915.56758,7160.35578,8607.10003,10274.5584,12180.17549,14339.30137,16764.34173,19463.86501,22441.69879,25696.05423,29218.72206,32994.38674,37000.10615,41205.00256,45570.2055,50049.07954,54587.75937,59126.00127,63598.34501,67935.56418,72066.36626,75919.28842,79424.72123,82516.98202,85136.3522,87230.9911,88758.64051,89688.04191,90000.0,89688.04191,88758.64051,87230.9911,85136.3522,82516.98202,79424.72123,75919.28842,72066.36626,67935.56418,63598.34501,59126.00127,54587.75937,50049.07954,45570.2055,41205.00256,37000.10615,32994.38674,29218.72206,25696.05423,22441.69879,19463.86501,16764.34173,14339.30137,12180.17549,10274.5584,8607.10003,7160.35578,5915.56758,4853.35773,3954.32403,3199.53061,2570.89507,2051.47628,1625.67121,1279.33121,999.80969,775.9536,598.05102,457.74623,347.93281,262.63347,196.8742,146.5587,108.3474,79.54437,57.99418,41.98977,30.19164,21.55827,15.2871,10.76516,7.52835,5.22833,3.60588,2.46969,1.6798,1.13464,0.7611],"imp":[0.0,0.00263,0.00611,0.01068,0.01666,0.02442,0.03442,0.04721,0.06347,0.08399,0.1097,0.14169,0.18123,0.22977,0.28892,0.36053,0.4466,0.54934,0.67114,0.81454,0.98218,1.17682,1.40124,1.6582,1.95038,2.28033,2.65033,3.06238,3.51808,4.01857,4.56445,5.15571,5.79169,6.47105,7.19171,7.95091,8.74515,9.57032,10.42169,11.294,12.18158,13.07846,13.97846,14.87534,15.76293,16.63524,17.4866,18.31177,19.10602,19.86521,20.58588,21.26523,21.90122,22.49248,23.03835,23.53884,23.99455,24.4066,24.7766,25.10654,25.39873,25.65569,25.88011,26.07474,26.24239,26.38578,26.50758,26.61033,26.6964,26.768,26.82716,26.87569,26.91524,26.94723,26.97294,26.99345,27.00971,27.0225,27.0325,27.04026,27.04624,27.05082,27.0543,27.05693,27.05889,27.06036,27.06144,27.06224,27.06282,27.06324,27.06354,27.06376,27.06391,27.06402,27.06409,27.06414,27.06418,27.06421,27.06422,27.06423,27.06424],"w":[0.0,0.00158,0.00367,0.00641,0.01,0.01465,0.02065,0.02833,0.03808,0.05039,0.06582,0.08501,0.10874,0.13786,0.17335,0.21632,0.26796,0.3296,0.40268,0.48872,0.58931,0.70609,0.84074,0.99492,1.17023,1.3682,1.5902,1.83743,2.11085,2.41114,2.73867,3.09343,3.47501,3.88263,4.31503,4.77055,5.24709,5.74219,6.25301,6.7764,7.30895,7.84708,8.38708,8.9252,9.45776,9.98114,10.49196,10.98706,11.46361,11.91913,12.35153,12.75914,13.14073,13.49549,13.82301,14.1233,14.39673,14.64396,14.86596,15.06392,15.23924,15.39341,15.52807,15.64484,15.74543,15.83147,15.90455,15.9662,16.01784,16.0608,16.0963,16.12541,16.14914,16.16834,16.18376,16.19607,16.20583,16.2135,16.2195,16.22416,16.22774,16.23049,16.23258,16.23416,16.23533,16.23622,16.23686,16.23734,16.23769,16.23794,16.23812,16.23826,16.23835,16.23841,16.23845,16.23848,16.23851,16.23853,16.23853,16.23854,16.23854],"peak_f":90000.0,"total_imp":27.06424,"total_w":16.23854},{"src":"top_plate","dst":"sidewall","cid":3,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[35.44089,48.61045,66.2123,89.56365,120.31201,160.49823,212.62561,279.73381,365.47562,474.19387,610.99481,781.81352,993.46574,1253.67995,1571.10254,1955.26871,2416.53135,2965.94084,3615.06907,4375.77298,5259.89447,6278.8968,7443.44058,8762.90639,10244.8755,11894.58418,13714.37148,15703.14425,17855.8857,20163.23634,22611.17598,25180.8349,27848.45892,30585.54861,33359.18628,36132.55633,38865.65528,41516.17811,44040.55716,46395.1207,48537.32964,50427.04457,52027.77079,53307.8279,54241.39142,54809.35894,55000.0,54809.35894,54241.39142,53307.8279,52027.77079,50427.04457,48537.32964,46395.1207,44040.55716,41516.17811,38865.65528,36132.55633,33359.18628,30585.54861,27848.45892,25180.8349,22611.17598,20163.23634,17855.8857,15703.14425,13714.37148,11894.58418,10244.8755,8762.90639,7443.44058,6278.8968,5259.89447,4375.77298,3615.06907,2965.94084,2416.53135,1955.26871,1571.10254,1253.67995,993.46574,781.81352,610.99481,474.19387,365.47562,279.73381,212.62561,160.49823,120.31201,89.56365,66.2123,48.61045,35.44089,25.66042,18.45044,13.1745,9.34212,6.57871,4.60066,3.19509,2.20359],"imp":[0.0,0.00049,0.00115,0.00204,0.00325,0.00485,0.00698,0.00978,0.01343,0.01817,0.02428,0.0321,0.04203,0.05457,0.07028,0.08984,0.114,0.14366,0.17981,0.22357,0.27617,0.33896,0.41339,0.50102,0.60347,0.72241,0.85956,1.01659,1.19515,1.39678,1.62289,1.8747,2.15319,2.45904,2.79263,3.15396,3.54262,3.95778,4.39818,4.86213,5.34751,5.85178,6.37206,6.90513,7.44755,7.99564,8.54564,9.09373,9.63615,10.16923,10.6895,11.19377,11.67915,12.1431,12.5835,12.99867,13.38732,13.74865,14.08224,14.3881,14.66658,14.91839,15.1445,15.34613,15.52469,15.68172,15.81887,15.93781,16.04026,16.12789,16.20233,16.26511,16.31771,16.36147,16.39762,16.42728,16.45145,16.471,16.48671,16.49925,16.50918,16.517,16.52311,16.52785,16.53151,16.5343,16.53643,16.53803,16.53924,16.54013,16.5408,16.54128,16.54164,16.54189,16.54208,16.54221,16.5423,16.54237,16.54241,16.54245,16.54247],"w":[0.0,0.00029,0.00069,0.00122,0.00195,0.00291,0.00419,0.00587,0.00806,0.0109,0.01457,0.01926,0.02522,0.03274,0.04217,0.0539,0.0684,0.0862,0.10789,0.13414,0.1657,0.20338,0.24803,0.30061,0.36208,0.43345,0.51574,0.60995,0.71709,0.83807,0.97373,1.12482,1.29191,1.47542,1.67558,1.89238,2.12557,2.37467,2.63891,2.91728,3.20851,3.51107,3.82324,4.14308,4.46853,4.79738,5.12738,5.45624,5.78169,6.10154,6.4137,6.71626,7.00749,7.28586,7.5501,7.7992,8.03239,8.24919,8.44934,8.63286,8.79995,8.95103,9.0867,9.20768,9.31481,9.40903,9.49132,9.56269,9.62416,9.67673,9.7214,9.75907,9.79063,9.81688,9.83857,9.85637,9.87087,9.8826,9.89203,9.89955,9.90551,9.9102,9.91387,9.91671,9.91891,9.92058,9.92186,9.92282,9.92354,9.92408,9.92448,9.92477,9.92498,9.92513,9.92525,9.92533,9.92538,9.92542,9.92545,9.92547,9.92548],"peak_f":55000.0,"total_imp":16.54247,"total_w":9.92548},{"src":"frame","dst":"pcb","cid":4,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[0.01998,0.03105,0.04792,0.07345,0.1118,0.169,0.2537,0.37821,0.55993,0.82323,1.20196,1.74278,2.50945,3.58839,5.0957,7.18609,10.06388,13.99659,19.33139,26.51479,36.1158,48.8529,65.62473,87.54449,115.9776,152.58208,199.35034,258.6512,333.2699,426.44374,541.8904,683.82543,856.96502,1066.5102,1318.10801,1617.78591,1971.85586,2386.78526,2869.03334,3424.8528,4060.0585,4779.76712,5588.11391,6487.955,7480.56626,8565.35141,9739.57402,10998.12891,12333.36872,13735.00085,15190.0685,16683.02651,18195.91979,19708.66709,21199.44834,22645.18806,24022.12209,25306.42947,26474.90708,27505.66067,28378.78407,29076.99703,29586.2135,29896.01397,30000.0,29896.01397,29586.2135,29076.99703,28378.78407,27505.66067,26474.90708,25306.42947,24022.12209,22645.18806,21199.44834,19708.66709,18195.91979,16683.02651,15190.0685,13735.00085,12333.36872,10998.12891,9739.57402,8565.35141,7480.56626,6487.955,5588.11391,4779.76712,4060.0585,3424.8528,2869.03334,2386.78526,1971.85586,1617.78591,1318.10801,1066.5102,856.96502,683.82543,541.8904,426.44374,333.2699],"imp":[0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,2e-05,2e-05,4e-05,5e-05,8e-05,0.00011,0.00017,0.00024,0.00034,0.00048,0.00067,0.00094,0.0013,0.00179,0.00244,0.00332,0.00448,0.006,0.008,0.01058,0.01392,0.01818,0.0236,0.03044,0.03901,0.04967,0.06285,0.07903,0.09875,0.12262,0.15131,0.18556,0.22616,0.27396,0.32984,0.39472,0.46952,0.55518,0.65257,0.76255,0.88589,1.02324,1.17514,1.34197,1.52393,1.72101,1.93301,2.15946,2.39968,2.65274,2.91749,3.19255,3.47634,3.76711,4.06297,4.36193,4.66193,4.96089,5.25675,5.54752,5.83131,6.10637,6.37112,6.62418,6.8644,7.09085,7.30285,7.49993,7.68189,7.84872,8.00062,8.13797,8.26131,8.37129,8.46869,8.55434,8.62914,8.69402,8.74991,8.7977,8.8383,8.87255,8.90124,8.92511,8.94483,8.96101,8.97419,8.98485,8.99342,9.00026,9.00568,9.00994,9.01328],"w":[0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,1e-05,2e-05,3e-05,5e-05,7e-05,0.0001,0.00014,0.0002,0.00029,0.0004,0.00056,0.00078,0.00107,0.00146,0.00199,0.00269,0.0036,0.0048,0.00635,0.00835,0.01091,0.01416,0.01826,0.02341,0.0298,0.03771,0.04742,0.05925,0.07357,0.09079,0.11134,0.1357,0.16438,0.1979,0.23683,0.28171,0.33311,0.39154,0.45753,0.53153,0.61394,0.70508,0.80518,0.91436,1.03261,1.15981,1.29568,1.43981,1.59164,1.75049,1.91553,2.0858,2.26027,2.43778,2.61716,2.79716,2.97653,3.15405,3.32851,3.49879,3.66382,3.82267,3.97451,4.11864,4.25451,4.38171,4.49996,4.60913,4.70923,4.80037,4.88278,4.95679,5.02277,5.08121,5.1326,5.17748,5.21641,5.24995,5.27862,5.30298,5.32353,5.34074,5.35507,5.3669,5.37661,5.38451,5.39091,5.39605,5.40016,5.40341,5.40596,5.40797],"peak_f":30000.0,"total_imp":9.01328,"total_w":5.40797},{"src":"frame","dst":"ic","cid":5,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[9e-05,0.00015,0.00024,0.0004,0.00065,0.00106,0.0017,0.00272,0.00432,0.00681,0.01065,0.01656,0.02556,0.03917,0.05963,0.09013,0.13531,0.20171,0.29863,0.43906,0.64104,0.92948,1.33837,1.91381,2.71771,3.83258,5.3674,7.46485,10.31008,14.14122,19.26176,26.05488,34.99986,46.69039,61.85472,81.37711,106.32018,137.94731,177.74394,227.43666,289.00821,364.70689,457.04801,568.80544,702.99094,862.81915,1051.65646,1272.95214,1530.15112,1826.58816,2165.36453,2549.20913,2980.32742,3460.24267,3989.63534,4568.18742,5194.43948,5865.66875,6577.79665,7325.33379,8101.36987,8897.61414,9704.49056,10511.28911,11306.37245,12077.43363,12811.79845,13496.76239,14119.95044,14669.68569,15135.3515,15507.73175,15779.31387,15944.54078,16000.0,15944.54078,15779.31387,15507.73175,15135.3515,14669.68569,14119.95044,13496.76239,12811.79845,12077.43363,11306.37245,10511.28911,9704.49056,8897.61414,8101.36987,7325.33379,6577.79665,5865.66875,5194.43948,4568.18742,3989.63534,3460.24267,2980.32742,2549.20913,2165.36453,1826.58816,1530.15112],"imp":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,2e-05,3e-05,4e-05,6e-05,9e-05,0.00013,0.00018,0.00026,0.00036,0.0005,0.00069,0.00095,0.0013,0.00177,0.00239,0.0032,0.00427,0.00564,0.00742,0.0097,0.01259,0.01623,0.0208,0.02649,0.03352,0.04215,0.05267,0.0654,0.0807,0.09896,0.12062,0.14611,0.17591,0.21052,0.25041,0.29609,0.34804,0.40669,0.47247,0.54573,0.62674,0.71572,0.81276,0.91787,1.03094,1.15171,1.27983,1.4148,1.556,1.70269,1.85405,2.00912,2.16692,2.32636,2.48636,2.64581,2.8036,2.95868,3.11003,3.25673,3.39793,3.5329,3.66101,3.78179,3.89485,3.99997,4.09701,4.18599,4.267,4.34025,4.40603,4.46469,4.51663,4.56231,4.60221,4.63681,4.66662,4.69211,4.71376,4.73203,4.74733],"w":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,1e-05,2e-05,2e-05,4e-05,5e-05,8e-05,0.00011,0.00016,0.00022,0.0003,0.00041,0.00057,0.00078,0.00106,0.00143,0.00192,0.00256,0.00338,0.00445,0.00582,0.00755,0.00974,0.01248,0.01589,0.02011,0.02529,0.0316,0.03924,0.04842,0.05938,0.07237,0.08767,0.10555,0.12631,0.15025,0.17765,0.20882,0.24401,0.28348,0.32744,0.37604,0.42943,0.48766,0.55072,0.61856,0.69103,0.7679,0.84888,0.9336,1.02161,1.11243,1.20547,1.30015,1.39582,1.49182,1.58749,1.68216,1.77521,1.86602,1.95404,2.03876,2.11974,2.19661,2.26907,2.33691,2.39998,2.45821,2.51159,2.5602,2.60415,2.64362,2.67881,2.70998,2.73739,2.76133,2.78209,2.79997,2.81527,2.82826,2.83922,2.8484],"peak_f":16000.0,"total_imp":4.74733,"total_w":2.8484},{"src":"sidewall","dst":"frame","cid":6,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[0.12393,0.18605,0.27736,0.41062,0.6037,0.88144,1.27804,1.84026,2.63148,3.73685,5.2698,7.38018,10.26417,14.17636,19.44418,26.48492,35.82546,48.1248,64.19929,85.05024,111.89352,146.19025,189.67755,244.39792,312.72541,397.3863,501.47198,628.44102,782.10748,966.61254,1186.37633,1446.02763,1750.30919,2103.95779,2511.55872,2977.37623,3505.16256,4097.9502,4757.83367,5485.74859,6281.2577,7142.35428,8065.29454,9044.47039,10072.33396,11139.38357,12234.21944,13343.67451,14453.02253,15546.26211,16606.47124,17616.22286,18558.04828,19414.93186,20170.81783,20811.10832,21323.13116,21696.55657,21923.74358,22000.0,21923.74358,21696.55657,21323.13116,20811.10832,20170.81783,19414.93186,18558.04828,17616.22286,16606.47124,15546.26211,14453.02253,13343.67451,12234.21944,11139.38357,10072.33396,9044.47039,8065.29454,7142.35428,6281.2577,5485.74859,4757.83367,4097.9502,3505.16256,2977.37623,2511.55872,2103.95779,1750.30919,1446.02763,1186.37633,966.61254,782.10748,628.44102,501.47198,397.3863,312.72541,244.39792,189.67755,146.19025,111.89352,85.05024,64.19929],"imp":[0.0,0.0,0.0,1e-05,1e-05,2e-05,4e-05,5e-05,8e-05,0.00012,0.00017,0.00024,0.00035,0.00049,0.00068,0.00095,0.00131,0.00179,0.00243,0.00328,0.0044,0.00586,0.00776,0.0102,0.01333,0.0173,0.02232,0.0286,0.03642,0.04609,0.05795,0.07241,0.08992,0.11096,0.13607,0.16585,0.2009,0.24188,0.28946,0.34431,0.40713,0.47855,0.5592,0.64965,0.75037,0.86176,0.98411,1.11754,1.26207,1.41754,1.5836,1.75976,1.94534,2.13949,2.3412,2.54931,2.76254,2.97951,3.19875,3.41875,3.63798,3.85495,4.06818,4.27629,4.478,4.67215,4.85773,5.03389,5.19996,5.35542,5.49995,5.63339,5.75573,5.86712,5.96785,6.05829,6.13894,6.21037,6.27318,6.32804,6.37561,6.41659,6.45165,6.48142,6.50654,6.52757,6.54508,6.55954,6.5714,6.58107,6.58889,6.59517,6.60019,6.60416,6.60729,6.60973,6.61163,6.61309,6.61421,6.61506,6.6157],"w":[0.0,0.0,0.0,1e-05,1e-05,1e-05,2e-05,3e-05,5e-05,7e-05,0.0001,0.00014,0.00021,0.00029,0.00041,0.00057,0.00079,0.00107,0.00146,0.00197,0.00264,0.00352,0.00466,0.00612,0.008,0.01038,0.01339,0.01716,0.02185,0.02765,0.03477,0.04345,0.05395,0.06658,0.08164,0.09951,0.12054,0.14513,0.17368,0.20659,0.24428,0.28713,0.33552,0.38979,0.45022,0.51706,0.59047,0.67052,0.75724,0.85052,0.95016,1.05586,1.1672,1.28369,1.40472,1.52959,1.65752,1.78771,1.91925,2.05125,2.18279,2.31297,2.44091,2.56577,2.6868,2.80329,2.91464,3.02033,3.11998,3.21325,3.29997,3.38003,3.45344,3.52027,3.58071,3.63497,3.68336,3.72622,3.76391,3.79682,3.82537,3.84995,3.87099,3.88885,3.90392,3.91654,3.92705,3.93572,3.94284,3.94864,3.95333,3.9571,3.96011,3.9625,3.96437,3.96584,3.96698,3.96785,3.96853,3.96904,3.96942],"peak_f":22000.0,"total_imp":6.6157,"total_w":3.96942},{"src":"pcb","dst":"ic","cid":7,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,2e-05,4e-05,7e-05,0.00012,0.00022,0.0004,0.0007,0.00124,0.00216,0.00372,0.00636,0.01075,0.01799,0.02981,0.04891,0.07944,0.12773,0.20335,0.32052,0.50017,0.77275,1.18199,1.78997,2.6837,3.98364,5.85442,8.51813,12.27049,17.49993,24.70972,34.54272,47.80818,65.50961,88.87197,119.36629,158.72876,208.97128,272.37964,351.49547,449.0781,568.04283,711.37294,882.0042,1082.68227,1315.79565,1583.18959,1885.96861,2224.2984,2597.21974,3002.48879,3436.45887,3894.01805,4368.59541,4852.24528,5335.81449,5809.1923,6261.63631,6682.16169,7059.97522,7384.93077,7647.97985,7841.58939,7960.09983,8000.0,7960.09983,7841.58939,7647.97985,7384.93077,7059.97522,6682.16169,6261.63631,5809.1923,5335.81449,4852.24528,4368.59541,3894.01805,3436.45887,3002.48879,2597.21974,2224.2984,1885.96861,1583.18959,1315.79565,1082.68227,882.0042,711.37294],"imp":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,2e-05,3e-05,5e-05,8e-05,0.00012,0.00018,0.00026,0.00038,0.00056,0.00081,0.00115,0.00163,0.00228,0.00317,0.00437,0.00595,0.00804,0.01077,0.01428,0.01877,0.02445,0.03157,0.04039,0.05121,0.06437,0.0802,0.09906,0.12131,0.14728,0.1773,0.21167,0.25061,0.2943,0.34282,0.39618,0.45427,0.51688,0.58371,0.65431,0.72815,0.80463,0.88305,0.96265,1.04265,1.12225,1.20067,1.27715,1.351,1.4216,1.48842,1.55104,1.60913,1.66249,1.71101,1.75469,1.79363,1.828,1.85802,1.884,1.90624,1.9251,1.94093,1.95409,1.96491,1.97373,1.98085],"w":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,1e-05,2e-05,3e-05,5e-05,7e-05,0.00011,0.00016,0.00023,0.00034,0.00049,0.00069,0.00098,0.00137,0.0019,0.00262,0.00357,0.00482,0.00646,0.00857,0.01126,0.01467,0.01894,0.02423,0.03073,0.03862,0.04812,0.05944,0.07279,0.08837,0.10638,0.127,0.15037,0.17658,0.20569,0.23771,0.27256,0.31013,0.35023,0.39259,0.43689,0.48278,0.52983,0.57759,0.62559,0.67335,0.7204,0.76629,0.8106,0.85296,0.89305,0.93062,0.96548,0.99749,1.02661,1.05281,1.07618,1.0968,1.11481,1.1304,1.14374,1.15506,1.16456,1.17245,1.17895,1.18424,1.18851],"peak_f":8000.0,"total_imp":1.98085,"total_w":1.18851},{"src":"top_plate","dst":"pcb","cid":8,"t":[0.0,1e-05,2e-05,3e-05,4e-05,5e-05,6e-05,7e-05,8e-05,9e-05,0.0001,0.00011,0.00012,0.00013,0.00014,0.00015,0.00016,0.00017,0.00018,0.00019,0.0002,0.00021,0.00022,0.00023,0.00024,0.00025,0.00026,0.00027,0.00028,0.00029,0.0003,0.00031,0.00032,0.00033,0.00034,0.00035,0.00036,0.00037,0.00038,0.00039,0.0004,0.00041,0.00042,0.00043,0.00044,0.00045,0.00046,0.00047,0.00048,0.00049,0.0005,0.00051,0.00052,0.00053,0.00054,0.00055,0.00056,0.00057,0.00058,0.00059,0.0006,0.00061,0.00062,0.00063,0.00064,0.00065,0.00066,0.00067,0.00068,0.00069,0.0007,0.00071,0.00072,0.00073,0.00074,0.00075,0.00076,0.00077,0.00078,0.00079,0.0008,0.00081,0.00082,0.00083,0.00084,0.00085,0.00086,0.00087,0.00088,0.00089,0.0009,0.00091,0.00092,0.00093,0.00094,0.00095,0.00096,0.00097,0.00098,0.00099,0.001],"f":[0.00079,0.00128,0.00204,0.00324,0.00511,0.00799,0.01242,0.01917,0.02938,0.04472,0.0676,0.10148,0.15129,0.22397,0.32929,0.48078,0.69711,1.00378,1.43535,2.03828,2.87444,4.02555,5.59864,7.73256,10.60592,14.44632,19.54116,26.24989,35.0178,46.39104,61.03283,79.74014,103.46048,133.30796,170.57749,216.75616,273.53017,342.78601,426.60408,527.2432,647.11436,788.74234,954.7141,1147.61334,1369.94112,1624.0234,1911.90685,2235.24556,2595.182,2992.22651,3426.14056,3895.82961,4399.25156,4933.34749,5494.00034,6076.0274,6673.21061,7278.36792,7883.46684,8479.77933,9058.07522,9608.84884,10122.57179,10589.96283,11002.26427,11351.51363,11630.79881,11834.4854,11958.40559,12000.0,11958.40559,11834.4854,11630.79881,11351.51363,11002.26427,10589.96283,10122.57179,9608.84884,9058.07522,8479.77933,7883.46684,7278.36792,6673.21061,6076.0274,5494.00034,4933.34749,4399.25156,3895.82961,3426.14056,2992.22651,2595.182,2235.24556,1911.90685,1624.0234,1369.94112,1147.61334,954.7141,788.74234,647.11436,527.2432,426.60408],"imp":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,2e-05,3e-05,5e-05,7e-05,0.0001,0.00014,0.00019,0.00027,0.00037,0.00052,0.00071,0.00098,0.00133,0.00179,0.0024,0.0032,0.00423,0.00557,0.00727,0.00944,0.01218,0.0156,0.01987,0.02514,0.03161,0.0395,0.04905,0.06052,0.07422,0.09046,0.10958,0.13193,0.15789,0.18781,0.22207,0.26103,0.30502,0.35435,0.40929,0.47005,0.53679,0.60957,0.68841,0.7732,0.86378,0.95987,1.0611,1.167,1.27702,1.39054,1.50684,1.62519,1.74477,1.86477,1.98436,2.1027,2.21901,2.33252,2.44255,2.54845,2.64967,2.74576,2.83634,2.92114,2.99997,3.07276,3.13949,3.20025,3.25519,3.30452,3.34852,3.38747,3.42174,3.45166,3.47761,3.49996,3.51908,3.53532,3.54902,3.5605,3.57004,3.57793,3.5844,3.58968,3.59394],"w":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1e-05,1e-05,1e-05,1e-05,2e-05,3e-05,4e-05,6e-05,8e-05,0.00011,0.00016,0.00022,0.00031,0.00043,0.00059,0.0008,0.00107,0.00144,0.00192,0.00254,0.00334,0.00436,0.00566,0.00731,0.00936,0.01192,0.01508,0.01897,0.0237,0.02943,0.03631,0.04453,0.05428,0.06575,0.07916,0.09473,0.11269,0.13324,0.15662,0.18301,0.21261,0.24557,0.28203,0.32207,0.36574,0.41305,0.46392,0.51827,0.57592,0.63666,0.7002,0.76621,0.83432,0.9041,0.97511,1.04686,1.11886,1.19062,1.26162,1.33141,1.39951,1.46553,1.52907,1.5898,1.64746,1.7018,1.75268,1.79998,1.84366,1.88369,1.92015,1.95311,1.98271,2.00911,2.03248,2.05304,2.071,2.08657,2.09998,2.11145,2.12119,2.12941,2.1363,2.14202,2.14676,2.15064,2.15381,2.15636],"peak_f":12000.0,"total_imp":3.59394,"total_w":2.15636}],"depth_map":{"impactor":0,"top_plate":1,"frame":2,"sidewall":2,"pcb":3,"ic":3},"propagation_order":[["top_plate",5e-05],["frame",0.00018],["sidewall",0.00022],["pcb",0.0004],["top_plate.pcb",0.00045],["ic",0.0005],["pcb.ic",0.00058]]}},"findings":[{"severity":"INFO","title":"1 face(s), 1 position(s), 3 part(s)","detail":"Generation mode: DampingSpring, boundary=0.0 mm, offset=0.050 mm, impactor=Sphere h=100 mm","recommendation":""},{"severity":"INFO","title":"Global peaks","detail":"G=0.00 MG, \u03c3=291715.0 MPa, \u03b5=0.0000, d=0.00 mm","recommendation":""}],"device_bbox":{"xmin":55.0,"xmax":65.0,"ymin":55.0,"ymax":65.0},"device_outline":null,"trajectories":{"F2_P_0001":{"face":"F2","x":60.0,"y":60.0,"t":[0.0,0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001,0.0011,0.0012,0.0013,0.0014,0.0015,0.0016,0.0017,0.0018,0.0019,0.002,0.0021,0.0022,0.0023,0.0024,0.0025,0.0026,0.0027,0.0028,0.0029,0.003,0.0031,0.0032,0.0033,0.0034,0.0035,0.0036,0.0037,0.0038,0.0039,0.004,0.0041,0.0042,0.0043,0.0044,0.0045,0.0046,0.0047,0.0048,0.0049,0.005,0.0051,0.0052,0.0053,0.0054,0.0055,0.0056,0.0057,0.0058,0.0059,0.006,0.0061,0.0062,0.0063,0.0064,0.0065,0.0066,0.0067,0.0068,0.0069,0.007,0.0071,0.0072,0.0073,0.0074,0.0075,0.0076,0.0077,0.0078,0.0079,0.008,0.0081,0.0082,0.0083,0.0084,0.0085,0.0086,0.0087,0.0088,0.0089,0.009,0.0091,0.0092,0.0093,0.0094,0.0095,0.0096,0.0097,0.0098,0.0099,0.01,0.0101,0.0102,0.0103,0.0104,0.0105,0.0106,0.0107,0.0108,0.0109,0.011,0.0111,0.0112,0.0113,0.0114,0.0115,0.0116,0.0117,0.0118,0.0119,0.012,0.0121,0.0122,0.0123,0.0124,0.0125,0.0126,0.0127,0.0128,0.0129,0.013,0.0131,0.0132,0.0133,0.0134,0.0135,0.0136,0.0137,0.0138,0.0139,0.014,0.0141,0.0142,0.0143,0.0144,0.0145,0.0146,0.0147,0.0148,0.0149,0.015,0.015],"pos":[[60.0,60.0,122.300002],[60.0,60.0,121.675065],[60.0,60.0,121.064774],[60.0,60.0,120.497254],[60.0,60.0,119.999485],[60.0,60.0,119.605296],[60.0,60.0,119.340633],[60.0,60.0,119.224355],[60.0,60.0,119.264653],[60.0,60.0,119.458389],[60.0,60.0,119.787079],[60.0,60.0,120.224559],[60.0,60.0,120.739461],[60.0,60.0,121.298223],[60.0,60.0,121.877212],[60.0,60.0,122.460265],[60.0,60.0,123.045533],[60.0,60.0,123.62874],[60.0,60.0,124.212399],[60.0,60.0,124.795883],[60.0,60.0,125.379181],[60.0,60.0,125.962635],[60.0,60.0,126.54604],[60.0,60.0,127.130061],[60.0,60.0,127.714462],[60.0,60.0,128.297835],[60.0,60.0,128.882463],[60.0,60.0,129.464235],[60.0,60.0,130.048536],[60.0,60.0,130.633575],[60.0,60.0,131.215655],[60.0,60.0,131.800292],[60.0,60.0,132.383255],[60.0,60.0,132.96733],[60.0,60.0,133.551912],[60.0,60.0,134.134247],[60.0,60.0,134.718371],[60.0,60.0,135.300738],[60.0,60.0,135.88539],[60.0,60.0,136.469788],[60.0,60.0,137.052156],[60.0,60.0,137.636979],[60.0,60.0,138.219195],[60.0,60.0,138.804077],[60.0,60.0,139.388369],[60.0,60.0,139.970843],[60.0,60.0,140.553911],[60.0,60.0,141.138415],[60.0,60.0,141.722944],[60.0,60.0,142.305649],[60.0,60.0,142.890321],[60.0,60.0,143.473053],[60.0,60.0,144.056032],[60.0,60.0,144.640425],[60.0,60.0,145.223175],[60.0,60.0,145.808287],[60.0,60.0,146.390671],[60.0,60.0,146.975708],[60.0,60.0,147.558332],[60.0,60.0,148.143188],[60.0,60.0,148.726454],[60.0,60.0,149.308914],[60.0,60.0,149.893645],[60.0,60.0,150.476837],[60.0,60.0,151.059355],[60.0,60.0,151.644241],[60.0,60.0,152.227372],[60.0,60.0,152.81207],[60.0,60.0,153.394914],[60.0,60.0,153.978027],[60.0,60.0,154.562791],[60.0,60.0,155.146024],[60.0,60.0,155.728732],[60.0,60.0,156.313539],[60.0,60.0,156.89676],[60.0,60.0,157.481607],[60.0,60.0,158.06415],[60.0,60.0,158.647513],[60.0,60.0,159.232363],[60.0,60.0,159.81481],[60.0,60.0,160.398102],[60.0,60.0,160.98278],[60.0,60.0,161.565765],[60.0,60.0,162.148894],[60.0,60.0,162.733835],[60.0,60.0,163.316812],[60.0,60.0,163.900106],[60.0,60.0,164.484843],[60.0,60.0,165.068092],[60.0,60.0,165.650614],[60.0,60.0,166.235687],[60.0,60.0,166.819186],[60.0,60.0,167.401939],[60.0,60.0,167.986969],[60.0,60.0,168.570445],[60.0,60.0,169.153076],[60.0,60.0,169.735952],[60.0,60.0,170.321686],[60.0,60.0,170.904091],[60.0,60.0,171.487183],[60.0,60.0,172.072838],[60.0,60.0,172.655497],[60.0,60.0,173.238627],[60.0,60.0,173.821686],[60.0,60.0,174.406779],[60.0,60.0,174.990049],[60.0,60.0,175.572886],[60.0,60.0,176.157956],[60.0,60.0,176.741435],[60.0,60.0,177.323975],[60.0,60.0,177.909149],[60.0,60.0,178.492737],[60.0,60.0,179.075521],[60.0,60.0,179.658295],[60.0,60.0,180.241699],[60.0,60.0,180.826711],[60.0,60.0,181.40992],[60.0,60.0,181.993062],[60.0,60.0,182.578026],[60.0,60.0,183.161324],[60.0,60.0,183.744537],[60.0,60.0,184.327393],[60.0,60.0,184.913157],[60.0,60.0,185.49604],[60.0,60.0,186.078911],[60.0,60.0,186.6626],[60.0,60.0,187.247704],[60.0,60.0,187.830508],[60.0,60.0,188.4139],[60.0,60.0,188.996674],[60.0,60.0,189.582222],[60.0,60.0,190.165779],[60.0,60.0,190.748566],[60.0,60.0,191.331879],[60.0,60.0,191.915352],[60.0,60.0,192.500468],[60.0,60.0,193.083865],[60.0,60.0,193.666809],[60.0,60.0,194.249573],[60.0,60.0,194.833107],[60.0,60.0,195.418599],[60.0,60.0,196.001485],[60.0,60.0,196.585114],[60.0,60.0,197.167938],[60.0,60.0,197.753296],[60.0,60.0,198.336843],[60.0,60.0,198.919502],[60.0,60.0,199.502543],[60.0,60.0,200.085996],[60.0,60.0,200.671031],[60.0,60.0,201.2543],[60.0,60.0,201.256653]],"vel":[[0.0,0.0,0.0],[0.0,0.0,-6250.584112],[0.0,0.0,-6105.964791],[0.0,0.0,-5691.601335],[0.0,0.0,-4968.621905],[0.0,0.0,-3939.875358],[0.0,0.0,-2646.131635],[0.0,0.0,-1164.330248],[0.0,0.0,403.027507],[0.0,0.0,1932.643575],[0.0,0.0,3292.615202],[0.0,0.0,4378.361752],[0.0,0.0,5141.667114],[0.0,0.0,5592.254095],[0.0,0.0,5795.304178],[0.0,0.0,5836.219004],[0.0,0.0,5836.499076],[0.0,0.0,5836.508113],[0.0,0.0,5836.537305],[0.0,0.0,5836.521526],[0.0,0.0,5836.506369],[0.0,0.0,5836.508077],[0.0,0.0,5836.507735],[0.0,0.0,5836.553312],[0.0,0.0,5836.489661],[0.0,0.0,5836.550414],[0.0,0.0,5836.455668],[0.0,0.0,5836.515923],[0.0,0.0,5836.584866],[0.0,0.0,5836.486035],[0.0,0.0,5836.460216],[0.0,0.0,5836.571661],[0.0,0.0,5836.499159],[0.0,0.0,5836.557385],[0.0,0.0,5836.467145],[0.0,0.0,5836.5158],[0.0,0.0,5836.482606],[0.0,0.0,5836.521152],[0.0,0.0,5836.595546],[0.0,0.0,5836.485056],[0.0,0.0,5836.506657],[0.0,0.0,5836.504954],[0.0,0.0,5836.489133],[0.0,0.0,5836.573342],[0.0,0.0,5836.462455],[0.0,0.0,5836.515708],[0.0,0.0,5836.529044],[0.0,0.0,5836.520346],[0.0,0.0,5836.571618],[0.0,0.0,5836.465356],[0.0,0.0,5836.513763],[0.0,0.0,5836.515038],[0.0,0.0,5836.535845],[0.0,0.0,5836.555533],[0.0,0.0,5836.50279],[0.0,0.0,5836.51049],[0.0,0.0,5836.509771],[0.0,0.0,5836.521235],[0.0,0.0,5836.548581],[0.0,0.0,5836.48229],[0.0,0.0,5836.528659],[0.0,0.0,5836.484486],[0.0,0.0,5836.527911],[0.0,0.0,5836.524966],[0.0,0.0,5836.498691],[0.0,0.0,5836.502924],[0.0,0.0,5836.485326],[0.0,0.0,5836.604844],[0.0,0.0,5836.438061],[0.0,0.0,5836.551973],[0.0,0.0,5836.505241],[0.0,0.0,5836.551388],[0.0,0.0,5836.463607],[0.0,0.0,5836.52985],[0.0,0.0,5836.518458],[0.0,0.0,5836.516386],[0.0,0.0,5836.481187],[0.0,0.0,5836.598195],[0.0,0.0,5836.445965],[0.0,0.0,5836.574943],[0.0,0.0,5836.511177],[0.0,0.0,5836.468707],[0.0,0.0,5836.545077],[0.0,0.0,5836.514278],[0.0,0.0,5836.479005],[0.0,0.0,5836.523114],[0.0,0.0,5836.591015],[0.0,0.0,5836.455732],[0.0,0.0,5836.47203],[0.0,0.0,5836.536912],[0.0,0.0,5836.55106],[0.0,0.0,5836.463904],[0.0,0.0,5836.622658],[0.0,0.0,5836.445122],[0.0,0.0,5836.506816],[0.0,0.0,5836.597783],[0.0,0.0,5836.484234],[0.0,0.0,5836.477539],[0.0,0.0,5836.508507],[0.0,0.0,5836.526032],[0.0,0.0,5836.558594],[0.0,0.0,5836.442405],[0.0,0.0,5836.527005],[0.0,0.0,5836.575975],[0.0,0.0,5836.482894],[0.0,0.0,5836.566831],[0.0,0.0,5836.428826],[0.0,0.0,5836.634143],[0.0,0.0,5836.423511],[0.0,0.0,5836.551888],[0.0,0.0,5836.481352],[0.0,0.0,5836.484301],[0.0,0.0,5836.601656],[0.0,0.0,5836.44534],[0.0,0.0,5836.555754],[0.0,0.0,5836.538665],[0.0,0.0,5836.445604],[0.0,0.0,5836.599869],[0.0,0.0,5836.490435],[0.0,0.0,5836.520404],[0.0,0.0,5836.496505],[0.0,0.0,5836.498228],[0.0,0.0,5836.510812],[0.0,0.0,5836.5062],[0.0,0.0,5836.596592],[0.0,0.0,5836.414429],[0.0,0.0,5836.584368],[0.0,0.0,5836.478783],[0.0,0.0,5836.537304],[0.0,0.0,5836.499778],[0.0,0.0,5836.523379],[0.0,0.0,5836.505267],[0.0,0.0,5836.518248],[0.0,0.0,5836.564304],[0.0,0.0,5836.481377],[0.0,0.0,5836.494321],[0.0,0.0,5836.533808],[0.0,0.0,5836.518643],[0.0,0.0,5836.506776],[0.0,0.0,5836.49381],[0.0,0.0,5836.615883],[0.0,0.0,5836.477237],[0.0,0.0,5836.510708],[0.0,0.0,5836.519222],[0.0,0.0,5836.464337],[0.0,0.0,5836.566624],[0.0,0.0,5836.442405],[0.0,0.0,5836.561012],[0.0,0.0,5836.549733],[0.0,0.0,5836.441636],[0.0,0.0,5836.621225],[0.0,0.0,5819.969278]],"ke":[308015.90625,303470.91512,277676.21229,227279.7289,159138.29918,87142.6975,29233.89793,1168.98466,11042.04723,55122.99456,118622.69589,181997.13298,230186.2491,257559.50529,267128.24593,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625,267409.625],"contact":[false,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],"init_ke":308015.90625,"final_ke":267409.625,"ke_retention":0.8681682327891143,"max_pen":2.450710000000001,"t_first_contact":0.0001,"rebound_xy":[0.0,0.0],"rebound_speed":5819.969278,"incident_speed":0.0,"behavior":"bounce"}},"clusters":{"n":4,"labels":{"F2_P_0001":0},"archetypes":["fast-bounce","decay-rebound","slide-drift","deep-embed"],"features_used":["ke_retention","max_pen","rebound_speed","behavior"],"is_mock":true}};
+
+function fmt(n, d) {
+  if (n == null || !isFinite(n)) return '-';
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n / 1e6).toFixed(d == null ? 2 : d) + 'M';
+  if (a >= 1e3) return (n / 1e3).toFixed(d == null ? 1 : d) + 'k';
+  if (a < 1 && a > 0) return n.toFixed((d == null ? 2 : d) + 2);
+  return n.toFixed(d == null ? 2 : d);
+}
+function gColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [
+    [0.00, [68,  1, 84]],
+    [0.20, [59, 82,139]],
+    [0.40, [33,144,141]],
+    [0.60, [93,201, 99]],
+    [0.80, [253,231, 37]],
+    [1.00, [253, 80, 60]]
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t <= stops[i+1][0]) {
+      const f = (t - stops[i][0]) / (stops[i+1][0] - stops[i][0]);
+      const c = [0, 1, 2].map(k => Math.round(stops[i][1][k] * (1 - f) + stops[i+1][1][k] * f));
+      return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+    }
+  }
+  return 'rgb(253,80,60)';
+}
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === 'style' && typeof attrs[k] === 'object') Object.assign(e.style, attrs[k]);
+    else if (k.startsWith('on') && typeof attrs[k] === 'function') e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  if (children) {
+    if (!Array.isArray(children)) children = [children];
+    for (const c of children) {
+      if (c == null) continue;
+      if (typeof c === 'string' || typeof c === 'number') e.appendChild(document.createTextNode(String(c)));
+      else e.appendChild(c);
+    }
+  }
+  return e;
+}
+function svg(tag, attrs, children) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (children) {
+    if (!Array.isArray(children)) children = [children];
+    for (const c of children) if (c) e.appendChild(c);
+  }
+  return e;
+}
+
+const PARTS = DATA.parts;
+const PART_BY_ID = Object.fromEntries(PARTS.map(p => [p.id, p]));
+const FACES = DATA.faces;
+const FACE_BY_CODE = Object.fromEntries(FACES.map(f => [f.code, f]));
+const RESULTS = DATA.results;
+const DEVICE_BBOX = DATA.device_bbox || { xmin: -50, xmax: 50, ymin: -40, ymax: 40 };
+
+const STATE = {
+  metric: 'g',
+  face: 'ALL',
+  scale: 'linear',
+  filter: '',
+  ii: {
+    face: (FACE_BY_CODE.F2 ? 'F2' : (FACES[0] ? FACES[0].code : 'F2')),
+    metric: 'g',
+    norm: 'abs',
+    thresh: 0,
+    hovered_pos: null,
+    pinned: false,
+    selected_part: null
+  }
+};
+
+function metricLabel(m) {
+  return { g: 'Peak G', s: 'sigma (MPa)', e: 'eps', d: 'd (mm)' }[m] || m;
+}
+
+function scaleNorm(v, mx) {
+  if (mx <= 0) return 0;
+  if (STATE.scale === 'log') return Math.log10(1 + Math.max(0, v)) / Math.log10(1 + mx);
+  return v / mx;
+}
+
+const FACE_RESULTS = {};
+const FACE_PART_RESULTS = {};
+const FACE_POS_MAX = {};
+for (const r of RESULTS) {
+  (FACE_RESULTS[r.face] = FACE_RESULTS[r.face] || []).push(r);
+  const fk = r.face + '|' + r.part_id;
+  (FACE_PART_RESULTS[fk] = FACE_PART_RESULTS[fk] || []).push(r);
+  const pk = r.face + '|' + r.pos_id;
+  if (!FACE_POS_MAX[pk] || FACE_POS_MAX[pk].g < r.g) FACE_POS_MAX[pk] = r;
+}
+
+function faceBBox(faceCode) {
+  const rows = FACE_RESULTS[faceCode] || [];
+  if (!rows.length) return [0, 0, 0, 0];
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const r of rows) {
+    if (r.x < xmin) xmin = r.x; if (r.x > xmax) xmax = r.x;
+    if (r.y < ymin) ymin = r.y; if (r.y > ymax) ymax = r.y;
+  }
+  if (xmin === xmax) { xmin -= 1; xmax += 1; }
+  if (ymin === ymax) { ymin -= 1; ymax += 1; }
+  const padX = (xmax - xmin) * 0.08, padY = (ymax - ymin) * 0.08;
+  return [xmin - padX, xmax + padX, ymin - padY, ymax + padY];
+}
+function maxMetric(rows) {
+  let m = 0;
+  for (const r of rows) { const v = r[STATE.metric] || 0; if (v > m) m = v; }
+  return m;
+}
+
+function fillHeroKpi() {
+  const k = DATA.kpi;
+  document.getElementById('kPositions').innerHTML = k.n_positions + '<span class="u">pos</span>';
+  document.getElementById('kFaces').textContent = k.n_faces;
+  document.getElementById('kParts').textContent = k.n_parts;
+  document.getElementById('kWorstG').innerHTML = fmt(k.worst_g, 0) + '<span class="u">G</span>';
+  document.getElementById('kWorstS').innerHTML = fmt(k.worst_s, 1) + '<span class="u">MPa</span>';
+  document.getElementById('kCritPairs').textContent = k.n_critical;
+  document.getElementById('kSafePos').textContent = k.n_safe;
+  document.getElementById('kDiss').innerHTML = k.diss_pct.toFixed(1) + '<span class="u">%</span>';
+  document.getElementById('kHeroFaces').textContent = k.n_faces;
+  document.getElementById('kHeroPos').textContent = k.n_positions;
+  document.getElementById('kHeroParts').textContent = k.n_parts;
+  document.getElementById('kHeroPairs').textContent = k.n_pairs;
+  document.getElementById('heroWorstCoord').textContent = k.worst.face + ' · X ' + k.worst.x.toFixed(1) + ' / Y ' + k.worst.y.toFixed(1);
+  document.getElementById('heroWorstPart').textContent = fmt(k.worst.g, 0) + ' G  ON  ' + k.worst.part_name;
+}
+
+function initImpactor() {
+  const imp = DATA.meta.impactor;
+  const svgRoot = document.getElementById('impactor-svg');
+  const tbl = document.getElementById('impactor-tbl');
+  const cap = document.getElementById('impCap');
+  const sub = document.getElementById('impSubLabel');
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  while (tbl.firstChild) tbl.removeChild(tbl.firstChild);
+  if (imp.type === 'Sphere') {
+    sub.textContent = 'Sphere';
+    svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 32, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 1.2 }));
+    svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 8, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 0.6, 'stroke-dasharray': '2,2' }));
+    svgRoot.appendChild(svg('line', { x1: 100, y1: 23, x2: 100, y2: 87, stroke: '#5c6383', 'stroke-width': 0.5, 'stroke-dasharray': '1,2' }));
+    const t = svg('text', { x: 100, y: 102, 'text-anchor': 'middle', fill: '#4dd6ff', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+    t.appendChild(document.createTextNode('R=' + imp.radius.toFixed(2)));
+    svgRoot.appendChild(t);
+    const rows = [
+      ['TYPE', 'Sphere'],
+      ['R (mm)', imp.radius.toFixed(2)],
+      ['h (mm)', imp.height.toFixed(1)],
+      ['v0 (mm/s)', fmt(imp.velocity, 0)],
+      ['m (kg)', fmt(imp.mass, 4)],
+      ['KE (mJ)', fmt(imp.kinetic_energy * 1e-3, 2)]
+    ];
+    for (const r of rows) {
+      tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    }
+    cap.textContent = 'KE = 1/2 m v² (free-fall v = sqrt(2gh))';
+  } else if (imp.type === 'Cylinder') {
+    sub.textContent = 'Cylinder · asymmetric';
+    const fr = imp.front_radius || imp.radius || 12;
+    const out = imp.outer_radius || fr * 1.4;
+    const br = imp.back_radius || out;
+    const fh = imp.front_height || 15;
+    const bh = imp.back_height || 25;
+    const cx = 100, cy = 55;
+    const totalH = fh + bh;
+    const sx = 90 / totalH;
+    const sy = 40 / Math.max(fr, out, br);
+    const x0 = cx - (fh + bh) * sx / 2;
+    const x1 = x0 + fh * sx;
+    const x2 = x1 + bh * sx;
+    const ftop = cy - fr * sy, fbot = cy + fr * sy;
+    const mtop = cy - out * sy, mbot = cy + out * sy;
+    const btop = cy - br * sy,  bbot = cy + br * sy;
+    svgRoot.appendChild(svg('polygon', {
+      points: x0 + ',' + ftop + ' ' + x1 + ',' + mtop + ' ' + x1 + ',' + mbot + ' ' + x0 + ',' + fbot,
+      fill: 'rgba(77,214,255,0.12)', stroke: '#4dd6ff', 'stroke-width': 1
+    }));
+    svgRoot.appendChild(svg('polygon', {
+      points: x1 + ',' + mtop + ' ' + x2 + ',' + btop + ' ' + x2 + ',' + bbot + ' ' + x1 + ',' + mbot,
+      fill: 'rgba(180,110,255,0.12)', stroke: '#b46eff', 'stroke-width': 1
+    }));
+    const lab1 = svg('text', { x: x0 - 4, y: cy + 4, fill: '#5c6383', 'font-size': 8, 'text-anchor': 'end' });
+    lab1.appendChild(document.createTextNode('Rf=' + fr.toFixed(1)));
+    svgRoot.appendChild(lab1);
+    const lab2 = svg('text', { x: x2 + 4, y: cy + 4, fill: '#5c6383', 'font-size': 8 });
+    lab2.appendChild(document.createTextNode('Rb=' + br.toFixed(1)));
+    svgRoot.appendChild(lab2);
+    const rows = [
+      ['TYPE', 'Cylinder'],
+      ['Rf/Ro/Rb', fr.toFixed(1) + ' / ' + out.toFixed(1) + ' / ' + br.toFixed(1)],
+      ['hf/hb (mm)', fh.toFixed(1) + ' / ' + bh.toFixed(1)],
+      ['v0 (mm/s)', fmt(imp.velocity, 0)],
+      ['KE (mJ)', fmt(imp.kinetic_energy * 1e-3, 2)]
+    ];
+    for (const r of rows) tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    cap.textContent = 'Asymmetric tumbler: front + outer + back 3-stage cylinder.';
+  } else {
+    sub.textContent = imp.type;
+    cap.textContent = 'Unknown impactor type';
+  }
+}
+
+function initDoeBreakdown() {
+  const tbl = document.getElementById('doe-breakdown');
+  const sub = document.getElementById('doeSubLabel');
+  while (tbl.firstChild) tbl.removeChild(tbl.firstChild);
+  const cnt = {};
+  for (const f of FACES) cnt[f.code] = 0;
+  for (const p of DATA.positions) cnt[p.face] = (cnt[p.face] || 0) + 1;
+  const total = Object.values(cnt).reduce((a, b) => a + b, 0);
+  const doeType = (DATA.meta.doe_config && DATA.meta.doe_config.type) || 'grid';
+  sub.textContent = doeType + ' · ' + total + ' pos';
+  for (const f of FACES) {
+    tbl.appendChild(el('tr', null, [
+      el('td', { class: 'tl b' }, f.code),
+      el('td', { class: 'tl dim' }, f.name),
+      el('td', { class: 'num' }, String(cnt[f.code]))
+    ]));
+  }
+  tbl.appendChild(el('tr', null, [
+    el('td', { class: 'tl b', style: { color: 'var(--accent)' } }, 'TOTAL'),
+    el('td', { class: 'tl dim' }, DATA.meta.generation_mode),
+    el('td', { class: 'num b', style: { color: 'var(--accent)' } }, String(total))
+  ]));
+}
+
+/* ===================================================================
+ * Impact Inspector  (Page 2 hero + Page 1 bi-face mini/split)
+ * =================================================================== */
+
+/** Map XY (mm) into SVG viewBox coords using the device bbox + a pad. */
+function _xyToVB(x, y, vbW, vbH, padPx) {
+  const bb = DEVICE_BBOX;
+  const w = bb.xmax - bb.xmin, h = bb.ymax - bb.ymin;
+  if (w <= 0 || h <= 0) return [vbW / 2, vbH / 2];
+  // preserve aspect ratio inside vbW x vbH (with padPx margin)
+  const innerW = vbW - 2 * padPx, innerH = vbH - 2 * padPx;
+  const scale = Math.min(innerW / w, innerH / h);
+  const drawW = w * scale, drawH = h * scale;
+  const ox = (vbW - drawW) / 2, oy = (vbH - drawH) / 2;
+  const u = (x - bb.xmin) / w;
+  const v = 1 - (y - bb.ymin) / h;  // flip Y so +y points up
+  return [ox + u * drawW, oy + v * drawH];
+}
+
+/** Per-position max metric value for a given face. */
+const POS_MAX_BY_METRIC = {};
+function _ensurePosMax(metric) {
+  if (POS_MAX_BY_METRIC[metric]) return POS_MAX_BY_METRIC[metric];
+  const out = {};
+  for (const r of RESULTS) {
+    const k = r.face + '|' + r.pos_id;
+    const v = r[metric] || 0;
+    const cur = out[k];
+    if (!cur || v > cur.v) {
+      out[k] = { v: v, x: r.x, y: r.y, face: r.face, pos_id: r.pos_id, part_id: r.part_id, part_name: r.part_name };
+    }
+  }
+  POS_MAX_BY_METRIC[metric] = out;
+  return out;
+}
+
+/** (face, pos_id, part_id) → result row */
+const RESULT_IDX = {};
+for (const r of RESULTS) RESULT_IDX[r.face + '|' + r.pos_id + '|' + r.part_id] = r;
+
+/** Footprint helpers — return centroid + bbox of a part's polygon. */
+function _footprintBBox(fp) {
+  if (!fp || !fp.length) return null;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  let cx = 0, cy = 0;
+  for (const pt of fp) {
+    const x = pt[0], y = pt[1];
+    if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+    if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+    cx += x; cy += y;
+  }
+  cx /= fp.length; cy /= fp.length;
+  return { xmin: xmin, xmax: xmax, ymin: ymin, ymax: ymax, cx: cx, cy: cy };
+}
+
+/** Render the Impact Inspector into a target svg/container.
+ *  opts = { containerId, faceCode, interactive: bool, mainPanel: bool, height: 'aspect' }
+ */
+function initImpactInspector(opts) {
+  const faceCode = opts.faceCode;
+  const interactive = !!opts.interactive;
+  const root = document.getElementById(opts.containerId);
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+
+  const vbW = 800, vbH = 600;
+  root.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
+  root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  const metric = STATE.ii.metric;
+
+  // background
+  root.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 6 }));
+
+  // device outline (rounded dashed rect at true bbox)
+  const bb = DEVICE_BBOX;
+  const tl = _xyToVB(bb.xmin, bb.ymax, vbW, vbH, 28);
+  const br = _xyToVB(bb.xmax, bb.ymin, vbW, vbH, 28);
+  root.appendChild(svg('rect', {
+    x: tl[0], y: tl[1], width: br[0] - tl[0], height: br[1] - tl[1],
+    rx: 6, ry: 6, fill: 'none', stroke: '#3a4055', 'stroke-width': 1.2,
+    'stroke-dasharray': '5,4'
+  }));
+
+  // part outlines layer
+  const partsLayer = svg('g', { id: opts.containerId + '-parts' });
+  for (const p of PARTS) {
+    const bbf = _footprintBBox(p.footprint);
+    if (!bbf) continue;
+    const a = _xyToVB(bbf.xmin, bbf.ymax, vbW, vbH, 28);
+    const b = _xyToVB(bbf.xmax, bbf.ymin, vbW, vbH, 28);
+    const w = b[0] - a[0], h = b[1] - a[1];
+    if (w < 1 || h < 1) continue;
+    const rect = svg('rect', {
+      x: a[0], y: a[1], width: w, height: h, rx: 2, ry: 2,
+      fill: 'rgba(170,178,207,0.06)',
+      stroke: 'rgba(170,178,207,0.40)',
+      'stroke-width': 1.2,
+      'data-part-id': p.id
+    });
+    rect.dataset.partid = p.id;
+    partsLayer.appendChild(rect);
+    // part label (small, dim, near top of rect)
+    if (w > 35 && h > 14) {
+      const lab = svg('text', {
+        x: a[0] + w / 2, y: a[1] + 12,
+        'text-anchor': 'middle', fill: 'rgba(170,178,207,0.55)',
+        'font-size': 8.5, 'font-family': 'JetBrains Mono', 'data-part-label': p.id
+      });
+      lab.appendChild(document.createTextNode(p.name.split('\\').pop().slice(0, 14)));
+      partsLayer.appendChild(lab);
+    }
+  }
+  root.appendChild(partsLayer);
+
+  // impact dots layer
+  const dotsLayer = svg('g', { id: opts.containerId + '-dots' });
+  const posMax = _ensurePosMax(metric);
+  const facePosKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+  let globalMax = 0;
+  for (const k of facePosKeys) { const v = posMax[k].v; if (v > globalMax) globalMax = v; }
+  const threshAbs = globalMax * (STATE.ii.thresh / 100.0);
+  let worstK = null;
+  for (const k of facePosKeys) if (!worstK || posMax[k].v > posMax[worstK].v) worstK = k;
+
+  for (const k of facePosKeys) {
+    const rec = posMax[k];
+    const passes = rec.v >= threshAbs;
+    const [cx, cy] = _xyToVB(rec.x, rec.y, vbW, vbH, 28);
+    const t = globalMax > 0 ? rec.v / globalMax : 0;
+    const fill = passes ? gColor(t) : 'rgba(170,178,207,0.15)';
+    const r = interactive ? 6 : 5;
+    const dot = svg('circle', {
+      cx: cx, cy: cy, r: r, fill: fill,
+      stroke: 'rgba(10,12,20,0.8)', 'stroke-width': 0.8,
+      'data-pos-key': k
+    });
+    if (interactive) {
+      dot.style.cursor = 'pointer';
+      dot.addEventListener('mouseenter', function () {
+        if (STATE.ii.pinned) return;
+        STATE.ii.hovered_pos = k;
+        _renderInspectorFill(rec, globalMax);
+        _renderSidePanel(rec, globalMax);
+      });
+      dot.addEventListener('click', function () {
+        STATE.ii.hovered_pos = k;
+        STATE.ii.pinned = true;
+        const pin = document.getElementById('ii-pin');
+        if (pin) { pin.checked = true; document.getElementById('ii-pin-lab').classList.add('locked'); }
+        _renderInspectorFill(rec, globalMax);
+        _renderSidePanel(rec, globalMax);
+      });
+    } else {
+      // non-interactive cell: clicking jumps to Page 2 with this face
+      dot.style.cursor = 'pointer';
+    }
+    const titleNode = svg('title', {});
+    titleNode.appendChild(document.createTextNode(rec.pos_id + '\nX=' + rec.x.toFixed(2) + ' Y=' + rec.y.toFixed(2) + '\nmax part: ' + rec.part_name + '\n' + _metricLabel(metric) + ' = ' + fmt(rec.v, 2)));
+    dot.appendChild(titleNode);
+    dotsLayer.appendChild(dot);
+  }
+
+  // worst marker (★)
+  if (worstK) {
+    const rec = posMax[worstK];
+    const [cx, cy] = _xyToVB(rec.x, rec.y, vbW, vbH, 28);
+    const star = svg('text', {
+      x: cx, y: cy + 4, 'text-anchor': 'middle', fill: '#ff3854',
+      'font-size': 18, 'font-weight': 700, 'pointer-events': 'none'
+    });
+    star.appendChild(document.createTextNode('★'));
+    dotsLayer.appendChild(star);
+  }
+  root.appendChild(dotsLayer);
+
+  // hover halo layer (interactive only)
+  if (interactive) {
+    const haloLayer = svg('g', { id: 'ii-halo-layer' });
+    root.appendChild(haloLayer);
+    // mouseleave on root clears hover unless pinned
+    root.addEventListener('mouseleave', function () {
+      if (STATE.ii.pinned) return;
+      STATE.ii.hovered_pos = null;
+      _renderInspectorClear();
+    });
+  }
+
+  // non-interactive cell click → jump to Inspector
+  if (!interactive) {
+    root.style.cursor = 'pointer';
+    root.addEventListener('click', function () {
+      const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + faceCode + '"]');
+      if (btn) btn.click();
+      const tgt = document.getElementById('s2');
+      if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+}
+
+function _metricLabel(m) {
+  return { g: 'Peak G', s: 'σ (MPa)', e: 'ε', d: 'd (mm)' }[m] || m;
+}
+
+function _renderInspectorClear() {
+  const layer = document.getElementById('ii-svg-parts');
+  if (!layer) return;
+  for (const node of layer.querySelectorAll('rect[data-part-id]')) {
+    node.setAttribute('fill', 'rgba(170,178,207,0.06)');
+    node.setAttribute('stroke', 'rgba(170,178,207,0.40)');
+    node.setAttribute('stroke-width', '1.2');
+  }
+  const halo = document.getElementById('ii-halo-layer');
+  if (halo) while (halo.firstChild) halo.removeChild(halo.firstChild);
+  const star = layer.parentNode.querySelector('text[data-star-overlay]');
+  if (star) star.remove();
+  const empty = '<div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div>';
+  const hInfo = document.getElementById('ii-hover-info'); if (hInfo) hInfo.innerHTML = empty;
+  const partsList = document.getElementById('ii-parts-list'); if (partsList) partsList.innerHTML = '<div class="ii-empty">-</div>';
+  const thSvg = document.getElementById('ii-th-svg'); if (thSvg) while (thSvg.firstChild) thSvg.removeChild(thSvg.firstChild);
+  const sub = document.getElementById('ii-th-sub'); if (sub) sub.textContent = '';
+  const badge = document.getElementById('ii-behavior-badge'); if (badge) badge.innerHTML = '';
+  const kpi = document.getElementById('ii-traj-kpi'); if (kpi) kpi.innerHTML = '';
+}
+
+function _renderInspectorFill(rec, globalMax) {
+  const layer = document.getElementById('ii-svg-parts');
+  if (!layer) return;
+  const metric = STATE.ii.metric;
+  const norm = STATE.ii.norm;
+  const faceCode = STATE.ii.face;
+  // collect per-part response for this impact
+  const partResps = [];
+  let localMax = 0;
+  for (const p of PARTS) {
+    const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + p.id];
+    const v = r ? (r[metric] || 0) : 0;
+    if (v > localMax) localMax = v;
+    partResps.push({ part: p, v: v, r: r });
+  }
+  const denom = norm === 'rel' ? Math.max(1e-9, localMax) : Math.max(1e-9, globalMax);
+  let maxPart = null;
+  for (const it of partResps) if (!maxPart || it.v > maxPart.v) maxPart = it;
+  // fill each part rect
+  for (const node of layer.querySelectorAll('rect[data-part-id]')) {
+    const pid = parseInt(node.dataset.partid, 10);
+    const entry = partResps.find(x => x.part.id === pid);
+    if (!entry || entry.v <= 0) {
+      node.setAttribute('fill', 'rgba(170,178,207,0.04)');
+      node.setAttribute('stroke', 'rgba(170,178,207,0.18)');
+      node.setAttribute('stroke-width', '1');
+      continue;
+    }
+    const t = Math.min(1, entry.v / denom);
+    const c = gColor(t);
+    node.setAttribute('fill', c.replace('rgb', 'rgba').replace(')', ',0.45)'));
+    node.setAttribute('stroke', c);
+    node.setAttribute('stroke-width', (maxPart && entry.part.id === maxPart.part.id) ? '2.5' : '1.5');
+  }
+  // halo pulse over the hovered impact
+  const halo = document.getElementById('ii-halo-layer');
+  if (halo) {
+    while (halo.firstChild) halo.removeChild(halo.firstChild);
+    const [hx, hy] = _xyToVB(rec.x, rec.y, 800, 600, 28);
+    const ring = svg('circle', {
+      cx: hx, cy: hy, r: 6, fill: 'none', stroke: '#ff3854', 'stroke-width': 2,
+      class: 'ii-halo', 'pointer-events': 'none'
+    });
+    halo.appendChild(ring);
+    // ★ marker over max part
+    if (maxPart && maxPart.v > 0) {
+      const bbf = _footprintBBox(maxPart.part.footprint);
+      if (bbf) {
+        const [sx, sy] = _xyToVB(bbf.cx, bbf.cy, 800, 600, 28);
+        const star = svg('text', {
+          x: sx, y: sy + 5, 'text-anchor': 'middle', fill: '#ffffff',
+          'font-size': 16, 'font-weight': 700, 'pointer-events': 'none',
+          'data-star-overlay': '1'
+        });
+        star.appendChild(document.createTextNode('★'));
+        halo.appendChild(star);
+      }
+    }
+  }
+}
+
+function _renderSidePanel(rec, globalMax) {
+  const metric = STATE.ii.metric;
+  const faceCode = STATE.ii.face;
+  const norm = STATE.ii.norm;
+  // hovered info
+  const hInfo = document.getElementById('ii-hover-info');
+  if (hInfo) {
+    // global rank for this face
+    const posMax = _ensurePosMax(metric);
+    const facePosKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+    const sortedKeys = facePosKeys.sort((a, b) => posMax[b].v - posMax[a].v);
+    const rank = sortedKeys.indexOf(faceCode + '|' + rec.pos_id) + 1;
+    hInfo.innerHTML = '';
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'POS'), el('b', null, rec.pos_id)]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, '(X, Y)'), el('b', null, rec.x.toFixed(2) + ', ' + rec.y.toFixed(2))]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'RANK'), el('b', null, '#' + rank + ' / ' + facePosKeys.length)]));
+    hInfo.appendChild(el('div', { class: 'iirow' }, [el('span', null, 'MAX'), el('b', { style: { color: 'var(--crit)' } }, rec.part_name + ' · ' + fmt(rec.v, 1))]));
+  }
+  // top affected parts (sorted desc)
+  const partResps = [];
+  let localMax = 0;
+  for (const p of PARTS) {
+    const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + p.id];
+    const v = r ? (r[metric] || 0) : 0;
+    if (v > localMax) localMax = v;
+    partResps.push({ part: p, v: v });
+  }
+  partResps.sort((a, b) => b.v - a.v);
+  const denom = norm === 'rel' ? Math.max(1e-9, localMax) : Math.max(1e-9, globalMax);
+  const list = document.getElementById('ii-parts-list');
+  if (list) {
+    list.innerHTML = '';
+    for (let i = 0; i < partResps.length; i++) {
+      const it = partResps[i];
+      if (it.v <= 0 && i > 0) break;
+      const t = Math.min(1, it.v / denom);
+      const c = gColor(t);
+      const row = el('div', { class: 'ii-bar-row' + (i === 0 ? ' is-max' : '') }, [
+        el('div', { class: 'nm', title: it.part.name }, it.part.name.split('\\').pop()),
+        el('div', { class: 'bw' }, [el('span', { class: 'fl', style: { width: (t * 100).toFixed(1) + '%', background: c } })]),
+        el('div', { class: 'vl' }, fmt(it.v, 1))
+      ]);
+      row.addEventListener('click', function () {
+        STATE.ii.selected_part = it.part.id;
+        // flash that part in main canvas
+        const layer = document.getElementById('ii-svg-parts');
+        if (layer) {
+          const node = layer.querySelector('rect[data-part-id="' + it.part.id + '"]');
+          if (node) {
+            const orig = node.getAttribute('stroke-width');
+            node.setAttribute('stroke-width', '4');
+            setTimeout(() => node.setAttribute('stroke-width', orig || '1.5'), 600);
+          }
+        }
+      });
+      list.appendChild(row);
+    }
+  }
+  // KE decay overlay (real impactor trajectory) + behavior badge — replaces synthetic envelope
+  renderInspectorBehaviorBadge(rec);
+  renderInspectorKEOverlay(rec);
+}
+
+function _renderTimeHistory(rec, partId) {
+  const svgRoot = document.getElementById('ii-th-svg');
+  if (!svgRoot) return;
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  const W = 200, H = 70;
+  const r = RESULT_IDX[rec.face + '|' + rec.pos_id + '|' + partId];
+  const p = PART_BY_ID[partId];
+  document.getElementById('ii-th-sub').textContent = '(' + (p ? p.name.split('\\').pop() : '-') + ')';
+  if (!r) {
+    const t = svg('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9 });
+    t.appendChild(document.createTextNode('no time-series'));
+    svgRoot.appendChild(t);
+    return;
+  }
+  // synthetic envelope (we don't currently store per-pair time series)
+  // peak occurs ~30% of timeline; envelope width scales with G magnitude
+  const peakT = 0.25 + 0.10 * Math.sin((partId * 1.3) + (rec.x * 0.03));
+  const ptsW = [], ptsHi = [], ptsLo = [], pts50 = [];
+  for (let k = 0; k <= 40; k++) {
+    const t = k / 40;
+    const env = Math.exp(-((t - peakT) * (t - peakT)) / 0.012);
+    const env_w = Math.exp(-((t - peakT) * (t - peakT)) / 0.006);
+    pts50.push([t * W, H - 8 - env * (H - 16)]);
+    ptsHi.push([t * W, H - 8 - Math.min(1, env * 1.2) * (H - 16)]);
+    ptsLo.push([t * W, H - 8 - Math.max(0, env * 0.4) * (H - 18)]);
+    ptsW.push([t * W, H - 8 - env_w * (H - 12)]);
+  }
+  const bandPath = 'M' + ptsHi.map(pt => pt.join(',')).join(' L ') + ' L ' + ptsLo.slice().reverse().map(pt => pt.join(',')).join(' L ') + ' Z';
+  svgRoot.appendChild(svg('path', { d: bandPath, fill: 'rgba(170,178,207,0.18)', stroke: 'none' }));
+  svgRoot.appendChild(svg('polyline', { points: pts50.map(pt => pt.join(',')).join(' '), fill: 'none', stroke: '#aab2cf', 'stroke-width': 0.8 }));
+  svgRoot.appendChild(svg('polyline', { points: ptsW.map(pt => pt.join(',')).join(' '), fill: 'none', stroke: '#ff3854', 'stroke-width': 1.4 }));
+}
+
+/** Bi-Face Split (Page 1) — two compact non-interactive Inspector panels. */
+function renderBiFaceSplit() {
+  const big = document.getElementById('biface-split');
+  const mini = document.getElementById('biface-mini');
+  const targets = [
+    { code: 'F2', name: 'Front', label: 'FRONT · F2' },
+    { code: 'F1', name: 'Back',  label: 'BACK · F1' }
+  ];
+
+  // big version (page 1 main panel)
+  if (big) {
+    while (big.firstChild) big.removeChild(big.firstChild);
+    for (const t of targets) {
+      const f = FACE_BY_CODE[t.code];
+      if (!f) continue;
+      const card = el('div', { class: 'biface-cell' });
+      const head = el('div', { class: 'bf-head' }, [
+        el('div', { class: 'bf-name' }, t.label),
+        el('div', { class: 'bf-sub' }, (f.name || '').toUpperCase())
+      ]);
+      card.appendChild(head);
+      const id = 'bf-svg-' + t.code;
+      const svgEl = svg('svg', { id: id });
+      card.appendChild(svgEl);
+      const foot = el('div', { class: 'bf-foot' }, [el('span', { id: 'bf-foot-' + t.code }, 'max = -')]);
+      card.appendChild(foot);
+      card.addEventListener('click', function () {
+        const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + t.code + '"]');
+        if (btn) btn.click();
+        const tgt = document.getElementById('s2');
+        if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+      });
+      big.appendChild(card);
+      initImpactInspector({ containerId: id, faceCode: t.code, interactive: false });
+      // populate foot label
+      const posMax = _ensurePosMax(STATE.ii.metric);
+      const keys = Object.keys(posMax).filter(k => k.indexOf(t.code + '|') === 0);
+      let worst = null;
+      for (const k of keys) if (!worst || posMax[k].v > worst.v) worst = posMax[k];
+      if (worst) document.getElementById('bf-foot-' + t.code).innerHTML = 'max: <b>' + fmt(worst.v, 1) + '</b> ' + (STATE.ii.metric === 'g' ? 'G' : '') + ' &middot; ' + worst.part_name;
+    }
+  }
+
+  // mini version (page 1 method-band)
+  if (mini) {
+    while (mini.firstChild) mini.removeChild(mini.firstChild);
+    for (const t of targets) {
+      const f = FACE_BY_CODE[t.code];
+      if (!f) continue;
+      const card = el('div', { class: 'biface-cell', style: { padding: '6px 8px' } });
+      card.appendChild(el('div', { class: 'bf-head', style: { paddingBottom: '3px', marginBottom: '3px' } }, [
+        el('div', { class: 'bf-name', style: { fontSize: '10px' } }, t.code),
+        el('div', { class: 'bf-sub' }, f.name)
+      ]));
+      const id = 'bfm-svg-' + t.code;
+      card.appendChild(svg('svg', { id: id }));
+      card.addEventListener('click', function () {
+        const btn = document.querySelector('.ctlbar .btn[data-ii-face="' + t.code + '"]');
+        if (btn) btn.click();
+        const tgt = document.getElementById('s2');
+        if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+      });
+      mini.appendChild(card);
+      initImpactInspector({ containerId: id, faceCode: t.code, interactive: false });
+    }
+  }
+}
+
+/** Page 2 Inspector (interactive). */
+function renderInspector() {
+  // ensure svg id matches what _renderInspectorFill expects (-parts suffix)
+  const root = document.getElementById('ii-svg');
+  if (!root) return;
+  initImpactInspector({ containerId: 'ii-svg', faceCode: STATE.ii.face, interactive: true });
+  // rename parts layer id so the *Fill helper finds it predictably
+  const oldParts = document.getElementById('ii-svg-parts');
+  if (oldParts) oldParts.id = 'ii-svg-parts';  // already correct from initImpactInspector
+  // update header / metric labels
+  const f = FACE_BY_CODE[STATE.ii.face];
+  document.getElementById('ii-face-label').textContent = (f ? (f.name + ' (' + f.code + ')') : STATE.ii.face).toUpperCase();
+  const metric = STATE.ii.metric;
+  document.getElementById('ii-metric-name').textContent = _metricLabel(metric);
+  // cbar max
+  const posMax = _ensurePosMax(metric);
+  const keys = Object.keys(posMax).filter(k => k.indexOf(STATE.ii.face + '|') === 0);
+  let gmx = 0; for (const k of keys) if (posMax[k].v > gmx) gmx = posMax[k].v;
+  document.getElementById('ii-cbar-max').textContent = fmt(gmx, 1);
+  // thresh label
+  document.getElementById('ii-thresh-val').textContent = STATE.ii.thresh + '% (' + fmt(gmx * STATE.ii.thresh / 100, 1) + ')';
+  // if a pinned/hovered impact exists, re-render fill
+  if (STATE.ii.hovered_pos && posMax[STATE.ii.hovered_pos]) {
+    _renderInspectorFill(posMax[STATE.ii.hovered_pos], gmx);
+    _renderSidePanel(posMax[STATE.ii.hovered_pos], gmx);
+  } else {
+    _renderInspectorClear();
+  }
+}
+
+function initFaceKpiTable() {
+  const tbody = document.querySelector('#face-kpi-tbl tbody');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  let gmax = 0;
+  for (const r of RESULTS) if (r.g > gmax) gmax = r.g;
+  // compute scores for each face first so we can do the vs-other delta
+  const faceStats = {};
+  for (const f of FACES) {
+    const rows = FACE_RESULTS[f.code] || [];
+    if (!rows.length) continue;
+    let worst = rows[0];
+    for (const r of rows) if (r.g > worst.g) worst = r;
+    const gvals = rows.map(r => r.g).sort((a, b) => a - b);
+    const p95 = gvals[Math.floor(gvals.length * 0.95)] || 0;
+    const crit = gvals.filter(v => v >= gmax * 0.5).length;
+    const score = (0.5 * worst.g / Math.max(1, gmax) + 0.3 * p95 / Math.max(1, gmax) + 0.2 * crit / Math.max(1, gvals.length)) * 10;
+    const nPos = new Set(rows.map(r => r.pos_id)).size;
+    faceStats[f.code] = { face: f, worst: worst, score: score, n: nPos };
+  }
+  const codes = Object.keys(faceStats);
+  for (const code of codes) {
+    const s = faceStats[code];
+    const f = s.face;
+    const worst = s.worst;
+    const score = s.score;
+    const otherCode = codes.find(c => c !== code);
+    const delta = (otherCode != null) ? (score - faceStats[otherCode].score) : 0;
+    const cls = score >= 7 ? 'r-crit' : score >= 4 ? 'r-warn' : 'r-safe';
+    const scoreColor = score >= 7 ? 'var(--crit)' : score >= 4 ? 'var(--warn)' : 'var(--good)';
+    const dColor = delta > 0 ? 'var(--crit)' : delta < 0 ? 'var(--good)' : 'var(--dim)';
+    const dStr = (delta > 0 ? '+' : '') + delta.toFixed(2);
+    tbody.appendChild(el('tr', { class: cls }, [
+      el('td', { class: 'tl b' }, f.code + ' · ' + f.name),
+      el('td', { class: 'num' }, String(s.n)),
+      el('td', { class: 'num b' }, fmt(worst.g, 0)),
+      el('td', { class: 'num dim' }, worst.x.toFixed(1) + ' , ' + worst.y.toFixed(1)),
+      el('td', { class: 'tl b' }, worst.part_name),
+      el('td', { class: 'num', style: { color: scoreColor } }, score.toFixed(1) + ' / 10'),
+      el('td', { class: 'num', style: { color: dColor } }, dStr)
+    ]));
+  }
+}
+
+function initTopK() {
+  const tbody = document.querySelector('#topk-tbl tbody');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  const sorted = RESULTS.slice().sort((a, b) => b.g - a.g).slice(0, 12);
+  const gmax = sorted[0] ? sorted[0].g : 1;
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const partRows = RESULTS.filter(x => x.part_id === r.part_id);
+    const thr = gmax * 0.4;
+    const inf = partRows.filter(x => x.g >= thr).length;
+    const cls = i < 3 ? 'r-crit' : i < 8 ? 'r-warn' : 'r-safe';
+    tbody.appendChild(el('tr', { class: cls }, [
+      el('td', { class: 'tl b' }, '#' + (i + 1)),
+      el('td', { class: 'tl b' }, r.face),
+      el('td', { class: 'num' }, r.x.toFixed(2)),
+      el('td', { class: 'num' }, r.y.toFixed(2)),
+      el('td', { class: 'tl' }, r.part_name),
+      el('td', { class: 'num b' }, fmt(r.g, 0)),
+      el('td', { class: 'num' }, fmt(r.s, 1)),
+      el('td', { class: 'num dim' }, inf + ' / ' + partRows.length)
+    ]));
+  }
+}
+
+function partMatches(p) {
+  if (!STATE.filter) return true;
+  return p.name.toLowerCase().indexOf(STATE.filter.toLowerCase()) >= 0;
+}
+
+function renderInfluenceMatrix() {
+  const wrap = document.getElementById('imatrix-wrap');
+  if (!wrap) return;
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  // top-10 impact positions on currently selected face, by the active metric
+  const metric = STATE.ii.metric;
+  const faceCode = STATE.ii.face;
+  const posMax = _ensurePosMax(metric);
+  const faceKeys = Object.keys(posMax).filter(k => k.indexOf(faceCode + '|') === 0);
+  faceKeys.sort((a, b) => posMax[b].v - posMax[a].v);
+  const topPairs = faceKeys.slice(0, 10).map(k => posMax[k]);
+  let gmx = 0;
+  for (const r of RESULTS) { const v = r[metric] || 0; if (v > gmx) gmx = v; }
+  const tbl = el('table', { class: 'imatrix' });
+  const trHead = el('tr', null, [el('th', { class: 'tl', style: { minWidth: '160px' } }, 'IMPACT (face · X, Y)')]);
+  for (const p of PARTS) {
+    trHead.appendChild(el('th', {
+      style: { transform: 'rotate(-30deg)', transformOrigin: 'left bottom', whiteSpace: 'nowrap', paddingLeft: '10px', color: 'var(--accent)' }
+    }, p.name.split('\\').pop()));
+  }
+  trHead.appendChild(el('th', null, 'MAX'));
+  tbl.appendChild(el('thead', null, trHead));
+  const tbody = el('tbody');
+  for (const pair of topPairs) {
+    const tr = el('tr');
+    const labCell = el('td', { class: 'tl', style: { color: 'var(--fg)', fontWeight: 600, cursor: 'pointer' } }, pair.face + ' · ' + pair.x.toFixed(1) + ', ' + pair.y.toFixed(1));
+    labCell.addEventListener('click', function () {
+      STATE.ii.hovered_pos = pair.face + '|' + pair.pos_id;
+      STATE.ii.pinned = true;
+      const pin = document.getElementById('ii-pin');
+      if (pin) { pin.checked = true; document.getElementById('ii-pin-lab').classList.add('locked'); }
+      const key = STATE.ii.hovered_pos;
+      const rec = posMax[key];
+      if (rec) {
+        _renderInspectorFill(rec, gmx);
+        _renderSidePanel(rec, gmx);
+      }
+      const tgt = document.getElementById('s2');
+      if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+    });
+    tr.appendChild(labCell);
+    for (const p of PARTS) {
+      const match = RESULT_IDX[pair.face + '|' + pair.pos_id + '|' + p.id];
+      const v = match ? (match[metric] || 0) : 0;
+      const td = el('td', {
+        class: 'cell',
+        title: p.name + ': ' + fmt(v, 2),
+        style: { background: v > 0 ? gColor(Math.min(1, v / Math.max(1e-9, gmx))) : '#0a0c14' }
+      });
+      tr.appendChild(td);
+    }
+    tr.appendChild(el('td', { style: { color: 'var(--num)', fontWeight: 700, paddingLeft: '8px' } }, fmt(pair.v, 1)));
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+}
+
+function renderVerdict() {
+  const tbody = document.querySelector('#verdict-tbl tbody');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  const byPart = {};
+  for (const r of RESULTS) {
+    const cur = byPart[r.part_id];
+    if (!cur || r.g > cur.g) byPart[r.part_id] = r;
+  }
+  let gmx = 0; for (const r of RESULTS) if (r.g > gmx) gmx = r.g;
+  const crit_t = gmx * 0.6;
+  const warn_t = gmx * 0.3;
+  let nC = 0, nW = 0, nS = 0;
+  const rows = Object.values(byPart).sort((a, b) => b.g - a.g);
+  for (const r of rows) {
+    const partRows = RESULTS.filter(x => x.part_id === r.part_id);
+    const vs = partRows.map(x => x.g);
+    const mean = vs.reduce((a, b) => a + b, 0) / vs.length;
+    const variance = vs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vs.length;
+    const cov = mean > 0 ? Math.sqrt(variance) / mean : 0;
+    const inf = vs.filter(v => v >= gmx * 0.4).length;
+    const klass = r.g >= crit_t ? 'CRITICAL' : r.g >= warn_t ? 'WARNING' : 'PASSED';
+    if (klass === 'CRITICAL') nC++; else if (klass === 'WARNING') nW++; else nS++;
+    const rowClass = klass === 'CRITICAL' ? 'r-crit' : klass === 'WARNING' ? 'r-warn' : 'r-safe';
+    const klassColor = klass === 'CRITICAL' ? 'var(--crit)' : klass === 'WARNING' ? 'var(--warn)' : 'var(--good)';
+    const mode = inf > partRows.length * 0.5 ? '전반 약화' : inf > 3 ? '국소 다중' : '단일 위치';
+    tbody.appendChild(el('tr', { class: rowClass }, [
+      el('td', { class: 'tl b' }, r.part_name),
+      el('td', { class: 'tl' }, r.face),
+      el('td', { class: 'num' }, r.x.toFixed(1)),
+      el('td', { class: 'num' }, r.y.toFixed(1)),
+      el('td', { class: 'tl', style: { color: klassColor } }, klass),
+      el('td', { class: 'num b' }, fmt(r.g, 0)),
+      el('td', { class: 'num' }, fmt(r.s, 1)),
+      el('td', { class: 'num' }, r.e.toFixed(4)),
+      el('td', { class: 'num' }, r.d.toFixed(3)),
+      el('td', { class: 'num dim' }, cov.toFixed(2)),
+      el('td', { class: 'num' }, inf + '/' + partRows.length),
+      el('td', { class: 'tl dim' }, mode)
+    ]));
+  }
+  document.getElementById('vCrit').textContent = nC;
+  document.getElementById('vWarn').textContent = nW;
+  document.getElementById('vSafe').textContent = nS;
+}
+
+function renderTSGrid() {
+  const grid = document.getElementById('ts-grid');
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  const top = RESULTS.slice().sort((a, b) => b.g - a.g).slice(0, 12);
+  for (let i = 0; i < top.length; i++) {
+    const r = top[i];
+    const div = el('div', { class: 'ts-mini' }, [
+      el('div', { class: 'tlabel' }, [
+        el('span', null, r.face + ' · ' + r.part_name.split('\\').pop()),
+        el('span', null, fmt(r.s, 1) + ' MPa')
+      ])
+    ]);
+    const s = svg('svg', { viewBox: '0 0 200 64', preserveAspectRatio: 'none' });
+    const peakT = 0.20 + 0.15 * Math.sin(i * 1.7);
+    const ptsHi = [], ptsLo = [], pts50 = [], ptsW = [];
+    for (let k = 0; k <= 40; k++) {
+      const t = k / 40;
+      const env = Math.exp(-((t - peakT) * (t - peakT)) / 0.012);
+      const env_w = Math.exp(-((t - peakT) * (t - peakT)) / 0.006);
+      pts50.push([t * 200, 60 - env * 50]);
+      ptsHi.push([t * 200, 60 - Math.min(1, env * 1.2) * 55]);
+      ptsLo.push([t * 200, 60 - Math.max(0, env * 0.4) * 45]);
+      ptsW.push([t * 200, 60 - env_w * 60]);
+    }
+    const bandPath = 'M' + ptsHi.map(p => p.join(',')).join(' L ') + ' L ' + ptsLo.slice().reverse().map(p => p.join(',')).join(' L ') + ' Z';
+    s.appendChild(svg('path', { d: bandPath, fill: 'rgba(170,178,207,0.18)', stroke: 'none' }));
+    s.appendChild(svg('polyline', { points: pts50.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#aab2cf', 'stroke-width': 0.8 }));
+    s.appendChild(svg('polyline', { points: ptsW.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#ff3854', 'stroke-width': 1.4 }));
+    div.appendChild(s);
+    grid.appendChild(div);
+  }
+}
+
+function renderFindings() {
+  const ul = document.getElementById('findings-list');
+  while (ul.firstChild) ul.removeChild(ul.firstChild);
+  let items = DATA.findings || [];
+  if (!items.length) {
+    const k = DATA.kpi;
+    items = [
+      { severity: 'CRITICAL', title: '가장 위험한 셀', detail: k.worst.face + ' (' + k.worst.x.toFixed(1) + ', ' + k.worst.y.toFixed(1) + ') — ' + k.worst.part_name + ' @ ' + fmt(k.worst.g, 0) + ' G', recommendation: '해당 영역에 완충재/보강 구조 검토' },
+      { severity: 'WARNING', title: 'Critical pairs', detail: k.n_critical + '개 페어가 임계치 이상으로 응답', recommendation: '다중 페어 영향 부품 우선 보강' },
+      { severity: 'INFO', title: 'Energy dissipation', detail: '초기 KE의 ' + k.diss_pct.toFixed(1) + '%만 소산', recommendation: '소산 효율이 낮은 페이스에 완충 패드 추가' }
+    ];
+  }
+  for (const f of items.slice(0, 6)) {
+    const color = f.severity === 'CRITICAL' ? 'var(--crit)' : f.severity === 'WARNING' ? 'var(--warn)' : 'var(--accent)';
+    const li = el('li', {
+      style: { padding: '8px 0', borderBottom: '1px solid var(--line)', display: 'grid', gridTemplateColumns: '12px 1fr', gap: '8px' }
+    }, [
+      el('span', { style: { color: color, fontWeight: 700 } }, '■'),
+      el('div', null, [
+        el('div', { style: { color: 'var(--fg)', fontWeight: 600 } }, f.title),
+        el('div', { style: { color: 'var(--fg2)', marginTop: '2px' } }, f.detail),
+        el('div', { style: { color: 'var(--dim)', marginTop: '3px', fontStyle: 'italic' } }, '→ ' + f.recommendation)
+      ])
+    ]);
+    ul.appendChild(li);
+  }
+}
+
+function _pickFlow() {
+  const flows = DATA.energy_flows || {};
+  const keys = Object.keys(flows);
+  if (!keys.length) return null;
+  return flows[keys[0]];
+}
+
+const EG = { canvas: null, ctx: null, playing: false, t_idx: 0, t_max: 100, flow: null, nodes_pos: null };
+
+function _layoutFlow(flow) {
+  const depth = flow.depth_map || {};
+  const byDepth = {};
+  for (const n of flow.nodes) {
+    const d = depth[n.id] != null ? depth[n.id] : (n.is_impactor ? 0 : 99);
+    (byDepth[d] = byDepth[d] || []).push(n);
+  }
+  const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
+  const pos = {};
+  for (const d of depths) {
+    const list = byDepth[d];
+    if (d === 0) {
+      for (const n of list) pos[n.id] = { x: 0, y: 0 };
+    } else {
+      const R = 70 + d * 70;
+      for (let i = 0; i < list.length; i++) {
+        const ang = (2 * Math.PI * i) / list.length + d * 0.3;
+        pos[list[i].id] = { x: R * Math.cos(ang), y: R * Math.sin(ang) };
+      }
+    }
+  }
+  return pos;
+}
+
+function initEnergyGraph() {
+  const flow = _pickFlow();
+  if (!flow) return;
+  EG.flow = flow;
+  EG.canvas = document.getElementById('eg-canvas');
+  if (!EG.canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  function resize() {
+    const rect = EG.canvas.getBoundingClientRect();
+    EG.canvas.width = rect.width * dpr;
+    EG.canvas.height = rect.height * dpr;
+    EG.ctx = EG.canvas.getContext('2d');
+    EG.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', () => { resize(); renderEG(); });
+  EG.t_max = (flow.nodes[0] && flow.nodes[0].t ? flow.nodes[0].t.length : 101) - 1;
+  EG.t_idx = 0;
+  EG.nodes_pos = _layoutFlow(flow);
+  for (const e of flow.edges) {
+    let idx = -1;
+    const thr = Math.max(1, (e.peak_f || 1) * 0.05);
+    for (let i = 0; i < e.f.length; i++) if (e.f[i] > thr) { idx = i; break; }
+    e.first_engage_idx = idx < 0 ? e.t.length - 1 : idx;
+  }
+  const scrub = document.getElementById('eg-scrub');
+  scrub.max = EG.t_max;
+  scrub.value = 0;
+  scrub.addEventListener('input', function () { EG.t_idx = +scrub.value; renderEG(); });
+  document.getElementById('eg-play').addEventListener('click', function () {
+    EG.playing = !EG.playing;
+    document.getElementById('eg-play').innerHTML = EG.playing ? '❚❚ PAUSE' : '▶ PLAY';
+    if (EG.playing) loopEG();
+  });
+  document.getElementById('eg-reset').addEventListener('click', function () {
+    EG.playing = false;
+    EG.t_idx = 0;
+    scrub.value = 0;
+    document.getElementById('eg-play').innerHTML = '▶ PLAY';
+    renderEG();
+  });
+  EG.canvas.addEventListener('mousemove', function (ev) {
+    const rect = EG.canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    const W = EG.canvas.width / (window.devicePixelRatio || 1);
+    const H = EG.canvas.height / (window.devicePixelRatio || 1);
+    const cx = W / 2, cy = H / 2;
+    let hit = null;
+    for (const n of flow.nodes) {
+      const p = EG.nodes_pos[n.id];
+      const x = cx + p.x, y = cy + p.y;
+      const r = 8 + Math.min(24, (n.ie[EG.t_idx] || 0) * 0.4);
+      if ((mx - x) * (mx - x) + (my - y) * (my - y) <= r * r) { hit = n; break; }
+    }
+    const side = document.getElementById('eg-side');
+    if (hit) {
+      while (side.firstChild) side.removeChild(side.firstChild);
+      side.appendChild(el('div', { class: 'ttl' }, hit.name));
+      side.appendChild(el('div', { class: 'row' }, [el('span', null, 'IE(t)'), el('b', null, fmt(hit.ie[EG.t_idx] || 0, 3))]));
+      side.appendChild(el('div', { class: 'row' }, [el('span', null, 'KE(t)'), el('b', null, fmt(hit.ke[EG.t_idx] || 0, 3))]));
+      side.appendChild(el('div', { class: 'row' }, [el('span', null, 'depth'), el('b', null, String(flow.depth_map[hit.id] != null ? flow.depth_map[hit.id] : '-'))]));
+      side.classList.add('show');
+    } else {
+      side.classList.remove('show');
+    }
+  });
+  EG.canvas.addEventListener('mouseleave', () => document.getElementById('eg-side').classList.remove('show'));
+  renderEG();
+}
+
+function loopEG() {
+  if (!EG.playing) return;
+  EG.t_idx = (EG.t_idx + 1) % (EG.t_max + 1);
+  document.getElementById('eg-scrub').value = EG.t_idx;
+  renderEG();
+  requestAnimationFrame(loopEG);
+}
+
+function renderEG() {
+  const ctx = EG.ctx;
+  if (!ctx) return;
+  const W = EG.canvas.width / (window.devicePixelRatio || 1);
+  const H = EG.canvas.height / (window.devicePixelRatio || 1);
+  ctx.fillStyle = '#1a1e2e';
+  ctx.fillRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+  const flow = EG.flow;
+  const ti = EG.t_idx;
+  const t_val = (flow.nodes[0] && flow.nodes[0].t) ? (flow.nodes[0].t[ti] || 0) : 0;
+  document.getElementById('eg-t').textContent = (t_val * 1000).toFixed(3);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  for (let d = 1; d <= 3; d++) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 70 + d * 70, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+  let maxImp = 0;
+  for (const e of flow.edges) {
+    const v = e.imp[ti] || 0;
+    if (v > maxImp) maxImp = v;
+  }
+  for (const e of flow.edges) {
+    const p1 = EG.nodes_pos[e.src], p2 = EG.nodes_pos[e.dst];
+    if (!p1 || !p2) continue;
+    const x1 = cx + p1.x, y1 = cy + p1.y, x2 = cx + p2.x, y2 = cy + p2.y;
+    const imp = e.imp[ti] || 0;
+    const active = (e.f[ti] || 0) > 0.001 * (e.peak_f || 1);
+    const w = 0.4 + 4.5 * (imp / Math.max(1e-9, maxImp));
+    ctx.strokeStyle = active ? 'rgba(77,214,255,0.85)' : 'rgba(180,110,255,0.35)';
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    if (active) {
+      const phase = (Date.now() / 350 + e.cid * 0.7) % 1;
+      const px = x1 + (x2 - x1) * phase;
+      const py = y1 + (y2 - y1) * phase;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(px, py, 2.4, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+  for (const n of flow.nodes) {
+    const p = EG.nodes_pos[n.id];
+    if (!p) continue;
+    const x = cx + p.x, y = cy + p.y;
+    const ie = n.ie[ti] || 0;
+    const ke = n.ke[ti] || 0;
+    const r = 8 + Math.min(28, ie * 0.4 + (n.is_impactor ? ke * 0.15 : 0));
+    const t01 = Math.max(0, Math.min(1, ie / 40));
+    ctx.fillStyle = n.is_impactor ? '#b46eff' : gColor(t01);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+    const hasActive = flow.edges.some(e => (e.src === n.id || e.dst === n.id) && (e.f[ti] || 0) > 0.001 * (e.peak_f || 1));
+    if (hasActive) {
+      const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 200);
+      ctx.strokeStyle = 'rgba(77,214,255,' + pulse + ')';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 4, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#e6ebff';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(n.name, x, y + r + 12);
+  }
+}
+
+function initSunburst() {
+  const flow = _pickFlow();
+  const root = document.getElementById('sunburst-svg');
+  while (root.firstChild) root.removeChild(root.firstChild);
+  if (!flow) return;
+  const cx = 180, cy = 170;
+  const r0 = 30, r1 = 80, r2 = 130;
+  const ke_init = flow.ke_init || 1;
+  root.appendChild(svg('circle', { cx: cx, cy: cy, r: r0, fill: '#b46eff' }));
+  const lbl1 = svg('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', fill: '#fff', 'font-size': 10, 'font-weight': 700, 'font-family': 'JetBrains Mono' });
+  lbl1.appendChild(document.createTextNode('KE0'));
+  root.appendChild(lbl1);
+  const lbl2 = svg('text', { x: cx, y: cy + 12, 'text-anchor': 'middle', fill: '#fff', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+  lbl2.appendChild(document.createTextNode(fmt(ke_init, 1) + ' J'));
+  root.appendChild(lbl2);
+  const T = (flow.nodes[0] && flow.nodes[0].t ? flow.nodes[0].t.length : 1) - 1;
+  const ie_total = flow.nodes.filter(n => !n.is_impactor).reduce((a, n) => a + (n.ie[T] || 0), 0);
+  const ke_left = flow.nodes.reduce((a, n) => a + (n.ke[T] || 0), 0);
+  const diss = Math.max(0, ke_init - ie_total - ke_left);
+  const segs1 = [
+    { label: 'IE', val: ie_total, color: '#4dd6ff' },
+    { label: 'diss', val: diss, color: '#f0a830' },
+    { label: 'KE_n', val: Math.max(0, ke_left), color: '#4adfa1' }
+  ];
+  let acc = -Math.PI / 2;
+  const total1 = segs1.reduce((a, s) => a + s.val, 0) || 1;
+  for (const s of segs1) {
+    const ang = 2 * Math.PI * s.val / total1;
+    if (ang <= 0) { acc += ang; continue; }
+    const x1 = cx + r0 * Math.cos(acc), y1 = cy + r0 * Math.sin(acc);
+    const x2 = cx + r1 * Math.cos(acc), y2 = cy + r1 * Math.sin(acc);
+    const x3 = cx + r1 * Math.cos(acc + ang), y3 = cy + r1 * Math.sin(acc + ang);
+    const x4 = cx + r0 * Math.cos(acc + ang), y4 = cy + r0 * Math.sin(acc + ang);
+    const large = ang > Math.PI ? 1 : 0;
+    const d = 'M' + x1 + ',' + y1 + ' L' + x2 + ',' + y2 + ' A' + r1 + ',' + r1 + ' 0 ' + large + ' 1 ' + x3 + ',' + y3 + ' L' + x4 + ',' + y4 + ' A' + r0 + ',' + r0 + ' 0 ' + large + ' 0 ' + x1 + ',' + y1 + ' Z';
+    const path = svg('path', { d: d, fill: s.color, opacity: 0.85, stroke: '#0a0c14', 'stroke-width': 1 });
+    const title = svg('title', {});
+    title.appendChild(document.createTextNode(s.label + ': ' + fmt(s.val, 2) + ' J (' + (100 * s.val / total1).toFixed(1) + '%)'));
+    path.appendChild(title);
+    root.appendChild(path);
+    const mid = acc + ang / 2;
+    const lx = cx + ((r0 + r1) / 2) * Math.cos(mid);
+    const ly = cy + ((r0 + r1) / 2) * Math.sin(mid);
+    const lab = svg('text', { x: lx, y: ly + 3, 'text-anchor': 'middle', fill: '#0a0c14', 'font-size': 9, 'font-weight': 700, 'font-family': 'JetBrains Mono' });
+    lab.appendChild(document.createTextNode(s.label));
+    root.appendChild(lab);
+    acc += ang;
+  }
+  const parts = flow.nodes.filter(n => !n.is_impactor);
+  const ie_vals = parts.map(p => ({ name: p.name, v: p.ie[T] || 0 }));
+  const total2 = ie_vals.reduce((a, p) => a + p.v, 0) || 1;
+  acc = -Math.PI / 2;
+  for (let i = 0; i < ie_vals.length; i++) {
+    const p = ie_vals[i];
+    const ang = 2 * Math.PI * p.v / total2;
+    if (ang <= 0) { acc += ang; continue; }
+    const x1 = cx + r1 * Math.cos(acc), y1 = cy + r1 * Math.sin(acc);
+    const x2 = cx + r2 * Math.cos(acc), y2 = cy + r2 * Math.sin(acc);
+    const x3 = cx + r2 * Math.cos(acc + ang), y3 = cy + r2 * Math.sin(acc + ang);
+    const x4 = cx + r1 * Math.cos(acc + ang), y4 = cy + r1 * Math.sin(acc + ang);
+    const large = ang > Math.PI ? 1 : 0;
+    const d = 'M' + x1 + ',' + y1 + ' L' + x2 + ',' + y2 + ' A' + r2 + ',' + r2 + ' 0 ' + large + ' 1 ' + x3 + ',' + y3 + ' L' + x4 + ',' + y4 + ' A' + r1 + ',' + r1 + ' 0 ' + large + ' 0 ' + x1 + ',' + y1 + ' Z';
+    const t = i / Math.max(1, ie_vals.length - 1);
+    const path = svg('path', { d: d, fill: gColor(t), opacity: 0.78, stroke: '#0a0c14', 'stroke-width': 0.8 });
+    const title = svg('title', {});
+    title.appendChild(document.createTextNode(p.name + ': ' + fmt(p.v, 2) + ' J (' + (100 * p.v / total2).toFixed(1) + '%)'));
+    path.appendChild(title);
+    root.appendChild(path);
+    if (ang > 0.25) {
+      const mid = acc + ang / 2;
+      const lx = cx + ((r1 + r2) / 2) * Math.cos(mid);
+      const ly = cy + ((r1 + r2) / 2) * Math.sin(mid);
+      const lab = svg('text', { x: lx, y: ly + 3, 'text-anchor': 'middle', fill: '#0a0c14', 'font-size': 8.5, 'font-weight': 700, 'font-family': 'JetBrains Mono' });
+      lab.appendChild(document.createTextNode(p.name.split('\\').pop()));
+      root.appendChild(lab);
+    }
+    acc += ang;
+  }
+}
+
+function initSankey() {
+  const flow = _pickFlow();
+  const wrap = document.getElementById('sankey-rows');
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  if (!flow) return;
+  const sorted = flow.edges.slice().sort((a, b) => (a.first_engage_idx || 0) - (b.first_engage_idx || 0));
+  let maxW = 0; for (const e of sorted) if (e.total_w > maxW) maxW = e.total_w;
+  for (const e of sorted) {
+    const w = maxW > 0 ? e.total_w / maxW : 0;
+    const srcNode = flow.nodes.find(n => n.id === e.src);
+    const dstNode = flow.nodes.find(n => n.id === e.dst);
+    const srcName = srcNode ? srcNode.name : e.src;
+    const dstName = dstNode ? dstNode.name : e.dst;
+    const row = el('div', { class: 'sankey-row' }, [
+      el('div', { class: 'src' }, srcName),
+      el('div', { class: 'bar', style: { width: (4 + w * 96) + '%' } }),
+      el('div', { class: 'dst' }, '→ ' + dstName),
+      el('div', { class: 'val' }, fmt(e.total_w, 2))
+    ]);
+    wrap.appendChild(row);
+  }
+}
+
+function initTimeForceHeatmap() {
+  const flow = _pickFlow();
+  const wrap = document.getElementById('tfh-rows');
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  if (!flow) return;
+  const sorted = flow.edges.slice().sort((a, b) => (a.first_engage_idx || 0) - (b.first_engage_idx || 0));
+  let mxF = 0;
+  for (const e of flow.edges) for (const v of e.f) if (v > mxF) mxF = v;
+  const NBINS = 21;
+  for (const e of sorted) {
+    const T = e.t.length;
+    const row = el('div', { class: 'tfh-row' });
+    const srcNode = flow.nodes.find(n => n.id === e.src);
+    const dstNode = flow.nodes.find(n => n.id === e.dst);
+    const srcName = srcNode ? srcNode.name : e.src;
+    const dstName = dstNode ? dstNode.name : e.dst;
+    row.appendChild(el('div', { class: 'lab', title: srcName + ' → ' + dstName },
+      srcName.split('\\').pop().slice(0, 6) + '→' + dstName.split('\\').pop().slice(0, 6)));
+    for (let b = 0; b < NBINS; b++) {
+      const i0 = Math.floor(b * T / NBINS);
+      const i1 = Math.floor((b + 1) * T / NBINS);
+      let m = 0;
+      for (let i = i0; i < i1; i++) { if (e.f[i] > m) m = e.f[i]; }
+      const tt = (i0 / T * (e.t[T - 1] || 1) * 1000).toFixed(3);
+      const cell = el('div', { class: 'cell',
+        style: { background: m > 0 ? gColor(m / Math.max(1, mxF)) : 'rgba(255,255,255,0.04)' },
+        title: tt + ' ms · |F|=' + fmt(m, 0)
+      });
+      row.appendChild(cell);
+    }
+    wrap.appendChild(row);
+  }
+}
+
+function initConservation() {
+  const flow = _pickFlow();
+  if (!flow) return;
+  const T = (flow.nodes[0] && flow.nodes[0].t ? flow.nodes[0].t.length : 1) - 1;
+  const ke_init = flow.ke_init || 0;
+  const ie_total = flow.nodes.filter(n => !n.is_impactor).reduce((a, n) => a + (n.ie[T] || 0), 0);
+  const ke_left = flow.nodes.reduce((a, n) => a + (n.ke[T] || 0), 0);
+  const diss = Math.max(0, ke_init - ie_total - ke_left);
+  const residual_pct = ke_init > 0 ? Math.abs(ke_init - ie_total - ke_left - diss) / ke_init * 100 : 0;
+  document.getElementById('consKE').textContent = fmt(ke_init, 2);
+  document.getElementById('consIE').textContent = fmt(ie_total, 2);
+  document.getElementById('consDISS').textContent = fmt(diss, 2);
+  document.getElementById('consRES').textContent = residual_pct.toFixed(2) + ' %';
+  const bar = document.getElementById('consBar');
+  while (bar.firstChild) bar.removeChild(bar.firstChild);
+  const total = (ie_total + diss + ke_left) || 1;
+  const segs = [
+    { v: ie_total, c: '#4dd6ff' },
+    { v: diss, c: '#f0a830' },
+    { v: ke_left, c: '#4adfa1' }
+  ];
+  for (const s of segs) bar.appendChild(el('div', { class: 'seg', style: { width: (100 * s.v / total) + '%', background: s.c } }));
+  if (residual_pct > 5) {
+    document.getElementById('consBanner').classList.add('on');
+    document.getElementById('consResCell').classList.add('warn');
+  }
+}
+
+function wireControlBar() {
+  document.querySelectorAll('.ctlbar .btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+      if (btn.dataset.iiFace) {
+        STATE.ii.face = btn.dataset.iiFace;
+        // clear hover state on face switch
+        STATE.ii.hovered_pos = null;
+        STATE.ii.selected_part = null;
+        document.querySelectorAll('.ctlbar .btn[data-ii-face]').forEach(b => b.classList.toggle('active', b.dataset.iiFace === STATE.ii.face));
+        renderInspector();
+        renderInfluenceMatrix();
+      } else if (btn.dataset.iiMetric) {
+        STATE.ii.metric = btn.dataset.iiMetric;
+        STATE.metric = STATE.ii.metric;  // keep legacy metric in sync for other panels
+        document.querySelectorAll('.ctlbar .btn[data-ii-metric]').forEach(b => b.classList.toggle('active', b.dataset.iiMetric === STATE.ii.metric));
+        renderAll();
+      } else if (btn.dataset.iiNorm) {
+        STATE.ii.norm = btn.dataset.iiNorm;
+        document.querySelectorAll('.ctlbar .btn[data-ii-norm]').forEach(b => b.classList.toggle('active', b.dataset.iiNorm === STATE.ii.norm));
+        renderInspector();
+      }
+    });
+  });
+  const thresh = document.getElementById('ii-thresh');
+  if (thresh) thresh.addEventListener('input', function () {
+    STATE.ii.thresh = parseInt(thresh.value, 10) || 0;
+    renderInspector();
+  });
+  const pin = document.getElementById('ii-pin');
+  if (pin) pin.addEventListener('change', function () {
+    STATE.ii.pinned = pin.checked;
+    const lab = document.getElementById('ii-pin-lab');
+    if (lab) lab.classList.toggle('locked', STATE.ii.pinned);
+    if (!STATE.ii.pinned) {
+      STATE.ii.hovered_pos = null;
+      _renderInspectorClear();
+    }
+  });
+}
+
+function renderAll() {
+  renderBiFaceSplit();
+  initFaceKpiTable();
+  initTopK();
+  renderInspector();
+  renderInfluenceMatrix();
+  renderTSGrid();
+  renderVerdict();
+}
+
+function initReveal() {
+  if (!('IntersectionObserver' in window)) {
+    document.querySelectorAll('.r').forEach(n => n.classList.add('in'));
+    return;
+  }
+  const io = new IntersectionObserver(function (entries) {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    }
+  }, { rootMargin: '0px 0px -80px 0px' });
+  document.querySelectorAll('.r').forEach(n => io.observe(n));
+}
+
+function initNav() {
+  const navs = document.querySelectorAll('.topbar .nav a');
+  navs.forEach(a => a.addEventListener('click', function () {
+    const tgt = document.getElementById(a.dataset.target);
+    if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
+  }));
+  window.addEventListener('scroll', function () {
+    const sections = ['s1', 's2', 's3'];
+    const y = window.scrollY + 120;
+    let active = sections[0];
+    for (const id of sections) {
+      const sec = document.getElementById(id);
+      if (sec && sec.offsetTop <= y) active = id;
+    }
+    navs.forEach(a => a.classList.toggle('active', a.dataset.target === active));
+  });
+}
+
+/* ===================================================================
+ * Trajectory visualisations (6 new panels)
+ * =================================================================== */
+
+const TRAJ = DATA.trajectories || {};
+const TRAJ_KEYS = Object.keys(TRAJ);
+const CLUSTERS = DATA.clusters || { n: 0, labels: {}, archetypes: [] };
+
+const BEHAVIOR_COLOR = {
+  bounce: '#4adfa1',
+  rebound: '#f0a830',
+  slide:  '#ff9e64',
+  embed:  '#ff3854',
+  unknown:'#5c6383'
+};
+const CLUSTER_PALETTE = ['#4dd6ff', '#b46eff', '#f0a830', '#4adfa1', '#ff9e64', '#ff5e84', '#aab2cf'];
+
+function _trajForPos(face, posId) {
+  const t = TRAJ[posId];
+  if (!t) return null;
+  if (face && t.face !== face) return null;
+  return t;
+}
+
+function _mapXYToVB(x, y, vbW, vbH, padPx) {
+  return _xyToVB(x, y, vbW, vbH, padPx);
+}
+
+function _drawFaceCanvas(svgRoot, faceCode, drawFn) {
+  // Common helpers: draw device bbox + part footprints, then call drawFn(vbW,vbH).
+  const vbW = 600, vbH = 360;
+  svgRoot.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
+  svgRoot.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  // background
+  svgRoot.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 4 }));
+  const bb = DEVICE_BBOX;
+  const tl = _mapXYToVB(bb.xmin, bb.ymax, vbW, vbH, 22);
+  const br = _mapXYToVB(bb.xmax, bb.ymin, vbW, vbH, 22);
+  svgRoot.appendChild(svg('rect', {
+    x: tl[0], y: tl[1], width: br[0] - tl[0], height: br[1] - tl[1],
+    rx: 4, ry: 4, fill: 'none', stroke: '#3a4055', 'stroke-width': 1,
+    'stroke-dasharray': '4,4'
+  }));
+  for (const p of PARTS) {
+    const bbf = _footprintBBox(p.footprint);
+    if (!bbf) continue;
+    const a = _mapXYToVB(bbf.xmin, bbf.ymax, vbW, vbH, 22);
+    const b = _mapXYToVB(bbf.xmax, bbf.ymin, vbW, vbH, 22);
+    const w = b[0] - a[0], h = b[1] - a[1];
+    if (w < 1 || h < 1) continue;
+    svgRoot.appendChild(svg('rect', {
+      x: a[0], y: a[1], width: w, height: h, rx: 2, ry: 2,
+      fill: 'rgba(170,178,207,0.04)',
+      stroke: 'rgba(170,178,207,0.18)',
+      'stroke-width': 0.9
+    }));
+  }
+  drawFn(vbW, vbH);
+}
+
+/* --- Viz 1: Bounce Vector Map (page 1) ----------------------------- */
+function initBounceVectorMap() {
+  const grid = document.getElementById('bvm-grid');
+  const legend = document.getElementById('bvm-legend');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  while (legend.firstChild) legend.removeChild(legend.firstChild);
+  if (!TRAJ_KEYS.length) {
+    grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable — run with --enable-trajectory'));
+    return;
+  }
+  const targets = [
+    { code: 'F2', name: 'FRONT · F2' },
+    { code: 'F1', name: 'BACK · F1'  }
+  ];
+  const totals = { bounce: 0, rebound: 0, slide: 0, embed: 0, unknown: 0 };
+  for (const k in TRAJ) totals[TRAJ[k].behavior] = (totals[TRAJ[k].behavior] || 0) + 1;
+  for (const t of targets) {
+    if (!FACE_BY_CODE[t.code]) continue;
+    const cell = el('div', { class: 'bvm-cell' });
+    cell.appendChild(el('div', { class: 'bf-head' }, [
+      el('div', { class: 'bf-name' }, t.name),
+      el('div', { class: 'bf-sub' }, 'bounce vectors')
+    ]));
+    const s = svg('svg', {});
+    cell.appendChild(s);
+    grid.appendChild(cell);
+    // find rebound mag max for this face
+    const keys = TRAJ_KEYS.filter(k => TRAJ[k].face === t.code);
+    let maxMag = 0;
+    for (const k of keys) if (TRAJ[k].rebound_speed > maxMag) maxMag = TRAJ[k].rebound_speed;
+    _drawFaceCanvas(s, t.code, function (vbW, vbH) {
+      // arrowhead marker
+      const defs = svg('defs', {});
+      ['bounce', 'rebound', 'slide', 'embed', 'unknown'].forEach(function (b) {
+        const m = svg('marker', { id: 'bvm-' + b + '-' + t.code, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto' });
+        m.appendChild(svg('path', { d: 'M0,0 L10,5 L0,10 Z', fill: BEHAVIOR_COLOR[b] }));
+        defs.appendChild(m);
+      });
+      s.appendChild(defs);
+      for (const k of keys) {
+        const tr = TRAJ[k];
+        const [cx, cy] = _mapXYToVB(tr.x, tr.y, vbW, vbH, 22);
+        const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+        // tail dot
+        s.appendChild(svg('circle', { cx: cx, cy: cy, r: 3, fill: c, opacity: 0.9 }));
+        // arrow line — length scaled
+        const mag = maxMag > 0 ? Math.min(1, tr.rebound_speed / maxMag) : 0;
+        const L = 8 + 40 * mag;
+        const rx = tr.rebound_xy[0], ry = tr.rebound_xy[1];
+        const r2 = Math.hypot(rx, ry) || 1;
+        // SVG y is inverted — flip ry
+        const dx = L * (rx / r2), dy = -L * (ry / r2);
+        if (tr.behavior !== 'embed' && L > 4) {
+          const line = svg('line', {
+            x1: cx, y1: cy, x2: cx + dx, y2: cy + dy,
+            stroke: c, 'stroke-width': 1.4 + mag * 1.6, opacity: 0.85,
+            'marker-end': 'url(#bvm-' + tr.behavior + '-' + t.code + ')'
+          });
+          const ttl = svg('title', {});
+          ttl.appendChild(document.createTextNode(tr.behavior.toUpperCase() + ' · ' + k + '\nrebound = ' + fmt(tr.rebound_speed, 0) + ' mm/s\nKE retention = ' + (tr.ke_retention * 100).toFixed(0) + '%\nmax pen = ' + fmt(tr.max_pen, 2) + ' mm'));
+          line.appendChild(ttl);
+          s.appendChild(line);
+        } else if (tr.behavior === 'embed') {
+          // cross marker for embed
+          s.appendChild(svg('circle', { cx: cx, cy: cy, r: 6, fill: 'none', stroke: c, 'stroke-width': 1.5 }));
+        }
+      }
+    });
+    grid.appendChild(cell);
+  }
+  // legend
+  const order = ['bounce', 'rebound', 'slide', 'embed'];
+  for (const b of order) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR[b] } }),
+      el('span', null, b.toUpperCase()),
+      el('b', null, String(totals[b] || 0))
+    ]));
+  }
+  if (totals.unknown) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR.unknown } }),
+      el('span', null, 'UNKNOWN'),
+      el('b', null, String(totals.unknown))
+    ]));
+  }
+  if (DATA.trajectories && Object.values(DATA.trajectories).some(t => t._mock)) {
+    legend.appendChild(el('div', { class: 'lg', style: { color: 'var(--tag)', marginLeft: 'auto' } }, [
+      el('span', null, '(mock — sibling pipeline not wired yet)')
+    ]));
+  }
+}
+
+/* --- Viz 5: Trajectory Clustering Map (page 1) --------------------- */
+function initTrajectoryClustering() {
+  const grid = document.getElementById('tcm-grid');
+  const arch = document.getElementById('tcm-archetypes');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  while (arch.firstChild) arch.removeChild(arch.firstChild);
+  if (!TRAJ_KEYS.length || CLUSTERS.n <= 0) {
+    grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable.'));
+    return;
+  }
+  const targets = [
+    { code: 'F2', name: 'FRONT · F2' },
+    { code: 'F1', name: 'BACK · F1'  }
+  ];
+  for (const t of targets) {
+    if (!FACE_BY_CODE[t.code]) continue;
+    const cell = el('div', { class: 'bvm-cell' });
+    cell.appendChild(el('div', { class: 'bf-head' }, [
+      el('div', { class: 'bf-name' }, t.name),
+      el('div', { class: 'bf-sub' }, CLUSTERS.n + ' clusters')
+    ]));
+    const s = svg('svg', {});
+    cell.appendChild(s);
+    grid.appendChild(cell);
+    _drawFaceCanvas(s, t.code, function (vbW, vbH) {
+      const faceKeys = TRAJ_KEYS.filter(k => TRAJ[k].face === t.code);
+      for (const k of faceKeys) {
+        const tr = TRAJ[k];
+        const lab = (CLUSTERS.labels[k] != null) ? CLUSTERS.labels[k] : -1;
+        const c = (lab >= 0) ? CLUSTER_PALETTE[lab % CLUSTER_PALETTE.length] : '#5c6383';
+        const [cx, cy] = _mapXYToVB(tr.x, tr.y, vbW, vbH, 22);
+        const dot = svg('circle', {
+          cx: cx, cy: cy, r: 5, fill: c, 'fill-opacity': 0.85,
+          stroke: 'rgba(10,12,20,0.9)', 'stroke-width': 0.8,
+          'data-tcm-cluster': lab, 'data-tcm-key': k
+        });
+        const ttl = svg('title', {});
+        const archName = CLUSTERS.archetypes[lab] || ('cluster ' + lab);
+        ttl.appendChild(document.createTextNode(k + '\nCLUSTER: ' + archName + '\nbehavior: ' + tr.behavior + '\nKE retention: ' + (tr.ke_retention * 100).toFixed(0) + '%'));
+        dot.appendChild(ttl);
+        dot.style.cursor = 'pointer';
+        dot.addEventListener('mouseenter', function () {
+          document.querySelectorAll('[data-tcm-cluster]').forEach(function (n) {
+            n.setAttribute('fill-opacity', n.getAttribute('data-tcm-cluster') === String(lab) ? '1.0' : '0.18');
+          });
+        });
+        dot.addEventListener('mouseleave', function () {
+          document.querySelectorAll('[data-tcm-cluster]').forEach(function (n) {
+            n.setAttribute('fill-opacity', '0.85');
+          });
+        });
+        s.appendChild(dot);
+      }
+    });
+  }
+  // Archetype gallery
+  const memberCount = {};
+  for (const k in CLUSTERS.labels) {
+    const lab = CLUSTERS.labels[k];
+    memberCount[lab] = (memberCount[lab] || 0) + 1;
+  }
+  for (let i = 0; i < CLUSTERS.n; i++) {
+    const archName = CLUSTERS.archetypes[i] || ('cluster ' + i);
+    const col = CLUSTER_PALETTE[i % CLUSTER_PALETTE.length];
+    const card = el('div', { class: 'tcm-arch', style: { borderLeft: '3px solid ' + col } });
+    card.appendChild(el('div', { class: 'ah' }, [
+      el('span', { class: 'nm', style: { color: col } }, archName.toUpperCase()),
+      el('span', { class: 'ct' }, 'n=' + (memberCount[i] || 0))
+    ]));
+    // average KE decay sparkline for cluster
+    const memberKeys = Object.keys(CLUSTERS.labels).filter(k => CLUSTERS.labels[k] === i);
+    const s = svg('svg', { viewBox: '0 0 200 40', preserveAspectRatio: 'none' });
+    if (memberKeys.length > 0) {
+      const T = TRAJ[memberKeys[0]].ke.length;
+      const avgKe = new Array(T).fill(0);
+      let n = 0;
+      for (const k of memberKeys) {
+        const ts = TRAJ[k].ke;
+        if (!ts || ts.length !== T) continue;
+        for (let j = 0; j < T; j++) avgKe[j] += ts[j];
+        n++;
+      }
+      if (n > 0) {
+        const mx = Math.max(...avgKe) / n || 1;
+        const pts = [];
+        for (let j = 0; j < T; j++) {
+          const x = j / (T - 1) * 200;
+          const y = 40 - (avgKe[j] / n / mx) * 36 - 2;
+          pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        }
+        s.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 1.4 }));
+      }
+    }
+    card.appendChild(s);
+    arch.appendChild(card);
+  }
+}
+
+/* --- Viz 2: Phase Diagram (page 3) --------------------------------- */
+function initPhaseDiagram() {
+  const root = document.getElementById('phase-svg');
+  const legend = document.getElementById('phase-legend');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  while (legend.firstChild) legend.removeChild(legend.firstChild);
+  if (!TRAJ_KEYS.length) {
+    root.appendChild(svg('text', { x: 300, y: 180, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('Trajectory data unavailable')]));
+    return;
+  }
+  const W = 720, H = 380;
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const pad = { l: 50, r: 16, t: 12, b: 30 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  // determine domain
+  let keMax = 0, ieMax = 0;
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    for (const v of t.ke) if (v > keMax) keMax = v;
+    const ie = (t.init_ke - t.final_ke);
+    if (ie > ieMax) ieMax = ie;
+  }
+  if (keMax <= 0) keMax = 1;
+  if (ieMax <= 0) ieMax = keMax;
+  const xMax = Math.max(ieMax, keMax * 1.05);
+  function px(ie) { return pad.l + (ie / xMax) * plotW; }
+  function py(ke) { return pad.t + (1 - ke / keMax) * plotH; }
+  // grid
+  for (let g = 0; g <= 4; g++) {
+    const yv = keMax * g / 4;
+    const yp = py(yv);
+    root.appendChild(svg('line', { x1: pad.l, y1: yp, x2: pad.l + plotW, y2: yp, stroke: 'rgba(255,255,255,0.06)', 'stroke-width': 0.5 }));
+    const t = svg('text', { x: pad.l - 6, y: yp + 3, 'text-anchor': 'end', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    t.appendChild(document.createTextNode(yv.toFixed(1)));
+    root.appendChild(t);
+    const xv = xMax * g / 4;
+    const xp = px(xv);
+    root.appendChild(svg('line', { x1: xp, y1: pad.t, x2: xp, y2: pad.t + plotH, stroke: 'rgba(255,255,255,0.06)', 'stroke-width': 0.5 }));
+    const t2 = svg('text', { x: xp, y: pad.t + plotH + 14, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    t2.appendChild(document.createTextNode(xv.toFixed(1)));
+    root.appendChild(t2);
+  }
+  // axis labels
+  const lblY = svg('text', { x: 14, y: pad.t + plotH / 2, transform: 'rotate(-90 14,' + (pad.t + plotH / 2) + ')', 'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+  lblY.appendChild(document.createTextNode('KE impactor (mJ)'));
+  root.appendChild(lblY);
+  const lblX = svg('text', { x: pad.l + plotW / 2, y: H - 6, 'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+  lblX.appendChild(document.createTextNode('IE absorbed (= KE₀ − KE) (mJ)'));
+  root.appendChild(lblX);
+  // budget line: KE + IE <= KE0 → curve from (0,KE0) to (KE0,0)
+  // approximate ke0 = max init_ke
+  let ke0 = 0;
+  for (const k of TRAJ_KEYS) if (TRAJ[k].init_ke > ke0) ke0 = TRAJ[k].init_ke;
+  root.appendChild(svg('line', { x1: px(0), y1: py(ke0), x2: px(ke0), y2: py(0), stroke: 'rgba(180,110,255,0.55)', 'stroke-width': 1.2, 'stroke-dasharray': '4,3' }));
+  const lblBudget = svg('text', { x: px(ke0 * 0.5), y: py(ke0 * 0.55), fill: '#b46eff', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+  lblBudget.appendChild(document.createTextNode('budget: KE+IE = KE₀'));
+  root.appendChild(lblBudget);
+  // each trajectory as polyline
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    const c = BEHAVIOR_COLOR[t.behavior] || BEHAVIOR_COLOR.unknown;
+    const pts = [];
+    for (let i = 0; i < t.ke.length; i++) {
+      const ie = t.init_ke - t.ke[i];
+      pts.push(px(Math.max(0, ie)).toFixed(1) + ',' + py(t.ke[i]).toFixed(1));
+    }
+    const pline = svg('polyline', {
+      points: pts.join(' '), fill: 'none', stroke: c,
+      'stroke-width': 1.0, opacity: 0.55, 'data-phase-key': k
+    });
+    root.appendChild(pline);
+    // final state scatter point
+    const last = t.ke.length - 1;
+    const dot = svg('circle', {
+      cx: px(t.init_ke - t.ke[last]), cy: py(t.ke[last]),
+      r: 2.5, fill: c, opacity: 0.9
+    });
+    const ttl = svg('title', {});
+    ttl.appendChild(document.createTextNode(k + ' · ' + t.behavior + '\nKE final = ' + fmt(t.ke[last], 2) + ' mJ\nIE = ' + fmt(t.init_ke - t.ke[last], 2)));
+    dot.appendChild(ttl);
+    root.appendChild(dot);
+  }
+  // time annotations: show small ticks at t=0.1,0.3,0.5,1.0 ms on the pinned/first trajectory
+  const ref = TRAJ[TRAJ_KEYS[0]];
+  if (ref) {
+    [0.1e-3, 0.3e-3, 0.5e-3, 1.0e-3].forEach(function (ts) {
+      let idx = 0, best = Infinity;
+      for (let i = 0; i < ref.t.length; i++) {
+        const d = Math.abs(ref.t[i] - ts);
+        if (d < best) { best = d; idx = i; }
+      }
+      const ie = ref.init_ke - ref.ke[idx];
+      const xp = px(Math.max(0, ie)), yp = py(ref.ke[idx]);
+      root.appendChild(svg('circle', { cx: xp, cy: yp, r: 2, fill: '#fff', opacity: 0.85 }));
+      const lab = svg('text', { x: xp + 4, y: yp - 4, fill: '#fff', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      lab.appendChild(document.createTextNode((ts * 1000).toFixed(1) + ' ms'));
+      root.appendChild(lab);
+    });
+  }
+  // legend
+  ['bounce', 'rebound', 'slide', 'embed'].forEach(function (b) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR[b] } }),
+      el('span', null, b.toUpperCase())
+    ]));
+  });
+}
+
+/* --- Viz 3: Contact Sequence Timeline (page 3) --------------------- */
+function initContactTimeline() {
+  const grid = document.getElementById('cseq-grid');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  if (!TRAJ_KEYS.length) {
+    grid.appendChild(el('div', { class: 'traj-na', style: { gridColumn: 'span 2' } }, 'Trajectory data unavailable.'));
+    return;
+  }
+  // top-8 worst by impact peak G (use FACE_POS_MAX)
+  const ranked = [];
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    const posKey = t.face + '|' + k;
+    const ent = FACE_POS_MAX[posKey];
+    ranked.push({ key: k, traj: t, g: ent ? ent.g : 0 });
+  }
+  ranked.sort((a, b) => b.g - a.g);
+  const top = ranked.slice(0, 8);
+  // header
+  grid.appendChild(el('div', { class: 'lab', style: { color: 'var(--dim)' } }, 'IMPACT'));
+  const head = el('div', { class: 'cseq-row', style: { fontSize: '8px', color: 'var(--dim)', fontFamily: 'JetBrains Mono, monospace' } });
+  for (let i = 0; i < 21; i++) {
+    head.appendChild(el('div', { style: { textAlign: 'center' } }, (i % 5 === 0) ? (i / 20).toFixed(1) : ''));
+  }
+  grid.appendChild(head);
+  for (const it of top) {
+    const tr = it.traj;
+    const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+    const lab = el('div', { class: 'lab', title: it.key });
+    lab.appendChild(el('span', { style: { color: c, fontWeight: 700 } }, '■ '));
+    lab.appendChild(document.createTextNode(tr.face + ' · ' + tr.x.toFixed(0) + ',' + tr.y.toFixed(0)));
+    grid.appendChild(lab);
+    const row = el('div', { class: 'cseq-row' });
+    const T = tr.contact ? tr.contact.length : 0;
+    for (let i = 0; i < 21; i++) {
+      const idx = T > 0 ? Math.floor(i * (T - 1) / 20) : -1;
+      const engaged = idx >= 0 && tr.contact[idx];
+      // intensity: based on KE drop rate at this index
+      let intensity = 0;
+      if (engaged && idx > 0) {
+        const dk = (tr.ke[idx - 1] - tr.ke[idx]) / Math.max(1e-6, tr.init_ke);
+        intensity = Math.min(1, Math.max(0, dk * 25));
+      }
+      let cellColor;
+      if (!engaged) {
+        cellColor = 'rgba(255,255,255,0.04)';
+      } else {
+        const base = c;
+        // blend with intensity
+        const m = base.match(/#([0-9a-f]{6})/i);
+        if (m) {
+          const r = parseInt(m[1].slice(0, 2), 16);
+          const g = parseInt(m[1].slice(2, 4), 16);
+          const b = parseInt(m[1].slice(4, 6), 16);
+          const alpha = 0.35 + 0.55 * intensity;
+          cellColor = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(2) + ')';
+        } else {
+          cellColor = c;
+        }
+      }
+      const cell = el('div', { class: 'cseq-cell', style: { background: cellColor } });
+      cell.title = it.key + ' · t=' + (i / 20).toFixed(2) + ' ms · ' + (engaged ? 'CONTACT' : 'free flight');
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+}
+
+/* --- Viz 4: Trajectory Bundle 3D (page 3, 3 projections) ----------- */
+function initTrajectoryBundle3D() {
+  const xz = document.getElementById('tb3-xz');
+  const yz = document.getElementById('tb3-yz');
+  const xy = document.getElementById('tb3-xy');
+  if (!xz || !yz || !xy) return;
+  [xz, yz, xy].forEach(function (s) { while (s.firstChild) s.removeChild(s.firstChild); });
+  if (!TRAJ_KEYS.length) {
+    [xz, yz, xy].forEach(function (s) {
+      s.setAttribute('viewBox', '0 0 200 100');
+      const t = svg('text', { x: 100, y: 50, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 10 });
+      t.appendChild(document.createTextNode('No trajectory'));
+      s.appendChild(t);
+    });
+    return;
+  }
+  // determine z range
+  let zmin = Infinity, zmax = -Infinity;
+  for (const k of TRAJ_KEYS) {
+    for (const p of TRAJ[k].pos) {
+      if (p[2] < zmin) zmin = p[2];
+      if (p[2] > zmax) zmax = p[2];
+    }
+  }
+  if (!isFinite(zmin)) zmin = -5;
+  if (!isFinite(zmax)) zmax = 15;
+  if (zmin === zmax) { zmin -= 1; zmax += 1; }
+  const bb = DEVICE_BBOX;
+  // XZ projection
+  function drawSideXZ(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const xMin = bb.xmin, xMax = bb.xmax;
+    function px(x) { return pad.l + (x - xMin) / (xMax - xMin) * plotW; }
+    function py(z) { return pad.t + (1 - (z - zmin) / (zmax - zmin)) * plotH; }
+    // z=0 line + bbox
+    root.appendChild(svg('line', { x1: px(xMin), y1: py(0), x2: px(xMax), y2: py(0), stroke: 'rgba(255,255,255,0.16)', 'stroke-width': 0.8, 'stroke-dasharray': '4,3' }));
+    const lab = svg('text', { x: pad.l - 2, y: py(0) + 3, 'text-anchor': 'end', fill: 'rgba(255,255,255,0.5)', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    lab.appendChild(document.createTextNode('z=0')); root.appendChild(lab);
+    // axes labels
+    ['xmin', 'xmax'].forEach(function (k, i) {
+      const xv = bb[k];
+      const t = svg('text', { x: i === 0 ? pad.l : pad.l + plotW, y: H - 6, 'text-anchor': i === 0 ? 'start' : 'end', fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      t.appendChild(document.createTextNode('x=' + xv.toFixed(0))); root.appendChild(t);
+    });
+    const zlt = svg('text', { x: 4, y: pad.t + 6, fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    zlt.appendChild(document.createTextNode('z=' + zmax.toFixed(0))); root.appendChild(zlt);
+    const zlb = svg('text', { x: 4, y: pad.t + plotH, fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    zlb.appendChild(document.createTextNode('z=' + zmin.toFixed(0))); root.appendChild(zlb);
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = (tr.face === 'F1') ? '#b46eff' : '#4dd6ff';
+      const pts = tr.pos.map(p => px(p[0]).toFixed(1) + ',' + py(p[2]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.8, opacity: 0.55 }));
+    }
+  }
+  function drawSideYZ(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const yMin = bb.ymin, yMax = bb.ymax;
+    function px(y) { return pad.l + (y - yMin) / (yMax - yMin) * plotW; }
+    function py(z) { return pad.t + (1 - (z - zmin) / (zmax - zmin)) * plotH; }
+    root.appendChild(svg('line', { x1: px(yMin), y1: py(0), x2: px(yMax), y2: py(0), stroke: 'rgba(255,255,255,0.16)', 'stroke-width': 0.8, 'stroke-dasharray': '4,3' }));
+    const lab = svg('text', { x: pad.l - 2, y: py(0) + 3, 'text-anchor': 'end', fill: 'rgba(255,255,255,0.5)', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    lab.appendChild(document.createTextNode('z=0')); root.appendChild(lab);
+    ['ymin', 'ymax'].forEach(function (k, i) {
+      const yv = bb[k];
+      const t = svg('text', { x: i === 0 ? pad.l : pad.l + plotW, y: H - 6, 'text-anchor': i === 0 ? 'start' : 'end', fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      t.appendChild(document.createTextNode('y=' + yv.toFixed(0))); root.appendChild(t);
+    });
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = (tr.face === 'F1') ? '#b46eff' : '#4dd6ff';
+      const pts = tr.pos.map(p => px(p[1]).toFixed(1) + ',' + py(p[2]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.8, opacity: 0.55 }));
+    }
+  }
+  function drawTopXY(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const xMin = bb.xmin, xMax = bb.xmax;
+    const yMin = bb.ymin, yMax = bb.ymax;
+    function px(x) { return pad.l + (x - xMin) / (xMax - xMin) * plotW; }
+    function py(y) { return pad.t + (1 - (y - yMin) / (yMax - yMin)) * plotH; }
+    // device bbox dashed
+    root.appendChild(svg('rect', { x: px(xMin), y: py(yMax), width: plotW, height: plotH, fill: 'none', stroke: '#3a4055', 'stroke-width': 0.9, 'stroke-dasharray': '4,3' }));
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+      const pts = tr.pos.map(p => px(p[0]).toFixed(1) + ',' + py(p[1]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.9, opacity: 0.55 }));
+      // initial dot
+      const p0 = tr.pos[0];
+      root.appendChild(svg('circle', { cx: px(p0[0]), cy: py(p0[1]), r: 2, fill: c, opacity: 0.9 }));
+    }
+  }
+  drawSideXZ(xz);
+  drawSideYZ(yz);
+  drawTopXY(xy);
+}
+
+/* --- Viz 6: Inspector KE overlay + behavior badge (page 2 enhance) - */
+function renderInspectorBehaviorBadge(rec) {
+  const badge = document.getElementById('ii-behavior-badge');
+  if (!badge) return;
+  badge.innerHTML = '';
+  if (!rec) return;
+  const tr = TRAJ[rec.pos_id];
+  if (!tr) return;
+  const b = tr.behavior || 'unknown';
+  badge.appendChild(el('span', { class: 'bbadge ' + b }, b.toUpperCase()));
+}
+
+function renderInspectorKEOverlay(rec) {
+  const root = document.getElementById('ii-th-svg');
+  const sub = document.getElementById('ii-th-sub');
+  const kpi = document.getElementById('ii-traj-kpi');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  if (kpi) kpi.innerHTML = '';
+  if (!rec) return;
+  const tr = TRAJ[rec.pos_id];
+  if (!tr) {
+    if (sub) sub.textContent = '(no trajectory)';
+    return;
+  }
+  if (sub) sub.textContent = '(behavior: ' + tr.behavior + ')';
+  const W = 200, H = 70;
+  const pad = { l: 4, r: 4, t: 4, b: 6 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  const T = tr.ke.length;
+  if (!T) return;
+  let mx = 0;
+  for (const v of tr.ke) if (v > mx) mx = v;
+  if (mx <= 0) mx = 1;
+  // shade contact bands
+  let inBand = false, bandStart = 0;
+  for (let i = 0; i < T; i++) {
+    const eng = tr.contact[i];
+    if (eng && !inBand) { inBand = true; bandStart = i; }
+    if ((!eng || i === T - 1) && inBand) {
+      const end = eng && i === T - 1 ? i : i;
+      const x0 = pad.l + (bandStart / (T - 1)) * plotW;
+      const x1 = pad.l + (end / (T - 1)) * plotW;
+      root.appendChild(svg('rect', {
+        x: x0, y: pad.t, width: Math.max(1, x1 - x0), height: plotH,
+        fill: 'rgba(180,110,255,0.15)'
+      }));
+      inBand = false;
+    }
+  }
+  // initial KE line
+  const yInit = pad.t + (1 - tr.init_ke / mx) * plotH;
+  root.appendChild(svg('line', { x1: pad.l, y1: yInit, x2: pad.l + plotW, y2: yInit, stroke: 'rgba(77,214,255,0.45)', 'stroke-width': 0.6, 'stroke-dasharray': '3,2' }));
+  // final KE line
+  const yFin = pad.t + (1 - tr.final_ke / mx) * plotH;
+  root.appendChild(svg('line', { x1: pad.l, y1: yFin, x2: pad.l + plotW, y2: yFin, stroke: 'rgba(74,223,161,0.55)', 'stroke-width': 0.6, 'stroke-dasharray': '3,2' }));
+  // KE curve
+  const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+  const pts = [];
+  for (let i = 0; i < T; i++) {
+    const xp = pad.l + (i / (T - 1)) * plotW;
+    const yp = pad.t + (1 - tr.ke[i] / mx) * plotH;
+    pts.push(xp.toFixed(1) + ',' + yp.toFixed(1));
+  }
+  root.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: c, 'stroke-width': 1.6 }));
+  // numeric KPIs
+  if (kpi) {
+    const rows = [
+      ['REBOUND', fmt(tr.rebound_speed, 0) + ' mm/s'],
+      ['MAX PEN', fmt(tr.max_pen, 2) + ' mm'],
+      ['t₁ CONTACT', (tr.t_first_contact != null ? (tr.t_first_contact * 1000).toFixed(2) + ' ms' : '-')],
+      ['KE RETAIN', (tr.ke_retention * 100).toFixed(0) + ' %']
+    ];
+    for (const r of rows) {
+      kpi.appendChild(el('div', { class: 'iirow' }, [el('span', null, r[0]), el('b', null, r[1])]));
+    }
+  }
+}
+
+function boot() {
+  fillHeroKpi();
+  initImpactor();
+  initDoeBreakdown();
+  renderAll();
+  renderFindings();
+  initEnergyGraph();
+  initSunburst();
+  initSankey();
+  initTimeForceHeatmap();
+  initConservation();
+  initBounceVectorMap();
+  initTrajectoryClustering();
+  initPhaseDiagram();
+  initContactTimeline();
+  initTrajectoryBundle3D();
+  wireControlBar();
+  initReveal();
+  initNav();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+
+</script>
+</body>
+</html>

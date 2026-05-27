@@ -65,15 +65,43 @@ def load_part_result(analysis_json: Path) -> dict:
 
 
 def load_binout_energy(run_dir: Path) -> dict:
-    """Placeholder for binout (matsum/rcforc/glstat) loading.
+    """Real binout loader via ``koo_deep_report.core.binout_reader``.
 
-    Returns dict shaped ``{"glstat": ..., "matsum": ..., "rcforc": ...}``.
-
-    TODO: integrate with ``koo_deep_report.core.binout_reader.parse_binout``
-    and ``glstat_reader.parse_glstat`` once energy_flow.build_energy_flow is
-    wired up. Until then, returns all-None.
+    Returns ``{"glstat": ..., "matsum": ..., "rcforc": [...]}``.
+    Auto-detects ``binout0000`` (preferred) or any ``binout*`` in run_dir.
+    Returns dict of None values if no binout present.
     """
-    return {"glstat": None, "matsum": None, "rcforc": None}
+    binout_path = None
+    for cand in ["binout0000", "binout", "binout00000"]:
+        p = run_dir / cand
+        if p.exists():
+            binout_path = p
+            break
+    if binout_path is None:
+        # try any binout-prefixed file
+        bins = sorted(run_dir.glob("binout*"))
+        binout_path = bins[0] if bins else None
+
+    if binout_path is None or not binout_path.exists():
+        return {"glstat": None, "matsum": None, "rcforc": None}
+
+    try:
+        from koo_deep_report.core.binout_reader import parse_binout
+        data = parse_binout(binout_path)
+        if data is None:
+            return {"glstat": None, "matsum": None, "rcforc": None}
+        return {
+            "glstat": None,  # glstat parsed separately if needed
+            "matsum": data.matsum,
+            "rcforc": data.rcforc,
+            "sleout": data.sleout,
+        }
+    except ImportError:
+        # koo_deep_report not installed — fallback (CSV path)
+        return {"glstat": None, "matsum": None, "rcforc": None}
+    except Exception as e:
+        print(f"[loader] binout parse failed for {binout_path}: {e}")
+        return {"glstat": None, "matsum": None, "rcforc": None}
 
 
 # ---------------------------------------------------------------------------
@@ -296,13 +324,22 @@ def _compute_trajectory_summaries(traj: ImpactorTrajectory) -> None:
 
 
 def load_impactor_trajectory(run_dir: Path) -> ImpactorTrajectory | None:
-    """Read ``impactor_trajectory.csv`` from ``run_dir`` → ImpactorTrajectory.
+    """Read trajectory for one run.
 
-    Returns None if the CSV is missing or malformed.
+    Priority order:
+    1. ``impactor_trajectory.csv`` (synthetic / fast path)
+    2. Real ``d3plot`` in run_dir → unified_analyzer extraction (slower, real data)
+
+    Returns None if neither source available.
     """
     csv_path = run_dir / "impactor_trajectory.csv"
     if not csv_path.exists():
-        print(f"[loader] WARN  no impactor_trajectory.csv in {run_dir.name}")
+        # Fall back to real d3plot if present
+        d3plot_path = run_dir / "d3plot"
+        if d3plot_path.exists():
+            print(f"[loader] {run_dir.name}: synthetic CSV missing → real d3plot path")
+            return load_impactor_trajectory_from_d3plot(d3plot_path)
+        print(f"[loader] WARN  no trajectory data in {run_dir.name}")
         return None
 
     traj = ImpactorTrajectory()
@@ -334,21 +371,189 @@ def load_impactor_trajectory(run_dir: Path) -> ImpactorTrajectory | None:
     return traj
 
 
+def _find_impactor_part_id(d3plot_path: Path, name_pattern: str = "Impactor") -> int | None:
+    """Inspect a d3plot's keyword file to find the impactor part id by name.
+
+    Looks for *.k near the d3plot and matches PART titles containing the
+    pattern (case-insensitive). Returns None if not found.
+    """
+    parent = d3plot_path.parent
+    k_files = list(parent.glob("*.k")) + list(parent.glob("*.key")) + list(parent.glob("*.dyn"))
+    pat_low = name_pattern.lower()
+    for kf in k_files:
+        try:
+            with open(kf, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            continue
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if line.strip().upper().startswith("*PART"):
+                # *PART_TITLE: title line is the NEXT non-comment line; pid is on the line after
+                j = i + 1
+                title = ""
+                pid_line = None
+                while j < len(lines) and lines[j].lstrip().startswith("$"):
+                    j += 1
+                if j < len(lines):
+                    title = lines[j].strip()
+                    j += 1
+                while j < len(lines) and lines[j].lstrip().startswith("$"):
+                    j += 1
+                if j < len(lines):
+                    pid_line = lines[j]
+                if pid_line and (pat_low in title.lower() or any(
+                    tok in title.lower() for tok in ["ball", "impactor", "cylinder", "punch"]
+                )):
+                    try:
+                        pid = int(pid_line.split()[0])
+                        return pid
+                    except (ValueError, IndexError):
+                        pass
+            i += 1
+    return None
+
+
 def load_impactor_trajectory_from_d3plot(
     d3plot_path: Path,
-    impactor_part_name: str = "Ball",
+    impactor_part_id: int | None = None,
+    impactor_part_name: str = "Impactor",
+    work_dir: Path | None = None,
+    threads: int = 2,
 ) -> ImpactorTrajectory | None:
-    """Future: extract impactor trajectory directly from a d3plot.
+    """Extract impactor trajectory directly from a d3plot via unified_analyzer.
 
-    Intended to call ``KooD3plotReader/build/examples/unified_analyzer`` via
-    subprocess (analogous to ``koo_deep_report.core.d3plot_reader``) to query
-    the impactor part's node positions and velocities per state.
+    Calls ``koo_deep_report.core.d3plot_reader.run_analysis`` with the impactor
+    part id and parses the resulting ``motion/part_<id>_motion.csv`` for full
+    directional velocity (vx, vy, vz) data.
 
-    Returns ``None`` for now — callers fall back to the CSV pipeline.
+    Returns None if d3plot doesn't exist or extraction fails.
     """
-    # TODO: subprocess unified_analyzer with --query impactor_trajectory
-    _ = (d3plot_path, impactor_part_name)
-    return None
+    if not d3plot_path.exists():
+        return None
+    if impactor_part_id is None:
+        impactor_part_id = _find_impactor_part_id(d3plot_path, impactor_part_name)
+        if impactor_part_id is None:
+            print(f"[loader] could not find impactor part in {d3plot_path}")
+            return None
+
+    try:
+        from koo_deep_report.core.d3plot_reader import run_analysis
+    except ImportError:
+        print("[loader] koo_deep_report not importable — cannot run d3plot extraction")
+        return None
+
+    if work_dir is None:
+        import tempfile
+        work_dir = Path(tempfile.mkdtemp(prefix="koo_impact_traj_"))
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        run_analysis(
+            d3plot_path=d3plot_path,
+            output_dir=work_dir,
+            part_ids=[impactor_part_id],
+            threads=threads,
+            verbose=False,
+        )
+    except Exception as e:
+        print(f"[loader] unified_analyzer failed: {e}")
+        return None
+
+    motion_csv = work_dir / "motion" / f"part_{impactor_part_id}_motion.csv"
+    if not motion_csv.exists():
+        print(f"[loader] motion CSV not found: {motion_csv}")
+        return None
+
+    # Parse motion CSV → ImpactorTrajectory
+    traj = ImpactorTrajectory()
+    with open(motion_csv) as f:
+        rdr = csv.DictReader(f)
+        for row in rdr:
+            try:
+                traj.times.append(float(row["Time"]))
+                traj.pos_x.append(float(row["Avg_Disp_X"]))
+                traj.pos_y.append(float(row["Avg_Disp_Y"]))
+                traj.pos_z.append(float(row["Avg_Disp_Z"]))
+                vx = float(row.get("Avg_Vel_X", 0))
+                vy = float(row.get("Avg_Vel_Y", 0))
+                vz = float(row.get("Avg_Vel_Z", 0))
+                traj.vel_x.append(vx)
+                traj.vel_y.append(vy)
+                traj.vel_z.append(vz)
+                # KE per timestep (impactor mass unknown without binout; placeholder 1.0)
+                v_sq = vx * vx + vy * vy + vz * vz
+                traj.ke.append(0.5 * v_sq * 1e-6)  # mm/s → m/s scaling, mass=1
+                traj.contact_engaged.append(False)  # will derive from rcforc separately
+            except (KeyError, ValueError):
+                continue
+
+    if not traj.times:
+        return None
+
+    # Use binout matsum kinetic_energy if available for proper KE scaling
+    parent = d3plot_path.parent
+    try:
+        from koo_deep_report.core.binout_reader import parse_binout
+        binout = None
+        for cand in ["binout0000", "binout"]:
+            if (parent / cand).exists():
+                binout = parse_binout(parent / cand)
+                break
+        if binout and binout.matsum and impactor_part_id in binout.matsum.part_ids:
+            idx = binout.matsum.part_ids.index(impactor_part_id)
+            ms_t = binout.matsum.t
+            ke_series = [row[idx] for row in binout.matsum.kinetic_energy]
+            # Interpolate matsum KE to trajectory times if mismatched
+            if len(ms_t) >= 2 and abs(ms_t[-1] - traj.times[-1]) < 0.1 * abs(ms_t[-1] or 1):
+                # Simple linear interp on traj.times grid
+                interp_ke = []
+                for t in traj.times:
+                    j = 0
+                    while j < len(ms_t) - 1 and ms_t[j + 1] < t:
+                        j += 1
+                    if j >= len(ms_t) - 1:
+                        interp_ke.append(ke_series[-1])
+                    else:
+                        dt = ms_t[j + 1] - ms_t[j] or 1
+                        f = (t - ms_t[j]) / dt
+                        interp_ke.append(ke_series[j] + f * (ke_series[j + 1] - ke_series[j]))
+                traj.ke = interp_ke
+            else:
+                # fallback: take last value as final, first as initial
+                pass
+    except Exception:
+        pass
+
+    # Derive contact_engaged from rcforc if available
+    try:
+        if 'binout' in locals() and binout and binout.rcforc:
+            # mark steps where any contact involving impactor has nontrivial force
+            n = len(traj.times)
+            mask = [False] * n
+            for rc in binout.rcforc:
+                if not rc.t:
+                    continue
+                for ti, t in enumerate(traj.times):
+                    # find nearest rcforc time
+                    if rc.t and rc.t[0] <= t <= rc.t[-1]:
+                        # binary search
+                        lo, hi = 0, len(rc.t) - 1
+                        while lo < hi:
+                            mid = (lo + hi) // 2
+                            if rc.t[mid] < t:
+                                lo = mid + 1
+                            else:
+                                hi = mid
+                        if abs(rc.fx[lo]) + abs(rc.fy[lo]) + abs(rc.fz[lo]) > 1e-3:
+                            mask[ti] = True
+            traj.contact_engaged = mask
+    except Exception:
+        pass
+
+    _compute_trajectory_summaries(traj)
+    return traj
 
 
 # ---------------------------------------------------------------------------
@@ -432,5 +637,116 @@ def load_impact_report(test_dir: Path) -> ImpactReport:
         sim_params=sim_params,
         doe_config=manifest if manifest else {},
         test_dir=str(test_dir.resolve()),
+        impactor_trajectories=impactor_trajectories,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single d3plot mode — for ball-drop / one-shot impact tests
+# ---------------------------------------------------------------------------
+
+def load_single_d3plot_report(
+    d3plot_path: Path,
+    project_name: str | None = None,
+    impactor_part_name: str = "Impactor",
+    face_code: str = "F2",
+    work_dir: Path | None = None,
+    threads: int = 2,
+) -> ImpactReport:
+    """Wrap a single d3plot as a 1-position ImpactReport (testing/demo path).
+
+    Useful for validating the d3plot integration without a full multi-face DOE.
+    Inflates one d3plot into a single (face=F2, position at origin) report.
+
+    Returns an ImpactReport ready for analyzer.analyze() + html generation.
+    """
+    d3plot_path = Path(d3plot_path).resolve()
+    if not d3plot_path.exists():
+        raise FileNotFoundError(f"d3plot not found: {d3plot_path}")
+
+    parent = d3plot_path.parent
+    if project_name is None:
+        project_name = parent.name
+
+    # 1) Trajectory via unified_analyzer
+    print(f"[loader] single d3plot → extracting impactor trajectory: {d3plot_path}")
+    traj = load_impactor_trajectory_from_d3plot(
+        d3plot_path=d3plot_path,
+        impactor_part_name=impactor_part_name,
+        work_dir=work_dir,
+        threads=threads,
+    )
+    if traj is None:
+        print("[loader] WARN  trajectory extraction failed — report will lack trajectory")
+        traj = ImpactorTrajectory()
+
+    # 2) Binout energy
+    bin_data = load_binout_energy(parent)
+    matsum = bin_data.get("matsum")
+    rcforc = bin_data.get("rcforc") or []
+    part_names_map = {}
+    if matsum is not None and matsum.part_names:
+        part_names_map = dict(zip(matsum.part_ids, matsum.part_names))
+
+    # 3) Build minimal parts list from matsum (or just impactor + a placeholder)
+    parts: list[PartInfo] = []
+    if matsum:
+        for pid, pname in zip(matsum.part_ids, matsum.part_names):
+            parts.append(PartInfo(part_id=int(pid), part_name=pname, group=pname.split("_")[0]))
+    if not parts:
+        parts = [PartInfo(part_id=1, part_name="Part_1", group="Default")]
+
+    # 4) Single position (origin) and single PairResult per part
+    face = FACE_STANDARD.get(face_code, FACE_STANDARD["F2"])
+    pos = ImpactPosition(
+        pos_id=f"{face_code}_P_0001",
+        face=face_code,
+        x=float(traj.pos_x[0]) if traj.pos_x else 0.0,
+        y=float(traj.pos_y[0]) if traj.pos_y else 0.0,
+        run_dir=parent,
+    )
+
+    results: list[PairResult] = []
+    for p in parts:
+        # If matsum available, compute peak IE for this part → use as proxy for peak_stress
+        peak_ie = 0.0
+        if matsum and p.part_id in matsum.part_ids:
+            idx = matsum.part_ids.index(p.part_id)
+            ies = [row[idx] for row in matsum.internal_energy]
+            peak_ie = max(ies) if ies else 0.0
+        results.append(PairResult(
+            face=face_code,
+            position=pos,
+            part_id=p.part_id,
+            peak_g=0.0,           # not derivable from matsum directly
+            peak_stress=peak_ie,  # using IE as a proxy (energy density)
+            peak_strain=0.0,
+            peak_disp=0.0,
+            stress_ts=TimeSeriesData(),
+            impactor_trajectory=traj,
+        ))
+
+    # 5) Impactor spec — best effort
+    impactor = ImpactorSpec(type="Sphere", radius=5.0, height=100.0,
+                            density=7850.0, youngs_modulus=2e11, poisson_ratio=0.3)
+
+    impactor_trajectories = {pos.pos_id: traj}
+    print(f"[loader] single d3plot: {len(parts)} part(s), traj n_states={len(traj.times)}, "
+          f"behavior={traj.behavior_class}, KE retention={traj.ke_retention:.3f}")
+
+    return ImpactReport(
+        project_name=project_name,
+        impactor=impactor,
+        generation_mode="DampingSpring",
+        boundary_distance=0.0,
+        offset_distance=0.05,
+        faces=[face],
+        positions_by_face={face_code: [pos]},
+        parts=parts,
+        results=results,
+        findings=[],
+        sim_params={"drop_height": 100, "t_final": float(traj.times[-1]) if traj.times else 0.001, "dt": 1e-6},
+        doe_config={"single_d3plot": True, "source": str(d3plot_path)},
+        test_dir=str(parent),
         impactor_trajectories=impactor_trajectories,
     )
