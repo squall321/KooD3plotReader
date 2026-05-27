@@ -17,12 +17,14 @@ NOTE on binout integration:
     handles matsum / rcforc / sleout via lasso.dyna.
 """
 from __future__ import annotations
+import csv
+import math
 import json
 from pathlib import Path
 
 from .models import (
     FaceOrientation, ImpactPosition, ImpactReport, ImpactorSpec,
-    PairResult, PartInfo, TimeSeriesData,
+    ImpactorTrajectory, PairResult, PartInfo, TimeSeriesData,
 )
 
 
@@ -235,6 +237,121 @@ def _pair_results_from_run(analysis: dict, face: str, position: ImpactPosition) 
 
 
 # ---------------------------------------------------------------------------
+# Impactor trajectory loading
+# ---------------------------------------------------------------------------
+
+def classify_behavior(traj: ImpactorTrajectory) -> str:
+    """Classify the impactor's post-impact behavior.
+
+    Heuristic on final-velocity components and KE retention:
+      * ``bounce``  — strong vertical rebound (|vz_final| > 100, retention > 0.4)
+      * ``embed``   — retention < 0.15 and vz tiny → ball stuck
+      * ``slide``   — lateral velocity dominates (vxy > vz) with moderate retention
+      * ``rebound`` — everything else (moderate vertical rebound)
+    """
+    if not traj.vel_z:
+        return "unknown"
+    r = traj.ke_retention
+    speed_z = abs(traj.vel_z[-1])
+    speed_xy = math.hypot(traj.vel_x[-1], traj.vel_y[-1])
+    if r > 0.4 and speed_z > 100:
+        return "bounce"
+    if r < 0.15 and speed_z < 50:
+        return "embed"
+    if speed_xy > speed_z and r > 0.15:
+        return "slide"
+    return "rebound"
+
+
+def _compute_trajectory_summaries(traj: ImpactorTrajectory) -> None:
+    """Populate derived scalar fields on ``traj`` in-place."""
+    if not traj.ke:
+        return
+
+    traj.initial_ke = float(traj.ke[0])
+    traj.final_ke = float(traj.ke[-1])
+    traj.ke_retention = (
+        traj.final_ke / traj.initial_ke if traj.initial_ke > 0 else 0.0
+    )
+    # Penetration: max negative z relative to the position at first contact.
+    # If contact never engages, fall back to (initial z - min z) magnitude.
+    z_ref = traj.pos_z[0]
+    for idx, eng in enumerate(traj.contact_engaged):
+        if eng:
+            z_ref = traj.pos_z[idx]
+            traj.t_first_contact = float(traj.times[idx])
+            break
+    traj.max_penetration_depth = float(max(0.0, z_ref - min(traj.pos_z)))
+
+    traj.rebound_velocity_xy = (
+        float(traj.vel_x[-1]), float(traj.vel_y[-1])
+    )
+    traj.rebound_speed = float(math.sqrt(
+        traj.vel_x[-1] ** 2 + traj.vel_y[-1] ** 2 + traj.vel_z[-1] ** 2
+    ))
+    traj.incident_speed = float(math.sqrt(
+        traj.vel_x[0] ** 2 + traj.vel_y[0] ** 2 + traj.vel_z[0] ** 2
+    ))
+    traj.behavior_class = classify_behavior(traj)
+
+
+def load_impactor_trajectory(run_dir: Path) -> ImpactorTrajectory | None:
+    """Read ``impactor_trajectory.csv`` from ``run_dir`` → ImpactorTrajectory.
+
+    Returns None if the CSV is missing or malformed.
+    """
+    csv_path = run_dir / "impactor_trajectory.csv"
+    if not csv_path.exists():
+        print(f"[loader] WARN  no impactor_trajectory.csv in {run_dir.name}")
+        return None
+
+    traj = ImpactorTrajectory()
+    try:
+        with csv_path.open() as fh:
+            reader = csv.DictReader(fh)
+            required = {"time", "x", "y", "z", "vx", "vy", "vz", "ke", "contact"}
+            if not required.issubset(set(reader.fieldnames or [])):
+                print(f"[loader] WARN  bad header in {csv_path}: "
+                      f"{reader.fieldnames}")
+                return None
+            for row in reader:
+                traj.times.append(float(row["time"]))
+                traj.pos_x.append(float(row["x"]))
+                traj.pos_y.append(float(row["y"]))
+                traj.pos_z.append(float(row["z"]))
+                traj.vel_x.append(float(row["vx"]))
+                traj.vel_y.append(float(row["vy"]))
+                traj.vel_z.append(float(row["vz"]))
+                traj.ke.append(float(row["ke"]))
+                # accept "1"/"0", "True"/"False", "true"/"false"
+                tok = str(row["contact"]).strip().lower()
+                traj.contact_engaged.append(tok in ("1", "true", "t", "yes"))
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"[loader] WARN  failed to parse {csv_path}: {exc}")
+        return None
+
+    _compute_trajectory_summaries(traj)
+    return traj
+
+
+def load_impactor_trajectory_from_d3plot(
+    d3plot_path: Path,
+    impactor_part_name: str = "Ball",
+) -> ImpactorTrajectory | None:
+    """Future: extract impactor trajectory directly from a d3plot.
+
+    Intended to call ``KooD3plotReader/build/examples/unified_analyzer`` via
+    subprocess (analogous to ``koo_deep_report.core.d3plot_reader``) to query
+    the impactor part's node positions and velocities per state.
+
+    Returns ``None`` for now — callers fall back to the CSV pipeline.
+    """
+    # TODO: subprocess unified_analyzer with --query impactor_trajectory
+    _ = (d3plot_path, impactor_part_name)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -257,6 +374,7 @@ def load_impact_report(test_dir: Path) -> ImpactReport:
     positions_by_face: dict[str, list[ImpactPosition]] = {}
     results: list[PairResult] = []
     part_registry: dict[int, PartInfo] = {}
+    impactor_trajectories: dict[str, ImpactorTrajectory] = {}
 
     face_codes = [f.code for f in faces] or list(face_dirs.keys())
     print(f"[loader] Discovered {len(face_codes)} face(s): {', '.join(face_codes)}")
@@ -283,7 +401,18 @@ def load_impact_report(test_dir: Path) -> ImpactReport:
             if not analysis:
                 continue
             _build_part_info_from_result(analysis, part_registry)
-            results.extend(_pair_results_from_run(analysis, face_code, pos))
+
+            # Load shared trajectory once per run; attach the same instance to
+            # every PairResult of this run (and store in the report-level dict).
+            traj = load_impactor_trajectory(run_dir)
+            if traj is not None:
+                impactor_trajectories[pos.pos_id] = traj
+
+            run_pairs = _pair_results_from_run(analysis, face_code, pos)
+            if traj is not None:
+                for pr in run_pairs:
+                    pr.impactor_trajectory = traj
+            results.extend(run_pairs)
         positions_by_face[face_code] = face_positions
 
     parts = [part_registry[pid] for pid in sorted(part_registry)]
@@ -303,4 +432,5 @@ def load_impact_report(test_dir: Path) -> ImpactReport:
         sim_params=sim_params,
         doe_config=manifest if manifest else {},
         test_dir=str(test_dir.resolve()),
+        impactor_trajectories=impactor_trajectories,
     )

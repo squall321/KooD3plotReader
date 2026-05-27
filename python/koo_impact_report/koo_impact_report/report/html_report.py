@@ -41,6 +41,11 @@ from ..models import (
     PartInfo,
     Severity,
 )
+try:  # forward-defensive: sibling agent X may not have committed these yet
+    from ..models import ImpactorTrajectory, TrajectoryClusters  # type: ignore
+except Exception:  # noqa: BLE001
+    ImpactorTrajectory = None  # type: ignore
+    TrajectoryClusters = None  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +515,209 @@ def _build_payload(report: ImpactReport) -> dict:
             "recommendation": f.recommendation,
         })
 
+    # --- impactor trajectories + clusters (Tracker viz layer) -------------
+    trajectories: dict[str, dict] = {}
+    pos_xy: dict[str, tuple[str, float, float]] = {}
+    for r in results:
+        pos_xy[r["pos_id"]] = (r["face"], r["x"], r["y"])
+    # try real trajectories first
+    raw_traj = getattr(report, "impactor_trajectories", None) or {}
+    for pos_id, traj in raw_traj.items():
+        if traj is None:
+            continue
+        meta_xy = pos_xy.get(pos_id)
+        if meta_xy is None:
+            # try to find from positions_by_face
+            for face_code, pos_list in (report.positions_by_face or {}).items():
+                for pos in pos_list:
+                    if pos.pos_id == pos_id:
+                        meta_xy = (face_code, _safe(pos.x), _safe(pos.y))
+                        break
+                if meta_xy:
+                    break
+        if meta_xy is None:
+            continue
+        face_code, x, y = meta_xy
+        if face_code not in keep_faces:
+            continue
+        n = len(getattr(traj, "times", []) or [])
+        pos_list_xyz = []
+        vel_list_xyz = []
+        for i in range(n):
+            pos_list_xyz.append([
+                _safe(traj.pos_x[i] if i < len(traj.pos_x) else 0.0),
+                _safe(traj.pos_y[i] if i < len(traj.pos_y) else 0.0),
+                _safe(traj.pos_z[i] if i < len(traj.pos_z) else 0.0),
+            ])
+            vel_list_xyz.append([
+                _safe(traj.vel_x[i] if i < len(traj.vel_x) else 0.0),
+                _safe(traj.vel_y[i] if i < len(traj.vel_y) else 0.0),
+                _safe(traj.vel_z[i] if i < len(traj.vel_z) else 0.0),
+            ])
+        rebound_xy = getattr(traj, "rebound_velocity_xy", (0.0, 0.0)) or (0.0, 0.0)
+        trajectories[pos_id] = {
+            "face": face_code,
+            "x": _safe(x), "y": _safe(y),
+            "t": [round(_safe(v), 8) for v in (traj.times or [])],
+            "pos": pos_list_xyz,
+            "vel": vel_list_xyz,
+            "ke": [round(_safe(v), 5) for v in (traj.ke or [])],
+            "contact": [bool(v) for v in (traj.contact_engaged or [])],
+            "init_ke": _safe(traj.initial_ke),
+            "final_ke": _safe(traj.final_ke),
+            "ke_retention": _safe(traj.ke_retention),
+            "max_pen": _safe(traj.max_penetration_depth),
+            "t_first_contact": (_safe(traj.t_first_contact) if traj.t_first_contact is not None else None),
+            "rebound_xy": [_safe(rebound_xy[0]), _safe(rebound_xy[1])],
+            "rebound_speed": _safe(traj.rebound_speed),
+            "incident_speed": _safe(traj.incident_speed),
+            "behavior": getattr(traj, "behavior_class", "unknown") or "unknown",
+        }
+
+    # If no real trajectories, synthesise a deterministic mock so the
+    # visualisations have something to render.
+    if not trajectories:
+        unique_pos = {}
+        for r in results:
+            unique_pos[r["pos_id"]] = (r["face"], r["x"], r["y"], r["g"])
+        g_vals_t = [v[3] for v in unique_pos.values() if v[3] > 0]
+        gmax_t = max(g_vals_t) if g_vals_t else 1.0
+        v0 = _safe(report.impactor.velocity) or 1400.0
+        ke0_mJ = _safe(report.impactor.kinetic_energy) * 1e-3
+        if ke0_mJ <= 0:
+            ke0_mJ = 100.0
+        for pos_id, (face_code, x, y, gv) in unique_pos.items():
+            # deterministic-but-position-varying behaviour
+            seed = (abs(hash(pos_id)) & 0xFFFFFFFF) / 0xFFFFFFFF
+            ratio = (gv / gmax_t) if gmax_t > 0 else 0.5
+            # high-g => embed; low-g => bounce
+            if ratio > 0.75:
+                behavior = "embed"
+                ke_ret = 0.05 + 0.10 * seed
+                pen = 1.5 + 4.0 * seed
+            elif ratio > 0.45:
+                behavior = "rebound"
+                ke_ret = 0.30 + 0.25 * seed
+                pen = 0.8 + 1.5 * seed
+            elif seed > 0.55:
+                behavior = "slide"
+                ke_ret = 0.55 + 0.20 * seed
+                pen = 0.2 + 0.5 * seed
+            else:
+                behavior = "bounce"
+                ke_ret = 0.75 + 0.20 * seed
+                pen = 0.05 + 0.4 * seed
+            T_pts = 21
+            t_arr = [round(i * 1.0e-3 / (T_pts - 1), 6) for i in range(T_pts)]
+            # KE decay shape
+            ke_arr = []
+            for i in range(T_pts):
+                t_norm = i / (T_pts - 1)
+                if behavior == "bounce":
+                    k = 1.0 if t_norm < 0.20 else 0.30 + (ke_ret - 0.30) * min(1.0, (t_norm - 0.20) / 0.4)
+                    if t_norm >= 0.55:
+                        k = ke_ret
+                elif behavior == "embed":
+                    k = max(ke_ret, 1.0 * math.exp(-t_norm * 4.5))
+                elif behavior == "slide":
+                    k = max(ke_ret, 1.0 - (1.0 - ke_ret) * min(1.0, t_norm / 0.5))
+                else:  # rebound
+                    k = max(ke_ret, 1.0 - (1.0 - ke_ret) * (t_norm / 0.5) ** 0.8)
+                ke_arr.append(round(ke0_mJ * k, 5))
+            # contact: from 15% to 70% of duration
+            contact_arr = [(0.15 <= (i / (T_pts - 1)) <= 0.70) for i in range(T_pts)]
+            # rebound direction: roughly random-ish based on (x,y) but with sliding bias
+            ang = (x * 0.07 + y * 0.13 + seed * 6.28) % (2 * math.pi)
+            rebound_mag = v0 * (0.05 if behavior == "embed" else
+                                 0.35 if behavior == "rebound" else
+                                 0.60 if behavior == "slide" else 0.80) * (0.6 + 0.4 * seed)
+            rx = rebound_mag * math.cos(ang)
+            ry = rebound_mag * math.sin(ang) * (0.4 if behavior != "slide" else 1.0)
+            # build positions: descending Z to z_min, then maybe rising
+            pos_xyz = []
+            vel_xyz = []
+            z_top = 10.0
+            for i in range(T_pts):
+                tn = i / (T_pts - 1)
+                # vertical motion
+                if behavior == "embed":
+                    z = z_top * max(0.0, 1.0 - tn * 2.0) - pen * min(1.0, tn * 2.0)
+                else:
+                    # bounce-ish parabola
+                    z = z_top - tn * (z_top + pen) * 2.0
+                    if tn > 0.5:
+                        z = -pen + (z_top * 0.6) * (tn - 0.5) * 2.0 * (1.0 - (1.0 - ke_ret))
+                # lateral drift
+                xp = x + rx * (tn ** 1.2) * 1e-4
+                yp = y + ry * (tn ** 1.2) * 1e-4
+                pos_xyz.append([round(xp, 3), round(yp, 3), round(z, 3)])
+                # velocities
+                if i == 0:
+                    vx, vy, vz = 0.0, 0.0, -v0
+                else:
+                    dt = t_arr[i] - t_arr[i - 1] or 1e-9
+                    vx = (pos_xyz[i][0] - pos_xyz[i - 1][0]) / dt
+                    vy = (pos_xyz[i][1] - pos_xyz[i - 1][1]) / dt
+                    vz = (pos_xyz[i][2] - pos_xyz[i - 1][2]) / dt
+                vel_xyz.append([round(vx, 2), round(vy, 2), round(vz, 2)])
+            trajectories[pos_id] = {
+                "face": face_code,
+                "x": _safe(x), "y": _safe(y),
+                "t": t_arr,
+                "pos": pos_xyz,
+                "vel": vel_xyz,
+                "ke": ke_arr,
+                "contact": contact_arr,
+                "init_ke": round(ke0_mJ, 4),
+                "final_ke": round(ke0_mJ * ke_ret, 4),
+                "ke_retention": round(ke_ret, 4),
+                "max_pen": round(pen, 3),
+                "t_first_contact": round(0.15e-3, 6),
+                "rebound_xy": [round(rx, 2), round(ry, 2)],
+                "rebound_speed": round(rebound_mag, 2),
+                "incident_speed": round(v0, 2),
+                "behavior": behavior,
+                "_mock": True,
+            }
+
+    # clusters
+    clusters_payload = None
+    raw_clusters = getattr(report, "trajectory_clusters", None)
+    if raw_clusters is not None and getattr(raw_clusters, "n_clusters", 0) > 0:
+        labels_list = list(raw_clusters.labels or [])
+        # Map labels onto trajectories by results order (sibling agent contract)
+        traj_keys = list(trajectories.keys())
+        labels_map: dict[str, int] = {}
+        for i, k in enumerate(traj_keys):
+            if i < len(labels_list):
+                labels_map[k] = int(labels_list[i])
+        clusters_payload = {
+            "n": int(raw_clusters.n_clusters),
+            "labels": labels_map,
+            "archetypes": list(raw_clusters.archetypes or []),
+            "features_used": list(raw_clusters.features_used or []),
+            "is_mock": False,
+        }
+    elif trajectories:
+        # mock 4-cluster assignment by (behavior_class, position-region)
+        archetype_for_behavior = {
+            "bounce": 0, "rebound": 1, "slide": 2, "embed": 3,
+        }
+        labels_map = {}
+        for k, t in trajectories.items():
+            labels_map[k] = archetype_for_behavior.get(t["behavior"], 0)
+        clusters_payload = {
+            "n": 4,
+            "labels": labels_map,
+            "archetypes": ["fast-bounce", "decay-rebound", "slide-drift", "deep-embed"],
+            "features_used": ["ke_retention", "max_pen", "rebound_speed", "behavior"],
+            "is_mock": True,
+        }
+    else:
+        clusters_payload = {
+            "n": 0, "labels": {}, "archetypes": [], "features_used": [], "is_mock": True,
+        }
+
     return {
         "meta": meta,
         "kpi": kpi,
@@ -521,6 +729,8 @@ def _build_payload(report: ImpactReport) -> dict:
         "findings": findings,
         "device_bbox": device_bbox,
         "device_outline": device_outline,
+        "trajectories": trajectories,
+        "clusters": clusters_payload,
     }
 
 
@@ -749,6 +959,50 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
   100% { r: 14; opacity: 0;   }
 }
 .ii-halo { animation: ii-pulse 1.1s linear infinite; }
+
+/* ---------- Trajectory viz family (6 new panels) ---------- */
+.bvm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 980px) { .bvm-grid { grid-template-columns: 1fr; } }
+.bvm-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px 8px; }
+.bvm-cell .bf-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.bvm-cell .bf-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); letter-spacing: 1px; font-weight: 700; }
+.bvm-cell .bf-sub { font-size: 9px; color: var(--dim); letter-spacing: 2px; }
+.bvm-cell svg { width: 100%; aspect-ratio: 5/3; display: block; }
+.bvm-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; }
+.bvm-legend .lg { display: inline-flex; gap: 5px; align-items: center; color: var(--fg2); }
+.bvm-legend .lg .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.bvm-legend .lg b { color: var(--fg); }
+
+.tcm-archetypes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+@media (max-width: 980px) { .tcm-archetypes { grid-template-columns: repeat(2, 1fr); } }
+.tcm-arch { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+.tcm-arch .ah { display: flex; justify-content: space-between; align-items: baseline; }
+.tcm-arch .ah .nm { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; }
+.tcm-arch .ah .ct { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.tcm-arch svg { width: 100%; height: 36px; display: block; margin-top: 4px; }
+
+.phase-wrap { position: relative; }
+.phase-wrap svg { width: 100%; height: 380px; display: block; background: var(--bg3); border-radius: 4px; }
+
+.cseq-grid { display: grid; grid-template-columns: 110px 1fr; gap: 8px 4px; font-size: 10px; align-items: center; }
+.cseq-grid .lab { color: var(--fg2); font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cseq-row { display: grid; grid-template-columns: repeat(21, 1fr); gap: 1px; }
+.cseq-cell { height: 14px; background: var(--bg4); border-radius: 1px; }
+
+.tb3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 980px) { .tb3 { grid-template-columns: 1fr; } }
+.tb3-cell { background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.tb3-cell .h { display: flex; justify-content: space-between; font-size: 10px; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; padding-bottom: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.tb3-cell svg { width: 100%; height: 220px; display: block; }
+
+.bbadge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 1px; font-family: 'JetBrains Mono', monospace; color: var(--bg); margin-left: 6px; }
+.bbadge.bounce { background: var(--good); }
+.bbadge.rebound { background: var(--warn); }
+.bbadge.slide { background: #ff9e64; }
+.bbadge.embed { background: var(--crit); color: #fff; }
+.bbadge.unknown { background: var(--dim); }
+
+.traj-na { color: var(--dim); font-size: 10px; padding: 8px 4px; text-align: center; font-style: italic; }
 """
 
 
@@ -919,6 +1173,32 @@ _PAGE1 = """
 
     <div class="panel col-12 r">
       <div class="ph">
+        <span class="pt">BOUNCE VECTOR MAP &middot; impactor fate per XY position</span>
+        <span class="pd">arrow tail = impact &middot; arrow dir = rebound XY &middot; color = behavior class</span>
+      </div>
+      <div class="bvm-grid" id="bvm-grid"></div>
+      <div class="bvm-legend" id="bvm-legend"></div>
+      <div class="pcap">
+        탄성 반사(bounce)는 녹색, 부분 반발(rebound) 노랑, 미끄러짐(slide) 주황, 박힘(embed) 빨강.
+        한눈에 어떤 영역이 임팩터를 튕겨내고 어디가 흡수하는지 보여줍니다.
+      </div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">TRAJECTORY CLUSTERING MAP</span>
+        <span class="pd">k-means archetypes &middot; positions colored by cluster &middot; sparkline = KE decay prototype</span>
+      </div>
+      <div class="bvm-grid" id="tcm-grid"></div>
+      <div class="tcm-archetypes" id="tcm-archetypes"></div>
+      <div class="pcap">
+        클러스터링은 KE retention, max penetration, rebound speed, behavior class 기반으로 임팩터의 거동 archetypes를 학습.
+        같은 클러스터 위치는 동일한 거동 패턴을 보입니다.
+      </div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
         <span class="pt">TOP-K WORST PAIRS</span>
         <span class="pd">rank / face / position / part / response</span>
       </div>
@@ -983,15 +1263,16 @@ _PAGE2 = """
     </div>
     <div class="ii-side" id="ii-side-panel">
       <div class="iibox">
-        <div class="iihd">HOVERED IMPACT</div>
+        <div class="iihd">HOVERED IMPACT <span id="ii-behavior-badge"></span></div>
         <div id="ii-hover-info"><div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div></div>
+        <div id="ii-traj-kpi" style="margin-top:6px"></div>
       </div>
       <div class="iibox">
         <div class="iihd">TOP AFFECTED PARTS</div>
         <div id="ii-parts-list"><div class="ii-empty">-</div></div>
       </div>
       <div class="iibox">
-        <div class="iihd">TIME HISTORY <span id="ii-th-sub" style="color:var(--dim);font-weight:500">(max part)</span></div>
+        <div class="iihd">IMPACTOR KE @ POSITION <span id="ii-th-sub" style="color:var(--dim);font-weight:500"></span></div>
         <svg id="ii-th-svg" class="ii-th" viewBox="0 0 200 70" preserveAspectRatio="none"></svg>
         <div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px">
           <span>0</span><span>0.5</span><span>1.0 ms</span>
@@ -1139,6 +1420,53 @@ _PAGE3 = """
       </div>
       <div class="cons-bar" id="consBar"></div>
       <div class="cons-banner" id="consBanner">&#9888; Residual &gt; 5% &mdash; energy conservation suspect</div>
+    </div>
+
+    <div class="panel col-7 r">
+      <div class="ph">
+        <span class="pt">PHASE DIAGRAM &middot; KE vs IE</span>
+        <span class="pd">all runs overlaid &middot; color by behavior &middot; budget line = KE&#x2080;</span>
+      </div>
+      <div class="phase-wrap">
+        <svg id="phase-svg" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="bvm-legend" id="phase-legend"></div>
+      <div class="pcap">
+        가로축 = 누적 흡수 IE, 세로축 = 임팩터 KE. 대각선은 에너지 보존 budget. 곡선이 budget 위로 떨어질수록 소산이 크다는 뜻.
+      </div>
+    </div>
+
+    <div class="panel col-5 r">
+      <div class="ph">
+        <span class="pt">CONTACT ENGAGEMENT SEQUENCE</span>
+        <span class="pd">top-8 worst impacts &middot; 21 timesteps &middot; contact dominance</span>
+      </div>
+      <div class="cseq-grid" id="cseq-grid"></div>
+      <div class="pcap">셀 색상 = 그 시점의 dominant contact part. 회색 = 비접촉. 어느 시각에 어디까지 충격이 전파되는지 한눈에 추적 가능.</div>
+    </div>
+
+    <div class="panel col-12 r">
+      <div class="ph">
+        <span class="pt">TRAJECTORY BUNDLE 3D &middot; impactor envelopes</span>
+        <span class="pd">all runs &middot; 3 orthogonal projections &middot; XZ / YZ side + XY top</span>
+      </div>
+      <div class="tb3">
+        <div class="tb3-cell">
+          <div class="h"><span>SIDE &middot; XZ</span><span>color = face</span></div>
+          <svg id="tb3-xz" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="tb3-cell">
+          <div class="h"><span>SIDE &middot; YZ</span><span>color = face</span></div>
+          <svg id="tb3-yz" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="tb3-cell">
+          <div class="h"><span>TOP &middot; XY</span><span>color = behavior</span></div>
+          <svg id="tb3-xy" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+      <div class="pcap">
+        각 임팩터 경로의 envelope. 검은 점선 = device bbox. 회색 가로선(z=0) = 충돌면. embed 거동(빨강)은 z &lt; 0까지 침투.
+      </div>
     </div>
   </div>
 </section>
@@ -1607,6 +1935,9 @@ function _renderInspectorClear() {
   const hInfo = document.getElementById('ii-hover-info'); if (hInfo) hInfo.innerHTML = empty;
   const partsList = document.getElementById('ii-parts-list'); if (partsList) partsList.innerHTML = '<div class="ii-empty">-</div>';
   const thSvg = document.getElementById('ii-th-svg'); if (thSvg) while (thSvg.firstChild) thSvg.removeChild(thSvg.firstChild);
+  const sub = document.getElementById('ii-th-sub'); if (sub) sub.textContent = '';
+  const badge = document.getElementById('ii-behavior-badge'); if (badge) badge.innerHTML = '';
+  const kpi = document.getElementById('ii-traj-kpi'); if (kpi) kpi.innerHTML = '';
 }
 
 function _renderInspectorFill(rec, globalMax) {
@@ -1724,17 +2055,13 @@ function _renderSidePanel(rec, globalMax) {
             setTimeout(() => node.setAttribute('stroke-width', orig || '1.5'), 600);
           }
         }
-        _renderTimeHistory(rec, it.part.id);
       });
       list.appendChild(row);
     }
   }
-  // time history (default = max part)
-  const defaultPid = partResps[0] ? partResps[0].part.id : null;
-  if (defaultPid) {
-    STATE.ii.selected_part = STATE.ii.selected_part || defaultPid;
-    _renderTimeHistory(rec, STATE.ii.selected_part);
-  }
+  // KE decay overlay (real impactor trajectory) + behavior badge — replaces synthetic envelope
+  renderInspectorBehaviorBadge(rec);
+  renderInspectorKEOverlay(rec);
 }
 
 function _renderTimeHistory(rec, partId) {
@@ -2538,6 +2865,627 @@ function initNav() {
   });
 }
 
+/* ===================================================================
+ * Trajectory visualisations (6 new panels)
+ * =================================================================== */
+
+const TRAJ = DATA.trajectories || {};
+const TRAJ_KEYS = Object.keys(TRAJ);
+const CLUSTERS = DATA.clusters || { n: 0, labels: {}, archetypes: [] };
+
+const BEHAVIOR_COLOR = {
+  bounce: '#4adfa1',
+  rebound: '#f0a830',
+  slide:  '#ff9e64',
+  embed:  '#ff3854',
+  unknown:'#5c6383'
+};
+const CLUSTER_PALETTE = ['#4dd6ff', '#b46eff', '#f0a830', '#4adfa1', '#ff9e64', '#ff5e84', '#aab2cf'];
+
+function _trajForPos(face, posId) {
+  const t = TRAJ[posId];
+  if (!t) return null;
+  if (face && t.face !== face) return null;
+  return t;
+}
+
+function _mapXYToVB(x, y, vbW, vbH, padPx) {
+  return _xyToVB(x, y, vbW, vbH, padPx);
+}
+
+function _drawFaceCanvas(svgRoot, faceCode, drawFn) {
+  // Common helpers: draw device bbox + part footprints, then call drawFn(vbW,vbH).
+  const vbW = 600, vbH = 360;
+  svgRoot.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
+  svgRoot.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  // background
+  svgRoot.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 4 }));
+  const bb = DEVICE_BBOX;
+  const tl = _mapXYToVB(bb.xmin, bb.ymax, vbW, vbH, 22);
+  const br = _mapXYToVB(bb.xmax, bb.ymin, vbW, vbH, 22);
+  svgRoot.appendChild(svg('rect', {
+    x: tl[0], y: tl[1], width: br[0] - tl[0], height: br[1] - tl[1],
+    rx: 4, ry: 4, fill: 'none', stroke: '#3a4055', 'stroke-width': 1,
+    'stroke-dasharray': '4,4'
+  }));
+  for (const p of PARTS) {
+    const bbf = _footprintBBox(p.footprint);
+    if (!bbf) continue;
+    const a = _mapXYToVB(bbf.xmin, bbf.ymax, vbW, vbH, 22);
+    const b = _mapXYToVB(bbf.xmax, bbf.ymin, vbW, vbH, 22);
+    const w = b[0] - a[0], h = b[1] - a[1];
+    if (w < 1 || h < 1) continue;
+    svgRoot.appendChild(svg('rect', {
+      x: a[0], y: a[1], width: w, height: h, rx: 2, ry: 2,
+      fill: 'rgba(170,178,207,0.04)',
+      stroke: 'rgba(170,178,207,0.18)',
+      'stroke-width': 0.9
+    }));
+  }
+  drawFn(vbW, vbH);
+}
+
+/* --- Viz 1: Bounce Vector Map (page 1) ----------------------------- */
+function initBounceVectorMap() {
+  const grid = document.getElementById('bvm-grid');
+  const legend = document.getElementById('bvm-legend');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  while (legend.firstChild) legend.removeChild(legend.firstChild);
+  if (!TRAJ_KEYS.length) {
+    grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable — run with --enable-trajectory'));
+    return;
+  }
+  const targets = [
+    { code: 'F2', name: 'FRONT · F2' },
+    { code: 'F1', name: 'BACK · F1'  }
+  ];
+  const totals = { bounce: 0, rebound: 0, slide: 0, embed: 0, unknown: 0 };
+  for (const k in TRAJ) totals[TRAJ[k].behavior] = (totals[TRAJ[k].behavior] || 0) + 1;
+  for (const t of targets) {
+    if (!FACE_BY_CODE[t.code]) continue;
+    const cell = el('div', { class: 'bvm-cell' });
+    cell.appendChild(el('div', { class: 'bf-head' }, [
+      el('div', { class: 'bf-name' }, t.name),
+      el('div', { class: 'bf-sub' }, 'bounce vectors')
+    ]));
+    const s = svg('svg', {});
+    cell.appendChild(s);
+    grid.appendChild(cell);
+    // find rebound mag max for this face
+    const keys = TRAJ_KEYS.filter(k => TRAJ[k].face === t.code);
+    let maxMag = 0;
+    for (const k of keys) if (TRAJ[k].rebound_speed > maxMag) maxMag = TRAJ[k].rebound_speed;
+    _drawFaceCanvas(s, t.code, function (vbW, vbH) {
+      // arrowhead marker
+      const defs = svg('defs', {});
+      ['bounce', 'rebound', 'slide', 'embed', 'unknown'].forEach(function (b) {
+        const m = svg('marker', { id: 'bvm-' + b + '-' + t.code, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto' });
+        m.appendChild(svg('path', { d: 'M0,0 L10,5 L0,10 Z', fill: BEHAVIOR_COLOR[b] }));
+        defs.appendChild(m);
+      });
+      s.appendChild(defs);
+      for (const k of keys) {
+        const tr = TRAJ[k];
+        const [cx, cy] = _mapXYToVB(tr.x, tr.y, vbW, vbH, 22);
+        const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+        // tail dot
+        s.appendChild(svg('circle', { cx: cx, cy: cy, r: 3, fill: c, opacity: 0.9 }));
+        // arrow line — length scaled
+        const mag = maxMag > 0 ? Math.min(1, tr.rebound_speed / maxMag) : 0;
+        const L = 8 + 40 * mag;
+        const rx = tr.rebound_xy[0], ry = tr.rebound_xy[1];
+        const r2 = Math.hypot(rx, ry) || 1;
+        // SVG y is inverted — flip ry
+        const dx = L * (rx / r2), dy = -L * (ry / r2);
+        if (tr.behavior !== 'embed' && L > 4) {
+          const line = svg('line', {
+            x1: cx, y1: cy, x2: cx + dx, y2: cy + dy,
+            stroke: c, 'stroke-width': 1.4 + mag * 1.6, opacity: 0.85,
+            'marker-end': 'url(#bvm-' + tr.behavior + '-' + t.code + ')'
+          });
+          const ttl = svg('title', {});
+          ttl.appendChild(document.createTextNode(tr.behavior.toUpperCase() + ' · ' + k + '\nrebound = ' + fmt(tr.rebound_speed, 0) + ' mm/s\nKE retention = ' + (tr.ke_retention * 100).toFixed(0) + '%\nmax pen = ' + fmt(tr.max_pen, 2) + ' mm'));
+          line.appendChild(ttl);
+          s.appendChild(line);
+        } else if (tr.behavior === 'embed') {
+          // cross marker for embed
+          s.appendChild(svg('circle', { cx: cx, cy: cy, r: 6, fill: 'none', stroke: c, 'stroke-width': 1.5 }));
+        }
+      }
+    });
+    grid.appendChild(cell);
+  }
+  // legend
+  const order = ['bounce', 'rebound', 'slide', 'embed'];
+  for (const b of order) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR[b] } }),
+      el('span', null, b.toUpperCase()),
+      el('b', null, String(totals[b] || 0))
+    ]));
+  }
+  if (totals.unknown) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR.unknown } }),
+      el('span', null, 'UNKNOWN'),
+      el('b', null, String(totals.unknown))
+    ]));
+  }
+  if (DATA.trajectories && Object.values(DATA.trajectories).some(t => t._mock)) {
+    legend.appendChild(el('div', { class: 'lg', style: { color: 'var(--tag)', marginLeft: 'auto' } }, [
+      el('span', null, '(mock — sibling pipeline not wired yet)')
+    ]));
+  }
+}
+
+/* --- Viz 5: Trajectory Clustering Map (page 1) --------------------- */
+function initTrajectoryClustering() {
+  const grid = document.getElementById('tcm-grid');
+  const arch = document.getElementById('tcm-archetypes');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  while (arch.firstChild) arch.removeChild(arch.firstChild);
+  if (!TRAJ_KEYS.length || CLUSTERS.n <= 0) {
+    grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable.'));
+    return;
+  }
+  const targets = [
+    { code: 'F2', name: 'FRONT · F2' },
+    { code: 'F1', name: 'BACK · F1'  }
+  ];
+  for (const t of targets) {
+    if (!FACE_BY_CODE[t.code]) continue;
+    const cell = el('div', { class: 'bvm-cell' });
+    cell.appendChild(el('div', { class: 'bf-head' }, [
+      el('div', { class: 'bf-name' }, t.name),
+      el('div', { class: 'bf-sub' }, CLUSTERS.n + ' clusters')
+    ]));
+    const s = svg('svg', {});
+    cell.appendChild(s);
+    grid.appendChild(cell);
+    _drawFaceCanvas(s, t.code, function (vbW, vbH) {
+      const faceKeys = TRAJ_KEYS.filter(k => TRAJ[k].face === t.code);
+      for (const k of faceKeys) {
+        const tr = TRAJ[k];
+        const lab = (CLUSTERS.labels[k] != null) ? CLUSTERS.labels[k] : -1;
+        const c = (lab >= 0) ? CLUSTER_PALETTE[lab % CLUSTER_PALETTE.length] : '#5c6383';
+        const [cx, cy] = _mapXYToVB(tr.x, tr.y, vbW, vbH, 22);
+        const dot = svg('circle', {
+          cx: cx, cy: cy, r: 5, fill: c, 'fill-opacity': 0.85,
+          stroke: 'rgba(10,12,20,0.9)', 'stroke-width': 0.8,
+          'data-tcm-cluster': lab, 'data-tcm-key': k
+        });
+        const ttl = svg('title', {});
+        const archName = CLUSTERS.archetypes[lab] || ('cluster ' + lab);
+        ttl.appendChild(document.createTextNode(k + '\nCLUSTER: ' + archName + '\nbehavior: ' + tr.behavior + '\nKE retention: ' + (tr.ke_retention * 100).toFixed(0) + '%'));
+        dot.appendChild(ttl);
+        dot.style.cursor = 'pointer';
+        dot.addEventListener('mouseenter', function () {
+          document.querySelectorAll('[data-tcm-cluster]').forEach(function (n) {
+            n.setAttribute('fill-opacity', n.getAttribute('data-tcm-cluster') === String(lab) ? '1.0' : '0.18');
+          });
+        });
+        dot.addEventListener('mouseleave', function () {
+          document.querySelectorAll('[data-tcm-cluster]').forEach(function (n) {
+            n.setAttribute('fill-opacity', '0.85');
+          });
+        });
+        s.appendChild(dot);
+      }
+    });
+  }
+  // Archetype gallery
+  const memberCount = {};
+  for (const k in CLUSTERS.labels) {
+    const lab = CLUSTERS.labels[k];
+    memberCount[lab] = (memberCount[lab] || 0) + 1;
+  }
+  for (let i = 0; i < CLUSTERS.n; i++) {
+    const archName = CLUSTERS.archetypes[i] || ('cluster ' + i);
+    const col = CLUSTER_PALETTE[i % CLUSTER_PALETTE.length];
+    const card = el('div', { class: 'tcm-arch', style: { borderLeft: '3px solid ' + col } });
+    card.appendChild(el('div', { class: 'ah' }, [
+      el('span', { class: 'nm', style: { color: col } }, archName.toUpperCase()),
+      el('span', { class: 'ct' }, 'n=' + (memberCount[i] || 0))
+    ]));
+    // average KE decay sparkline for cluster
+    const memberKeys = Object.keys(CLUSTERS.labels).filter(k => CLUSTERS.labels[k] === i);
+    const s = svg('svg', { viewBox: '0 0 200 40', preserveAspectRatio: 'none' });
+    if (memberKeys.length > 0) {
+      const T = TRAJ[memberKeys[0]].ke.length;
+      const avgKe = new Array(T).fill(0);
+      let n = 0;
+      for (const k of memberKeys) {
+        const ts = TRAJ[k].ke;
+        if (!ts || ts.length !== T) continue;
+        for (let j = 0; j < T; j++) avgKe[j] += ts[j];
+        n++;
+      }
+      if (n > 0) {
+        const mx = Math.max(...avgKe) / n || 1;
+        const pts = [];
+        for (let j = 0; j < T; j++) {
+          const x = j / (T - 1) * 200;
+          const y = 40 - (avgKe[j] / n / mx) * 36 - 2;
+          pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        }
+        s.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 1.4 }));
+      }
+    }
+    card.appendChild(s);
+    arch.appendChild(card);
+  }
+}
+
+/* --- Viz 2: Phase Diagram (page 3) --------------------------------- */
+function initPhaseDiagram() {
+  const root = document.getElementById('phase-svg');
+  const legend = document.getElementById('phase-legend');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  while (legend.firstChild) legend.removeChild(legend.firstChild);
+  if (!TRAJ_KEYS.length) {
+    root.appendChild(svg('text', { x: 300, y: 180, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('Trajectory data unavailable')]));
+    return;
+  }
+  const W = 720, H = 380;
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const pad = { l: 50, r: 16, t: 12, b: 30 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  // determine domain
+  let keMax = 0, ieMax = 0;
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    for (const v of t.ke) if (v > keMax) keMax = v;
+    const ie = (t.init_ke - t.final_ke);
+    if (ie > ieMax) ieMax = ie;
+  }
+  if (keMax <= 0) keMax = 1;
+  if (ieMax <= 0) ieMax = keMax;
+  const xMax = Math.max(ieMax, keMax * 1.05);
+  function px(ie) { return pad.l + (ie / xMax) * plotW; }
+  function py(ke) { return pad.t + (1 - ke / keMax) * plotH; }
+  // grid
+  for (let g = 0; g <= 4; g++) {
+    const yv = keMax * g / 4;
+    const yp = py(yv);
+    root.appendChild(svg('line', { x1: pad.l, y1: yp, x2: pad.l + plotW, y2: yp, stroke: 'rgba(255,255,255,0.06)', 'stroke-width': 0.5 }));
+    const t = svg('text', { x: pad.l - 6, y: yp + 3, 'text-anchor': 'end', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    t.appendChild(document.createTextNode(yv.toFixed(1)));
+    root.appendChild(t);
+    const xv = xMax * g / 4;
+    const xp = px(xv);
+    root.appendChild(svg('line', { x1: xp, y1: pad.t, x2: xp, y2: pad.t + plotH, stroke: 'rgba(255,255,255,0.06)', 'stroke-width': 0.5 }));
+    const t2 = svg('text', { x: xp, y: pad.t + plotH + 14, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    t2.appendChild(document.createTextNode(xv.toFixed(1)));
+    root.appendChild(t2);
+  }
+  // axis labels
+  const lblY = svg('text', { x: 14, y: pad.t + plotH / 2, transform: 'rotate(-90 14,' + (pad.t + plotH / 2) + ')', 'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+  lblY.appendChild(document.createTextNode('KE impactor (mJ)'));
+  root.appendChild(lblY);
+  const lblX = svg('text', { x: pad.l + plotW / 2, y: H - 6, 'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+  lblX.appendChild(document.createTextNode('IE absorbed (= KE₀ − KE) (mJ)'));
+  root.appendChild(lblX);
+  // budget line: KE + IE <= KE0 → curve from (0,KE0) to (KE0,0)
+  // approximate ke0 = max init_ke
+  let ke0 = 0;
+  for (const k of TRAJ_KEYS) if (TRAJ[k].init_ke > ke0) ke0 = TRAJ[k].init_ke;
+  root.appendChild(svg('line', { x1: px(0), y1: py(ke0), x2: px(ke0), y2: py(0), stroke: 'rgba(180,110,255,0.55)', 'stroke-width': 1.2, 'stroke-dasharray': '4,3' }));
+  const lblBudget = svg('text', { x: px(ke0 * 0.5), y: py(ke0 * 0.55), fill: '#b46eff', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+  lblBudget.appendChild(document.createTextNode('budget: KE+IE = KE₀'));
+  root.appendChild(lblBudget);
+  // each trajectory as polyline
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    const c = BEHAVIOR_COLOR[t.behavior] || BEHAVIOR_COLOR.unknown;
+    const pts = [];
+    for (let i = 0; i < t.ke.length; i++) {
+      const ie = t.init_ke - t.ke[i];
+      pts.push(px(Math.max(0, ie)).toFixed(1) + ',' + py(t.ke[i]).toFixed(1));
+    }
+    const pline = svg('polyline', {
+      points: pts.join(' '), fill: 'none', stroke: c,
+      'stroke-width': 1.0, opacity: 0.55, 'data-phase-key': k
+    });
+    root.appendChild(pline);
+    // final state scatter point
+    const last = t.ke.length - 1;
+    const dot = svg('circle', {
+      cx: px(t.init_ke - t.ke[last]), cy: py(t.ke[last]),
+      r: 2.5, fill: c, opacity: 0.9
+    });
+    const ttl = svg('title', {});
+    ttl.appendChild(document.createTextNode(k + ' · ' + t.behavior + '\nKE final = ' + fmt(t.ke[last], 2) + ' mJ\nIE = ' + fmt(t.init_ke - t.ke[last], 2)));
+    dot.appendChild(ttl);
+    root.appendChild(dot);
+  }
+  // time annotations: show small ticks at t=0.1,0.3,0.5,1.0 ms on the pinned/first trajectory
+  const ref = TRAJ[TRAJ_KEYS[0]];
+  if (ref) {
+    [0.1e-3, 0.3e-3, 0.5e-3, 1.0e-3].forEach(function (ts) {
+      let idx = 0, best = Infinity;
+      for (let i = 0; i < ref.t.length; i++) {
+        const d = Math.abs(ref.t[i] - ts);
+        if (d < best) { best = d; idx = i; }
+      }
+      const ie = ref.init_ke - ref.ke[idx];
+      const xp = px(Math.max(0, ie)), yp = py(ref.ke[idx]);
+      root.appendChild(svg('circle', { cx: xp, cy: yp, r: 2, fill: '#fff', opacity: 0.85 }));
+      const lab = svg('text', { x: xp + 4, y: yp - 4, fill: '#fff', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      lab.appendChild(document.createTextNode((ts * 1000).toFixed(1) + ' ms'));
+      root.appendChild(lab);
+    });
+  }
+  // legend
+  ['bounce', 'rebound', 'slide', 'embed'].forEach(function (b) {
+    legend.appendChild(el('div', { class: 'lg' }, [
+      el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR[b] } }),
+      el('span', null, b.toUpperCase())
+    ]));
+  });
+}
+
+/* --- Viz 3: Contact Sequence Timeline (page 3) --------------------- */
+function initContactTimeline() {
+  const grid = document.getElementById('cseq-grid');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  if (!TRAJ_KEYS.length) {
+    grid.appendChild(el('div', { class: 'traj-na', style: { gridColumn: 'span 2' } }, 'Trajectory data unavailable.'));
+    return;
+  }
+  // top-8 worst by impact peak G (use FACE_POS_MAX)
+  const ranked = [];
+  for (const k of TRAJ_KEYS) {
+    const t = TRAJ[k];
+    const posKey = t.face + '|' + k;
+    const ent = FACE_POS_MAX[posKey];
+    ranked.push({ key: k, traj: t, g: ent ? ent.g : 0 });
+  }
+  ranked.sort((a, b) => b.g - a.g);
+  const top = ranked.slice(0, 8);
+  // header
+  grid.appendChild(el('div', { class: 'lab', style: { color: 'var(--dim)' } }, 'IMPACT'));
+  const head = el('div', { class: 'cseq-row', style: { fontSize: '8px', color: 'var(--dim)', fontFamily: 'JetBrains Mono, monospace' } });
+  for (let i = 0; i < 21; i++) {
+    head.appendChild(el('div', { style: { textAlign: 'center' } }, (i % 5 === 0) ? (i / 20).toFixed(1) : ''));
+  }
+  grid.appendChild(head);
+  for (const it of top) {
+    const tr = it.traj;
+    const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+    const lab = el('div', { class: 'lab', title: it.key });
+    lab.appendChild(el('span', { style: { color: c, fontWeight: 700 } }, '■ '));
+    lab.appendChild(document.createTextNode(tr.face + ' · ' + tr.x.toFixed(0) + ',' + tr.y.toFixed(0)));
+    grid.appendChild(lab);
+    const row = el('div', { class: 'cseq-row' });
+    const T = tr.contact ? tr.contact.length : 0;
+    for (let i = 0; i < 21; i++) {
+      const idx = T > 0 ? Math.floor(i * (T - 1) / 20) : -1;
+      const engaged = idx >= 0 && tr.contact[idx];
+      // intensity: based on KE drop rate at this index
+      let intensity = 0;
+      if (engaged && idx > 0) {
+        const dk = (tr.ke[idx - 1] - tr.ke[idx]) / Math.max(1e-6, tr.init_ke);
+        intensity = Math.min(1, Math.max(0, dk * 25));
+      }
+      let cellColor;
+      if (!engaged) {
+        cellColor = 'rgba(255,255,255,0.04)';
+      } else {
+        const base = c;
+        // blend with intensity
+        const m = base.match(/#([0-9a-f]{6})/i);
+        if (m) {
+          const r = parseInt(m[1].slice(0, 2), 16);
+          const g = parseInt(m[1].slice(2, 4), 16);
+          const b = parseInt(m[1].slice(4, 6), 16);
+          const alpha = 0.35 + 0.55 * intensity;
+          cellColor = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(2) + ')';
+        } else {
+          cellColor = c;
+        }
+      }
+      const cell = el('div', { class: 'cseq-cell', style: { background: cellColor } });
+      cell.title = it.key + ' · t=' + (i / 20).toFixed(2) + ' ms · ' + (engaged ? 'CONTACT' : 'free flight');
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+}
+
+/* --- Viz 4: Trajectory Bundle 3D (page 3, 3 projections) ----------- */
+function initTrajectoryBundle3D() {
+  const xz = document.getElementById('tb3-xz');
+  const yz = document.getElementById('tb3-yz');
+  const xy = document.getElementById('tb3-xy');
+  if (!xz || !yz || !xy) return;
+  [xz, yz, xy].forEach(function (s) { while (s.firstChild) s.removeChild(s.firstChild); });
+  if (!TRAJ_KEYS.length) {
+    [xz, yz, xy].forEach(function (s) {
+      s.setAttribute('viewBox', '0 0 200 100');
+      const t = svg('text', { x: 100, y: 50, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 10 });
+      t.appendChild(document.createTextNode('No trajectory'));
+      s.appendChild(t);
+    });
+    return;
+  }
+  // determine z range
+  let zmin = Infinity, zmax = -Infinity;
+  for (const k of TRAJ_KEYS) {
+    for (const p of TRAJ[k].pos) {
+      if (p[2] < zmin) zmin = p[2];
+      if (p[2] > zmax) zmax = p[2];
+    }
+  }
+  if (!isFinite(zmin)) zmin = -5;
+  if (!isFinite(zmax)) zmax = 15;
+  if (zmin === zmax) { zmin -= 1; zmax += 1; }
+  const bb = DEVICE_BBOX;
+  // XZ projection
+  function drawSideXZ(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const xMin = bb.xmin, xMax = bb.xmax;
+    function px(x) { return pad.l + (x - xMin) / (xMax - xMin) * plotW; }
+    function py(z) { return pad.t + (1 - (z - zmin) / (zmax - zmin)) * plotH; }
+    // z=0 line + bbox
+    root.appendChild(svg('line', { x1: px(xMin), y1: py(0), x2: px(xMax), y2: py(0), stroke: 'rgba(255,255,255,0.16)', 'stroke-width': 0.8, 'stroke-dasharray': '4,3' }));
+    const lab = svg('text', { x: pad.l - 2, y: py(0) + 3, 'text-anchor': 'end', fill: 'rgba(255,255,255,0.5)', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    lab.appendChild(document.createTextNode('z=0')); root.appendChild(lab);
+    // axes labels
+    ['xmin', 'xmax'].forEach(function (k, i) {
+      const xv = bb[k];
+      const t = svg('text', { x: i === 0 ? pad.l : pad.l + plotW, y: H - 6, 'text-anchor': i === 0 ? 'start' : 'end', fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      t.appendChild(document.createTextNode('x=' + xv.toFixed(0))); root.appendChild(t);
+    });
+    const zlt = svg('text', { x: 4, y: pad.t + 6, fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    zlt.appendChild(document.createTextNode('z=' + zmax.toFixed(0))); root.appendChild(zlt);
+    const zlb = svg('text', { x: 4, y: pad.t + plotH, fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    zlb.appendChild(document.createTextNode('z=' + zmin.toFixed(0))); root.appendChild(zlb);
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = (tr.face === 'F1') ? '#b46eff' : '#4dd6ff';
+      const pts = tr.pos.map(p => px(p[0]).toFixed(1) + ',' + py(p[2]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.8, opacity: 0.55 }));
+    }
+  }
+  function drawSideYZ(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const yMin = bb.ymin, yMax = bb.ymax;
+    function px(y) { return pad.l + (y - yMin) / (yMax - yMin) * plotW; }
+    function py(z) { return pad.t + (1 - (z - zmin) / (zmax - zmin)) * plotH; }
+    root.appendChild(svg('line', { x1: px(yMin), y1: py(0), x2: px(yMax), y2: py(0), stroke: 'rgba(255,255,255,0.16)', 'stroke-width': 0.8, 'stroke-dasharray': '4,3' }));
+    const lab = svg('text', { x: pad.l - 2, y: py(0) + 3, 'text-anchor': 'end', fill: 'rgba(255,255,255,0.5)', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+    lab.appendChild(document.createTextNode('z=0')); root.appendChild(lab);
+    ['ymin', 'ymax'].forEach(function (k, i) {
+      const yv = bb[k];
+      const t = svg('text', { x: i === 0 ? pad.l : pad.l + plotW, y: H - 6, 'text-anchor': i === 0 ? 'start' : 'end', fill: '#5c6383', 'font-size': 8, 'font-family': 'JetBrains Mono' });
+      t.appendChild(document.createTextNode('y=' + yv.toFixed(0))); root.appendChild(t);
+    });
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = (tr.face === 'F1') ? '#b46eff' : '#4dd6ff';
+      const pts = tr.pos.map(p => px(p[1]).toFixed(1) + ',' + py(p[2]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.8, opacity: 0.55 }));
+    }
+  }
+  function drawTopXY(root) {
+    const W = 360, H = 220;
+    root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    root.appendChild(svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#0e1320', rx: 4 }));
+    const pad = { l: 26, r: 8, t: 10, b: 22 };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const xMin = bb.xmin, xMax = bb.xmax;
+    const yMin = bb.ymin, yMax = bb.ymax;
+    function px(x) { return pad.l + (x - xMin) / (xMax - xMin) * plotW; }
+    function py(y) { return pad.t + (1 - (y - yMin) / (yMax - yMin)) * plotH; }
+    // device bbox dashed
+    root.appendChild(svg('rect', { x: px(xMin), y: py(yMax), width: plotW, height: plotH, fill: 'none', stroke: '#3a4055', 'stroke-width': 0.9, 'stroke-dasharray': '4,3' }));
+    for (const k of TRAJ_KEYS) {
+      const tr = TRAJ[k];
+      const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+      const pts = tr.pos.map(p => px(p[0]).toFixed(1) + ',' + py(p[1]).toFixed(1)).join(' ');
+      root.appendChild(svg('polyline', { points: pts, fill: 'none', stroke: c, 'stroke-width': 0.9, opacity: 0.55 }));
+      // initial dot
+      const p0 = tr.pos[0];
+      root.appendChild(svg('circle', { cx: px(p0[0]), cy: py(p0[1]), r: 2, fill: c, opacity: 0.9 }));
+    }
+  }
+  drawSideXZ(xz);
+  drawSideYZ(yz);
+  drawTopXY(xy);
+}
+
+/* --- Viz 6: Inspector KE overlay + behavior badge (page 2 enhance) - */
+function renderInspectorBehaviorBadge(rec) {
+  const badge = document.getElementById('ii-behavior-badge');
+  if (!badge) return;
+  badge.innerHTML = '';
+  if (!rec) return;
+  const tr = TRAJ[rec.pos_id];
+  if (!tr) return;
+  const b = tr.behavior || 'unknown';
+  badge.appendChild(el('span', { class: 'bbadge ' + b }, b.toUpperCase()));
+}
+
+function renderInspectorKEOverlay(rec) {
+  const root = document.getElementById('ii-th-svg');
+  const sub = document.getElementById('ii-th-sub');
+  const kpi = document.getElementById('ii-traj-kpi');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  if (kpi) kpi.innerHTML = '';
+  if (!rec) return;
+  const tr = TRAJ[rec.pos_id];
+  if (!tr) {
+    if (sub) sub.textContent = '(no trajectory)';
+    return;
+  }
+  if (sub) sub.textContent = '(behavior: ' + tr.behavior + ')';
+  const W = 200, H = 70;
+  const pad = { l: 4, r: 4, t: 4, b: 6 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  const T = tr.ke.length;
+  if (!T) return;
+  let mx = 0;
+  for (const v of tr.ke) if (v > mx) mx = v;
+  if (mx <= 0) mx = 1;
+  // shade contact bands
+  let inBand = false, bandStart = 0;
+  for (let i = 0; i < T; i++) {
+    const eng = tr.contact[i];
+    if (eng && !inBand) { inBand = true; bandStart = i; }
+    if ((!eng || i === T - 1) && inBand) {
+      const end = eng && i === T - 1 ? i : i;
+      const x0 = pad.l + (bandStart / (T - 1)) * plotW;
+      const x1 = pad.l + (end / (T - 1)) * plotW;
+      root.appendChild(svg('rect', {
+        x: x0, y: pad.t, width: Math.max(1, x1 - x0), height: plotH,
+        fill: 'rgba(180,110,255,0.15)'
+      }));
+      inBand = false;
+    }
+  }
+  // initial KE line
+  const yInit = pad.t + (1 - tr.init_ke / mx) * plotH;
+  root.appendChild(svg('line', { x1: pad.l, y1: yInit, x2: pad.l + plotW, y2: yInit, stroke: 'rgba(77,214,255,0.45)', 'stroke-width': 0.6, 'stroke-dasharray': '3,2' }));
+  // final KE line
+  const yFin = pad.t + (1 - tr.final_ke / mx) * plotH;
+  root.appendChild(svg('line', { x1: pad.l, y1: yFin, x2: pad.l + plotW, y2: yFin, stroke: 'rgba(74,223,161,0.55)', 'stroke-width': 0.6, 'stroke-dasharray': '3,2' }));
+  // KE curve
+  const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
+  const pts = [];
+  for (let i = 0; i < T; i++) {
+    const xp = pad.l + (i / (T - 1)) * plotW;
+    const yp = pad.t + (1 - tr.ke[i] / mx) * plotH;
+    pts.push(xp.toFixed(1) + ',' + yp.toFixed(1));
+  }
+  root.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: c, 'stroke-width': 1.6 }));
+  // numeric KPIs
+  if (kpi) {
+    const rows = [
+      ['REBOUND', fmt(tr.rebound_speed, 0) + ' mm/s'],
+      ['MAX PEN', fmt(tr.max_pen, 2) + ' mm'],
+      ['t₁ CONTACT', (tr.t_first_contact != null ? (tr.t_first_contact * 1000).toFixed(2) + ' ms' : '-')],
+      ['KE RETAIN', (tr.ke_retention * 100).toFixed(0) + ' %']
+    ];
+    for (const r of rows) {
+      kpi.appendChild(el('div', { class: 'iirow' }, [el('span', null, r[0]), el('b', null, r[1])]));
+    }
+  }
+}
+
 function boot() {
   fillHeroKpi();
   initImpactor();
@@ -2549,6 +3497,11 @@ function boot() {
   initSankey();
   initTimeForceHeatmap();
   initConservation();
+  initBounceVectorMap();
+  initTrajectoryClustering();
+  initPhaseDiagram();
+  initContactTimeline();
+  initTrajectoryBundle3D();
   wireControlBar();
   initReveal();
   initNav();

@@ -532,6 +532,241 @@ def generate_rcforc(
 
 
 # ---------------------------------------------------------------------------
+# Synthetic impactor 3D trajectory
+# ---------------------------------------------------------------------------
+
+# Stiff parts → bounce; soft parts → embed.
+_STIFF_PIDS = {9, 10, 11, 12}        # Frame, Housing, Front\Wall, Housing\Frame
+_SOFT_PIDS = {1, 8}                  # PCB, Battery
+# Other parts: rebound (default)
+
+# Impactor mass — pre-compute once for KE column.
+_IMPACTOR_MASS_KG = sphere_mass_kg(IMPACTOR_SPEC)
+
+
+def _impactor_axis_for_face(face_code: str) -> tuple[int, int]:
+    """Return ``(axis_index, sign)`` of the impact-normal direction.
+
+    The impactor moves along ``axis_index`` (0=x, 1=y, 2=z) with ``sign``
+    matching ``+1`` if hitting the *max* side of the device or ``-1`` if hitting
+    the *min* side. The impactor *velocity* at impact is ``-sign * v0`` (it
+    travels INTO the device).
+    """
+    if face_code == "F1":  # Back — impacts z=max from above → vel.z = -v0
+        return 2, +1
+    if face_code == "F2":  # Front — impacts z=min from below → vel.z = +v0
+        return 2, -1
+    if face_code == "F3":
+        return 0, +1
+    if face_code == "F4":
+        return 0, -1
+    if face_code == "F5":
+        return 1, +1
+    if face_code == "F6":
+        return 1, -1
+    return 2, +1
+
+
+def _write_trajectory_csv(
+    run_dir: Path,
+    face_code: str,
+    impact_xyz: tuple[float, float, float],
+    direct_pid: int,
+    seed: int,
+) -> None:
+    """Generate ``impactor_trajectory.csv`` with the per-state impactor state.
+
+    Three-phase synthetic model (deterministic per ``seed`` = face+x+y hash):
+
+    Phase 1 — Pre-contact free fall (t ∈ [0, t_engage]):
+        Position starts ``height`` (5-8 mm) above the device surface along the
+        impact-normal axis. Velocity is purely along that axis, magnitude
+        ``v0 = sqrt(2 g h_drop)`` ≈ 1400 mm/s. Free-fall under g=9810 mm/s²;
+        ``contact = False``.
+
+    Phase 2 — Contact (t ∈ [t_engage, t_engage + dt_contact]):
+        Velocity along normal axis decelerates linearly; position reaches a
+        minimum (max-penetration). Off-center impacts on a part produce a
+        lateral kick ~10% of |v_normal| in (x, y) directions if the impact
+        misses the centroid of ``direct_pid``. ``contact = True``.
+
+    Phase 3 — Post-contact (t > t_engage + dt_contact):
+        Behavior class is derived from the direct part's stiffness:
+          * Stiff parts (Frame/Housing) → bounce (KE retention ≈ 0.5-0.7)
+          * Soft parts  (PCB/Battery)   → embed (KE retention < 0.15)
+          * Edge-of-part impacts        → slide (lateral velocity dominates)
+          * Otherwise                   → rebound (moderate)
+        Final velocity is set accordingly; position propagates consistently.
+
+    KE column: ``0.5 * m * |v|² / 1e6`` (J — converting (mm/s)² → (m/s)²).
+    """
+    rng = np.random.default_rng(seed)
+    axis, sign = _impactor_axis_for_face(face_code)
+    surface_coord = face_surface_z(face_code)
+
+    v0 = impactor_velocity(IMPACTOR_SPEC)   # mm/s, scalar magnitude
+    height_above = float(rng.uniform(5.0, 8.0))  # mm above surface at t=0
+
+    # --- Initial state (pre-contact) ---
+    pos0 = list(impact_xyz)
+    pos0[axis] = surface_coord + sign * height_above
+    vel0 = [0.0, 0.0, 0.0]
+    vel0[axis] = -sign * v0                # travelling INTO the device
+
+    # t_engage in seconds: height / v0
+    t_engage = (height_above * 1e-3) / (v0 * 1e-3)  # s
+    # Force t_engage into the simulation window
+    t_engage = float(np.clip(t_engage, 0.5e-5, 1.5e-5))
+
+    # Contact duration depends on stiffness of direct part.
+    if direct_pid in _STIFF_PIDS:
+        dt_contact = float(rng.uniform(0.15e-3, 0.22e-3))
+    elif direct_pid in _SOFT_PIDS:
+        dt_contact = float(rng.uniform(0.30e-3, 0.40e-3))
+    else:
+        dt_contact = float(rng.uniform(0.20e-3, 0.30e-3))
+
+    # --- KE retention & behavior class ---
+    # Pick a noisy retention by part class, then optionally promote to "slide".
+    if direct_pid in _STIFF_PIDS:
+        ke_retention = float(np.clip(rng.normal(0.55, 0.10), 0.42, 0.75))
+    elif direct_pid in _SOFT_PIDS:
+        ke_retention = float(np.clip(rng.normal(0.08, 0.04), 0.02, 0.14))
+    else:
+        ke_retention = float(np.clip(rng.normal(0.27, 0.07), 0.17, 0.38))
+
+    # Detect "slide" condition: impact point near edge of direct part footprint.
+    direct_part = next(p for p in PARTS if p["id"] == direct_pid)
+    x0, y0, x1, y1 = direct_part["fp"]
+    cx, cy = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+    half_w, half_h = 0.5 * (x1 - x0), 0.5 * (y1 - y0)
+    dx = abs(impact_xyz[0] - cx) / max(half_w, 1e-3)
+    dy = abs(impact_xyz[1] - cy) / max(half_h, 1e-3)
+    edge_factor = max(dx, dy)              # 0 = centered, ~1 = at edge
+    slide_mode = (edge_factor > 0.85) and (direct_pid not in _SOFT_PIDS)
+
+    # Final velocity components.
+    # v_normal_final magnitude = sqrt(retention) * v0 (sign flipped to leave)
+    v_normal_final = math.sqrt(ke_retention) * v0
+    # Lateral kick from off-center impact (~10% of |v_normal| baseline).
+    # Direction is from impact point toward part centroid offset.
+    lateral_dir = np.array([impact_xyz[0] - cx, impact_xyz[1] - cy], dtype=float)
+    n = float(np.linalg.norm(lateral_dir))
+    if n > 1e-6:
+        lateral_dir /= n
+    else:
+        lateral_dir = np.array([1.0, 0.0])
+
+    if slide_mode:
+        # slide: lateral dominates, vz tiny
+        v_lat = float(rng.uniform(0.45, 0.70)) * v0
+        v_n_post = 0.10 * v0
+    else:
+        v_lat = float(rng.uniform(0.05, 0.15)) * v0 * edge_factor
+        v_n_post = v_normal_final
+
+    vel_final = [v_lat * lateral_dir[0], v_lat * lateral_dir[1], 0.0]
+    if axis == 2:
+        # bounce: normal axis sign reverses (+sign * v_n_post means leaving)
+        vel_final[2] = +sign * v_n_post
+    elif axis == 0:
+        vel_final[0] = +sign * v_n_post
+    elif axis == 1:
+        vel_final[1] = +sign * v_n_post
+
+    # If embed: position drifts very little post-contact, vz ≈ 0.
+    embed_mode = (ke_retention < 0.15) and (not slide_mode)
+    if embed_mode:
+        vel_final = [0.05 * v0 * rng.normal(),
+                     0.05 * v0 * rng.normal(),
+                     0.0]
+        vel_final[axis] = sign * float(rng.uniform(20.0, 50.0))  # tiny escape vel
+
+    # Maximum penetration (negative-z relative to surface, magnitude).
+    # Stiff: shallow; soft: deep.
+    if direct_pid in _STIFF_PIDS:
+        max_pen = float(rng.uniform(0.3, 1.2))
+    elif direct_pid in _SOFT_PIDS:
+        max_pen = float(rng.uniform(2.5, 5.0))
+    else:
+        max_pen = float(rng.uniform(1.0, 2.5))
+
+    # --- Build per-timestep trajectory ---
+    rows: list[dict] = []
+    g = G_MM_S2
+    surf = surface_coord
+
+    for ti in TIMES:
+        t = float(ti)
+        if t <= t_engage:
+            # Phase 1: free fall along impact-normal axis
+            frac = t / t_engage if t_engage > 0 else 1.0
+            pos = list(pos0)
+            # apply gravity-augmented motion along impact-normal (sign-aware)
+            displacement = (vel0[axis] * t) + (0.5 * (-sign * g) * t * t)
+            pos[axis] = pos0[axis] + displacement
+            vel = list(vel0)
+            vel[axis] = vel0[axis] + (-sign * g) * t
+            contact = False
+        elif t <= t_engage + dt_contact:
+            # Phase 2: contact — interpolate velocity from initial → max-pen → final
+            tau = (t - t_engage) / dt_contact     # 0..1
+            # Penetration profile: parabolic peak at tau=0.5
+            pen_frac = 4.0 * tau * (1.0 - tau)     # 0..1..0
+            pos = list(impact_xyz)
+            pos[axis] = surf - sign * max_pen * pen_frac
+            # Lateral position drift (small)
+            if axis == 2:
+                pos[0] = impact_xyz[0] + lateral_dir[0] * v_lat * (t - t_engage) * 0.5
+                pos[1] = impact_xyz[1] + lateral_dir[1] * v_lat * (t - t_engage) * 0.5
+            # Linear blend of normal velocity from -v0 → +v_n_post
+            v_norm_now = vel0[axis] * (1.0 - tau) + (vel_final[axis]) * tau
+            vel = [0.0, 0.0, 0.0]
+            vel[axis] = v_norm_now
+            # Lateral velocity ramps in during contact
+            if axis == 2:
+                vel[0] = vel_final[0] * tau
+                vel[1] = vel_final[1] * tau
+            contact = True
+        else:
+            # Phase 3: post-contact ballistic
+            tau = t - (t_engage + dt_contact)
+            pos = [0.0, 0.0, 0.0]
+            pos_start_normal = surf  # leaves surface
+            # propagate from end-of-contact at surface using final velocity
+            pos[0] = impact_xyz[0] + vel_final[0] * tau
+            pos[1] = impact_xyz[1] + vel_final[1] * tau
+            pos[2] = impact_xyz[2]
+            pos[axis] = pos_start_normal + vel_final[axis] * tau
+            vel = list(vel_final)
+            # Briefly re-engage contact at the peaks of any oscillation:
+            # if embed_mode, mark intermittent contact True; else False.
+            contact = bool(embed_mode and rng.random() < 0.3)
+
+        vmag_mm_s = math.sqrt(vel[0] ** 2 + vel[1] ** 2 + vel[2] ** 2)
+        v_si = vmag_mm_s * 1e-3
+        ke_j = 0.5 * _IMPACTOR_MASS_KG * v_si * v_si
+
+        rows.append({
+            "time": f"{t:.7e}",
+            "x":  f"{pos[0]:.4f}",
+            "y":  f"{pos[1]:.4f}",
+            "z":  f"{pos[2]:.4f}",
+            "vx": f"{vel[0]:.4f}",
+            "vy": f"{vel[1]:.4f}",
+            "vz": f"{vel[2]:.4f}",
+            "ke": f"{ke_j:.6e}",
+            "contact": "1" if contact else "0",
+        })
+
+    write_csv(
+        run_dir / "impactor_trajectory.csv",
+        rows,
+        ["time", "x", "y", "z", "vx", "vy", "vz", "ke", "contact"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Closest "direct contact" part from impact point
 # ---------------------------------------------------------------------------
 
@@ -801,6 +1036,18 @@ def main() -> None:
                       ["time", "contact_id", "slave_pid", "master_pid",
                        "force_x", "force_y", "force_z"])
 
+            # Per-run impactor 3D trajectory.
+            # Deterministic seed from face+u+v keeps trajectories reproducible.
+            traj_seed = abs(hash((face["code"], round(pos["u"], 3),
+                                    round(pos["v"], 3), args.seed))) % (2 ** 31)
+            _write_trajectory_csv(
+                run_dir,
+                face["code"],
+                pos["impact_xyz"],
+                int(direct["id"]),
+                traj_seed,
+            )
+
             manifest.append({
                 "face": face["code"],
                 "face_name": face["name"],
@@ -815,6 +1062,9 @@ def main() -> None:
                 "glstat_csv": str(Path(face_dir_name) / run_dir_name / "glstat.csv"),
                 "matsum_csv": str(Path(face_dir_name) / run_dir_name / "matsum.csv"),
                 "rcforc_csv": str(Path(face_dir_name) / run_dir_name / "rcforc.csv"),
+                "impactor_trajectory_csv": str(
+                    Path(face_dir_name) / run_dir_name / "impactor_trajectory.csv"
+                ),
             })
 
     (output / "manifest.json").write_text(json.dumps({
@@ -830,7 +1080,8 @@ def main() -> None:
     print(f"Generated {len(manifest)} runs across {len(selected_faces)} faces "
           f"({face_codes}) in {output}")
     print(f"Impactor KE_initial = {ke_initial:.4g} J")
-    print(f"Files per run: analysis_result.json, glstat.csv, matsum.csv, rcforc.csv")
+    print(f"Files per run: analysis_result.json, glstat.csv, matsum.csv, "
+          f"rcforc.csv, impactor_trajectory.csv")
 
 
 if __name__ == "__main__":

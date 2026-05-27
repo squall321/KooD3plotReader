@@ -4,12 +4,13 @@ Implements §8 (core algorithms) and §18 (multi-face risk-score logic) of
 ``docs/PartialImpactReport_Plan.md``.
 """
 from __future__ import annotations
+import math
 from typing import Iterable
 
 import numpy as np
 
 from .models import (
-    Finding, ImpactReport, PairResult, Severity,
+    Finding, ImpactReport, PairResult, Severity, TrajectoryClusters,
 )
 
 
@@ -260,6 +261,188 @@ def generate_findings(
 
 
 # ---------------------------------------------------------------------------
+# Impactor-trajectory clustering
+# ---------------------------------------------------------------------------
+
+# Feature signature used to assign human-readable archetypes to k-means centroids.
+# Each row is the expected z-scored shape of [ke_retention, t_first_contact_norm,
+# max_penetration_depth_norm, rebound_speed_norm, lateral_speed_norm].
+_ARCHETYPE_SIGNATURES = {
+    "bounce-back":  np.array([+1.2,  0.0, -0.8, +1.2, -0.5]),
+    "embed":        np.array([-1.2,  0.0, +1.2, -1.2, -0.5]),
+    "slide":        np.array([ 0.0,  0.0, -0.3, +0.5, +1.5]),
+    "slow-decay":   np.array([ 0.0,  0.0,  0.0, -0.3, -0.3]),
+    "fast-decay":   np.array([-0.6,  0.0, +0.6, -0.6,  0.0]),
+}
+
+
+def _kmeans_lloyd(
+    X: np.ndarray,
+    k: int,
+    max_iter: int = 100,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Tiny numpy-only k-means (Lloyd's algorithm).
+
+    Returns ``(labels, centroids)``. Empty clusters are re-seeded from the
+    farthest point.
+    """
+    rng = np.random.default_rng(seed)
+    n = X.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=int), np.zeros((0, X.shape[1]))
+    k = max(1, min(k, n))
+
+    # k-means++ init
+    centers = [X[rng.integers(n)]]
+    for _ in range(k - 1):
+        d2 = np.min(
+            np.linalg.norm(X[:, None, :] - np.array(centers)[None, :, :], axis=2) ** 2,
+            axis=1,
+        )
+        total = d2.sum()
+        if total <= 1e-12:
+            centers.append(X[rng.integers(n)])
+            continue
+        probs = d2 / total
+        idx = rng.choice(n, p=probs)
+        centers.append(X[idx])
+    centroids = np.array(centers)
+
+    labels = np.zeros(n, dtype=int)
+    for _ in range(max_iter):
+        d = np.linalg.norm(X[:, None, :] - centroids[None, :, :], axis=2)
+        new_labels = np.argmin(d, axis=1)
+        if np.array_equal(new_labels, labels):
+            labels = new_labels
+            break
+        labels = new_labels
+        for ci in range(k):
+            mask = labels == ci
+            if mask.any():
+                centroids[ci] = X[mask].mean(axis=0)
+            else:
+                # Empty cluster — reseed from farthest point.
+                far_idx = int(np.argmax(d.min(axis=1)))
+                centroids[ci] = X[far_idx]
+    return labels, centroids
+
+
+def _assign_archetypes(centroids: np.ndarray) -> list[str]:
+    """Pick the closest archetype label for each centroid.
+
+    Distinct labels are preferred — if two centroids share the same closest
+    archetype, the second-closest is used for the runner-up.
+    """
+    sigs = list(_ARCHETYPE_SIGNATURES.items())
+    sig_names = [name for name, _ in sigs]
+    sig_vecs = np.array([v for _, v in sigs])
+
+    # Cost matrix: row=centroid, col=archetype
+    dists = np.linalg.norm(centroids[:, None, :] - sig_vecs[None, :, :], axis=2)
+
+    assigned: list[str] = []
+    used: set[str] = set()
+    for ci in range(centroids.shape[0]):
+        order = np.argsort(dists[ci])
+        choice = sig_names[order[0]]
+        for idx in order:
+            cand = sig_names[idx]
+            if cand not in used:
+                choice = cand
+                break
+        used.add(choice)
+        assigned.append(choice)
+    return assigned
+
+
+def compute_trajectory_clusters(
+    report: ImpactReport,
+    k: int = 4,
+    seed: int = 0,
+) -> TrajectoryClusters | None:
+    """Cluster runs by impactor-trajectory feature vectors (k-means).
+
+    Features (per run):
+      ke_retention, t_first_contact_norm, max_penetration_depth_norm,
+      rebound_speed_norm, lateral_speed_norm
+
+    Returns ``None`` if fewer than ``k`` runs carry trajectory data. Each entry
+    in ``labels`` corresponds (in order) to ``report.results``; runs without
+    trajectory data receive label ``-1``.
+    """
+    features_used = [
+        "ke_retention", "t_first_contact_norm",
+        "max_penetration_depth_norm", "rebound_speed_norm", "lateral_speed_norm",
+    ]
+
+    # Build one feature vector per UNIQUE trajectory (keyed by pos_id).
+    pos_ids: list[str] = []
+    feats: list[list[float]] = []
+    # Normalisers — observed maxima for the per-run scalars.
+    max_pen = 1e-6
+    max_rebound = 1e-6
+    max_lat = 1e-6
+    max_tfc = 1e-6
+    for pos_id, traj in report.impactor_trajectories.items():
+        if not traj.times:
+            continue
+        lat_speed = math.hypot(traj.vel_x[-1], traj.vel_y[-1])
+        tfc = traj.t_first_contact or 0.0
+        max_pen = max(max_pen, traj.max_penetration_depth)
+        max_rebound = max(max_rebound, traj.rebound_speed)
+        max_lat = max(max_lat, lat_speed)
+        max_tfc = max(max_tfc, tfc)
+        pos_ids.append(pos_id)
+        feats.append([
+            float(traj.ke_retention),
+            float(tfc),
+            float(traj.max_penetration_depth),
+            float(traj.rebound_speed),
+            float(lat_speed),
+        ])
+
+    if len(feats) < max(k, 2):
+        return None
+
+    X_raw = np.array(feats, dtype=float)
+    # Normalize specific raw scales to [0, 1] before z-scoring (matches spec
+    # naming: "_norm" features).
+    norms = np.array([1.0, max_tfc, max_pen, max_rebound, max_lat])
+    X_norm = X_raw / np.where(norms > 0, norms, 1.0)
+    # Standardize (z-score) across the sample.
+    mu = X_norm.mean(axis=0)
+    sd = X_norm.std(axis=0)
+    sd[sd < 1e-9] = 1.0
+    X = (X_norm - mu) / sd
+
+    # Try sklearn first; fall back to Lloyd's.
+    try:
+        from sklearn.cluster import KMeans  # type: ignore
+        km = KMeans(n_clusters=k, n_init=10, random_state=seed)
+        labels_compact = km.fit_predict(X)
+        centroids = km.cluster_centers_
+    except Exception:
+        labels_compact, centroids = _kmeans_lloyd(X, k=k, seed=seed)
+
+    archetypes = _assign_archetypes(centroids)
+
+    # Map back to per-PairResult labels (results order).
+    pos2label = {pos_ids[i]: int(labels_compact[i]) for i in range(len(pos_ids))}
+    per_result_labels = [
+        pos2label.get(r.position.pos_id, -1) for r in report.results
+    ]
+
+    return TrajectoryClusters(
+        n_clusters=int(centroids.shape[0]),
+        labels=per_result_labels,
+        centroids=[[float(v) for v in row] for row in centroids],
+        archetypes=archetypes,
+        features_used=features_used,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Top-level entry
 # ---------------------------------------------------------------------------
 
@@ -276,4 +459,5 @@ def analyze(
         threshold_warning=threshold_warning,
         yield_stress=yield_stress,
     )
+    report.trajectory_clusters = compute_trajectory_clusters(report)
     return report

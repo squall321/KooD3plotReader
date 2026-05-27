@@ -87,6 +87,65 @@ def test_csv_columns(dataset: Path):
             assert next(reader, None) is not None
 
 
+def test_trajectory_csv_present(dataset: Path):
+    """Every run dir must contain a 21-row impactor_trajectory.csv."""
+    manifest = json.loads((dataset / "manifest.json").read_text())
+    for entry in manifest["runs"]:
+        traj_path = dataset / Path(entry["run_dir"]) / "impactor_trajectory.csv"
+        assert traj_path.exists(), f"missing {traj_path}"
+        with traj_path.open() as fh:
+            reader = csv.reader(fh)
+            next(reader)  # header
+            data_rows = list(reader)
+        assert len(data_rows) == 21, (
+            f"{traj_path}: expected 21 data rows, got {len(data_rows)}"
+        )
+
+
+def test_trajectory_csv_columns(dataset: Path):
+    """impactor_trajectory.csv header must match the documented schema."""
+    manifest = json.loads((dataset / "manifest.json").read_text())
+    entry = manifest["runs"][0]
+    traj_path = dataset / Path(entry["run_dir"]) / "impactor_trajectory.csv"
+    with traj_path.open() as fh:
+        header = next(csv.reader(fh))
+    assert header == ["time", "x", "y", "z", "vx", "vy", "vz", "ke", "contact"], (
+        f"unexpected header: {header}"
+    )
+
+
+def test_behavior_diversity(dataset: Path):
+    """Across 50 runs the generator must produce >= 3 distinct behavior classes."""
+    from koo_impact_report.loader import load_impactor_trajectory
+
+    manifest = json.loads((dataset / "manifest.json").read_text())
+    classes: set[str] = set()
+    for entry in manifest["runs"]:
+        run_dir = dataset / Path(entry["run_dir"])
+        traj = load_impactor_trajectory(run_dir)
+        assert traj is not None, f"no trajectory loaded from {run_dir}"
+        classes.add(traj.behavior_class)
+    assert len(classes) >= 3, (
+        f"expected >= 3 distinct behavior classes, got {classes}"
+    )
+
+
+def test_clusters_count(dataset: Path):
+    """Analyzer must yield k=4 clusters with non-trivial spread across runs."""
+    from koo_impact_report.loader import load_impact_report
+    from koo_impact_report.analyzer import compute_trajectory_clusters
+
+    report = load_impact_report(dataset)
+    clusters = compute_trajectory_clusters(report, k=4, seed=0)
+    assert clusters is not None
+    assert clusters.n_clusters == 4
+    # At least 2 different cluster labels must appear (non-trivial spread).
+    distinct = set(l for l in clusters.labels if l >= 0)
+    assert len(distinct) >= 2, f"clusters collapsed: {distinct}"
+    assert len(clusters.archetypes) == 4
+    assert len(clusters.centroids) == 4
+
+
 def test_face_choice_cli(tmp_path: Path):
     """`--faces F1,F2,F5` should produce exactly 3 face directories."""
     out = tmp_path / "ds_3faces"

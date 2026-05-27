@@ -175,6 +175,45 @@ class PartResult:
 
 
 @dataclass
+class ImpactorTrajectory:
+    """3D position+velocity time history of the impactor (one per simulation run).
+
+    Loader-derived scalar summaries are populated at construction time
+    (see ``loader.load_impactor_trajectory``).
+    """
+    times: list[float] = field(default_factory=list)         # seconds (T points, e.g. 21)
+    pos_x: list[float] = field(default_factory=list)          # mm
+    pos_y: list[float] = field(default_factory=list)          # mm
+    pos_z: list[float] = field(default_factory=list)          # mm
+    vel_x: list[float] = field(default_factory=list)          # mm/s
+    vel_y: list[float] = field(default_factory=list)          # mm/s
+    vel_z: list[float] = field(default_factory=list)          # mm/s
+    ke: list[float] = field(default_factory=list)             # J at each step
+    contact_engaged: list[bool] = field(default_factory=list)  # True when impactor in active contact
+
+    # Derived scalar summaries
+    initial_ke: float = 0.0
+    final_ke: float = 0.0
+    ke_retention: float = 0.0           # final_ke / initial_ke (∈ [0, 1])
+    max_penetration_depth: float = 0.0  # max negative z relative to impact surface (mm)
+    t_first_contact: float | None = None
+    rebound_velocity_xy: tuple[float, float] = (0.0, 0.0)
+    rebound_speed: float = 0.0          # |v_final| (mm/s)
+    incident_speed: float = 0.0         # |v_initial| (mm/s)
+    behavior_class: str = "unknown"     # "bounce" | "embed" | "slide" | "rebound"
+
+
+@dataclass
+class TrajectoryClusters:
+    """Result of impactor-trajectory clustering across all runs."""
+    n_clusters: int = 0
+    labels: list[int] = field(default_factory=list)         # cluster id per result (results order)
+    centroids: list[list[float]] = field(default_factory=list)
+    archetypes: list[str] = field(default_factory=list)     # human label per cluster
+    features_used: list[str] = field(default_factory=list)
+
+
+@dataclass
 class PairResult:
     """A single (face × position × part) result row — the core 3D-DOE cell."""
     face: str
@@ -185,6 +224,7 @@ class PairResult:
     peak_strain: float = 0.0
     peak_disp: float = 0.0
     stress_ts: TimeSeriesData = field(default_factory=TimeSeriesData)
+    impactor_trajectory: ImpactorTrajectory | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +299,7 @@ class ImpactReport:
     sim_params: dict = field(default_factory=dict)
     doe_config: dict = field(default_factory=dict)
     test_dir: str = ""
+    # Per-run impactor trajectories, keyed by pos_id (one trajectory shared
+    # across all parts of the same run; also attached to each PairResult).
+    impactor_trajectories: dict[str, ImpactorTrajectory] = field(default_factory=dict)
+    trajectory_clusters: TrajectoryClusters | None = None
