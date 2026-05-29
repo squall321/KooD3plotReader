@@ -1208,6 +1208,1162 @@ def _build_energy_partition_payload(report) -> dict:
         },
     }
 
+def _pid_cast(pid):
+    """Cast pos_id to int when possible, else keep original (e.g. DOE string IDs)."""
+    try:
+        return int(pid)
+    except (ValueError, TypeError):
+        return pid
+
+
+def _fft_dominant_freq(times, signal, f_lo=10.0):
+    """Return (f_dom_Hz, peak_amp, freqs, amps_normalized, fs) or None."""
+    import numpy as np
+    t = np.asarray(times, dtype=float)
+    s = np.asarray(signal, dtype=float)
+    if t.size < 8 or s.size < 8 or t.size != s.size:
+        return None
+    # finite values only
+    mask = np.isfinite(t) & np.isfinite(s)
+    if mask.sum() < 8:
+        return None
+    t = t[mask]
+    s = s[mask]
+    if np.allclose(s, 0.0):
+        return None
+    dts = np.diff(t)
+    dts = dts[dts > 0]
+    if dts.size < 4:
+        return None
+    dt = float(np.mean(dts))
+    if not np.isfinite(dt) or dt <= 0:
+        return None
+    fs = 1.0 / dt
+    # remove DC
+    s = s - float(np.mean(s))
+    if np.allclose(s, 0.0):
+        return None
+    # FFT
+    N = s.size
+    freqs = np.fft.rfftfreq(N, d=dt)
+    spec = np.abs(np.fft.rfft(s))
+    if spec.size == 0:
+        return None
+    peak = float(np.max(spec))
+    if peak <= 0 or not np.isfinite(peak):
+        return None
+    amps_norm = spec / peak
+    # dominant frequency search band
+    f_hi = 0.5 * fs
+    band = (freqs >= f_lo) & (freqs <= f_hi)
+    if not band.any():
+        return None
+    idx_band = np.where(band)[0]
+    sub_amps = spec[idx_band]
+    if sub_amps.size == 0 or np.max(sub_amps) <= 0:
+        return None
+    j = int(np.argmax(sub_amps))
+    f_dom = float(freqs[idx_band[j]])
+    peak_amp = float(sub_amps[j])
+    return f_dom, peak_amp, freqs, amps_norm, fs
+
+
+def _downsample_spectrum(freqs, amps, max_bins=256):
+    """Bin-average down to ≤max_bins, keep monotonic frequency axis."""
+    import numpy as np
+    n = freqs.size
+    if n <= max_bins:
+        return freqs.astype(float), amps.astype(float)
+    # block-mean reduction
+    factor = int(np.ceil(n / max_bins))
+    new_n = n // factor
+    if new_n < 2:
+        return freqs.astype(float), amps.astype(float)
+    f_trim = freqs[:new_n * factor].reshape(new_n, factor)
+    a_trim = amps[:new_n * factor].reshape(new_n, factor)
+    return f_trim.mean(axis=1), a_trim.max(axis=1)
+
+
+def _build_fft_payload(report):
+    """Aggregate FFT dominant frequencies per part across all positions."""
+    import numpy as np
+    parts_by_id = {p.part_id: p for p in getattr(report, "parts", [])}
+    part_motions = getattr(report, "part_motions", {}) or {}
+
+    # group by part_id
+    by_part = {}
+    for key, pm in part_motions.items():
+        if not isinstance(key, tuple) or len(key) != 2:
+            continue
+        pos_id, part_id = key
+        times = getattr(pm, "times", None)
+        acc = getattr(pm, "acc_mag", None)
+        if times is None or acc is None:
+            continue
+        res = _fft_dominant_freq(times, acc, f_lo=10.0)
+        if res is None:
+            continue
+        f_dom, peak_amp, freqs, amps_norm, fs = res
+        by_part.setdefault(part_id, []).append({
+            "pos_id": _pid_cast(pos_id),
+            "f_dom": f_dom,
+            "peak_amp": peak_amp,
+            "freqs": freqs,
+            "amps_norm": amps_norm,
+            "fs": fs,
+        })
+
+    per_part = {}
+    all_fs = []
+    n_positions_used = 0
+    f_lo_used = 10.0
+    f_hi_used = 0.0
+
+    for part_id, entries in by_part.items():
+        if not entries:
+            continue
+        f_doms = np.array([e["f_dom"] for e in entries], dtype=float)
+        # pick the entry with the highest peak_amp for representative spectrum
+        top = max(entries, key=lambda e: e["peak_amp"])
+        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=256)
+        # round for payload size
+        ds_f = [round(float(x), 2) for x in ds_f.tolist()]
+        ds_a = [round(float(x), 4) for x in ds_a.tolist()]
+        info = parts_by_id.get(part_id)
+        name = getattr(info, "part_name", None) or f"Part {part_id}"
+        per_part[str(part_id)] = {
+            "name": name,
+            "n_samples_used": int(f_doms.size),
+            "mean_f_dom_Hz": round(float(np.mean(f_doms)), 2),
+            "std_f_dom_Hz": round(float(np.std(f_doms)), 2),
+            "top_pos_id": _pid_cast(top["pos_id"]),
+            "top_freq_Hz": round(float(top["f_dom"]), 2),
+            "top_amp": round(float(top["peak_amp"]), 4),
+            "spectrum": {"f": ds_f, "amp_normalized": ds_a},
+        }
+        all_fs.extend([e["fs"] for e in entries])
+        n_positions_used += len(entries)
+        f_hi_used = max(f_hi_used, 0.5 * max(e["fs"] for e in entries))
+
+    summary = {
+        "n_parts_with_data": len(per_part),
+        "n_positions_used": int(n_positions_used),
+        "fs_Hz": round(float(np.mean(all_fs)), 2) if all_fs else 0.0,
+        "freq_band_Hz": [round(float(f_lo_used), 2), round(float(f_hi_used), 2)],
+    }
+    return {"per_part_dominant_freq": per_part, "summary": summary}
+
+def _fft_dominant_freq(times, signal, f_lo=10.0):
+    """Return (f_dom_Hz, peak_amp, freqs, amps_normalized, fs) or None."""
+    import numpy as np
+    t = np.asarray(times, dtype=float)
+    s = np.asarray(signal, dtype=float)
+    if t.size < 8 or s.size < 8 or t.size != s.size:
+        return None
+    # finite values only
+    mask = np.isfinite(t) & np.isfinite(s)
+    if mask.sum() < 8:
+        return None
+    t = t[mask]
+    s = s[mask]
+    if np.allclose(s, 0.0):
+        return None
+    dts = np.diff(t)
+    dts = dts[dts > 0]
+    if dts.size < 4:
+        return None
+    dt = float(np.mean(dts))
+    if not np.isfinite(dt) or dt <= 0:
+        return None
+    fs = 1.0 / dt
+    # remove DC
+    s = s - float(np.mean(s))
+    if np.allclose(s, 0.0):
+        return None
+    # FFT
+    N = s.size
+    freqs = np.fft.rfftfreq(N, d=dt)
+    spec = np.abs(np.fft.rfft(s))
+    if spec.size == 0:
+        return None
+    peak = float(np.max(spec))
+    if peak <= 0 or not np.isfinite(peak):
+        return None
+    amps_norm = spec / peak
+    # dominant frequency search band
+    f_hi = 0.5 * fs
+    band = (freqs >= f_lo) & (freqs <= f_hi)
+    if not band.any():
+        return None
+    idx_band = np.where(band)[0]
+    sub_amps = spec[idx_band]
+    if sub_amps.size == 0 or np.max(sub_amps) <= 0:
+        return None
+    j = int(np.argmax(sub_amps))
+    f_dom = float(freqs[idx_band[j]])
+    peak_amp = float(sub_amps[j])
+    return f_dom, peak_amp, freqs, amps_norm, fs
+
+
+def _downsample_spectrum(freqs, amps, max_bins=256):
+    """Bin-average down to ≤max_bins, keep monotonic frequency axis."""
+    import numpy as np
+    n = freqs.size
+    if n <= max_bins:
+        return freqs.astype(float), amps.astype(float)
+    # block-mean reduction
+    factor = int(np.ceil(n / max_bins))
+    new_n = n // factor
+    if new_n < 2:
+        return freqs.astype(float), amps.astype(float)
+    f_trim = freqs[:new_n * factor].reshape(new_n, factor)
+    a_trim = amps[:new_n * factor].reshape(new_n, factor)
+    return f_trim.mean(axis=1), a_trim.max(axis=1)
+
+
+def _build_fft_payload(report):
+    """Aggregate FFT dominant frequencies per part across all positions."""
+    import numpy as np
+    parts_by_id = {p.part_id: p for p in getattr(report, "parts", [])}
+    part_motions = getattr(report, "part_motions", {}) or {}
+
+    # group by part_id
+    by_part = {}
+    for key, pm in part_motions.items():
+        if not isinstance(key, tuple) or len(key) != 2:
+            continue
+        pos_id, part_id = key
+        times = getattr(pm, "times", None)
+        acc = getattr(pm, "acc_mag", None)
+        if times is None or acc is None:
+            continue
+        res = _fft_dominant_freq(times, acc, f_lo=10.0)
+        if res is None:
+            continue
+        f_dom, peak_amp, freqs, amps_norm, fs = res
+        by_part.setdefault(part_id, []).append({
+            "pos_id": _pid_cast(pos_id),
+            "f_dom": f_dom,
+            "peak_amp": peak_amp,
+            "freqs": freqs,
+            "amps_norm": amps_norm,
+            "fs": fs,
+        })
+
+    per_part = {}
+    all_fs = []
+    n_positions_used = 0
+    f_lo_used = 10.0
+    f_hi_used = 0.0
+
+    for part_id, entries in by_part.items():
+        if not entries:
+            continue
+        f_doms = np.array([e["f_dom"] for e in entries], dtype=float)
+        # pick the entry with the highest peak_amp for representative spectrum
+        top = max(entries, key=lambda e: e["peak_amp"])
+        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=256)
+        # round for payload size
+        ds_f = [round(float(x), 2) for x in ds_f.tolist()]
+        ds_a = [round(float(x), 4) for x in ds_a.tolist()]
+        info = parts_by_id.get(part_id)
+        name = getattr(info, "part_name", None) or f"Part {part_id}"
+        per_part[str(part_id)] = {
+            "name": name,
+            "n_samples_used": int(f_doms.size),
+            "mean_f_dom_Hz": round(float(np.mean(f_doms)), 2),
+            "std_f_dom_Hz": round(float(np.std(f_doms)), 2),
+            "top_pos_id": _pid_cast(top["pos_id"]),
+            "top_freq_Hz": round(float(top["f_dom"]), 2),
+            "top_amp": round(float(top["peak_amp"]), 4),
+            "spectrum": {"f": ds_f, "amp_normalized": ds_a},
+        }
+        all_fs.extend([e["fs"] for e in entries])
+        n_positions_used += len(entries)
+        f_hi_used = max(f_hi_used, 0.5 * max(e["fs"] for e in entries))
+
+    summary = {
+        "n_parts_with_data": len(per_part),
+        "n_positions_used": int(n_positions_used),
+        "fs_Hz": round(float(np.mean(all_fs)), 2) if all_fs else 0.0,
+        "freq_band_Hz": [round(float(f_lo_used), 2), round(float(f_hi_used), 2)],
+    }
+    return {"per_part_dominant_freq": per_part, "summary": summary}
+
+def _srs_one_third_octave_centers(f_lo: float, f_hi: float):
+    """Return 1/3-octave band center frequencies between f_lo and f_hi (Hz)."""
+    import math
+    # 1/3-octave ratio
+    r = 2.0 ** (1.0 / 3.0)
+    n_lo = int(math.floor(math.log(f_lo) / math.log(r)))
+    n_hi = int(math.ceil(math.log(f_hi) / math.log(r)))
+    centers = []
+    for n in range(n_lo, n_hi + 1):
+        fc = r ** n
+        if f_lo <= fc <= f_hi:
+            centers.append(fc)
+    return centers
+
+
+def _srs_sdof_max_abs_accel(t, a_in, freqs_hz, zeta: float = 0.05):
+    """
+    SDOF base-excitation SRS via Newmark-beta (linear acceleration, constant fixed dt).
+    Equation of motion for relative response z = x - x_base:
+        z'' + 2 zeta wn z' + wn^2 z = -a_in(t)
+    Absolute acceleration response = z'' + a_in.
+    Returns list of max(|abs_accel|) per frequency.
+    """
+    import numpy as np
+    a_in = np.asarray(a_in, dtype=np.float64)
+    t = np.asarray(t, dtype=np.float64)
+    if a_in.size < 4 or t.size != a_in.size:
+        return [0.0] * len(freqs_hz)
+
+    # finite, replace nan/inf
+    a_in = np.where(np.isfinite(a_in), a_in, 0.0)
+
+    # Resample to uniform dt = median spacing (robust to non-uniform output)
+    dts = np.diff(t)
+    dts = dts[dts > 0]
+    if dts.size == 0:
+        return [0.0] * len(freqs_hz)
+    dt = float(np.median(dts))
+    if dt <= 0 or not np.isfinite(dt):
+        return [0.0] * len(freqs_hz)
+
+    # Uniform grid
+    t_uni = np.arange(t[0], t[-1] + 0.5 * dt, dt)
+    a_uni = np.interp(t_uni, t, a_in)
+
+    # Newmark-beta linear acceleration: beta=1/6, gamma=1/2
+    beta = 1.0 / 6.0
+    gamma = 0.5
+    n = a_uni.size
+
+    out = []
+    for fn in freqs_hz:
+        wn = 2.0 * np.pi * float(fn)
+        # Effective stiffness coefficient for Newmark
+        # m=1; c = 2*zeta*wn; k = wn^2
+        m = 1.0
+        c = 2.0 * zeta * wn
+        k = wn * wn
+        k_hat = k + (gamma / (beta * dt)) * c + (1.0 / (beta * dt * dt)) * m
+        if not np.isfinite(k_hat) or k_hat <= 0:
+            out.append(0.0)
+            continue
+
+        a1 = (1.0 / (beta * dt * dt)) * m + (gamma / (beta * dt)) * c
+        a2 = (1.0 / (beta * dt)) * m + (gamma / beta - 1.0) * c
+        a3 = (1.0 / (2.0 * beta) - 1.0) * m + dt * (gamma / (2.0 * beta) - 1.0) * c
+
+        z = 0.0
+        zdot = 0.0
+        # initial relative acceleration: m*zdd + c*zdot + k*z = -a_in => zdd = -a_in
+        zdd = -a_uni[0]
+
+        max_abs_accel = 0.0
+        for i in range(1, n):
+            p_eff = -a_uni[i] * m + a1 * z + a2 * zdot + a3 * zdd
+            z_new = p_eff / k_hat
+            zdd_new = (1.0 / (beta * dt * dt)) * (z_new - z) - (1.0 / (beta * dt)) * zdot - (1.0 / (2.0 * beta) - 1.0) * zdd
+            zdot_new = zdot + dt * ((1.0 - gamma) * zdd + gamma * zdd_new)
+
+            # absolute acceleration = relative + base
+            abs_acc = abs(zdd_new + a_uni[i])
+            if abs_acc > max_abs_accel:
+                max_abs_accel = abs_acc
+
+            z, zdot, zdd = z_new, zdot_new, zdd_new
+
+        out.append(float(max_abs_accel) if np.isfinite(max_abs_accel) else 0.0)
+    return out
+
+
+def _build_srs_payload(report):
+    """Build SRS payload: pick worst position, then top-3 parts by SRS peak."""
+    import numpy as np
+
+    # --- pick worst position ---
+    pos_id = None
+    # Prefer DOE worst position if present
+    try:
+        doe = getattr(report, "doe_analysis", None) or {}
+        if isinstance(doe, dict):
+            wp = doe.get("worst_position") or {}
+            pos_id = wp.get("pos_id")
+    except Exception:
+        pos_id = None
+
+    # Fallback: max peak_g across all PairResults
+    results = getattr(report, "results", []) or []
+    if pos_id is None and results:
+        try:
+            best = max(
+                (r for r in results if np.isfinite(getattr(r, "peak_g", float("nan")))),
+                key=lambda r: getattr(r, "peak_g", 0.0),
+                default=None,
+            )
+            if best is not None:
+                # positions are keyed by face/pos id — pos_id should be on PairResult or derivable
+                pos_id = getattr(best, "pos_id", None)
+                if pos_id is None:
+                    # derive from face+position-index if needed
+                    pos_id = getattr(best, "position", None)
+        except Exception:
+            pos_id = None
+
+    part_motions = getattr(report, "part_motions", {}) or {}
+
+    if pos_id is None or not part_motions:
+        return {"available": False, "reason": "no_position_or_motions"}
+
+    # Collect part motions belonging to this pos_id
+    candidates = []
+    for key, pm in part_motions.items():
+        try:
+            kp, kpart = key
+        except Exception:
+            continue
+        if kp != pos_id:
+            continue
+        t = getattr(pm, "times", None)
+        a = getattr(pm, "acc_mag", None)
+        if t is None or a is None:
+            continue
+        t_arr = np.asarray(t, dtype=np.float64)
+        a_arr = np.asarray(a, dtype=np.float64)
+        if t_arr.size < 8 or a_arr.size != t_arr.size:
+            continue
+        if not np.any(np.isfinite(a_arr)) or np.nanmax(np.abs(a_arr)) <= 0:
+            continue
+        candidates.append((kpart, t_arr, a_arr))
+
+    if not candidates:
+        return {"available": False, "reason": "no_acc_data_at_position"}
+
+    # Frequency band: 5..5000 Hz, 1/3 octave centers
+    f_lo, f_hi = 5.0, 5000.0
+    freqs = _srs_one_third_octave_centers(f_lo, f_hi)
+    if not freqs:
+        return {"available": False, "reason": "no_freq_band"}
+
+    zeta = 0.05
+
+    # Compute SRS for each candidate, track max(srs) for ranking
+    parts_info = {p.part_id: p for p in (getattr(report, "parts", []) or [])}
+
+    scored = []
+    for (pid, t_arr, a_arr) in candidates:
+        srs = _srs_sdof_max_abs_accel(t_arr, a_arr, freqs, zeta=zeta)
+        if not srs:
+            continue
+        peak = max(srs) if srs else 0.0
+        if not np.isfinite(peak) or peak <= 0:
+            continue
+        scored.append((peak, pid, srs, t_arr.size))
+
+    if not scored:
+        return {"available": False, "reason": "srs_all_zero"}
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:3]
+
+    # estimate fs from first candidate
+    t0 = candidates[0][1]
+    diffs = np.diff(t0)
+    diffs = diffs[diffs > 0]
+    fs_hz = float(1.0 / np.median(diffs)) if diffs.size else 0.0
+
+    srs_curves = []
+    for peak, pid, srs, _ in top:
+        pinfo = parts_info.get(pid)
+        pname = getattr(pinfo, "part_name", None) if pinfo else None
+        if not pname:
+            pname = f"part {pid}"
+        srs_curves.append({
+            "pos_id": pos_id,
+            "part_id": pid,
+            "part_name": pname,
+            "f": [round(float(x), 3) for x in freqs],
+            "srs": [round(float(x), 4) for x in srs],
+        })
+
+    return {
+        "available": True,
+        "srs_curves": srs_curves,
+        "summary": {
+            "damping_ratio": zeta,
+            "n_frequencies": len(freqs),
+            "fs_Hz": round(fs_hz, 2),
+            "f_range_Hz": [f_lo, f_hi],
+            "pos_id": pos_id,
+        },
+    }
+def _safe_drop_zone_convex_hull(points):
+    """Monotone-chain convex hull. Input: list of (x,y). Returns list of (x,y) in CCW order.
+    Returns [] if <3 unique points."""
+    pts = sorted(set((float(x), float(y)) for x, y in points))
+    if len(pts) < 3:
+        return []
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    hull = lower[:-1] + upper[:-1]
+    return hull
+
+
+def _build_safe_drop_zone(report):
+    import math
+    results = getattr(report, "results", []) or []
+    if not results:
+        return {
+            "positions": [],
+            "thresholds_used": {"peak_g_thresh": 0.0, "peak_stress_thresh": 0.0, "peak_disp_thresh": 0.0},
+            "safe_count": 0,
+            "at_risk_count": 0,
+            "critical_polygon": [],
+            "empty": True,
+        }
+
+    def _f(v):
+        try:
+            x = float(v)
+            if math.isnan(x) or math.isinf(x):
+                return None
+            return x
+        except Exception:
+            return None
+
+    gs = [_f(getattr(r, "peak_g", None)) for r in results]
+    ss = [_f(getattr(r, "peak_stress", None)) for r in results]
+    ds = [_f(getattr(r, "peak_disp", None)) for r in results]
+
+    gs_clean = [v for v in gs if v is not None]
+    ss_clean = [v for v in ss if v is not None]
+    ds_clean = [v for v in ds if v is not None]
+
+    if not gs_clean or not ss_clean or not ds_clean:
+        return {
+            "positions": [],
+            "thresholds_used": {"peak_g_thresh": 0.0, "peak_stress_thresh": 0.0, "peak_disp_thresh": 0.0},
+            "safe_count": 0,
+            "at_risk_count": 0,
+            "critical_polygon": [],
+            "empty": True,
+        }
+
+    def _percentile(sorted_vals, p):
+        if not sorted_vals:
+            return 0.0
+        if len(sorted_vals) == 1:
+            return sorted_vals[0]
+        k = (len(sorted_vals) - 1) * (p / 100.0)
+        f = int(math.floor(k))
+        c = int(math.ceil(k))
+        if f == c:
+            return sorted_vals[f]
+        return sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f)
+
+    g_thresh = sum(gs_clean) / len(gs_clean)
+    s_sorted = sorted(ss_clean)
+    d_sorted = sorted(ds_clean)
+    s_thresh = _percentile(s_sorted, 75.0)
+    d_thresh = _percentile(d_sorted, 75.0)
+
+    # Group rows by pos_id (face+position)
+    pos_map = {}
+    for r in results:
+        face = getattr(r, "face", None)
+        pos_obj = getattr(r, "position", None)
+        pid_pos = getattr(pos_obj, "pos_id", None) if pos_obj is not None else getattr(r, "pos_id", None)
+        if face is None or pid_pos is None:
+            continue
+        key = (face, pid_pos)
+        pos_map.setdefault(key, []).append(r)
+
+    # Build position coordinate lookup from report.positions_by_face
+    coord_lookup = {}
+    positions_by_face = getattr(report, "positions_by_face", {}) or {}
+    for face_code, plist in positions_by_face.items():
+        for ip in plist or []:
+            try:
+                coord_lookup[(face_code, getattr(ip, "pos_id", None))] = (
+                    float(getattr(ip, "x", 0.0)),
+                    float(getattr(ip, "y", 0.0)),
+                )
+            except Exception:
+                pass
+
+    positions_out = []
+    unsafe_xy = []
+    safe_count = 0
+    at_risk_count = 0
+
+    for (face, pos_id), rows in sorted(pos_map.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        # Worst violation across parts at this position
+        worst_metric = None
+        worst_ratio = -1.0
+        worst_value = 0.0
+        worst_part_id = None
+        is_safe = True
+
+        for r in rows:
+            g = _f(getattr(r, "peak_g", None))
+            s = _f(getattr(r, "peak_stress", None))
+            d = _f(getattr(r, "peak_disp", None))
+            pid = getattr(r, "part_id", None)
+
+            if g is not None and g > g_thresh:
+                is_safe = False
+                ratio = g / g_thresh if g_thresh > 0 else g
+                if ratio > worst_ratio:
+                    worst_ratio = ratio
+                    worst_metric = "peak_g"
+                    worst_value = g
+                    worst_part_id = pid
+            if s is not None and s > s_thresh:
+                is_safe = False
+                ratio = s / s_thresh if s_thresh > 0 else s
+                if ratio > worst_ratio:
+                    worst_ratio = ratio
+                    worst_metric = "peak_stress"
+                    worst_value = s
+                    worst_part_id = pid
+            if d is not None and d > d_thresh:
+                is_safe = False
+                ratio = d / d_thresh if d_thresh > 0 else d
+                if ratio > worst_ratio:
+                    worst_ratio = ratio
+                    worst_metric = "peak_disp"
+                    worst_value = d
+                    worst_part_id = pid
+
+        xy = coord_lookup.get((face, pos_id), (0.0, 0.0))
+        if is_safe:
+            safe_count += 1
+        else:
+            at_risk_count += 1
+            unsafe_xy.append(xy)
+
+        positions_out.append({
+            "pos_id": pos_id,
+            "face": face,
+            "x": round(xy[0], 6),
+            "y": round(xy[1], 6),
+            "safe": bool(is_safe),
+            "worst_metric": worst_metric,
+            "worst_value": round(worst_value, 6) if worst_metric else 0.0,
+            "worst_part_id": worst_part_id,
+        })
+
+    critical_polygon = _safe_drop_zone_convex_hull(unsafe_xy)
+    critical_polygon = [[round(x, 6), round(y, 6)] for x, y in critical_polygon]
+
+    return {
+        "positions": positions_out,
+        "thresholds_used": {
+            "peak_g_thresh": round(g_thresh, 6),
+            "peak_stress_thresh": round(s_thresh, 6),
+            "peak_disp_thresh": round(d_thresh, 6),
+        },
+        "safe_count": safe_count,
+        "at_risk_count": at_risk_count,
+        "critical_polygon": critical_polygon,
+        "empty": False,
+    }
+
+def _pca_modal_build(report):
+    """Build PCA modal decomposition payload from peak_g matrix (positions x parts)."""
+    import math
+    import numpy as np
+
+    try:
+        results = getattr(report, "results", []) or []
+        parts = getattr(report, "parts", []) or []
+        positions_by_face = getattr(report, "positions_by_face", {}) or {}
+    except Exception:
+        return {"available": False, "reason": "no_report_attrs"}
+
+    # ---- collect part_id -> name
+    part_name_map = {}
+    for p in parts:
+        pid = getattr(p, "part_id", None)
+        if pid is None:
+            continue
+        part_name_map[int(pid)] = str(getattr(p, "part_name", f"part_{pid}"))
+
+    # ---- collect pos_id -> (x, y) across all faces
+    pos_xy = {}
+    for face_code, pos_list in positions_by_face.items():
+        for pos in (pos_list or []):
+            pid = getattr(pos, "pos_id", None)
+            if pid is None:
+                continue
+            try:
+                pos_xy[_pid_cast(pid)] = (float(getattr(pos, "x", 0.0)),
+                                          float(getattr(pos, "y", 0.0)))
+            except Exception:
+                continue
+
+    # ---- assemble peak_g cells keyed by (pos_id, part_id)
+    cells = {}
+    for r in results:
+        pos_id = getattr(r, "pos_id", None)
+        if pos_id is None:
+            # fall back: some loaders carry pos_id inside .position
+            pos_id = getattr(getattr(r, "position", None), "pos_id", None)
+        part_id = getattr(r, "part_id", None)
+        peak_g = getattr(r, "peak_g", None)
+        if pos_id is None or part_id is None or peak_g is None:
+            continue
+        try:
+            v = float(peak_g)
+        except Exception:
+            continue
+        if not math.isfinite(v):
+            continue
+        cells[(_pid_cast(pos_id), int(part_id))] = v
+
+    if not cells:
+        return {"available": False, "reason": "no_peak_g_cells"}
+
+    pos_ids = sorted({k[0] for k in cells.keys()})
+    part_ids = sorted({k[1] for k in cells.keys()})
+
+    n_pos = len(pos_ids)
+    n_part = len(part_ids)
+
+    if n_pos < 5 or n_part < 2:
+        return {"available": False, "reason": f"insufficient_shape_{n_pos}x{n_part}"}
+
+    # ---- build matrix (rows=positions, cols=parts) with NaN for missing, then mean-impute per column
+    M = np.full((n_pos, n_part), np.nan, dtype=float)
+    pos_index = {pid: i for i, pid in enumerate(pos_ids)}
+    part_index = {pid: j for j, pid in enumerate(part_ids)}
+    for (pid, part_id), v in cells.items():
+        M[pos_index[pid], part_index[part_id]] = v
+
+    # column mean-impute (only if any NaN); columns of all-NaN dropped
+    keep_cols = []
+    for j in range(n_part):
+        col = M[:, j]
+        finite = np.isfinite(col)
+        if not finite.any():
+            continue
+        if not finite.all():
+            mu = float(np.nanmean(col))
+            col = np.where(finite, col, mu)
+            M[:, j] = col
+        keep_cols.append(j)
+    if len(keep_cols) < 2:
+        return {"available": False, "reason": "too_few_valid_parts"}
+    if len(keep_cols) != n_part:
+        M = M[:, keep_cols]
+        part_ids = [part_ids[j] for j in keep_cols]
+        n_part = len(part_ids)
+
+    # ---- column-normalize by per-column max (so each part contributes equally)
+    col_max = np.max(np.abs(M), axis=0)
+    col_max[col_max == 0] = 1.0
+    Mn = M / col_max
+
+    # ---- center columns (PCA on covariance of column-normalized data)
+    Mc = Mn - Mn.mean(axis=0, keepdims=True)
+
+    # ---- SVD
+    try:
+        U, S, Vt = np.linalg.svd(Mc, full_matrices=False)
+    except np.linalg.LinAlgError:
+        return {"available": False, "reason": "svd_failed"}
+
+    total_var = float(np.sum(S * S))
+    if total_var <= 0:
+        return {"available": False, "reason": "zero_variance"}
+
+    k = int(min(3, S.shape[0]))
+    if k == 0:
+        return {"available": False, "reason": "no_components"}
+
+    evr = (S[:k] ** 2) / total_var  # explained variance ratio
+    scores = U[:, :k] * S[:k]        # (n_pos, k) — position scores along each mode
+
+    # sign convention: make the largest |loading| positive for each mode
+    modes_payload = []
+    for m in range(k):
+        loading_vec = Vt[m, :]  # (n_part,)
+        score_vec = scores[:, m]
+
+        # flip sign so the dominant loading is positive (deterministic orientation)
+        if loading_vec.size > 0:
+            idx_max = int(np.argmax(np.abs(loading_vec)))
+            if loading_vec[idx_max] < 0:
+                loading_vec = -loading_vec
+                score_vec = -score_vec
+
+        # top-10 part loadings by |loading|
+        order = np.argsort(-np.abs(loading_vec))
+        top_n = int(min(10, loading_vec.size))
+        part_loadings = []
+        for idx in order[:top_n]:
+            pid = int(part_ids[idx])
+            part_loadings.append({
+                "part_id": pid,
+                "part_name": part_name_map.get(pid, f"part_{pid}"),
+                "loading": round(float(loading_vec[idx]), 4),
+            })
+
+        # position scores (with x,y when available)
+        position_scores = []
+        for i, pos_id in enumerate(pos_ids):
+            xy = pos_xy.get(_pid_cast(pos_id), (None, None))
+            position_scores.append({
+                "pos_id": _pid_cast(pos_id),
+                "x": (round(float(xy[0]), 4) if xy[0] is not None else None),
+                "y": (round(float(xy[1]), 4) if xy[1] is not None else None),
+                "score": round(float(score_vec[i]), 4),
+            })
+
+        modes_payload.append({
+            "mode_index": m + 1,
+            "explained_var_ratio": round(float(evr[m]), 4),
+            "singular_value": round(float(S[m]), 4),
+            "part_loadings": part_loadings,
+            "position_scores": position_scores,
+        })
+
+    return {
+        "available": True,
+        "n_positions": int(n_pos),
+        "n_parts": int(n_part),
+        "total_components": int(S.shape[0]),
+        "cumulative_var_ratio": round(float(np.sum(evr)), 4),
+        "modes": modes_payload,
+    }
+
+def _anomaly_detection_helper(report):
+    import math
+    import numpy as np
+
+    results = getattr(report, "results", []) or []
+    if not results:
+        return {"per_position": [], "threshold": 0.0, "n_anomalous": 0,
+                "iqr_outliers": [], "z_thresh_base": 2.5, "p95_z": 0.0,
+                "iqr_low": 0.0, "iqr_high": 0.0, "empty": True}
+
+    # Collect per-(face,pos) aggregates
+    by_pos = {}
+    for r in results:
+        face = getattr(r, "face", None)
+        pos_obj = getattr(r, "position", None)
+        pos_id = getattr(pos_obj, "pos_id", None) if pos_obj is not None else getattr(r, "pos_id", None)
+        if face is None or pos_id is None:
+            continue
+        key = (face, pos_id)
+        d = by_pos.setdefault(key, {"g": [], "s": [], "d": []})
+        for fld, store in (("peak_g", "g"), ("peak_stress", "s"), ("peak_disp", "d")):
+            v = getattr(r, fld, None)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            if math.isnan(fv) or math.isinf(fv):
+                continue
+            d[store].append(fv)
+
+    # Coordinates from positions_by_face
+    pos_xy = {}
+    pbf = getattr(report, "positions_by_face", {}) or {}
+    for face_code, plist in pbf.items():
+        for p in plist or []:
+            pid = getattr(p, "pos_id", None)
+            if pid is None:
+                continue
+            try:
+                x = float(getattr(p, "x", 0.0))
+                y = float(getattr(p, "y", 0.0))
+            except Exception:
+                x, y = 0.0, 0.0
+            pos_xy[(face_code, pid)] = (x, y)
+
+    # Mean per position per metric
+    rows = []
+    for (face, pid), agg in by_pos.items():
+        def _mean(lst):
+            return float(np.mean(lst)) if lst else None
+        mg = _mean(agg["g"])
+        ms = _mean(agg["s"])
+        md = _mean(agg["d"])
+        x, y = pos_xy.get((face, pid), (None, None))
+        rows.append({"face": str(face), "pos_id": _pid_cast(pid),
+                     "x": x, "y": y,
+                     "mean_g": mg, "mean_s": ms, "mean_d": md})
+
+    if not rows:
+        return {"per_position": [], "threshold": 0.0, "n_anomalous": 0,
+                "iqr_outliers": [], "z_thresh_base": 2.5, "p95_z": 0.0,
+                "iqr_low": 0.0, "iqr_high": 0.0, "empty": True}
+
+    def _zscores(key):
+        vals = np.array([r[key] for r in rows if r[key] is not None], dtype=float)
+        if vals.size < 2:
+            return None, None
+        mu = float(np.mean(vals))
+        sd = float(np.std(vals, ddof=0))
+        return mu, sd
+
+    mu_g, sd_g = _zscores("mean_g")
+    mu_s, sd_s = _zscores("mean_s")
+    mu_d, sd_d = _zscores("mean_d")
+
+    def _z(val, mu, sd):
+        if val is None or mu is None or sd is None or sd <= 0:
+            return 0.0
+        return float((val - mu) / sd)
+
+    per_position = []
+    abs_z_pool = []
+    for r in rows:
+        zg = _z(r["mean_g"], mu_g, sd_g)
+        zs = _z(r["mean_s"], mu_s, sd_s)
+        zd = _z(r["mean_d"], mu_d, sd_d)
+        absz = [abs(zg), abs(zs), abs(zd)]
+        max_idx = int(np.argmax(absz))
+        driver = ("peak_g", "peak_stress", "peak_disp")[max_idx]
+        max_abs_z = float(max(absz))
+        abs_z_pool.append(max_abs_z)
+        per_position.append({
+            "face": r["face"], "pos_id": r["pos_id"],
+            "x": r["x"], "y": r["y"],
+            "z_g": round(zg, 3), "z_s": round(zs, 3), "z_d": round(zd, 3),
+            "max_abs_z": round(max_abs_z, 3),
+            "driver": driver,
+        })
+
+    # Threshold: max(2.5, P95 of |z|)
+    z_base = 2.5
+    p95 = float(np.percentile(abs_z_pool, 95)) if abs_z_pool else 0.0
+    threshold = float(max(z_base, p95))
+
+    # Tukey IQR fence on peak_g means
+    g_vals = np.array([r["mean_g"] for r in rows if r["mean_g"] is not None], dtype=float)
+    iqr_low, iqr_high = 0.0, 0.0
+    iqr_outliers = []
+    if g_vals.size >= 4:
+        q1 = float(np.percentile(g_vals, 25))
+        q3 = float(np.percentile(g_vals, 75))
+        iqr = q3 - q1
+        iqr_low = q1 - 1.5 * iqr
+        iqr_high = q3 + 1.5 * iqr
+        for r in rows:
+            if r["mean_g"] is None:
+                continue
+            if r["mean_g"] < iqr_low or r["mean_g"] > iqr_high:
+                iqr_outliers.append({"face": r["face"], "pos_id": r["pos_id"],
+                                     "mean_g": round(r["mean_g"], 3)})
+
+    n_anomalous = 0
+    for p in per_position:
+        p["anomalous"] = bool(p["max_abs_z"] >= threshold)
+        if p["anomalous"]:
+            n_anomalous += 1
+
+    per_position.sort(key=lambda r: r["max_abs_z"], reverse=True)
+
+    return {
+        "per_position": per_position,
+        "threshold": round(threshold, 3),
+        "z_thresh_base": z_base,
+        "p95_z": round(p95, 3),
+        "n_anomalous": int(n_anomalous),
+        "iqr_outliers": iqr_outliers,
+        "iqr_low": round(iqr_low, 3),
+        "iqr_high": round(iqr_high, 3),
+        "empty": False,
+    }
+
+def _build_per_part_drilldown(report) -> dict:
+    """Index payload for the per-part drill-down panel.
+
+    Aggregates 25-part-level summaries from PairResult rows. The heavy
+    peak_g matrix is intentionally NOT duplicated here — the JS reuses
+    ``DATA.doe_analysis.peak_g_matrix`` when ``reuse_doe_matrix`` is
+    True. When the DOE matrix is absent, this helper still returns the
+    aggregate index so the panel can render KPI + histogram tiles (the
+    spatial heatmap tile shows a "no data" placeholder).
+    """
+    results = list(getattr(report, "results", None) or [])
+    parts = list(getattr(report, "parts", None) or [])
+    if not results or not parts:
+        return {}
+
+    # ------- helpers -------
+    def _safe(v) -> float:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return 0.0
+        if f != f or f in (float("inf"), float("-inf")):  # NaN / inf
+            return 0.0
+        return f
+
+    # ------- per-part aggregation across all positions -------
+    # part_id -> list[(pos_id, peak_g, peak_stress, peak_disp, x, y)]
+    per_part: dict = {}
+    for r in results:
+        pid = int(r.part_id)
+        per_part.setdefault(pid, []).append(r)
+
+    # global p75 of peak_g (data-derived threshold)
+    all_g = sorted(_safe(r.peak_g) for r in results)
+    if all_g:
+        # Linear-interp p75
+        idx = 0.75 * (len(all_g) - 1)
+        lo = int(idx)
+        hi = min(lo + 1, len(all_g) - 1)
+        frac = idx - lo
+        global_p75 = all_g[lo] * (1.0 - frac) + all_g[hi] * frac
+    else:
+        global_p75 = 0.0
+
+    # yield lookup from sim_params
+    sim_params = getattr(report, "sim_params", None) or {}
+    yield_lut_raw = sim_params.get("yield_stress_by_part") \
+        if isinstance(sim_params, dict) else None
+    yield_lut: dict = {}
+    if isinstance(yield_lut_raw, dict):
+        for k, v in yield_lut_raw.items():
+            try:
+                yield_lut[int(k)] = _safe(v)
+            except (TypeError, ValueError):
+                continue
+
+    # impactor material lookup (for material card when no yield)
+    impactor = getattr(report, "impactor", None)
+    imp_youngs = _safe(getattr(impactor, "youngs_modulus", 0.0)) if impactor else 0.0
+    imp_density = _safe(getattr(impactor, "density", 0.0)) if impactor else 0.0
+
+    # part metadata
+    part_meta = {
+        int(p.part_id): {
+            "part_name": p.part_name or f"part_{int(p.part_id)}",
+            "group": p.group or "",
+        }
+        for p in parts
+    }
+
+    # ------- build the part index -------
+    out_parts: list = []
+    for pid, rows in per_part.items():
+        gs = [_safe(r.peak_g) for r in rows]
+        ss = [_safe(r.peak_stress) for r in rows]
+        ds = [_safe(r.peak_disp) for r in rows]
+        if not gs:
+            continue
+        max_g = max(gs)
+        mean_g = sum(gs) / len(gs)
+        max_s = max(ss) if ss else 0.0
+        max_d = max(ds) if ds else 0.0
+
+        # position of max peak_g
+        max_idx = gs.index(max_g)
+        max_row = rows[max_idx]
+        max_pos_id = max_row.position.pos_id
+        max_x = _safe(getattr(max_row.position, "x", 0.0))
+        max_y = _safe(getattr(max_row.position, "y", 0.0))
+
+        # positions above global p75
+        n_above = sum(1 for v in gs if v >= global_p75 and global_p75 > 0)
+
+        meta = part_meta.get(pid, {"part_name": f"part_{pid}", "group": ""})
+        yield_val = yield_lut.get(pid)
+        has_yield = yield_val is not None and yield_val > 0.0
+
+        out_parts.append({
+            "part_id": pid,
+            "part_name": meta["part_name"],
+            "group": meta["group"],
+            "max_peak_g": round(max_g, 4),
+            "mean_peak_g": round(mean_g, 4),
+            "max_peak_stress": round(max_s, 4),
+            "max_peak_disp": round(max_d, 6),
+            "max_pos_id": max_pos_id,
+            "max_pos_x": round(max_x, 4),
+            "max_pos_y": round(max_y, 4),
+            "n_positions_above_global_p75": int(n_above),
+            "has_yield": bool(has_yield),
+            "yield_value": round(yield_val, 4) if has_yield else None,
+        })
+
+    out_parts.sort(key=lambda d: d["max_peak_g"], reverse=True)
+
+    # ------- positions_lookup (xy per pos_id) -------
+    positions_lookup: dict = {}
+    for face_code, pos_list in (getattr(report, "positions_by_face", None) or {}).items():
+        for pos in pos_list:
+            positions_lookup[str(pos.pos_id)] = {
+                "x": round(_safe(pos.x), 4),
+                "y": round(_safe(pos.y), 4),
+            }
+    # Fall back to results-derived xy if positions_by_face is empty
+    if not positions_lookup:
+        for r in results:
+            key = str(r.position.pos_id)
+            if key not in positions_lookup:
+                positions_lookup[key] = {
+                    "x": round(_safe(getattr(r.position, "x", 0.0)), 4),
+                    "y": round(_safe(getattr(r.position, "y", 0.0)), 4),
+                }
+
+    return {
+        "parts": out_parts,
+        "positions_lookup": positions_lookup,
+        "global_p75": round(global_p75, 4),
+        "reuse_doe_matrix": True,
+        "impactor_material": {
+            "youngs_modulus": round(imp_youngs, 4),
+            "density": round(imp_density, 6),
+        },
+    }
+
+# === DEEP_PYTHON_HELPERS_INSERT_HERE ===
+# Section-06 (Deep Analytics) builders are inserted ABOVE this line.
+# Each helper returns a JSON-serializable dict; ``_build_deep_payload``
+# below collects them into ``payload["deep_analytics"]``.
+
+
+def _build_deep_payload(report: ImpactReport) -> dict:
+    """Aggregate the six Section-06 advanced analyses into one payload.
+
+    Returns an empty dict when no data is available; individual sub-keys
+    may be empty dicts when their producer says so. The JS layer hides
+    panels whose sub-key is empty.
+    """
+    deep: dict = {}
+    deep["fft"] = _build_fft_payload(report)
+    deep["srs"] = _build_srs_payload(report)
+    deep["safe_drop_zone"] = _build_safe_drop_zone(report)
+    deep["pca_modal"] = _pca_modal_build(report)
+    deep["anomaly_detection"] = _anomaly_detection_helper(report)
+    deep["per_part_drilldown"] = _build_per_part_drilldown(report)
+    # === DEEP_PAYLOAD_EXT_INSERT_HERE ===
+    # Workflow-added entries assign deep["<key>"] = _build_xxx(report).
+    return deep
+
+
 # === ADV_PYTHON_HELPERS_INSERT_HERE ===
 # Additional Section-05 analytics builders are inserted ABOVE this line.
 # Each helper returns a JSON-serializable dict; ``_build_doe_payload``
@@ -1962,6 +3118,7 @@ def _build_payload(report: ImpactReport) -> dict:
         "clusters": clusters_payload,
         "part_motion": part_motion_payload,
         "doe_analysis": _build_doe_payload(report),
+        "deep_analytics": _build_deep_payload(report),
         "unit_labels": unit_labels,
         # risk_score = None means JS hides the panel; callers can opt in by
         # populating this with {"weights": {"worst","p95","crit"}, "crit_band", "warn_band"}.
@@ -2419,6 +3576,284 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 }
 
 /* ADV_CSS_INSERT_HERE */
+
+#deep-fft-panel .panel-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+#deep-fft-panel .deep-fft-meta { display:flex; gap:6px; flex-wrap:wrap; }
+#deep-fft-panel .deep-fft-pill {
+  font-size:11px; padding:2px 8px; border-radius:10px;
+  background:#1a1d24; color:#cfd6e4; border:1px solid #2a2f3a;
+}
+#deep-fft-panel .deep-fft-body {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));
+  gap:10px;
+}
+#deep-fft-panel .deep-fft-card {
+  background:#15171c; border:1px solid #23262d; border-radius:6px;
+  padding:8px; display:flex; flex-direction:column; gap:4px;
+}
+#deep-fft-panel .deep-fft-card-head {
+  display:flex; justify-content:space-between; align-items:baseline; gap:6px;
+}
+#deep-fft-panel .deep-fft-name {
+  font-size:12px; color:#e6ecf5; font-weight:600;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  max-width:150px;
+}
+#deep-fft-panel .deep-fft-pid {
+  font-size:10px; color:#8892a0; font-family:monospace;
+}
+#deep-fft-panel .deep-fft-svg { display:block; width:100%; height:40px; }
+#deep-fft-panel .deep-fft-text {
+  display:flex; justify-content:space-between; align-items:baseline;
+  font-size:11px; color:#b8c0cf;
+}
+#deep-fft-panel .deep-fft-fdom { color:#7ad7ff; font-family:monospace; }
+#deep-fft-panel .deep-fft-n { color:#8892a0; font-family:monospace; }
+#deep-fft-panel .deep-empty {
+  padding:24px; text-align:center; color:#8892a0; font-size:13px;
+}
+
+.deep-srs-panel .srs-body { width: 100%; }
+.deep-srs-panel .srs-chart { display: block; margin: 4px 0 8px 0; background: transparent; }
+.deep-srs-panel .srs-meta { color: #9aa7b8; font-size: 11px; margin: 6px 2px 2px 2px; }
+.deep-srs-panel .srs-caption { color: #cfd6e0; font-size: 12px; margin: 2px 2px 0 2px; }
+.deep-srs-panel .empty-note { color: #9aa7b8; font-size: 12px; padding: 24px; text-align: center; border: 1px dashed #2a3340; border-radius: 4px; }
+#deep-safe-drop-zone-panel .panel-header { padding: 14px 16px 4px; }
+#deep-safe-drop-zone-panel .panel-header h3 { margin: 0; font-size: 15px; color: #e6ebf0; }
+#deep-safe-drop-zone-panel .panel-sub { font-size: 11px; color: #8a96a3; margin-top: 4px; }
+#deep-safe-drop-zone-panel .kpi-box { transition: transform 0.15s; }
+#deep-safe-drop-zone-panel .kpi-box:hover { transform: translateX(2px); }
+
+#deep-pca-modal-panel .pca-summary{
+  font-size:12.5px; color:#cbd5e1; margin-bottom:10px;
+  display:flex; flex-wrap:wrap; align-items:center; gap:2px;
+}
+#deep-pca-modal-panel .pca-summary .sep{opacity:.55;}
+#deep-pca-modal-panel .pca-mode-row{
+  border:1px solid #233040; border-radius:8px;
+  padding:10px 12px; margin-bottom:10px; background:rgba(20,28,38,0.45);
+}
+#deep-pca-modal-panel .pca-mode-head{
+  display:grid; grid-template-columns: 90px 130px 1fr;
+  align-items:center; gap:10px; margin-bottom:8px;
+}
+#deep-pca-modal-panel .pca-mode-title{font-weight:600; color:#e2e8f0; font-size:13.5px;}
+#deep-pca-modal-panel .pca-mode-evr{font-size:12px; color:#94a3b8;}
+#deep-pca-modal-panel .pca-mode-bar-track{
+  height:8px; background:#1c2530; border-radius:4px; overflow:hidden;
+}
+#deep-pca-modal-panel .pca-mode-bar-fill{
+  height:100%; background:linear-gradient(90deg,#3b82f6,#22d3ee);
+}
+#deep-pca-modal-panel .pca-mode-body{
+  display:grid; grid-template-columns: 1fr 260px; gap:14px;
+}
+@media (max-width: 900px){
+  #deep-pca-modal-panel .pca-mode-body{grid-template-columns: 1fr;}
+}
+#deep-pca-modal-panel .pca-sub-title{
+  font-size:12px; color:#94a3b8; margin-bottom:6px; letter-spacing:.02em;
+}
+#deep-pca-modal-panel .pca-loading-list{display:flex; flex-direction:column; gap:3px;}
+#deep-pca-modal-panel .pca-load-item{
+  display:grid; grid-template-columns: 140px 1fr 52px;
+  align-items:center; gap:6px; font-size:11.5px;
+}
+#deep-pca-modal-panel .pca-load-label{
+  color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#deep-pca-modal-panel .pca-load-bar-wrap{
+  position:relative; height:14px; background:#141b24; border-radius:3px;
+}
+#deep-pca-modal-panel .pca-load-axis{
+  position:absolute; left:50%; top:0; bottom:0; width:1px; background:#3a4a5e;
+}
+#deep-pca-modal-panel .pca-load-bar{
+  position:absolute; top:2px; bottom:2px; border-radius:2px;
+}
+#deep-pca-modal-panel .pca-load-bar.pos{background:#dc322f;}
+#deep-pca-modal-panel .pca-load-bar.neg{background:#2166ac;}
+#deep-pca-modal-panel .pca-load-val{text-align:right; font-variant-numeric:tabular-nums;}
+#deep-pca-modal-panel .pca-load-val.pos{color:#fca5a5;}
+#deep-pca-modal-panel .pca-load-val.neg{color:#93c5fd;}
+#deep-pca-modal-panel .pca-spatial{display:flex; flex-direction:column; align-items:center;}
+#deep-pca-modal-panel .pca-grid{display:block;}
+#deep-pca-modal-panel .pca-legend{
+  margin-top:6px; display:flex; align-items:center; gap:6px;
+  font-size:10.5px; color:#94a3b8;
+}
+#deep-pca-modal-panel .pca-legend-bar{
+  width:140px; height:8px; border-radius:2px;
+  background:linear-gradient(90deg,#2166ac,#f5eee8,#dc322f);
+}
+#deep-pca-modal-panel .pca-caption{
+  margin-top:8px; font-size:11.5px; color:#94a3b8; font-style:italic;
+}
+#deep-pca-modal-panel .empty-note{color:#94a3b8; font-style:italic; padding:8px 0;}
+#deep-pca-modal-panel .empty-note.small{font-size:11px; padding:4px 0;}
+
+.deep-anomaly-detection .anom-head{margin-bottom:10px;}
+.deep-anomaly-detection .anom-summary{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:#cfcfd6;}
+.deep-anomaly-detection .anom-stat{padding:4px 10px;background:#23232a;border-radius:6px;border:1px solid #34343d;}
+.deep-anomaly-detection .anom-facewrap{margin:8px 0;font-size:12px;color:#cfcfd6;}
+.deep-anomaly-detection .anom-face-sel{margin-left:6px;background:#1d1d24;color:#eaeaf0;border:1px solid #3a3a44;padding:3px 6px;border-radius:4px;}
+.deep-anomaly-detection .anom-body{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start;}
+.deep-anomaly-detection .anom-heatmap{display:block;}
+.deep-anomaly-detection .anom-table{width:100%;border-collapse:collapse;font-size:12px;}
+.deep-anomaly-detection .anom-table th,
+.deep-anomaly-detection .anom-table td{padding:5px 8px;border-bottom:1px solid #2c2c34;text-align:center;}
+.deep-anomaly-detection .anom-table th{background:#202028;color:#cfcfd6;font-weight:600;}
+.deep-anomaly-detection .anom-table td.anom-zmax{color:#ff8a8a;font-weight:600;}
+.deep-anomaly-detection .anom-table td.anom-driver{color:#ffd27f;}
+.deep-anomaly-detection .anom-iqr-list{margin-top:12px;padding:8px 10px;background:#1e1e25;border:1px solid #2f2f38;border-radius:6px;font-size:12px;color:#dcdce4;}
+.deep-anomaly-detection .anom-iqr-title{font-weight:600;color:#eaeaf0;margin-bottom:6px;}
+.deep-anomaly-detection .anom-iqr-ul{margin:0;padding-left:14px;}
+.deep-anomaly-detection .anom-iqr-ul li{margin:2px 0;}
+.deep-anomaly-detection .anom-iqr-agree .anom-iqr-tag{color:#7fff9c;font-weight:600;}
+.deep-anomaly-detection .anom-iqr-only{color:#9a9aa3;text-decoration:line-through;}
+.deep-anomaly-detection .anom-iqr-only .anom-iqr-tag{color:#ffd27f;font-weight:600;text-decoration:none;}
+.deep-anomaly-detection .anom-empty{color:#7a7a82;font-style:italic;}
+.deep-anomaly-detection .anom-caption{margin-top:10px;font-size:11px;color:#9a9aa3;font-style:italic;}
+.deep-anomaly-detection .empty{padding:18px;color:#7a7a82;text-align:center;font-style:italic;}
+
+.ppd-caption { color: #aab2cf; font-size: 11px; margin-bottom: 8px; }
+.ppd-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ppd-left {
+  background: #0e1220;
+  border: 1px solid #262d44;
+  border-radius: 6px;
+  padding: 6px;
+  max-height: 720px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ppd-left-head {
+  font-size: 10px;
+  color: #5c6383;
+  padding: 4px 6px 6px 6px;
+  border-bottom: 1px solid #262d44;
+  margin-bottom: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ppd-list {
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 2px;
+}
+.ppd-list-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.ppd-list-row:hover { background: #1a1e2e; }
+.ppd-list-row.active {
+  background: #1a233e;
+  border-color: #3b528b;
+}
+.ppd-list-name {
+  color: #e0e4ff;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ppd-list-val {
+  display: grid;
+  grid-template-columns: 1fr 54px;
+  align-items: center;
+  gap: 6px;
+}
+.ppd-list-bar-bg {
+  height: 6px;
+  background: #1a1e2e;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ppd-list-bar { height: 100%; border-radius: 3px; transition: width 0.15s; }
+.ppd-list-num {
+  color: #aab2cf;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ppd-right { display: flex; flex-direction: column; gap: 8px; }
+.ppd-detail-title {
+  color: #e0e4ff;
+  font-size: 13px;
+  padding: 4px 6px;
+  background: #1a1e2e;
+  border-radius: 4px;
+  border-left: 3px solid #3b528b;
+}
+.ppd-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+.ppd-kpi-tile {
+  background: #0e1220;
+  border: 1px solid #262d44;
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.ppd-kpi-label {
+  font-size: 9px;
+  color: #5c6383;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.ppd-kpi-val {
+  font-size: 14px;
+  color: #e0e4ff;
+  font-variant-numeric: tabular-nums;
+}
+.ppd-kpi-unit { font-size: 9px; color: #5c6383; }
+.ppd-grid2 {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 8px;
+}
+.ppd-tile {
+  background: #0e1220;
+  border: 1px solid #262d44;
+  border-radius: 6px;
+  padding: 8px;
+}
+.ppd-tile-head {
+  font-size: 10px;
+  color: #5c6383;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.ppd-svg-square { width: 100%; height: 320px; display: block; }
+.ppd-svg-wide   { width: 100%; height: 200px; display: block; }
+.ppd-empty {
+  color: #5c6383;
+  font-size: 11px;
+  text-align: center;
+  padding: 16px;
+}
+@media (max-width: 1024px) {
+  .ppd-layout { grid-template-columns: 1fr; }
+  .ppd-grid2  { grid-template-columns: 1fr; }
+  .ppd-kpi-strip { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* DEEP_CSS_INSERT_HERE */
 """
 
 
@@ -2457,6 +3892,7 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <a data-target="s3">VERDICT</a>
     <a data-target="s4">PER-PART G</a>
     <a data-target="s5" id="navS5">DOE</a>
+    <a data-target="s6" id="navS6">DEEP</a>
   </div>
 </div>
 """
@@ -3138,6 +4574,85 @@ _PAGE5 = """
 </section>
 
 <div class="foot">KOOD3PLOT &middot; MULTI-FACE IMPACT &middot; v0.1.0 &middot; single-file self-contained</div>
+"""
+
+_PAGE6 = """
+<section id="s6">
+  <div class="page-head">
+    <span class="num">06</span>
+    <span class="t">DEEP ANALYTICS</span>
+    <span class="sub">충격 응답의 깊은 분석 · 주파수 도메인 · 모달 분해 · 드릴다운</span>
+    <span class="sub">DEEP-DIVE: FFT / SRS / SAFE ZONE / PCA / ANOMALY / PER-PART</span>
+  </div>
+
+  <div class="panel" style="background:transparent;border:none;padding:0;">
+    <div id="deep-fft-panel" class="panel">
+  <div class="panel-header">
+    <h3>주파수 도메인 — FFT 스펙트럼</h3>
+    <div class="deep-fft-meta"></div>
+  </div>
+  <div class="panel-body">
+    <div class="deep-fft-body"></div>
+  </div>
+</div>
+
+<section class="panel deep-srs-panel">
+  <h3>충격 응답 스펙트럼 — SRS</h3>
+  <div id="deep-srs-body" class="srs-body"></div>
+</section>
+<div class="panel" id="deep-safe-drop-zone-panel">
+  <div class="panel-header">
+    <h3>안전 낙하 구역 지도</h3>
+    <div class="panel-sub">충격 위치별 안전/위험 분류 — 볼록껍질로 회피 구역 시각화</div>
+  </div>
+  <div class="panel-body" id="deep-safe-drop-zone-body"></div>
+</div>
+
+<section class="panel deep-panel" id="deep-pca-modal-panel">
+  <header class="panel-head">
+    <h3>PCA 모달 분해</h3>
+    <p class="panel-sub">25 위치 × 25 부품 peak_g 행렬의 상위 3개 주성분 — 부품 loadings + 위치 score 맵.</p>
+  </header>
+  <div class="panel-body" id="deep-pca-modal-body"></div>
+</section>
+
+<section class="panel">
+  <h3>이상치 위치 자동 검출</h3>
+  <div id="deep-anomaly-detection" class="deep-anomaly-detection"></div>
+</section>
+<div class="panel" id="ppd-host">
+  <h3 style="margin:0 0 6px 0;">부품별 통합 상세 보기 — Drill-Down</h3>
+  <div class="ppd-caption">한 부품에 대한 모든 위치 응답을 한 화면으로. 좌측에서 부품 선택.</div>
+  <div class="ppd-layout">
+    <div class="ppd-left">
+      <div class="ppd-left-head">부품 (Peak G 기준 내림차순)</div>
+      <div id="ppd-part-list" class="ppd-list"></div>
+    </div>
+    <div class="ppd-right">
+      <div id="ppd-detail-title" class="ppd-detail-title">활성 부품 로딩 중…</div>
+      <div id="ppd-kpi-strip" class="ppd-kpi-strip"></div>
+      <div class="ppd-grid2">
+        <div class="ppd-tile">
+          <div class="ppd-tile-head">위치별 Peak G 히트맵 (★ = 최대)</div>
+          <svg id="ppd-heatmap-svg" class="ppd-svg-square"></svg>
+        </div>
+        <div class="ppd-tile">
+          <div class="ppd-tile-head">Peak G 분포 (10-bin 히스토그램)</div>
+          <svg id="ppd-hist-svg" class="ppd-svg-wide"></svg>
+        </div>
+      </div>
+      <div class="ppd-tile" style="margin-top:8px;">
+        <div class="ppd-tile-head">항복/재료 카드</div>
+        <svg id="ppd-yield-svg" class="ppd-svg-wide"></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DEEP_PANELS_INSERT_HERE -->
+    <!-- Workflow-added panel templates are inserted ABOVE this marker. -->
+  </div>
+</section>
 """
 
 
@@ -4656,7 +6171,7 @@ function initNav() {
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
-    const sections = ['s1', 's2', 's3', 's4', 's5'];
+    const sections = ['s1', 's2', 's3', 's4', 's5', 's6'];
     const y = window.scrollY + 120;
     let active = sections[0];
     for (const id of sections) {
@@ -6562,6 +8077,1234 @@ function _doeRenderEnergyPartition(doe) {
 // === ADV_JS_FUNCTIONS_INSERT_HERE ===
 // Workflow-added _doeRenderXxx render functions are inserted ABOVE this line.
 
+function _deepRenderFFT(data){
+  const root = document.getElementById('deep-fft-panel');
+  if (!root) return;
+  const body = root.querySelector('.deep-fft-body');
+  const meta = root.querySelector('.deep-fft-meta');
+  if (!body) return;
+  body.innerHTML = '';
+  if (meta) meta.innerHTML = '';
+
+  const payload = (data && data.fft) || {};
+  const perPart = payload.per_part_dominant_freq || {};
+  const summary = payload.summary || {};
+  const entries = Object.entries(perPart);
+
+  if (!entries.length){
+    body.appendChild(el('div', {class:'deep-empty'}, ['데이터 없음 — 분석 가능한 가속도 신호가 없습니다.']));
+    return;
+  }
+
+  // header meta
+  if (meta){
+    const band = summary.freq_band_Hz || [0,0];
+    meta.appendChild(el('span', {class:'deep-fft-pill'},
+      [`fs ≈ ${fmt(summary.fs_Hz||0,1)} Hz`]));
+    meta.appendChild(el('span', {class:'deep-fft-pill'},
+      [`대역: ${fmt(band[0]||0,1)} – ${fmt(band[1]||0,1)} Hz`]));
+    meta.appendChild(el('span', {class:'deep-fft-pill'},
+      [`파트 ${summary.n_parts_with_data||0}개 / 위치샘플 ${summary.n_positions_used||0}개`]));
+  }
+
+  // Top-12 by mean_f_dom_Hz (descending)
+  entries.sort((a,b)=> (b[1].mean_f_dom_Hz||0) - (a[1].mean_f_dom_Hz||0));
+  const top = entries.slice(0, 12);
+
+  const W = 192, H = 40, PAD_L = 2, PAD_R = 2, PAD_T = 2, PAD_B = 2;
+
+  top.forEach(([pid, info]) => {
+    const spec = info.spectrum || {f:[], amp_normalized:[]};
+    const fs = spec.f || [];
+    const as = spec.amp_normalized || [];
+
+    const card = el('div', {class:'deep-fft-card'});
+
+    // header line
+    const head = el('div', {class:'deep-fft-card-head'}, [
+      el('span', {class:'deep-fft-name', title:info.name||('Part '+pid)},
+         [info.name || ('Part '+pid)]),
+      el('span', {class:'deep-fft-pid'}, ['#'+pid])
+    ]);
+    card.appendChild(head);
+
+    // svg spectrum
+    const s = svg('svg', {width:W, height:H, viewBox:`0 0 ${W} ${H}`, class:'deep-fft-svg'});
+    // background
+    s.appendChild(svg('rect', {x:0,y:0,width:W,height:H,fill:'#0f1115',stroke:'#23262d'}));
+
+    if (fs.length >= 2 && as.length >= 2){
+      const fmin = fs[0], fmax = fs[fs.length-1];
+      const span = (fmax - fmin) || 1;
+      const innerW = W - PAD_L - PAD_R;
+      const innerH = H - PAD_T - PAD_B;
+      let d = '';
+      for (let i=0; i<fs.length; i++){
+        const x = PAD_L + ( (fs[i]-fmin) / span ) * innerW;
+        const a = Math.max(0, Math.min(1, as[i]||0));
+        const y = PAD_T + (1 - a) * innerH;
+        d += (i===0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+      }
+      s.appendChild(svg('path', {d:d, fill:'none', stroke:'#7ad7ff', 'stroke-width':1.2}));
+
+      // mark dominant frequency
+      const fdom = info.top_freq_Hz;
+      if (isFinite(fdom)){
+        const xd = PAD_L + ( (fdom - fmin) / span ) * innerW;
+        s.appendChild(svg('line', {x1:xd, y1:PAD_T, x2:xd, y2:H-PAD_B,
+          stroke:'#ffb347', 'stroke-width':1, 'stroke-dasharray':'2,2'}));
+      }
+    } else {
+      s.appendChild(svg('text', {x:W/2, y:H/2, fill:'#888', 'font-size':9,
+        'text-anchor':'middle', 'dominant-baseline':'middle'}, ['스펙트럼 없음']));
+    }
+    card.appendChild(s);
+
+    // text line
+    const fdom = info.mean_f_dom_Hz, fstd = info.std_f_dom_Hz, n = info.n_samples_used;
+    const txt = el('div', {class:'deep-fft-text'}, [
+      el('span', {class:'deep-fft-fdom'},
+         [`f_dom = ${fmt(fdom,1)} ± ${fmt(fstd,1)} Hz`]),
+      el('span', {class:'deep-fft-n'}, [`n=${n}`])
+    ]);
+    card.appendChild(txt);
+
+    body.appendChild(card);
+  });
+}
+
+function _deepRenderSRS(data) {
+  const host = document.getElementById('deep-srs-body');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const pay = (data && data.deep_analytics && data.deep_analytics.srs) || null;
+  if (!pay || !pay.available || !pay.srs_curves || !pay.srs_curves.length) {
+    host.appendChild(el('div', {class: 'empty-note'}, ['가속도 데이터 없음 — SRS 계산 불가']));
+    return;
+  }
+
+  const curves = pay.srs_curves;
+  const accUnit = (typeof _u === 'function') ? _u('acc') : 'm/s²';
+
+  // Layout
+  const W = 720, H = 360;
+  const ML = 64, MR = 160, MT = 16, MB = 44;
+  const PW = W - ML - MR, PH = H - MT - MB;
+
+  // Domain
+  let fMin = Infinity, fMax = -Infinity, sMin = Infinity, sMax = -Infinity;
+  curves.forEach(c => {
+    c.f.forEach(v => { if (v > 0 && isFinite(v)) { if (v < fMin) fMin = v; if (v > fMax) fMax = v; } });
+    c.srs.forEach(v => { if (v > 0 && isFinite(v)) { if (v < sMin) sMin = v; if (v > sMax) sMax = v; } });
+  });
+  if (!isFinite(fMin) || !isFinite(sMin) || sMax <= 0) {
+    host.appendChild(el('div', {class: 'empty-note'}, ['SRS 값이 모두 0 — 표시할 데이터 없음']));
+    return;
+  }
+  // pad
+  const lfMin = Math.log10(fMin), lfMax = Math.log10(fMax);
+  const lsMin = Math.log10(Math.max(sMin, sMax * 1e-4));
+  const lsMax = Math.log10(sMax * 1.15);
+
+  const xToPx = lf => ML + (lf - lfMin) / (lfMax - lfMin || 1) * PW;
+  const yToPx = ls => MT + PH - (ls - lsMin) / (lsMax - lsMin || 1) * PH;
+
+  const svgEl = svg('svg', {viewBox: `0 0 ${W} ${H}`, width: '100%', height: H, class: 'srs-chart'});
+
+  // axes background
+  svgEl.appendChild(svg('rect', {x: ML, y: MT, width: PW, height: PH, fill: '#0e131b', stroke: '#2a3340'}));
+
+  // X gridlines (decades + 1/3 octave centers)
+  const xTicks = [];
+  for (let d = Math.floor(lfMin); d <= Math.ceil(lfMax); d++) {
+    for (let m = 1; m < 10; m++) {
+      const v = m * Math.pow(10, d);
+      if (v < fMin * 0.99 || v > fMax * 1.01) continue;
+      xTicks.push({v: v, major: (m === 1)});
+    }
+  }
+  xTicks.forEach(t => {
+    const x = xToPx(Math.log10(t.v));
+    svgEl.appendChild(svg('line', {x1: x, y1: MT, x2: x, y2: MT + PH,
+      stroke: t.major ? '#2f3a4a' : '#1d2530', 'stroke-width': t.major ? 1 : 0.5}));
+    if (t.major) {
+      svgEl.appendChild(svg('text', {x: x, y: MT + PH + 14, 'text-anchor': 'middle',
+        fill: '#9aa7b8', 'font-size': 10}, [String(t.v) + ' Hz']));
+    }
+  });
+
+  // Y gridlines (decades)
+  const yTicks = [];
+  for (let d = Math.floor(lsMin); d <= Math.ceil(lsMax); d++) {
+    for (let m = 1; m < 10; m++) {
+      const v = m * Math.pow(10, d);
+      const lv = Math.log10(v);
+      if (lv < lsMin - 1e-9 || lv > lsMax + 1e-9) continue;
+      yTicks.push({v: v, lv: lv, major: (m === 1)});
+    }
+  }
+  yTicks.forEach(t => {
+    const y = yToPx(t.lv);
+    svgEl.appendChild(svg('line', {x1: ML, y1: y, x2: ML + PW, y2: y,
+      stroke: t.major ? '#2f3a4a' : '#1d2530', 'stroke-width': t.major ? 1 : 0.5}));
+    if (t.major) {
+      const lbl = (t.v >= 1000) ? (t.v / 1000).toFixed(0) + 'k' : t.v.toFixed(0);
+      svgEl.appendChild(svg('text', {x: ML - 6, y: y + 3, 'text-anchor': 'end',
+        fill: '#9aa7b8', 'font-size': 10}, [lbl]));
+    }
+  });
+
+  // axis labels
+  svgEl.appendChild(svg('text', {x: ML + PW / 2, y: H - 8, 'text-anchor': 'middle',
+    fill: '#cfd6e0', 'font-size': 11}, ['주파수 (Hz)']));
+  svgEl.appendChild(svg('text', {x: 14, y: MT + PH / 2,
+    transform: `rotate(-90 14 ${MT + PH / 2})`,
+    'text-anchor': 'middle', fill: '#cfd6e0', 'font-size': 11}, [`최대 절대 가속도 응답 (${accUnit})`]));
+
+  // colors for up to 3 curves
+  const palette = ['#f0c419', '#5dade2', '#e74c3c'];
+
+  curves.forEach((c, idx) => {
+    const color = palette[idx % palette.length];
+    let d = '';
+    for (let i = 0; i < c.f.length; i++) {
+      const fv = c.f[i], sv = c.srs[i];
+      if (!(fv > 0) || !(sv > 0) || !isFinite(fv) || !isFinite(sv)) continue;
+      const x = xToPx(Math.log10(fv));
+      const y = yToPx(Math.log10(sv));
+      d += (d ? ' L ' : 'M ') + x.toFixed(1) + ' ' + y.toFixed(1);
+    }
+    if (d) {
+      svgEl.appendChild(svg('path', {d: d, fill: 'none', stroke: color, 'stroke-width': 2}));
+    }
+    // markers
+    for (let i = 0; i < c.f.length; i++) {
+      const fv = c.f[i], sv = c.srs[i];
+      if (!(fv > 0) || !(sv > 0)) continue;
+      svgEl.appendChild(svg('circle', {cx: xToPx(Math.log10(fv)), cy: yToPx(Math.log10(sv)),
+        r: 2.2, fill: color, stroke: 'none'}));
+    }
+  });
+
+  // Legend
+  const lgX = ML + PW + 16;
+  let lgY = MT + 6;
+  svgEl.appendChild(svg('text', {x: lgX, y: lgY, fill: '#cfd6e0', 'font-size': 11,
+    'font-weight': 'bold'}, [`pos #${pay.summary.pos_id} TOP-3`]));
+  lgY += 16;
+  curves.forEach((c, idx) => {
+    const color = palette[idx % palette.length];
+    svgEl.appendChild(svg('rect', {x: lgX, y: lgY - 8, width: 12, height: 3, fill: color}));
+    const peak = Math.max.apply(null, c.srs.filter(v => isFinite(v) && v > 0));
+    const lbl = `${c.part_name} (peak ${(typeof fmt === 'function') ? fmt(peak, 0) : peak.toFixed(0)} ${accUnit})`;
+    svgEl.appendChild(svg('text', {x: lgX + 18, y: lgY - 3, fill: '#cfd6e0', 'font-size': 10}, [lbl]));
+    lgY += 16;
+  });
+
+  // Summary line
+  const sum = pay.summary || {};
+  const meta = el('div', {class: 'srs-meta'}, [
+    `ζ = ${(sum.damping_ratio != null ? (sum.damping_ratio * 100).toFixed(1) : '5.0')}% · ` +
+    `${sum.n_frequencies || curves[0].f.length} 주파수 · ` +
+    `샘플링 ≈ ${sum.fs_Hz ? sum.fs_Hz.toFixed(0) : '—'} Hz · ` +
+    `대역 ${(sum.f_range_Hz && sum.f_range_Hz[0]) || 5}–${(sum.f_range_Hz && sum.f_range_Hz[1]) || 5000} Hz`
+  ]);
+
+  const cap = el('div', {class: 'srs-caption'},
+    ['SDOF 응답 (ζ=5%). 가로 = 1/3 옥타브 주파수, 세로 = 최대 절대 가속도 응답.']);
+
+  host.appendChild(svgEl);
+  host.appendChild(meta);
+  host.appendChild(cap);
+}
+function _deepRenderSafeDropZone(data) {
+  const root = document.getElementById("deep-safe-drop-zone-body");
+  if (!root) return;
+  root.innerHTML = "";
+
+  const dz = (data && data.deep_analytics && data.deep_analytics.safe_drop_zone) || null;
+  if (!dz || dz.empty || !dz.positions || dz.positions.length === 0) {
+    root.appendChild(el("div", { class: "muted", style: "padding:16px;" }, ["데이터 없음"]));
+    return;
+  }
+
+  const positions = dz.positions;
+  const polygon = dz.critical_polygon || [];
+  const thr = dz.thresholds_used || {};
+  const accU = (typeof _u === "function") ? _u("acc") : "m/s²";
+  const stressU = (typeof _u === "function") ? _u("stress") : "Pa";
+  const dispU = (typeof _u === "function") ? _u("disp") : "m";
+
+  // Compute coordinate extent
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  positions.forEach(p => {
+    if (p.x < xmin) xmin = p.x;
+    if (p.x > xmax) xmax = p.x;
+    if (p.y < ymin) ymin = p.y;
+    if (p.y > ymax) ymax = p.y;
+  });
+  if (!isFinite(xmin) || !isFinite(xmax) || xmin === xmax) { xmin -= 0.5; xmax += 0.5; }
+  if (!isFinite(ymin) || !isFinite(ymax) || ymin === ymax) { ymin -= 0.5; ymax += 0.5; }
+
+  // Layout: heatmap (left) + KPIs (right)
+  const wrap = el("div", { style: "display:flex; gap:18px; padding:12px; flex-wrap:wrap;" });
+
+  // ---- SVG heatmap ----
+  const W = 460, H = 460, PAD = 36;
+  const innerW = W - 2 * PAD, innerH = H - 2 * PAD;
+  const xRange = xmax - xmin || 1;
+  const yRange = ymax - ymin || 1;
+  // Distinct x/y values for cell sizing
+  const xs = Array.from(new Set(positions.map(p => p.x))).sort((a, b) => a - b);
+  const ys = Array.from(new Set(positions.map(p => p.y))).sort((a, b) => a - b);
+  let cellW = innerW / Math.max(1, xs.length);
+  let cellH = innerH / Math.max(1, ys.length);
+
+  const sx = x => PAD + ((x - xmin) / xRange) * innerW;
+  const sy = y => PAD + innerH - ((y - ymin) / yRange) * innerH;
+
+  const svgRoot = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, style: "background:#0c1116; border-radius:8px;" });
+
+  // Background grid
+  svgRoot.appendChild(svg("rect", { x: PAD, y: PAD, width: innerW, height: innerH, fill: "#10161d", stroke: "#1f2933", "stroke-width": 1 }));
+
+  // Cells
+  const SAFE_COLOR = "#1f8a4c";
+  const RISK_COLOR = "#c83232";
+  positions.forEach(p => {
+    const cx = sx(p.x), cy = sy(p.y);
+    const rx = cx - cellW / 2, ry = cy - cellH / 2;
+    const fill = p.safe ? SAFE_COLOR : RISK_COLOR;
+    svgRoot.appendChild(svg("rect", {
+      x: rx, y: ry, width: cellW - 2, height: cellH - 2,
+      fill: fill, "fill-opacity": p.safe ? 0.55 : 0.7,
+      stroke: "#0c1116", "stroke-width": 1, rx: 3
+    }));
+    // Worst-metric label
+    let label = "OK";
+    if (!p.safe) {
+      if (p.worst_metric === "peak_g") label = "g";
+      else if (p.worst_metric === "peak_stress") label = "σ";
+      else if (p.worst_metric === "peak_disp") label = "d";
+      else label = "!";
+    }
+    const txt = svg("text", {
+      x: cx, y: cy + 4,
+      "text-anchor": "middle",
+      "font-size": 13, "font-weight": 700,
+      fill: "#f4f6f8"
+    });
+    txt.textContent = label;
+    svgRoot.appendChild(txt);
+
+    // Tooltip
+    const ttParts = [
+      `pos_id=${p.pos_id}`,
+      `face=${p.face}`,
+      `safe=${p.safe ? "예" : "아니오"}`
+    ];
+    if (!p.safe) {
+      let metricLabel = p.worst_metric || "";
+      let unit = "";
+      let val = p.worst_value;
+      if (p.worst_metric === "peak_g") { unit = accU; }
+      else if (p.worst_metric === "peak_stress") { unit = stressU; }
+      else if (p.worst_metric === "peak_disp") { unit = dispU; }
+      ttParts.push(`worst=${metricLabel} (${fmt(val, 3)} ${unit})`);
+      if (p.worst_part_id !== null && p.worst_part_id !== undefined) {
+        ttParts.push(`part_id=${p.worst_part_id}`);
+      }
+    }
+    const titleEl = svg("title", {});
+    titleEl.textContent = ttParts.join(" | ");
+    txt.appendChild(titleEl);
+  });
+
+  // Critical polygon overlay
+  if (polygon && polygon.length >= 3) {
+    const ptsStr = polygon.map(([x, y]) => `${sx(x).toFixed(2)},${sy(y).toFixed(2)}`).join(" ");
+    svgRoot.appendChild(svg("polygon", {
+      points: ptsStr,
+      fill: "#ff3030", "fill-opacity": 0.22,
+      stroke: "#ff5050", "stroke-width": 2,
+      "stroke-dasharray": "6,4"
+    }));
+    // Centroid for label
+    let cxSum = 0, cySum = 0;
+    polygon.forEach(([x, y]) => { cxSum += sx(x); cySum += sy(y); });
+    const cxC = cxSum / polygon.length;
+    const cyC = cySum / polygon.length;
+    const lblBg = svg("rect", { x: cxC - 38, y: cyC - 12, width: 76, height: 22, rx: 4, fill: "#1a0a0a", "fill-opacity": 0.85, stroke: "#ff5050", "stroke-width": 1 });
+    svgRoot.appendChild(lblBg);
+    const lbl = svg("text", { x: cxC, y: cyC + 4, "text-anchor": "middle", "font-size": 12, "font-weight": 700, fill: "#ff8080" });
+    lbl.textContent = "주의 구역";
+    svgRoot.appendChild(lbl);
+  }
+
+  // Axis labels
+  const xLbl = svg("text", { x: W / 2, y: H - 6, "text-anchor": "middle", "font-size": 11, fill: "#8a96a3" });
+  xLbl.textContent = "X 위치";
+  svgRoot.appendChild(xLbl);
+  const yLbl = svg("text", { x: 12, y: H / 2, "text-anchor": "middle", "font-size": 11, fill: "#8a96a3", transform: `rotate(-90 12 ${H / 2})` });
+  yLbl.textContent = "Y 위치";
+  svgRoot.appendChild(yLbl);
+
+  wrap.appendChild(svgRoot);
+
+  // ---- KPI + thresholds + legend ----
+  const side = el("div", { style: "flex:1; min-width:240px; display:flex; flex-direction:column; gap:12px;" });
+
+  const total = (dz.safe_count || 0) + (dz.at_risk_count || 0);
+  const safePct = total > 0 ? (100 * dz.safe_count / total) : 0;
+  const riskPct = total > 0 ? (100 * dz.at_risk_count / total) : 0;
+
+  const kpiSafe = el("div", { class: "kpi-box", style: "background:#0f2418; border-left:4px solid #1f8a4c; padding:12px 14px; border-radius:6px;" }, [
+    el("div", { style: "font-size:11px; color:#8a96a3; letter-spacing:0.5px;" }, ["안전 위치"]),
+    el("div", { style: "font-size:26px; font-weight:700; color:#5fd187; margin-top:4px;" }, [`${dz.safe_count} / ${total}`]),
+    el("div", { style: "font-size:11px; color:#8a96a3; margin-top:2px;" }, [`${fmt(safePct, 1)}%`]),
+  ]);
+  const kpiRisk = el("div", { class: "kpi-box", style: "background:#241010; border-left:4px solid #c83232; padding:12px 14px; border-radius:6px;" }, [
+    el("div", { style: "font-size:11px; color:#8a96a3; letter-spacing:0.5px;" }, ["위험 위치"]),
+    el("div", { style: "font-size:26px; font-weight:700; color:#ff7878; margin-top:4px;" }, [`${dz.at_risk_count} / ${total}`]),
+    el("div", { style: "font-size:11px; color:#8a96a3; margin-top:2px;" }, [`${fmt(riskPct, 1)}%`]),
+  ]);
+  side.appendChild(kpiSafe);
+  side.appendChild(kpiRisk);
+
+  // Thresholds box
+  const thrBox = el("div", { style: "background:#10161d; padding:10px 12px; border-radius:6px; border:1px solid #1f2933;" }, [
+    el("div", { style: "font-size:11px; color:#8a96a3; margin-bottom:6px; letter-spacing:0.5px;" }, ["임계값 (데이터 기반)"]),
+    el("div", { style: "font-size:12px; color:#d0d6dd; line-height:1.7;" }, [
+      el("div", {}, [`peak_g ≤ ${fmt(thr.peak_g_thresh || 0, 3)} ${accU} (평균)`]),
+      el("div", {}, [`peak_stress ≤ ${fmt(thr.peak_stress_thresh || 0, 3)} ${stressU} (P75)`]),
+      el("div", {}, [`peak_disp ≤ ${fmt(thr.peak_disp_thresh || 0, 4)} ${dispU} (P75)`]),
+    ]),
+  ]);
+  side.appendChild(thrBox);
+
+  // Legend
+  const legend = el("div", { style: "background:#10161d; padding:10px 12px; border-radius:6px; border:1px solid #1f2933;" }, [
+    el("div", { style: "font-size:11px; color:#8a96a3; margin-bottom:6px; letter-spacing:0.5px;" }, ["범례"]),
+    el("div", { style: "display:flex; align-items:center; gap:8px; margin-bottom:4px; font-size:12px; color:#d0d6dd;" }, [
+      el("span", { style: "display:inline-block; width:14px; height:14px; background:#1f8a4c; border-radius:3px;" }, []),
+      el("span", {}, ["안전 (OK)"]),
+    ]),
+    el("div", { style: "display:flex; align-items:center; gap:8px; margin-bottom:4px; font-size:12px; color:#d0d6dd;" }, [
+      el("span", { style: "display:inline-block; width:14px; height:14px; background:#c83232; border-radius:3px;" }, []),
+      el("span", {}, ["위험 (g/σ/d = 위반 지표)"]),
+    ]),
+    el("div", { style: "display:flex; align-items:center; gap:8px; font-size:12px; color:#d0d6dd;" }, [
+      el("span", { style: "display:inline-block; width:14px; height:10px; background:rgba(255,48,48,0.22); border:1.5px dashed #ff5050;" }, []),
+      el("span", {}, ["주의 구역 (위험 볼록껍질)"]),
+    ]),
+  ]);
+  side.appendChild(legend);
+
+  wrap.appendChild(side);
+  root.appendChild(wrap);
+
+  // Caption
+  const caption = el("div", { style: "padding:10px 14px 14px; font-size:12px; color:#8a96a3; line-height:1.6;" }, [
+    "전 부품 안전 = peak_g/stress/disp 모두 기준 이하. 빨간 영역 = 권장 회피 구역."
+  ]);
+  root.appendChild(caption);
+}
+
+function _deepRenderPCAModal(data){
+  const host = document.getElementById('deep-pca-modal-body');
+  if (!host) return;
+  host.innerHTML = '';
+  const payload = (data && data.pca_modal) || {available:false};
+
+  if (!payload.available){
+    const reason = payload.reason ? ` (${payload.reason})` : '';
+    host.appendChild(el('div', {class:'empty-note'},
+      [`데이터 부족 — PCA 모달 분해를 계산할 수 없습니다${reason}.`]));
+    return;
+  }
+
+  const modes = payload.modes || [];
+  if (!modes.length){
+    host.appendChild(el('div', {class:'empty-note'}, ['주성분이 없습니다.']));
+    return;
+  }
+
+  // header summary
+  const cumPct = (payload.cumulative_var_ratio * 100).toFixed(1);
+  host.appendChild(el('div', {class:'pca-summary'}, [
+    el('span', {}, [`행렬: ${payload.n_positions} 위치 × ${payload.n_parts} 부품`]),
+    el('span', {class:'sep'}, [' · ']),
+    el('span', {}, [`상위 ${modes.length}개 모드 누적 분산: ${cumPct}%`]),
+  ]));
+
+  // shared range for loadings (per mode-row we still use mode-local max for bar normalization)
+  // shared range for spatial scores (across all modes) for consistent color scale
+  let scoreAbsMax = 0;
+  modes.forEach(m => (m.position_scores || []).forEach(p => {
+    const a = Math.abs(p.score || 0); if (a > scoreAbsMax) scoreAbsMax = a;
+  }));
+  if (scoreAbsMax <= 0) scoreAbsMax = 1;
+
+  modes.forEach(mode => {
+    const row = el('div', {class:'pca-mode-row'});
+
+    // ----- mode header
+    const evPct = (mode.explained_var_ratio * 100).toFixed(2);
+    const headerWrap = el('div', {class:'pca-mode-head'}, [
+      el('div', {class:'pca-mode-title'}, [`모드 ${mode.mode_index}`]),
+      el('div', {class:'pca-mode-evr'}, [`설명 분산 ${evPct}%`]),
+      el('div', {class:'pca-mode-bar-track'}, [
+        el('div', {class:'pca-mode-bar-fill',
+                   style:`width:${Math.max(0, Math.min(100, mode.explained_var_ratio*100)).toFixed(2)}%;`})
+      ]),
+    ]);
+    row.appendChild(headerWrap);
+
+    const body = el('div', {class:'pca-mode-body'});
+
+    // ----- LEFT: part loadings (horizontal bars, +/- colored)
+    const left = el('div', {class:'pca-loadings'}, [
+      el('div', {class:'pca-sub-title'}, ['상위 부품 loadings (top-10)'])
+    ]);
+    const loadings = mode.part_loadings || [];
+    if (!loadings.length){
+      left.appendChild(el('div', {class:'empty-note small'}, ['부품 loading 없음']));
+    } else {
+      let lmax = 0;
+      loadings.forEach(L => { const a = Math.abs(L.loading||0); if (a>lmax) lmax = a; });
+      if (lmax <= 0) lmax = 1;
+
+      const list = el('div', {class:'pca-loading-list'});
+      loadings.forEach(L => {
+        const v = +L.loading || 0;
+        const pct = Math.abs(v) / lmax * 50; // half-width bar
+        const isPos = v >= 0;
+        const colorCls = isPos ? 'pos' : 'neg';
+        const item = el('div', {class:'pca-load-item'}, [
+          el('div', {class:'pca-load-label', title: L.part_name},
+             [`${L.part_id} · ${L.part_name}`]),
+          el('div', {class:'pca-load-bar-wrap'}, [
+            el('div', {class:'pca-load-axis'}),
+            el('div', {class:`pca-load-bar ${colorCls}`,
+              style: isPos
+                ? `left:50%; width:${pct.toFixed(2)}%;`
+                : `right:50%; width:${pct.toFixed(2)}%;`}),
+          ]),
+          el('div', {class:`pca-load-val ${colorCls}`}, [fmt(v, 3)]),
+        ]);
+        list.appendChild(item);
+      });
+      left.appendChild(list);
+    }
+    body.appendChild(left);
+
+    // ----- RIGHT: 5x5 spatial score map
+    const right = el('div', {class:'pca-spatial'}, [
+      el('div', {class:'pca-sub-title'}, ['위치 score 맵 (5×5)'])
+    ]);
+    const pscores = mode.position_scores || [];
+    if (!pscores.length){
+      right.appendChild(el('div', {class:'empty-note small'}, ['위치 score 없음']));
+    } else {
+      // Build a 5x5 grid by sorting positions; use (x,y) if all available, else index reshape.
+      const hasXY = pscores.every(p => (p.x != null && p.y != null && isFinite(p.x) && isFinite(p.y)));
+      let cells = []; // {row,col,score,pos_id}
+      const N = pscores.length;
+      const dim = Math.max(2, Math.round(Math.sqrt(N)));
+
+      if (hasXY){
+        // bin by unique sorted x/y
+        const xs = Array.from(new Set(pscores.map(p=>+p.x))).sort((a,b)=>a-b);
+        const ys = Array.from(new Set(pscores.map(p=>+p.y))).sort((a,b)=>b-a); // top→bottom
+        pscores.forEach(p => {
+          const cx = xs.indexOf(+p.x);
+          const cy = ys.indexOf(+p.y);
+          cells.push({row:cy, col:cx, score:+p.score, pos_id:p.pos_id});
+        });
+      } else {
+        // fall back: sort by pos_id and reshape
+        const sorted = pscores.slice().sort((a,b)=> (a.pos_id||0) - (b.pos_id||0));
+        sorted.forEach((p, idx) => {
+          cells.push({row: Math.floor(idx/dim), col: idx % dim, score:+p.score, pos_id:p.pos_id});
+        });
+      }
+
+      const nRows = (cells.reduce((mx,c)=>Math.max(mx,c.row),0) + 1) || dim;
+      const nCols = (cells.reduce((mx,c)=>Math.max(mx,c.col),0) + 1) || dim;
+
+      const W = 220, H = 220, pad = 8;
+      const cw = (W - pad*2) / nCols;
+      const ch = (H - pad*2) / nRows;
+      const svgEl = svg('svg', {class:'pca-grid', width:W, height:H,
+                                viewBox:`0 0 ${W} ${H}`});
+
+      cells.forEach(c => {
+        const t = Math.max(-1, Math.min(1, c.score / scoreAbsMax));
+        const fill = _pcaDivergingColor(t);
+        const x = pad + c.col * cw;
+        const y = pad + c.row * ch;
+        svgEl.appendChild(svg('rect', {
+          x: x.toFixed(2), y: y.toFixed(2),
+          width: (cw-1).toFixed(2), height: (ch-1).toFixed(2),
+          fill, stroke:'#1b2530', 'stroke-width':'0.5',
+          'data-pos': c.pos_id,
+        }, [svg('title', {}, [`pos ${c.pos_id} · score ${fmt(c.score,3)}`])]));
+        // label score
+        const lbl = Math.abs(c.score) >= 0.01 ? fmt(c.score,2) : '~0';
+        svgEl.appendChild(svg('text', {
+          x:(x + cw/2).toFixed(2), y:(y + ch/2 + 3).toFixed(2),
+          'text-anchor':'middle',
+          'font-size': Math.max(8, Math.min(11, cw*0.18)).toFixed(1),
+          fill: Math.abs(t) > 0.55 ? '#fff' : '#0c0f14',
+        }, [lbl]));
+      });
+      right.appendChild(svgEl);
+
+      // legend
+      const legend = el('div', {class:'pca-legend'}, [
+        el('span', {class:'pca-legend-min'}, [`${fmt(-scoreAbsMax,2)}`]),
+        el('div', {class:'pca-legend-bar'}),
+        el('span', {class:'pca-legend-max'}, [`+${fmt(scoreAbsMax,2)}`]),
+      ]);
+      right.appendChild(legend);
+    }
+    body.appendChild(right);
+
+    row.appendChild(body);
+    host.appendChild(row);
+  });
+
+  host.appendChild(el('div', {class:'pca-caption'}, [
+    '주성분 분석 — 응답 패턴의 주요 모드를 부품 loadings + 위치 score 로 분해.'
+  ]));
+}
+
+function _pcaDivergingColor(t){
+  // t in [-1, 1]; blue → light → red diverging
+  const clamp = Math.max(-1, Math.min(1, t));
+  if (clamp >= 0){
+    // light → red
+    const r = Math.round(245 + (220-245)*clamp);
+    const g = Math.round(238 + ( 50-238)*clamp);
+    const b = Math.round(232 + ( 47-232)*clamp);
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const a = -clamp;
+    const r = Math.round(245 + ( 33-245)*a);
+    const g = Math.round(238 + (102-238)*a);
+    const b = Math.round(232 + (172-232)*a);
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+function _deepRenderAnomalyDetection(data){
+  var root = document.getElementById('deep-anomaly-detection');
+  if(!root) return;
+  root.innerHTML = '';
+  var payload = (data && data.deep_analytics && data.deep_analytics.anomaly_detection) || null;
+  if(!payload || payload.empty || !payload.per_position || payload.per_position.length===0){
+    root.appendChild(el('div',{class:'empty'},'데이터 없음'));
+    return;
+  }
+
+  var rows = payload.per_position;
+  var thresh = payload.threshold;
+
+  // Group cells by face for 5x5 heatmap. Use first face that has any anomalous, else first.
+  var byFace = {};
+  rows.forEach(function(r){
+    if(!byFace[r.face]) byFace[r.face] = [];
+    byFace[r.face].push(r);
+  });
+  var faceCodes = Object.keys(byFace).sort();
+  var preferred = null;
+  for(var i=0;i<faceCodes.length;i++){
+    if(byFace[faceCodes[i]].some(function(r){return r.anomalous;})){ preferred = faceCodes[i]; break; }
+  }
+  var defaultFace = preferred || faceCodes[0];
+
+  // Header / summary
+  var head = el('div',{class:'anom-head'},[
+    el('div',{class:'anom-summary'},[
+      el('span',{class:'anom-stat'},['임계값 z = ', fmt(thresh,2),
+        ' (max(2.5, P95=', fmt(payload.p95_z,2), '))']),
+      el('span',{class:'anom-stat'},['이상치 ', String(payload.n_anomalous), ' / ', String(rows.length), ' 위치']),
+      el('span',{class:'anom-stat'},['IQR 펜스 [', fmt(payload.iqr_low,2), ', ', fmt(payload.iqr_high,2), '] (', _u('acc'), ')']),
+    ])
+  ]);
+  root.appendChild(head);
+
+  // Face selector
+  if(faceCodes.length>1){
+    var sel = el('select',{class:'anom-face-sel'});
+    faceCodes.forEach(function(fc){
+      var o = el('option',{value:fc},[fc===defaultFace?(fc+' ◆'):fc]);
+      if(fc===defaultFace) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', function(){ _renderAnomalyForFace(root, payload, sel.value); });
+    var fwrap = el('div',{class:'anom-facewrap'},[el('span',{class:'anom-label'},['면 선택: ']), sel]);
+    root.appendChild(fwrap);
+  }
+
+  _renderAnomalyForFace(root, payload, defaultFace);
+}
+
+function _renderAnomalyForFace(root, payload, faceCode){
+  // Clear previous body
+  var old = root.querySelector('.anom-body');
+  if(old) old.remove();
+
+  var rows = payload.per_position.filter(function(r){ return r.face === faceCode; });
+  var thresh = payload.threshold;
+  var maxAbsAll = 0;
+  rows.forEach(function(r){ if(r.max_abs_z>maxAbsAll) maxAbsAll = r.max_abs_z; });
+  var denom = Math.max(maxAbsAll, thresh, 1e-9);
+
+  // Build 5x5 grid by ranking x then y
+  var xs = Array.from(new Set(rows.map(function(r){return r.x;}))).sort(function(a,b){return a-b;});
+  var ys = Array.from(new Set(rows.map(function(r){return r.y;}))).sort(function(a,b){return b-a;}); // top-down
+  var nx = Math.max(xs.length,1), ny = Math.max(ys.length,1);
+  var cell = 56;
+  var pad = 28;
+  var W = pad*2 + nx*cell;
+  var H = pad*2 + ny*cell;
+
+  var s = svg('svg',{width:W, height:H, viewBox:'0 0 '+W+' '+H, class:'anom-heatmap'});
+
+  // Lookup map
+  var grid = {};
+  rows.forEach(function(r){
+    var ix = xs.indexOf(r.x), iy = ys.indexOf(r.y);
+    grid[ix+'_'+iy] = r;
+  });
+
+  for(var iy=0; iy<ny; iy++){
+    for(var ix=0; ix<nx; ix++){
+      var r = grid[ix+'_'+iy];
+      var cx = pad + ix*cell;
+      var cy = pad + iy*cell;
+      var fill = '#1f1f24';
+      var stroke = '#3a3a44';
+      var sw = 1;
+      var label = '';
+      if(r){
+        var t = Math.min(1, r.max_abs_z / denom);
+        // gray to red ramp
+        var rch = Math.round(60 + 195*t);
+        var gch = Math.round(60 + (1-t)*60);
+        var bch = Math.round(60 + (1-t)*60);
+        fill = 'rgb('+rch+','+gch+','+bch+')';
+        if(r.anomalous){ stroke = '#ff3030'; sw = 3; }
+        label = String(r.pos_id);
+      }
+      s.appendChild(svg('rect',{
+        x:cx, y:cy, width:cell-2, height:cell-2,
+        fill: fill, stroke: stroke, 'stroke-width': sw, rx: 4
+      }));
+      if(r){
+        s.appendChild(svg('text',{
+          x: cx + (cell-2)/2, y: cy + (cell-2)/2 - 4,
+          'text-anchor':'middle','dominant-baseline':'middle',
+          'font-size': 10, fill: '#fff'
+        },[label]));
+        s.appendChild(svg('text',{
+          x: cx + (cell-2)/2, y: cy + (cell-2)/2 + 10,
+          'text-anchor':'middle','dominant-baseline':'middle',
+          'font-size': 10, fill: '#eaeaf0', 'font-weight':600
+        },['z=' + fmt(r.max_abs_z,1)]));
+      }
+    }
+  }
+
+  // Anomaly table for this face (top of full ranking, but limited to face)
+  var anomRows = rows.filter(function(r){return r.anomalous;});
+  anomRows.sort(function(a,b){return b.max_abs_z - a.max_abs_z;});
+
+  var tbl = el('table',{class:'anom-table'});
+  var thead = el('thead',{},[el('tr',{},[
+    el('th',{},['순위']), el('th',{},['Pos']),
+    el('th',{},['주요 원인']),
+    el('th',{},['|z|max']),
+    el('th',{},['z_g']), el('th',{},['z_s']), el('th',{},['z_d'])
+  ])]);
+  tbl.appendChild(thead);
+  var tbody = el('tbody',{});
+  if(anomRows.length === 0){
+    tbody.appendChild(el('tr',{},[el('td',{colspan:7,class:'anom-empty'},['이 면에서 이상치 없음'])]));
+  } else {
+    anomRows.forEach(function(r, i){
+      var driverKor = {peak_g:'가속도', peak_stress:'응력', peak_disp:'변위'}[r.driver] || r.driver;
+      tbody.appendChild(el('tr',{},[
+        el('td',{},[String(i+1)]),
+        el('td',{},[String(r.pos_id)]),
+        el('td',{class:'anom-driver'},[driverKor]),
+        el('td',{class:'anom-zmax'},[fmt(r.max_abs_z,2)]),
+        el('td',{},[fmt(r.z_g,2)]),
+        el('td',{},[fmt(r.z_s,2)]),
+        el('td',{},[fmt(r.z_d,2)]),
+      ]));
+    });
+  }
+  tbl.appendChild(tbody);
+
+  // IQR list (cross-method)
+  var zSet = {};
+  payload.per_position.forEach(function(r){ if(r.anomalous) zSet[r.face+'_'+r.pos_id]=true; });
+  var iqrList = el('div',{class:'anom-iqr-list'});
+  iqrList.appendChild(el('div',{class:'anom-iqr-title'},['IQR 펜스 기반 이상치 (peak_g)']));
+  if(!payload.iqr_outliers || payload.iqr_outliers.length===0){
+    iqrList.appendChild(el('div',{class:'anom-empty'},['IQR 기준 이상치 없음']));
+  } else {
+    var ul = el('ul',{class:'anom-iqr-ul'});
+    payload.iqr_outliers.forEach(function(o){
+      var key = o.face+'_'+o.pos_id;
+      var agree = !!zSet[key];
+      var li = el('li',{class: agree ? 'anom-iqr-agree' : 'anom-iqr-only'},[
+        el('span',{class:'anom-iqr-tag'},[agree ? '✓ 양쪽 일치' : '△ IQR만']),
+        ' ', o.face, ' Pos ', String(o.pos_id),
+        ' — peak_g=', fmt(o.mean_g,2), ' ', _u('acc')
+      ]);
+      ul.appendChild(li);
+    });
+    iqrList.appendChild(ul);
+  }
+
+  var body = el('div',{class:'anom-body'},[
+    el('div',{class:'anom-left'},[s]),
+    el('div',{class:'anom-right'},[tbl, iqrList])
+  ]);
+  root.appendChild(body);
+
+  var cap = el('div',{class:'anom-caption'},[
+    '위치별 응답이 평균에서 얼마나 벗어났는가. 빨간 테두리 = 통계적 이상치 (z>',
+    fmt(thresh,2),' 또는 IQR fence 초과).'
+  ]);
+  root.appendChild(cap);
+}
+
+function _deepPpdPartName(p) {
+  const nm = String(p.part_name || ('part_' + p.part_id));
+  const tail = nm.split(/[\\/]/).pop();
+  return tail || nm;
+}
+
+function _deepPpdRenderList(data) {
+  const root = document.getElementById('ppd-part-list');
+  if (!root) return;
+  root.innerHTML = '';
+  const parts = data.parts || [];
+  if (!parts.length) {
+    root.appendChild(el('div', { class: 'ppd-empty' }, '데이터 없음'));
+    return;
+  }
+  const maxG = parts[0].max_peak_g || 1;
+  parts.forEach(p => {
+    const row = el('div', {
+      class: 'ppd-list-row' + (DEEP_STATE.active_part === p.part_id ? ' active' : ''),
+      'data-ppd-part': String(p.part_id)
+    });
+    const name = el('div', { class: 'ppd-list-name', title: p.part_name }, _deepPpdPartName(p));
+    const valWrap = el('div', { class: 'ppd-list-val' });
+    const barBg = el('div', { class: 'ppd-list-bar-bg' });
+    const t = maxG > 0 ? Math.max(0.02, Math.min(1, p.max_peak_g / maxG)) : 0;
+    const bar = el('div', { class: 'ppd-list-bar' });
+    bar.style.width = (t * 100).toFixed(1) + '%';
+    bar.style.background = gColor(t);
+    barBg.appendChild(bar);
+    const num = el('div', { class: 'ppd-list-num' }, fmt(p.max_peak_g, 1));
+    valWrap.appendChild(barBg);
+    valWrap.appendChild(num);
+    row.appendChild(name);
+    row.appendChild(valWrap);
+    row.addEventListener('click', () => {
+      DEEP_STATE.active_part = p.part_id;
+      _deepPpdRenderList(data);
+      _deepPpdRenderDetail(data);
+    });
+    root.appendChild(row);
+  });
+}
+
+function _deepPpdGetMatrix() {
+  // Reuse DOE matrix when available, else return null
+  const doe = (DATA && DATA.doe_analysis) || null;
+  if (doe && doe.peak_g_matrix && Object.keys(doe.peak_g_matrix).length > 0) {
+    return doe.peak_g_matrix;
+  }
+  return null;
+}
+
+function _deepPpdActivePart(data) {
+  const parts = data.parts || [];
+  if (!parts.length) return null;
+  const want = DEEP_STATE.active_part;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].part_id === want) return parts[i];
+  }
+  return parts[0];
+}
+
+function _deepPpdRenderKpi(data, active) {
+  const root = document.getElementById('ppd-kpi-strip');
+  if (!root) return;
+  root.innerHTML = '';
+  if (!active) {
+    root.appendChild(el('div', { class: 'ppd-empty' }, '선택된 부품 없음'));
+    return;
+  }
+  const tiles = [
+    { label: '최대 Peak G',     value: fmt(active.max_peak_g, 1),     unit: _u('acc') },
+    { label: '평균 Peak G',     value: fmt(active.mean_peak_g, 1),    unit: _u('acc') },
+    { label: '최대 응력',        value: fmt(active.max_peak_stress, 2), unit: _u('stress') },
+    { label: '최대 변위',        value: fmt(active.max_peak_disp, 3),  unit: _u('disp') },
+    { label: 'P75↑ 위치 수',     value: String(active.n_positions_above_global_p75 || 0), unit: '/ ' + (Object.keys(data.positions_lookup || {}).length || 25) },
+    { label: '항복 정의',        value: active.has_yield ? 'YES' : 'NO', unit: active.has_yield ? _u('stress') : '' }
+  ];
+  tiles.forEach(t => {
+    const tile = el('div', { class: 'ppd-kpi-tile' });
+    tile.appendChild(el('div', { class: 'ppd-kpi-label' }, t.label));
+    const v = el('div', { class: 'ppd-kpi-val' }, t.value);
+    if (t.unit) v.appendChild(el('span', { class: 'ppd-kpi-unit' }, ' ' + t.unit));
+    tile.appendChild(v);
+    root.appendChild(tile);
+  });
+}
+
+function _deepPpdRenderHeatmap(data, active) {
+  const root = document.getElementById('ppd-heatmap-svg');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  const W = 320, H = 320;
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+  const mat = _deepPpdGetMatrix();
+  const positions = data.positions_lookup || {};
+  const posKeys = Object.keys(positions);
+
+  if (!active || !mat || !posKeys.length) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('위치별 peak_g 매트릭스 없음')]));
+    return;
+  }
+
+  const row = mat[String(active.part_id)] || mat[active.part_id] || {};
+  // bbox from positions
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  posKeys.forEach(k => {
+    const xy = positions[k];
+    if (!xy) return;
+    if (xy.x < xmin) xmin = xy.x; if (xy.x > xmax) xmax = xy.x;
+    if (xy.y < ymin) ymin = xy.y; if (xy.y > ymax) ymax = xy.y;
+  });
+  if (!isFinite(xmin) || xmin === xmax) { xmin -= 1; xmax += 1; }
+  if (!isFinite(ymin) || ymin === ymax) { ymin -= 1; ymax += 1; }
+  const padX = (xmax - xmin) * 0.08, padY = (ymax - ymin) * 0.08;
+  xmin -= padX; xmax += padX; ymin -= padY; ymax += padY;
+
+  // value normalization (use part's own max)
+  let vmax = 0;
+  posKeys.forEach(k => { const v = row[k] || 0; if (v > vmax) vmax = v; });
+  if (vmax <= 0) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('이 부품에 데이터 없음')]));
+    return;
+  }
+
+  const margin = 24;
+  const plotW = W - 2 * margin, plotH = H - 2 * margin;
+  const sx = (x) => margin + (x - xmin) / (xmax - xmin) * plotW;
+  const sy = (y) => margin + (1 - (y - ymin) / (ymax - ymin)) * plotH;
+
+  // size cells based on nx/ny from grid if available
+  const grid = (DATA.doe_analysis && DATA.doe_analysis.grid) || null;
+  let cellW, cellH;
+  if (grid && grid.nx && grid.ny) {
+    cellW = plotW / grid.nx * 0.92;
+    cellH = plotH / grid.ny * 0.92;
+  } else {
+    const n = Math.max(2, Math.ceil(Math.sqrt(posKeys.length)));
+    cellW = plotW / n * 0.85;
+    cellH = plotH / n * 0.85;
+  }
+
+  // background panel
+  root.appendChild(svg('rect', { x: margin - 2, y: margin - 2,
+    width: plotW + 4, height: plotH + 4, fill: '#0e1220', stroke: '#262d44',
+    'stroke-width': 1, rx: 4 }));
+
+  posKeys.forEach(k => {
+    const xy = positions[k];
+    if (!xy) return;
+    const v = row[k] || 0;
+    const t = v / vmax;
+    const cx = sx(xy.x), cy = sy(xy.y);
+    const fill = v > 0 ? gColor(t) : '#1a1e2e';
+    const rect = svg('rect', { x: cx - cellW/2, y: cy - cellH/2,
+      width: cellW, height: cellH, fill: fill, rx: 2,
+      stroke: '#262d44', 'stroke-width': 0.5 });
+    rect.appendChild(svg('title', null, [document.createTextNode(
+      k + ': ' + fmt(v, 1) + ' ' + _u('acc'))]));
+    root.appendChild(rect);
+  });
+
+  // star on max position
+  if (active.max_pos_id && positions[active.max_pos_id]) {
+    const xy = positions[active.max_pos_id];
+    const cx = sx(xy.x), cy = sy(xy.y);
+    // simple 5-point star path
+    const r1 = Math.max(6, Math.min(cellW, cellH) * 0.35);
+    const r2 = r1 * 0.45;
+    let d = '';
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI / 5) - Math.PI / 2;
+      const r = (i % 2 === 0) ? r1 : r2;
+      d += (i === 0 ? 'M' : 'L') + (cx + r * Math.cos(a)).toFixed(2) +
+           ',' + (cy + r * Math.sin(a)).toFixed(2);
+    }
+    d += 'Z';
+    root.appendChild(svg('path', { d: d, fill: '#fff7b0',
+      stroke: '#1a1e2e', 'stroke-width': 1.2 }));
+  }
+
+  // legend min/max
+  root.appendChild(svg('text', { x: margin, y: H - 4,
+    fill: '#5c6383', 'font-size': 9 },
+    [document.createTextNode('0 ~ ' + fmt(vmax, 1) + ' ' + _u('acc'))]));
+}
+
+function _deepPpdRenderHistogram(data, active) {
+  const root = document.getElementById('ppd-hist-svg');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  const W = 320, H = 200;
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+  const mat = _deepPpdGetMatrix();
+  const positions = data.positions_lookup || {};
+  if (!active || !mat) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('매트릭스 없음')]));
+    return;
+  }
+  const row = mat[String(active.part_id)] || mat[active.part_id] || {};
+  const vals = Object.keys(positions).map(k => Number(row[k] || 0));
+  if (!vals.length) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('데이터 없음')]));
+    return;
+  }
+  const vmax = Math.max.apply(null, vals);
+  if (vmax <= 0) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('모든 위치에서 0')]));
+    return;
+  }
+  const NB = 10;
+  const counts = new Array(NB).fill(0);
+  vals.forEach(v => {
+    let b = Math.floor((v / vmax) * NB);
+    if (b >= NB) b = NB - 1;
+    if (b < 0) b = 0;
+    counts[b] += 1;
+  });
+  const cmax = Math.max.apply(null, counts) || 1;
+
+  const padL = 32, padR = 8, padT = 16, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  // axes
+  root.appendChild(svg('line', { x1: padL, y1: padT + plotH, x2: padL + plotW,
+    y2: padT + plotH, stroke: '#262d44', 'stroke-width': 1 }));
+  root.appendChild(svg('line', { x1: padL, y1: padT, x2: padL,
+    y2: padT + plotH, stroke: '#262d44', 'stroke-width': 1 }));
+
+  const bw = plotW / NB;
+  counts.forEach((c, i) => {
+    const t = (i + 0.5) / NB;
+    const h = (c / cmax) * plotH;
+    const x = padL + i * bw + 1;
+    const y = padT + plotH - h;
+    const rect = svg('rect', { x: x, y: y, width: bw - 2, height: h,
+      fill: gColor(t), rx: 1 });
+    rect.appendChild(svg('title', null, [document.createTextNode(
+      '[' + fmt(i * vmax / NB, 1) + ' ~ ' + fmt((i + 1) * vmax / NB, 1) +
+      '] ' + _u('acc') + ': ' + c + '개')]));
+    root.appendChild(rect);
+  });
+  // x-axis label
+  root.appendChild(svg('text', { x: padL, y: H - 10, fill: '#5c6383',
+    'font-size': 9, 'text-anchor': 'start' },
+    [document.createTextNode('0')]));
+  root.appendChild(svg('text', { x: padL + plotW, y: H - 10, fill: '#5c6383',
+    'font-size': 9, 'text-anchor': 'end' },
+    [document.createTextNode(fmt(vmax, 1) + ' ' + _u('acc'))]));
+  root.appendChild(svg('text', { x: padL + plotW/2, y: H - 2, fill: '#aab2cf',
+    'font-size': 10, 'text-anchor': 'middle' },
+    [document.createTextNode('peak_g 분포 (25 위치)')]));
+  // y-axis max
+  root.appendChild(svg('text', { x: padL - 4, y: padT + 4, fill: '#5c6383',
+    'font-size': 9, 'text-anchor': 'end' },
+    [document.createTextNode(String(cmax))]));
+}
+
+function _deepPpdRenderYieldOrMat(data, active) {
+  const root = document.getElementById('ppd-yield-svg');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  const W = 320, H = 200;
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+  if (!active) {
+    root.appendChild(svg('text', { x: W/2, y: H/2, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 12 }, [document.createTextNode('선택된 부품 없음')]));
+    return;
+  }
+
+  if (active.has_yield && active.yield_value && active.yield_value > 0) {
+    const y = active.yield_value;
+    const s = active.max_peak_stress || 0;
+    const ratio = s / y;
+    const vmax = Math.max(y, s) * 1.15;
+    const padL = 32, padR = 16, padT = 24, padB = 40;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+
+    // background
+    root.appendChild(svg('rect', { x: padL, y: padT, width: plotW, height: plotH,
+      fill: '#0e1220', stroke: '#262d44', 'stroke-width': 1, rx: 2 }));
+
+    // stress bar
+    const sH = (s / vmax) * plotH;
+    const fill = ratio >= 1 ? '#e85d75' : (ratio >= 0.7 ? '#f0b400' : '#5dd28a');
+    const barW = plotW * 0.32;
+    const sBarX = padL + plotW * 0.20;
+    root.appendChild(svg('rect', { x: sBarX, y: padT + plotH - sH,
+      width: barW, height: sH, fill: fill, rx: 2 }));
+    root.appendChild(svg('text', { x: sBarX + barW/2, y: padT + plotH + 14,
+      'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10 },
+      [document.createTextNode('최대 응력')]));
+    root.appendChild(svg('text', { x: sBarX + barW/2, y: padT + plotH - sH - 4,
+      'text-anchor': 'middle', fill: '#e0e4ff', 'font-size': 10 },
+      [document.createTextNode(fmt(s, 2))]));
+
+    // yield bar
+    const yH = (y / vmax) * plotH;
+    const yBarX = padL + plotW * 0.58;
+    root.appendChild(svg('rect', { x: yBarX, y: padT + plotH - yH,
+      width: barW, height: yH, fill: '#3b528b', rx: 2 }));
+    root.appendChild(svg('text', { x: yBarX + barW/2, y: padT + plotH + 14,
+      'text-anchor': 'middle', fill: '#aab2cf', 'font-size': 10 },
+      [document.createTextNode('항복')]));
+    root.appendChild(svg('text', { x: yBarX + barW/2, y: padT + plotH - yH - 4,
+      'text-anchor': 'middle', fill: '#e0e4ff', 'font-size': 10 },
+      [document.createTextNode(fmt(y, 2))]));
+
+    // yield line
+    root.appendChild(svg('line', { x1: padL, y1: padT + plotH - yH,
+      x2: padL + plotW, y2: padT + plotH - yH,
+      stroke: '#e85d75', 'stroke-width': 1, 'stroke-dasharray': '4 3' }));
+
+    root.appendChild(svg('text', { x: W/2, y: 14, 'text-anchor': 'middle',
+      fill: '#e0e4ff', 'font-size': 11 },
+      [document.createTextNode('응력/항복 비교 — 비율 ' + (ratio * 100).toFixed(1) + '%')]));
+    root.appendChild(svg('text', { x: W/2, y: H - 6, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 9 },
+      [document.createTextNode('단위: ' + _u('stress'))]));
+  } else {
+    // material card — show E and density (impactor proxy)
+    const mat = data.impactor_material || { youngs_modulus: 0, density: 0 };
+    root.appendChild(svg('text', { x: W/2, y: 22, 'text-anchor': 'middle',
+      fill: '#e0e4ff', 'font-size': 12 },
+      [document.createTextNode('항복 응력 미정의')]));
+    root.appendChild(svg('text', { x: W/2, y: 42, 'text-anchor': 'middle',
+      fill: '#5c6383', 'font-size': 9 },
+      [document.createTextNode('대신 충격체 재료 정보 표시')]));
+
+    const rows = [
+      ['최대 응력 (관측)', fmt(active.max_peak_stress, 2) + ' ' + _u('stress')],
+      ['충격체 E',         fmt(mat.youngs_modulus, 2) + ' ' + _u('stress')],
+      ['충격체 밀도',      fmt(mat.density, 6)]
+    ];
+    rows.forEach((r, i) => {
+      const y = 80 + i * 28;
+      root.appendChild(svg('text', { x: 24, y: y, fill: '#aab2cf', 'font-size': 11 },
+        [document.createTextNode(r[0])]));
+      root.appendChild(svg('text', { x: W - 24, y: y, 'text-anchor': 'end',
+        fill: '#e0e4ff', 'font-size': 11 },
+        [document.createTextNode(r[1])]));
+    });
+  }
+}
+
+function _deepPpdRenderDetail(data) {
+  const active = _deepPpdActivePart(data);
+  // title
+  const titleEl = document.getElementById('ppd-detail-title');
+  if (titleEl) {
+    if (active) {
+      titleEl.textContent = '활성 부품: ' + _deepPpdPartName(active) +
+        '  (id=' + active.part_id + ', 최대 위치=' + active.max_pos_id + ')';
+    } else {
+      titleEl.textContent = '활성 부품 없음';
+    }
+  }
+  _deepPpdRenderKpi(data, active);
+  _deepPpdRenderHeatmap(data, active);
+  _deepPpdRenderHistogram(data, active);
+  _deepPpdRenderYieldOrMat(data, active);
+}
+
+function _deepRenderPerPartDrillDown(deepData) {
+  const data = deepData && deepData.per_part_drilldown;
+  const host = document.getElementById('ppd-host');
+  if (!host) return;
+  if (!data || !data.parts || !data.parts.length) {
+    host.style.display = 'none';
+    return;
+  }
+  host.style.display = '';
+  // initialize active part = top-1 by default
+  if (DEEP_STATE.active_part == null) {
+    DEEP_STATE.active_part = data.parts[0].part_id;
+  }
+  _deepPpdRenderList(data);
+  _deepPpdRenderDetail(data);
+}
+
+// === DEEP_JS_FUNCTIONS_INSERT_HERE ===
+// Section-06 _deepRenderXxx render functions are inserted ABOVE this line.
+
+const DEEP_STATE = { active_part: null, srs_pos: null };
+
+function initDeepAnalytics() {
+  const data = (DATA && DATA.deep_analytics) || null;
+  const sec = document.getElementById('s6');
+  const navLink = document.getElementById('navS6');
+  if (!data || !sec) {
+    if (sec) sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+  // If every sub-key is missing/empty, hide the section.
+  const populated = Object.keys(data).some(k => {
+    const v = data[k];
+    return v && (typeof v !== 'object' || Object.keys(v).length > 0 || (Array.isArray(v) && v.length > 0));
+  });
+  if (!populated) {
+    sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+_deepRenderFFT(DATA.deep_analytics);
+_deepRenderSRS(DATA);
+  _deepRenderSafeDropZone(DATA);
+_deepRenderPCAModal(DATA.deep_analytics);
+_deepRenderAnomalyDetection(DATA);
+_deepRenderPerPartDrillDown(data);
+  // === DEEP_BOOT_CALLS_INSERT_HERE ===
+  // Workflow-added _deepRenderXxx(data) calls are inserted ABOVE this line.
+}
+
 const DOE_STATE = { metric: 'peak_g', sort: 'value', active_pos: null };
 
 function _doeUnitForMetric(key) {
@@ -7053,6 +9796,7 @@ function boot() {
   initTrajectoryBundle3D();
   initPerPartPeakG();
   initDoeAnalysis();
+  initDeepAnalytics();
   wireControlBar();
   initReveal();
   initNav();
@@ -7116,6 +9860,7 @@ def generate_html(report: ImpactReport) -> str:
         + _PAGE3
         + _PAGE4
         + _PAGE5
+        + _PAGE6
         + "<script>\n" + js + "\n</script>\n"
         "</body>\n</html>\n"
     )
