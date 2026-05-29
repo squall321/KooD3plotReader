@@ -161,8 +161,14 @@ def _read_fields(line: str, n: int = 8) -> list[str]:
       - Comma-separated: "1, 7.85e-9, 210000, 0.3, 250"
       - Fixed 10-col: "         1    7.85-9    210000       0.3       250"
       - Space-separated fallback: "1 7.85E-09 210000 0.3 250"
+
+    Detect fixed-col format on the ORIGINAL (rstripped) line, since
+    pre-stripping leading whitespace can fuse columns whose left field
+    has only a value at the right edge of its 10-char slot (e.g. "         1"
+    followed by "2.7000E-09" would otherwise collapse into "12.7000E-09").
     """
-    stripped = line.strip()
+    raw = line.rstrip("\n").rstrip()
+    stripped = raw.strip()
     if not stripped:
         return [""] * n
 
@@ -171,18 +177,23 @@ def _read_fields(line: str, n: int = 8) -> list[str]:
         parts = stripped.split(",")
         return [p.strip() for p in parts[:n]] + [""] * max(0, n - len(parts))
 
-    # 2. Fixed 10-col: check if first 10-char field is a single token
-    if len(stripped) >= 70:
-        first_field = stripped[:10].strip()
-        if first_field and " " not in first_field:
+    # 2. Fixed 10-col: detect by checking whether each 10-col slot in the RAW
+    #    line is internally a single token (no embedded whitespace) — this
+    #    catches LS-DYNA fixed format regardless of total line length.
+    if len(raw) >= 20:
+        looks_fixed = True
+        n_slots = min(n, (len(raw) + 9) // 10)
+        for i in range(n_slots):
+            slot = raw[i * 10:(i + 1) * 10].strip()
+            if slot and " " in slot:
+                looks_fixed = False
+                break
+        if looks_fixed:
             fields = []
             for i in range(n):
                 start = i * 10
                 end = start + 10
-                if start < len(stripped):
-                    fields.append(stripped[start:end].strip())
-                else:
-                    fields.append("")
+                fields.append(raw[start:end].strip() if start < len(raw) else "")
             return fields
 
     # 3. Space-separated fallback
@@ -275,8 +286,8 @@ def parse_keyword_file(path: str | Path) -> KeywordData:
                 i = _parse_part(lines, i + 1, data)
                 continue
 
-            # *MAT_*
-            mat_match = re.match(r'\*MAT_(\w+)', upper)
+            # *MAT_*  — capture both *MAT_RIGID_TITLE and *MAT_MOONEY-RIVLIN_RUBBER
+            mat_match = re.match(r'\*MAT_([\w-]+)', upper)
             if mat_match:
                 mat_name = mat_match.group(1)
                 mat_number = _mat_name_to_number(mat_name, upper)
@@ -323,15 +334,31 @@ def _parse_part(lines: list[str], i: int, data: KeywordData) -> int:
 def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
                data: KeywordData) -> int:
     """Parse *MAT_ section: read MID and key properties."""
-    # Skip comments and title lines
+    # Skip comments
     while i < len(lines) and lines[i].strip().startswith("$"):
         i += 1
 
     if i >= len(lines):
         return i
 
+    # Normalize hyphens (MOONEY-RIVLIN → MOONEY_RIVLIN) for consistent storage
+    mat_name = mat_name.replace("-", "_")
+
+    # *MAT_XXX_TITLE has an extra title line before card 1. Detect any
+    # non-numeric / non-comment leading line as a title and skip it.
+    if mat_name.endswith("_TITLE"):
+        # Strip the _TITLE suffix from the type name to match material number maps
+        mat_name = mat_name[:-len("_TITLE")]
+        # Skip the title line
+        if i < len(lines) and not lines[i].lstrip().startswith(("$", "*")):
+            i += 1
+            while i < len(lines) and lines[i].strip().startswith("$"):
+                i += 1
+
+    if i >= len(lines):
+        return i
+
     # Card 1: always starts with MID, RO, E, PR, ...
-    # (some MATs have a title line, but most don't — the first non-comment line is card 1)
     card1 = _read_fields(lines[i], 8)
     mid = _to_int(card1[0])
 
@@ -396,6 +423,8 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
 
 def _mat_name_to_number(name: str, full_line: str) -> int:
     """Map MAT type name to number. Handles both *MAT_024 and *MAT_PIECEWISE_LINEAR_PLASTICITY."""
+    # Normalize hyphens to underscores (LS-DYNA accepts both, e.g. MOONEY-RIVLIN_RUBBER)
+    name = name.replace("-", "_")
     # Try direct number (e.g. *MAT_024)
     m = re.match(r'^0*(\d+)$', name)
     if m:

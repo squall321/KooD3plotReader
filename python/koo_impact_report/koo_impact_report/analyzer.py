@@ -89,22 +89,28 @@ def compute_per_face_stats(results: list[PairResult]) -> dict[str, dict]:
 # Pair-level severity score (§8.6)
 # ---------------------------------------------------------------------------
 
-DEFAULT_WEIGHTS = {"g": 0.5, "s": 0.3, "e": 0.2}
+# Severity scoring is opt-in. Callers must supply explicit weights (e.g. via
+# the ``--severity-weight`` CLI argument). The previous module-level
+# ``DEFAULT_WEIGHTS`` was a hidden assumption that biased every report
+# towards a fixed g/s/e ratio; removing it forces the caller to think about
+# which metrics matter for their specific test.
 
 
 def compute_severity_score(
     part_result: PairResult,
     weights: dict[str, float] | None = None,
     max_vals: dict[str, float] | None = None,
-) -> float:
-    """Standardized 0~10 severity score from per-pair peaks.
+    score_scale: float = 1.0,
+) -> float | None:
+    """Weighted severity score in the unit chosen by ``score_scale``.
 
-    Each metric is normalized by its global ``max_vals`` to put them on the
-    same 0~1 scale, weighted, and rescaled to 0~10.
+    Returns ``None`` if no weights are supplied — callers should then omit
+    the severity column from their report rather than substitute a fake
+    "0" score. ``score_scale`` is the output rescale (default 1.0 keeps the
+    natural [0, 1] range; pass 10 for a 0–10 dial, 100 for percent).
     """
-    w = weights or DEFAULT_WEIGHTS
-    if not max_vals:
-        return 0.0
+    if not weights or not max_vals:
+        return None
 
     def _n(v: float, k: str) -> float:
         m = max_vals.get(k, 0.0)
@@ -113,8 +119,8 @@ def compute_severity_score(
     g = _n(part_result.peak_g,      "peak_g")
     s = _n(part_result.peak_stress, "peak_stress")
     e = _n(part_result.peak_strain, "peak_strain")
-    score = (w.get("g", 0) * g + w.get("s", 0) * s + w.get("e", 0) * e)
-    return float(min(10.0, max(0.0, score * 10.0)))
+    score = (weights.get("g", 0) * g + weights.get("s", 0) * s + weights.get("e", 0) * e)
+    return float(min(score_scale, max(0.0, score * score_scale)))
 
 
 # ---------------------------------------------------------------------------
@@ -174,11 +180,25 @@ def _global_max(results: list[PairResult]) -> dict[str, float]:
 
 def generate_findings(
     report: ImpactReport,
-    threshold_critical: float = 5.0e5,
-    threshold_warning: float = 1.0e5,
-    yield_stress: float = 0.0,
+    threshold_critical: float | None = None,
+    threshold_warning: float | None = None,
+    yield_stress_by_part: dict[int, float] | None = None,
 ) -> list[Finding]:
-    """Auto-derive CRITICAL/WARNING/INFO findings from results."""
+    """Auto-derive CRITICAL/WARNING/INFO findings from results.
+
+    All thresholds are caller-supplied: there is no implicit unit-dependent
+    default. If the caller wants automatic severity, they should derive the
+    thresholds from material data (e.g. per-part yield stress) and/or
+    statistical percentiles of the result distribution.
+
+    Args:
+        threshold_critical: peak_g level (in the dataset's native units)
+            above which a finding is CRITICAL. ``None`` disables.
+        threshold_warning: similar, lower bound. ``None`` disables.
+        yield_stress_by_part: optional ``{part_id: yield_stress}`` mapping
+            (units must match ``peak_stress``). Stress exceedance findings
+            are only emitted for parts that supply a non-zero yield value.
+    """
     findings: list[Finding] = []
 
     if not report.results:
@@ -199,7 +219,7 @@ def generate_findings(
             f"Generation mode: {report.generation_mode}, "
             f"boundary={report.boundary_distance:.1f} mm, "
             f"offset={report.offset_distance:.3f} mm, "
-            f"impactor={report.impactor.type} h={report.impactor.height:.0f} mm"
+            f"impactor={report.impactor.type or 'unknown'} h={report.impactor.height:.0f} mm"
         ),
         recommendation="",
     ))
@@ -214,35 +234,39 @@ def generate_findings(
             by_part[r.part_id] = r
 
     part_lookup = {p.part_id: p for p in report.parts}
+    yields = yield_stress_by_part or {}
     for pid, worst in by_part.items():
         pi = part_lookup.get(pid)
         name = pi.part_name if pi else f"Part {pid}"
 
-        if worst.peak_g >= threshold_critical:
+        if threshold_critical is not None and worst.peak_g >= threshold_critical:
             findings.append(Finding(
                 severity=Severity.CRITICAL,
-                title=f"{name}: peak {worst.peak_g/1e6:.2f} MG at {worst.position.pos_id}",
+                title=f"{name}: peak_g {worst.peak_g:.3e} at {worst.position.pos_id}",
                 detail=(
                     f"face={worst.face} (x,y)=({worst.position.x:.1f},{worst.position.y:.1f}) "
-                    f"σ={worst.peak_stress:.1f} MPa, ε={worst.peak_strain:.4f}"
+                    f"σ={worst.peak_stress:.3e}, ε={worst.peak_strain:.4f}"
                 ),
                 recommendation="Verify component shock tolerance; consider reinforcement.",
             ))
-        elif worst.peak_g >= threshold_warning:
+        elif threshold_warning is not None and worst.peak_g >= threshold_warning:
             findings.append(Finding(
                 severity=Severity.WARNING,
-                title=f"{name}: peak {worst.peak_g/1e6:.2f} MG at {worst.position.pos_id}",
+                title=f"{name}: peak_g {worst.peak_g:.3e} at {worst.position.pos_id}",
                 detail=(
                     f"face={worst.face} (x,y)=({worst.position.x:.1f},{worst.position.y:.1f})"
                 ),
                 recommendation="Monitor — close to critical threshold.",
             ))
 
-        if yield_stress > 0 and worst.peak_stress > yield_stress:
-            sf = yield_stress / worst.peak_stress if worst.peak_stress > 0 else float("inf")
+        # Per-part yield-stress check uses the part's OWN yield stress (from
+        # *MAT_ card), not a global one. Skipped when not supplied.
+        sy = float(yields.get(pid, 0.0) or 0.0)
+        if sy > 0 and worst.peak_stress > sy:
+            sf = sy / worst.peak_stress if worst.peak_stress > 0 else float("inf")
             findings.append(Finding(
                 severity=Severity.CRITICAL,
-                title=f"{name}: stress exceeds yield ({worst.peak_stress:.1f} > {yield_stress:.1f} MPa)",
+                title=f"{name}: stress exceeds yield ({worst.peak_stress:.3e} > {sy:.3e})",
                 detail=f"Safety Factor = {sf:.2f} at {worst.position.pos_id}",
                 recommendation="Material review or design change required.",
             ))
@@ -251,8 +275,8 @@ def generate_findings(
         severity=Severity.INFO,
         title="Global peaks",
         detail=(
-            f"G={gmax['peak_g']/1e6:.2f} MG, σ={gmax['peak_stress']:.1f} MPa, "
-            f"ε={gmax['peak_strain']:.4f}, d={gmax['peak_disp']:.2f} mm"
+            f"peak_g={gmax['peak_g']:.3e}, σ={gmax['peak_stress']:.3e}, "
+            f"ε={gmax['peak_strain']:.4f}, d={gmax['peak_disp']:.3e}"
         ),
         recommendation="",
     ))
@@ -264,16 +288,25 @@ def generate_findings(
 # Impactor-trajectory clustering
 # ---------------------------------------------------------------------------
 
-# Feature signature used to assign human-readable archetypes to k-means centroids.
-# Each row is the expected z-scored shape of [ke_retention, t_first_contact_norm,
-# max_penetration_depth_norm, rebound_speed_norm, lateral_speed_norm].
-_ARCHETYPE_SIGNATURES = {
+# Feature signature used to assign human-readable archetypes to k-means
+# centroids. Each row is the expected z-scored shape of:
+#   [ke_retention, t_first_contact_norm, max_penetration_depth_norm,
+#    rebound_speed_norm, lateral_speed_norm]
+# These are *labels*, not physical thresholds — they are the user-supplied
+# vocabulary used to give clusters human-readable names. Callers can pass
+# their own dict to ``compute_trajectory_clusters`` to use a different
+# taxonomy (e.g. domain-specific drop-test categories).
+DEFAULT_ARCHETYPE_SIGNATURES = {
     "bounce-back":  np.array([+1.2,  0.0, -0.8, +1.2, -0.5]),
     "embed":        np.array([-1.2,  0.0, +1.2, -1.2, -0.5]),
     "slide":        np.array([ 0.0,  0.0, -0.3, +0.5, +1.5]),
     "slow-decay":   np.array([ 0.0,  0.0,  0.0, -0.3, -0.3]),
     "fast-decay":   np.array([-0.6,  0.0, +0.6, -0.6,  0.0]),
 }
+# Backwards-compat alias kept for callers; new code should use the public
+# DEFAULT_ARCHETYPE_SIGNATURES symbol and pass an explicit override when
+# needed.
+_ARCHETYPE_SIGNATURES = DEFAULT_ARCHETYPE_SIGNATURES
 
 
 def _kmeans_lloyd(
@@ -328,13 +361,17 @@ def _kmeans_lloyd(
     return labels, centroids
 
 
-def _assign_archetypes(centroids: np.ndarray) -> list[str]:
+def _assign_archetypes(
+    centroids: np.ndarray,
+    signatures: dict | None = None,
+) -> list[str]:
     """Pick the closest archetype label for each centroid.
 
     Distinct labels are preferred — if two centroids share the same closest
-    archetype, the second-closest is used for the runner-up.
+    archetype, the second-closest is used for the runner-up. Pass a custom
+    ``signatures`` dict to override ``DEFAULT_ARCHETYPE_SIGNATURES``.
     """
-    sigs = list(_ARCHETYPE_SIGNATURES.items())
+    sigs = list((signatures or DEFAULT_ARCHETYPE_SIGNATURES).items())
     sig_names = [name for name, _ in sigs]
     sig_vecs = np.array([v for _, v in sigs])
 
@@ -360,6 +397,7 @@ def compute_trajectory_clusters(
     report: ImpactReport,
     k: int = 4,
     seed: int = 0,
+    archetype_signatures: dict | None = None,
 ) -> TrajectoryClusters | None:
     """Cluster runs by impactor-trajectory feature vectors (k-means).
 
@@ -425,7 +463,7 @@ def compute_trajectory_clusters(
     except Exception:
         labels_compact, centroids = _kmeans_lloyd(X, k=k, seed=seed)
 
-    archetypes = _assign_archetypes(centroids)
+    archetypes = _assign_archetypes(centroids, signatures=archetype_signatures)
 
     # Map back to per-PairResult labels (results order).
     pos2label = {pos_ids[i]: int(labels_compact[i]) for i in range(len(pos_ids))}
@@ -448,16 +486,20 @@ def compute_trajectory_clusters(
 
 def analyze(
     report: ImpactReport,
-    threshold_critical: float = 5.0e5,
-    threshold_warning: float = 1.0e5,
-    yield_stress: float = 0.0,
+    threshold_critical: float | None = None,
+    threshold_warning: float | None = None,
+    yield_stress_by_part: dict[int, float] | None = None,
 ) -> ImpactReport:
-    """Populate ``report.findings`` in-place and return ``report``."""
+    """Populate ``report.findings`` in-place and return ``report``.
+
+    Thresholds are explicit (no implicit unit-dependent defaults). When the
+    caller does not supply them, severity findings are simply omitted.
+    """
     report.findings = generate_findings(
         report,
         threshold_critical=threshold_critical,
         threshold_warning=threshold_warning,
-        yield_stress=yield_stress,
+        yield_stress_by_part=yield_stress_by_part,
     )
     report.trajectory_clusters = compute_trajectory_clusters(report)
     return report

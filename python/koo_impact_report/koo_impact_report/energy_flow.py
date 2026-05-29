@@ -26,12 +26,13 @@ from .models import (
 def build_energy_flow(
     run_dir: Path,
     parts: list[PartInfo],
-    impactor_id: str = "impactor",
-) -> EnergyFlow:
+    impactor_id: str | None = None,
+) -> EnergyFlow | None:
     """Construct an EnergyFlow for one run directory.
 
-    Currently a stub: returns an EnergyFlow with proper structure but
-    empty time series. Useful for development of analysis/viz code.
+    Currently unimplemented. Returns ``None`` rather than a graph with all
+    zero scalars, so downstream code (e.g. ``verify_energy_conservation``)
+    cannot silently treat absent data as "ok".
 
     TODO: parse binout/{matsum, rcforc, glstat} via
     ``koo_deep_report.core.binout_reader.parse_binout`` and
@@ -42,33 +43,32 @@ def build_energy_flow(
       4) populate propagation_order / depth_map via compute_propagation_depth
       5) compute impactor_ke_initial/final/dissipated from glstat
     """
-    nodes: list[EnergyNode] = [
-        EnergyNode(node_id=impactor_id, name="Impactor", is_impactor=True),
-    ]
-    for p in parts:
-        nodes.append(EnergyNode(node_id=str(p.part_id), name=p.part_name))
-
-    return EnergyFlow(
-        impactor_ke_initial=0.0,
-        impactor_ke_final=0.0,
-        energy_dissipated=0.0,
-        nodes=nodes,
-        edges=[],
-        frames=[],
-        propagation_order=[],
-        depth_map={impactor_id: 0},
-    )
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Helpers (fully implemented)
 # ---------------------------------------------------------------------------
 
-def compute_first_engage_time(edge: EnergyEdge, threshold: float = 1e-3) -> float | None:
-    """First t at which |F|(t) > ``threshold`` for this edge (§22.11.D).
+def compute_first_engage_time(
+    edge: EnergyEdge,
+    threshold: float | None = None,
+    threshold_ratio: float = 0.01,
+) -> float | None:
+    """First t at which |F|(t) exceeds a data-driven threshold (§22.11.D).
 
-    Returns ``None`` if the edge never engages above threshold.
+    ``threshold`` (absolute, in the dataset's force unit) takes precedence
+    when supplied. Otherwise the threshold is derived from the edge itself
+    as ``threshold_ratio × peak |F|`` (default 1 %), keeping the check
+    unit-agnostic. Returns ``None`` if the edge never engages.
     """
+    if not edge.force_mag_ts:
+        return None
+    if threshold is None:
+        peak = max(abs(f) for f in edge.force_mag_ts)
+        if peak <= 0:
+            return None
+        threshold = threshold_ratio * peak
     for t, f in zip(edge.times, edge.force_mag_ts):
         if abs(f) > threshold:
             return float(t)
@@ -100,13 +100,15 @@ def compute_propagation_depth(impactor_id: str, edges: list[EnergyEdge]) -> dict
 def compute_node_positions(
     depth_map: dict[str, int],
     max_depth: int | None = None,
-    radius_step: float = 100.0,
+    radius_step: float = 1.0,
     angle_offset: float = 0.0,
 ) -> dict[str, tuple[float, float]]:
     """Lay nodes out in concentric rings by depth (§22.11.F).
 
     Impactor (depth 0) sits at origin; depth ``d`` nodes spread evenly
-    around a circle of radius ``radius_step * d``.
+    around a circle of radius ``radius_step * d``. ``radius_step`` is in
+    layout units (caller's responsibility) — the default of 1.0 keeps the
+    layout dimensionless so the caller scales for the target viewport.
     """
     by_depth: dict[int, list[str]] = defaultdict(list)
     for n, d in depth_map.items():
@@ -130,13 +132,20 @@ def compute_node_positions(
     return positions
 
 
-def verify_energy_conservation(flow: EnergyFlow) -> dict:
+def verify_energy_conservation(
+    flow: EnergyFlow,
+    tolerance_pct: float | None = None,
+) -> dict | None:
     """KE_init = KE_final + IE_final + dissipated (§22.11.E).
 
-    Returns a dict with the four totals, the residual, and the residual %
-    relative to ``impactor_ke_initial``. Residual > 5 % is suspicious.
+    Returns ``None`` when there is no initial KE to compare against —
+    callers should NOT interpret zero-initial-KE as a passing check. When
+    ``tolerance_pct`` is supplied, the ``ok`` field reflects ``|residual %|
+    < tolerance_pct``; otherwise ``ok`` is omitted (no implicit threshold).
     """
     ke_init = float(flow.impactor_ke_initial)
+    if ke_init <= 0:
+        return None
     ke_final_total = 0.0
     ie_final_total = 0.0
     for n in flow.nodes:
@@ -146,16 +155,18 @@ def verify_energy_conservation(flow: EnergyFlow) -> dict:
             ie_final_total += float(n.internal_ts[-1])
     dissipated = float(flow.energy_dissipated)
     residual = ke_init - ke_final_total - ie_final_total - dissipated
-    pct = (abs(residual) / ke_init * 100.0) if ke_init > 0 else 0.0
-    return {
+    pct = abs(residual) / ke_init * 100.0
+    out = {
         "ke_init": ke_init,
         "ke_final_total": ke_final_total,
         "ie_final_total": ie_final_total,
         "dissipated": dissipated,
         "residual": residual,
         "residual_pct": pct,
-        "ok": pct < 5.0,
     }
+    if tolerance_pct is not None:
+        out["ok"] = pct < float(tolerance_pct)
+    return out
 
 
 def compute_energy_path(

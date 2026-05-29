@@ -8,6 +8,7 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 
 # ---------------------------------------------------------------------------
@@ -60,13 +61,26 @@ class ImpactorSpec:
     Sphere fields: ``radius``.
     Cylinder fields (asymmetric tumbler): ``front_radius``, ``outer_radius``,
     ``front_height``, ``back_height``, ``back_radius``.
+
+    Units (LS-DYNA [ton, mm, s, MPa] convention used by koo_deep_report):
+        density        → tonne/mm³   (e.g. steel = 7.85e-9)
+        youngs_modulus → MPa         (e.g. steel = 210000)
+        mass (derived) → tonne
+        radius, height → mm
     """
-    type: str = "Sphere"                  # "Sphere" | "Cylinder"
-    radius: float = 0.0                   # mm — Sphere radius
-    height: float = 100.0                 # mm — free-fall drop height
-    density: float = 7850.0               # kg/m³
-    youngs_modulus: float = 2.0e11        # Pa
-    poisson_ratio: float = 0.3
+    # Geometry type — must be set explicitly. Empty string means "unknown"
+    # (volume / mass derivation falls back to mass_override in that case).
+    type: str = ""                        # "Sphere" | "Cylinder" | ""
+    radius: float = 0.0                   # mm
+    height: float = 0.0                   # mm — free-fall drop height (if known)
+    density: float = 0.0                  # tonne/mm³
+    youngs_modulus: float = 0.0           # MPa
+    poisson_ratio: float = 0.0
+    mass_override: float | None = None    # tonne — when computed externally
+    part_id: int | None = None            # source part id in the keyword file
+    part_name: str = ""
+    mat_type: str = ""                    # MAT keyword (e.g. "RIGID")
+    initial_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)  # mm/s
     # cylinder-only
     front_radius: float | None = None
     outer_radius: float | None = None
@@ -74,8 +88,10 @@ class ImpactorSpec:
     back_height: float | None = None
     back_radius: float | None = None
 
-    # g in mm/s² (pyKooCAE convention)
-    G_MM_S2: float = 9810.0
+    # Gravitational acceleration g in mm/s². Declared as ``ClassVar`` so it
+    # is NOT a per-instance dataclass field (no serialization, no override
+    # surface — it's a physical constant, not data).
+    G_MM_S2: ClassVar[float] = 9810.0
 
     @property
     def volume(self) -> float:
@@ -94,19 +110,34 @@ class ImpactorSpec:
 
     @property
     def mass(self) -> float:
-        """Mass in kg. ``volume`` is mm³ → convert to m³ via 1e-9."""
-        return self.density * (self.volume * 1e-9)
+        """Mass in tonne (LS-DYNA [ton, mm, s] convention).
+
+        Prefer ``mass_override`` (derived from matsum/keyword) over geometric
+        density × volume; the latter ignores mass scaling and rigid-body
+        inertia keywords.
+        """
+        if self.mass_override is not None:
+            return self.mass_override
+        return self.density * self.volume  # tonne/mm³ · mm³ = tonne
 
     @property
     def velocity(self) -> float:
-        """Impact velocity (mm/s) from free-fall height: v = sqrt(2 g h)."""
-        if self.height <= 0:
-            return 0.0
-        return math.sqrt(2.0 * self.G_MM_S2 * self.height)
+        """Impact velocity magnitude (mm/s).
+
+        Prefer the parsed ``initial_velocity`` (from ``*INITIAL_VELOCITY*``);
+        fall back to free-fall energy: v = sqrt(2 g h) when only height known.
+        """
+        vx, vy, vz = self.initial_velocity
+        v = math.sqrt(vx * vx + vy * vy + vz * vz)
+        if v > 0:
+            return v
+        if self.height > 0:
+            return math.sqrt(2.0 * self.G_MM_S2 * self.height)
+        return 0.0
 
     @property
     def kinetic_energy(self) -> float:
-        """KE = ½ m v² — units: kg · (mm/s)² = µJ. Caller may rescale."""
+        """KE in mJ (= N·mm). [ton, mm, s] → ton·(mm/s)² = mJ."""
         return 0.5 * self.mass * (self.velocity ** 2)
 
 
@@ -214,17 +245,49 @@ class TrajectoryClusters:
 
 
 @dataclass
+class PartMotion:
+    """Per-part rigid-body motion history (from unified_analyzer motion CSV).
+
+    Units: position [mm], velocity [mm/s], acceleration [mm/s²].
+    `peak_g` is the maximum acceleration magnitude.
+    """
+    part_id: int
+    part_name: str = ""
+    times: list[float] = field(default_factory=list)         # s
+    disp_x: list[float] = field(default_factory=list)
+    disp_y: list[float] = field(default_factory=list)
+    disp_z: list[float] = field(default_factory=list)
+    disp_mag: list[float] = field(default_factory=list)
+    vel_x: list[float] = field(default_factory=list)
+    vel_y: list[float] = field(default_factory=list)
+    vel_z: list[float] = field(default_factory=list)
+    vel_mag: list[float] = field(default_factory=list)
+    acc_x: list[float] = field(default_factory=list)
+    acc_y: list[float] = field(default_factory=list)
+    acc_z: list[float] = field(default_factory=list)
+    acc_mag: list[float] = field(default_factory=list)
+    # Derived scalar summaries
+    peak_g: float = 0.0                  # mm/s² — max(|a|)
+    peak_g_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    t_peak_g: float = 0.0                # s
+    peak_disp: float = 0.0               # max disp_mag
+    peak_vel: float = 0.0                # max vel_mag
+
+
+@dataclass
 class PairResult:
     """A single (face × position × part) result row — the core 3D-DOE cell."""
     face: str
     position: ImpactPosition
     part_id: int
-    peak_g: float = 0.0
-    peak_stress: float = 0.0
+    peak_g: float = 0.0          # mm/s² — max |a| from PartMotion
+    peak_stress: float = 0.0     # MPa (or IE proxy when stress not available)
     peak_strain: float = 0.0
-    peak_disp: float = 0.0
+    peak_disp: float = 0.0       # mm
+    peak_vel: float = 0.0        # mm/s
     stress_ts: TimeSeriesData = field(default_factory=TimeSeriesData)
     impactor_trajectory: ImpactorTrajectory | None = None
+    part_motion: PartMotion | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -287,9 +350,11 @@ class ImpactReport:
     """Top-level container for a multi-face DWI DOE analysis."""
     project_name: str = ""
     impactor: ImpactorSpec = field(default_factory=ImpactorSpec)
-    generation_mode: str = "DampingSpring"
+    # DOE generation parameters — populated from scenario.json. Defaults of
+    # empty / 0.0 mean "not specified" (no implicit physical assumption).
+    generation_mode: str = ""
     boundary_distance: float = 0.0
-    offset_distance: float = 0.05
+    offset_distance: float = 0.0
     faces: list[FaceOrientation] = field(default_factory=list)
     positions_by_face: dict[str, list[ImpactPosition]] = field(default_factory=dict)
     parts: list[PartInfo] = field(default_factory=list)
@@ -302,4 +367,7 @@ class ImpactReport:
     # Per-run impactor trajectories, keyed by pos_id (one trajectory shared
     # across all parts of the same run; also attached to each PairResult).
     impactor_trajectories: dict[str, ImpactorTrajectory] = field(default_factory=dict)
+    # Per-(pos_id, part_id) rigid-body motion. Populated for single-d3plot mode
+    # and any path that runs the unified_analyzer motion extraction.
+    part_motions: dict[tuple[str, int], PartMotion] = field(default_factory=dict)
     trajectory_clusters: TrajectoryClusters | None = None

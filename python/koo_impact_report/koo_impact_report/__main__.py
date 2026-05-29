@@ -58,18 +58,24 @@ def main() -> None:
         choices=["peak_g", "peak_stress", "peak_strain", "peak_disp"],
         help="Primary metric used in plots & rankings",
     )
-    parser.add_argument("--threshold-critical", type=float, default=500_000.0,
-                        help="Critical threshold for the primary metric (default 5e5 ~ peak_g in mm/s²)")
-    parser.add_argument("--threshold-warning", type=float, default=100_000.0,
-                        help="Warning threshold for the primary metric")
-    parser.add_argument("--yield-stress", type=float, default=0.0,
-                        help="Material yield stress (MPa) for safety-factor checks")
+    parser.add_argument("--threshold-critical", type=float, default=None,
+                        help="Critical threshold for the primary metric. "
+                             "Units match the dataset (no implicit default).")
+    parser.add_argument("--threshold-warning", type=float, default=None,
+                        help="Warning threshold for the primary metric "
+                             "(units match the dataset).")
+    parser.add_argument("--yield-stress", type=float, default=None,
+                        help="Global yield-stress override (units match peak_stress). "
+                             "When omitted, per-part yield comes from the *MAT_ "
+                             "card via the loader.")
     parser.add_argument("--faces", default=None,
                         help="Comma-separated face subset (e.g. F1,F2,F5). Default: all discovered.")
     parser.add_argument("--compare-faces", action="store_true",
                         help="Force the 'ALL faces compare' visualization mode")
-    parser.add_argument("--severity-weight", default="g=0.5,s=0.3,e=0.2",
-                        help="Severity weights (e.g. g=0.5,s=0.3,e=0.2)")
+    parser.add_argument("--severity-weight", default=None,
+                        help="Severity weights as 'g=0.5,s=0.3,e=0.2'. "
+                             "When omitted, severity score is not computed "
+                             "(no implicit default ratio).")
 
     args = parser.parse_args()
 
@@ -123,15 +129,23 @@ def main() -> None:
         print(f"[main] Face filter {face_subset}: {before} → {len(report.results)} pair results")
 
     # Severity weights are parsed for downstream report layers (HTML/severity)
-    _ = _parse_severity_weights(args.severity_weight)
+    _ = _parse_severity_weights(args.severity_weight) if args.severity_weight else None
     _ = args.compare_faces  # consumed by html_report
+
+    # Yield-stress dispatch:
+    #   • Per-part from the *MAT_ cards (already in sim_params) is preferred.
+    #   • Global --yield-stress overrides every part if supplied.
+    yield_by_part = dict(report.sim_params.get("yield_stress_by_part", {}) or {})
+    if args.yield_stress is not None:
+        for p in report.parts:
+            yield_by_part[p.part_id] = float(args.yield_stress)
 
     # ── Analyze ───────────────────────────────────────────────────
     analyzer.analyze(
         report,
         threshold_critical=args.threshold_critical,
         threshold_warning=args.threshold_warning,
-        yield_stress=args.yield_stress,
+        yield_stress_by_part=yield_by_part or None,
     )
 
     # ── Output ────────────────────────────────────────────────────

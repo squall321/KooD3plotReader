@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -162,8 +163,9 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, prefix="sa_") as f:
         f.write(yaml_content)
         yaml_path = Path(f.name)
-    # Keep a debug copy
-    debug_yaml = Path(tempfile.gettempdir()) / "last_ua_config.yaml"
+    # Keep a debug copy. Per-PID isolation so concurrent DOE workers
+    # don't race on the same file path.
+    debug_yaml = Path(tempfile.gettempdir()) / f"last_ua_config_{os.getpid()}.yaml"
     try:
         debug_yaml.write_text(yaml_content, encoding="utf-8")
     except OSError:

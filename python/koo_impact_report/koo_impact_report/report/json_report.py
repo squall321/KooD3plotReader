@@ -53,10 +53,12 @@ def save_json(report: ImpactReport, path: str) -> None:
                 "pos_id": r.position.pos_id,
                 "x": r.position.x, "y": r.position.y,
                 "part_id": r.part_id,
-                "peak_g": round(r.peak_g, 2),
-                "peak_stress": round(r.peak_stress, 3),
-                "peak_strain": round(r.peak_strain, 6),
-                "peak_disp": round(r.peak_disp, 4),
+                # Full precision — no unit-coupled rounding. JSON consumers
+                # can format for display; the data layer must be lossless.
+                "peak_g": r.peak_g,
+                "peak_stress": r.peak_stress,
+                "peak_strain": r.peak_strain,
+                "peak_disp": r.peak_disp,
             }
             for r in report.results
         ],

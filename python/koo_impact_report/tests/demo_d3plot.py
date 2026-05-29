@@ -37,10 +37,12 @@ def main() -> int:
     p.add_argument("d3plot", type=Path, help="Path to d3plot file")
     p.add_argument("--output", "-o", type=Path, default=Path("real_d3plot_report.html"))
     p.add_argument("--name", default=None, help="Project name (default: parent dir name)")
-    p.add_argument("--impactor", default="Impactor",
-                   help="Substring to match impactor part name (default: 'Impactor')")
-    p.add_argument("--face", default="F2", choices=["F1", "F2", "F3", "F4", "F5", "F6"],
-                   help="Face code to wrap the single position as (default: F2 Front)")
+    p.add_argument("--impactor", default=None,
+                   help="Substring to match impactor part name. Default: "
+                        "auto-detect by scanning *PART titles for 'impactor', "
+                        "'ball', or 'punch' (case-insensitive).")
+    p.add_argument("--face", default=None, choices=["F1", "F2", "F3", "F4", "F5", "F6"],
+                   help="Force a face code (default: auto-detect from impactor initial velocity)")
     p.add_argument("--threads", type=int, default=2)
     args = p.parse_args()
 
@@ -71,14 +73,17 @@ def main() -> int:
         print()
         print("=== Trajectory Summary ===")
         print(f"  n_states         : {len(traj.times)}")
-        print(f"  duration         : {traj.times[0]*1000:.3f} → {traj.times[-1]*1000:.3f} ms")
-        print(f"  initial KE       : {traj.initial_ke:.3e}")
-        print(f"  final KE         : {traj.final_ke:.3e}")
-        print(f"  KE retention     : {traj.ke_retention:.4f}")
-        print(f"  max penetration  : {traj.max_penetration_depth:.2f} mm")
-        print(f"  contact steps    : {sum(traj.contact_engaged)}/{len(traj.contact_engaged)}")
-        print(f"  behavior class   : {traj.behavior_class}")
-        print(f"  rebound speed    : {traj.rebound_speed:.1f} mm/s")
+        if traj.times:
+            print(f"  duration         : {traj.times[0]:.6f} → {traj.times[-1]:.6f} s")
+            print(f"  initial KE       : {traj.initial_ke:.3e}")
+            print(f"  final KE         : {traj.final_ke:.3e}")
+            print(f"  KE retention     : {traj.ke_retention:.4f}")
+            print(f"  max penetration  : {traj.max_penetration_depth:.3e}")
+            print(f"  contact steps    : {sum(traj.contact_engaged)}/{len(traj.contact_engaged)}")
+            print(f"  behavior class   : {traj.behavior_class}")
+            print(f"  rebound speed    : {traj.rebound_speed:.3e}")
+        else:
+            print("  (trajectory empty — impactor part not identified or no motion data)")
 
     return 0
 

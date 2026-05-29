@@ -488,19 +488,29 @@ def generate_rcforc(
     for p in non_direct_sorted[:n_extra]:
         pairs.append((direct_pid, p["id"]))
 
+    # Synthetic-fixture knobs (named so they aren't magic numbers buried in code).
+    # These shape the FAKE rcforc curves emitted into the test fixture and never
+    # leave this generator — production code reads binout, not these.
+    SYN_T_ENGAGE_DIRECT_S       = 0.05e-3   # impactor → direct part
+    SYN_T_ENGAGE_BASE_S         = 0.05e-3   # baseline for non-direct edges
+    SYN_T_ENGAGE_SLOPE_S_PER_MM = 0.20e-3 / 80.0  # propagation delay vs distance
+    SYN_PEAK_FORCE_DIRECT_RANGE = (800.0, 1500.0)   # N
+    SYN_PEAK_FORCE_OTHER_RANGE  = (50.0, 600.0)     # N
+    SYN_FORCE_DECAY_LENGTH_MM   = 40.0       # e-folding distance for off-direct decay
+    SYN_PULSE_WIDTH_RANGE_S     = (0.08e-3, 0.15e-3)
+
     rows: list[dict] = []
     for contact_id, (a, b) in enumerate(pairs, start=1):
-        # First-engage time: impactor→direct at 0.05ms, others 0.10-0.30ms.
         if a == 999:
-            t_engage = 0.05e-3
-            peak_force = float(rng.uniform(800.0, 1500.0))   # N — strong impact
+            t_engage = SYN_T_ENGAGE_DIRECT_S
+            peak_force = float(rng.uniform(*SYN_PEAK_FORCE_DIRECT_RANGE))
         else:
-            # distance from direct part center
             other = next(p for p in parts if p["id"] == b)
             d = distance_3d(direct_xyz, part_center_3d(other))
-            t_engage = 0.05e-3 + 0.20e-3 * (d / 80.0)
-            peak_force = float(rng.uniform(50.0, 600.0)) * math.exp(-d / 40.0)
-        width = float(rng.uniform(0.08e-3, 0.15e-3))
+            t_engage = SYN_T_ENGAGE_BASE_S + SYN_T_ENGAGE_SLOPE_S_PER_MM * d
+            peak_force = float(rng.uniform(*SYN_PEAK_FORCE_OTHER_RANGE)) * \
+                         math.exp(-d / SYN_FORCE_DECAY_LENGTH_MM)
+        width = float(rng.uniform(*SYN_PULSE_WIDTH_RANGE_S))
         base = peak_force * np.exp(-((t - t_engage) / width) ** 2)
         # post-peak ringdown
         tail = np.zeros_like(t)
@@ -827,12 +837,16 @@ def write_scenario(output: Path, selected_faces: list[dict]) -> None:
         "simulation_params": {
             "tFinal": T_FINAL,
             "dt": 1.0e-6,
-            "impactor": IMPACTOR_SPEC,
+            # Synthetic impactor block authored in SI (kg/m³, Pa). The "units"
+            # flag tells loader._build_impactor to convert into [ton, mm, s, MPa]
+            # so the rest of the pipeline stays unit-consistent.
+            "impactor": {**IMPACTOR_SPEC, "units": "SI"},
             "faces": faces_payload,
             "generation_mode": "DampingSpring",
             "boundary_distance": 0.0,
             "offset_distance": 0.05,
-            "wall": {"youngs_modulus": 2.0e11, "poisson_ratio": 0.3, "density": 7850},
+            "wall": {"youngs_modulus": 2.0e11, "poisson_ratio": 0.3, "density": 7850,
+                     "units": "SI"},
         },
         "environment": {
             "ncpu": 4,
@@ -852,7 +866,8 @@ def write_scenario(output: Path, selected_faces: list[dict]) -> None:
         "simulation_params": {
             "tFinal": T_FINAL,
             "dt": 1.0e-6,
-            "impactor": IMPACTOR_CYLINDER,
+            # Cylinder spec also in SI; loader will convert when ingesting.
+            "impactor": {**IMPACTOR_CYLINDER, "units": "SI"},
             "locations": {"mode": "grid", "x_count": 3, "y_count": 3, "margin": 0.8},
             "generation_mode": "OutsideRigidPart",
             "boundary_distance": 30.0,

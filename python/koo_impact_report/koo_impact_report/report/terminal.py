@@ -27,13 +27,17 @@ def print_report(report: ImpactReport) -> None:
     n_positions = sum(len(v) for v in report.positions_by_face.values())
     imp = report.impactor
 
+    # Detect dataset unit system from sim_params (set by the loader).
+    units_label = str(report.sim_params.get("units", "")) if report.sim_params else ""
+
     console.print()
     console.print(Panel(
         f"[bold]{report.project_name or '(unnamed)'}[/bold]\n"
-        f"Impactor: {imp.type}  h={imp.height:.0f} mm  v={imp.velocity:.0f} mm/s  "
-        f"KE={imp.kinetic_energy*1e-6:.2f} J\n"
-        f"Mode: {report.generation_mode}  "
-        f"boundary={report.boundary_distance:.1f} mm  offset={report.offset_distance:.3f} mm",
+        f"Impactor: {imp.type or 'unknown'}  h={imp.height:.3g}  "
+        f"v={imp.velocity:.3g}  KE={imp.kinetic_energy:.3g}\n"
+        f"Mode: {report.generation_mode or '(none)'}  "
+        f"boundary={report.boundary_distance:.3g}  offset={report.offset_distance:.3g}  "
+        f"units={units_label or '(unspecified)'}",
         title="[bold cyan]KooImpactReport — Multi-Face DWI Analysis[/]",
         border_style="cyan",
     ))
@@ -51,9 +55,9 @@ def print_report(report: ImpactReport) -> None:
     kpi.add_row("Positions",  str(n_positions))
     kpi.add_row("Parts",      str(len(report.parts)))
     kpi.add_row("Pair rows",  str(len(report.results)))
-    kpi.add_row("Peak G",     f"{gmax/1e6:.2f} MG")
-    kpi.add_row("Peak stress", f"{smax:.1f} MPa")
-    kpi.add_row("Peak strain", f"{emax:.4f}")
+    kpi.add_row("Peak |a|",   f"{gmax:.3e}")
+    kpi.add_row("Peak σ",     f"{smax:.3e}")
+    kpi.add_row("Peak ε",     f"{emax:.4f}")
     console.print(kpi)
 
     # ── Top 5 worst pairs ─────────────────────────────────────────
@@ -64,9 +68,9 @@ def print_report(report: ImpactReport) -> None:
         tbl.add_column("Face", style="cyan")
         tbl.add_column("Position")
         tbl.add_column("Part", style="yellow")
-        tbl.add_column("Peak G", justify="right")
-        tbl.add_column("σ (MPa)", justify="right")
-        tbl.add_column("ε", justify="right")
+        tbl.add_column("Peak |a|", justify="right")
+        tbl.add_column("Peak σ", justify="right")
+        tbl.add_column("Peak ε", justify="right")
 
         part_lookup = {p.part_id: p for p in report.parts}
         for i, r in enumerate(worst, 1):
@@ -77,8 +81,8 @@ def print_report(report: ImpactReport) -> None:
                 r.face,
                 f"{r.position.pos_id} ({r.position.x:.1f},{r.position.y:.1f})",
                 pname,
-                f"{r.peak_g/1e6:.2f} MG",
-                f"{r.peak_stress:.1f}",
+                f"{r.peak_g:.3e}",
+                f"{r.peak_stress:.3e}",
                 f"{r.peak_strain:.4f}",
             )
         console.print(tbl)
