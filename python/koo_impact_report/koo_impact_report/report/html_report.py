@@ -2339,6 +2339,878 @@ def _build_per_part_drilldown(report) -> dict:
         },
     }
 
+def _build_symmetry_insight(report):
+    """Build symmetry & boundary effect payload by comparing mirror-pair peak_g."""
+    import math
+    import numpy as np
+
+    results = getattr(report, "results", []) or []
+    positions_by_face = getattr(report, "positions_by_face", {}) or {}
+
+    # peak_g per pos_id: average across parts at that position
+    pg_by_pos = {}
+    for r in results:
+        pid = getattr(r, "pos_id", None)
+        pg = getattr(r, "peak_g", None)
+        if pid is None or pg is None:
+            continue
+        try:
+            v = float(pg)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(v):
+            continue
+        pg_by_pos.setdefault(pid, []).append(v)
+    pg_mean = {pid: float(np.mean(vs)) for pid, vs in pg_by_pos.items() if vs}
+
+    def _asym_pct(a, b):
+        m = max(abs(a), abs(b))
+        if m <= 0 or not math.isfinite(m):
+            return None
+        return abs(a - b) / m * 100.0
+
+    # collect (face, pos) lookup
+    pos_lookup = {}   # (face, round(x,4), round(y,4)) -> pos_id
+    pos_meta = {}     # pos_id -> (face, x, y)
+    for face, positions in positions_by_face.items():
+        for p in positions or []:
+            pid = getattr(p, "pos_id", None)
+            x = getattr(p, "x", None)
+            y = getattr(p, "y", None)
+            if pid is None or x is None or y is None:
+                continue
+            try:
+                xf, yf = float(x), float(y)
+            except (TypeError, ValueError):
+                continue
+            pos_lookup[(face, round(xf, 4), round(yf, 4))] = pid
+            pos_meta[pid] = (face, xf, yf)
+
+    x_pairs, y_pairs = [], []
+    seen_x, seen_y = set(), set()
+    for pid, (face, x, y) in pos_meta.items():
+        if pid not in pg_mean:
+            continue
+        # X-mirror: (-x, y)
+        if abs(x) > 1e-9:
+            mate = pos_lookup.get((face, round(-x, 4), round(y, 4)))
+            if mate is not None and mate in pg_mean:
+                key = tuple(sorted((pid, mate)))
+                if key not in seen_x:
+                    seen_x.add(key)
+                    a, b = pg_mean[pid], pg_mean[mate]
+                    asym = _asym_pct(a, b)
+                    if asym is not None:
+                        x_pairs.append({
+                            "pos_a": int(key[0]),
+                            "pos_b": int(key[1]),
+                            "peak_g_a": round(pg_mean[key[0]], 3),
+                            "peak_g_b": round(pg_mean[key[1]], 3),
+                            "asymmetry_pct": round(asym, 2),
+                        })
+        # Y-mirror: (x, -y)
+        if abs(y) > 1e-9:
+            mate = pos_lookup.get((face, round(x, 4), round(-y, 4)))
+            if mate is not None and mate in pg_mean:
+                key = tuple(sorted((pid, mate)))
+                if key not in seen_y:
+                    seen_y.add(key)
+                    a, b = pg_mean[pid], pg_mean[mate]
+                    asym = _asym_pct(a, b)
+                    if asym is not None:
+                        y_pairs.append({
+                            "pos_a": int(key[0]),
+                            "pos_b": int(key[1]),
+                            "peak_g_a": round(pg_mean[key[0]], 3),
+                            "peak_g_b": round(pg_mean[key[1]], 3),
+                            "asymmetry_pct": round(asym, 2),
+                        })
+
+    x_pairs.sort(key=lambda d: d["asymmetry_pct"], reverse=True)
+    y_pairs.sort(key=lambda d: d["asymmetry_pct"], reverse=True)
+
+    # Boundary: outer ring vs inner — data-driven threshold = max(|x|,|y|) per face
+    outer_vals, inner_vals = [], []
+    by_face_extent = {}
+    for pid, (face, x, y) in pos_meta.items():
+        m = max(abs(x), abs(y))
+        by_face_extent.setdefault(face, []).append(m)
+    face_thr = {f: (max(v) if v else 0.0) for f, v in by_face_extent.items()}
+
+    for pid, (face, x, y) in pos_meta.items():
+        if pid not in pg_mean:
+            continue
+        thr = face_thr.get(face, 0.0)
+        if thr <= 0:
+            continue
+        m = max(abs(x), abs(y))
+        if m >= thr - 1e-6:
+            outer_vals.append(pg_mean[pid])
+        else:
+            inner_vals.append(pg_mean[pid])
+
+    outer_mean = float(np.mean(outer_vals)) if outer_vals else float("nan")
+    inner_mean = float(np.mean(inner_vals)) if inner_vals else float("nan")
+    if math.isfinite(outer_mean) and math.isfinite(inner_mean) and inner_mean > 0:
+        boundary_amp = (outer_mean - inner_mean) / inner_mean * 100.0
+    else:
+        boundary_amp = float("nan")
+
+    def _med(pairs):
+        if not pairs:
+            return float("nan")
+        return float(np.median([p["asymmetry_pct"] for p in pairs]))
+
+    med_x = _med(x_pairs)
+    med_y = _med(y_pairs)
+    design_symmetric = (
+        math.isfinite(med_x) and math.isfinite(med_y)
+        and med_x < 15.0 and med_y < 15.0
+    )
+
+    def _nz(v, nd=2):
+        return round(v, nd) if isinstance(v, float) and math.isfinite(v) else None
+
+    return {
+        "x_mirror_pairs": x_pairs[:12],
+        "y_mirror_pairs": y_pairs[:12],
+        "median_x_asym_pct": _nz(med_x),
+        "median_y_asym_pct": _nz(med_y),
+        "boundary_summary": {
+            "outer_mean_peak_g": _nz(outer_mean, 3),
+            "inner_mean_peak_g": _nz(inner_mean, 3),
+            "boundary_amplification_pct": _nz(boundary_amp),
+            "outer_n": len(outer_vals),
+            "inner_n": len(inner_vals),
+        },
+        "design_symmetric": bool(design_symmetric),
+        "x_pair_count": len(x_pairs),
+        "y_pair_count": len(y_pairs),
+    }
+
+def _build_damage_index(report):
+    """Damage Accumulation Index per Part across all impact positions.
+
+    Yield-based: DI = sum over positions of max(0, peak_stress/yield - 1).
+    Composite fallback: mean of normalized peak_g/peak_stress/peak_strain in [0,1].
+    """
+    import numpy as np
+    from collections import defaultdict
+
+    parts = list(getattr(report, "parts", []) or [])
+    results = list(getattr(report, "results", []) or [])
+    sim_params = getattr(report, "sim_params", None)
+    yield_map = {}
+    if sim_params is not None:
+        ym = getattr(sim_params, "yield_stress_by_part", None) or {}
+        try:
+            yield_map = {int(k): float(v) for k, v in ym.items()
+                         if v is not None and np.isfinite(float(v)) and float(v) > 0.0}
+        except Exception:
+            yield_map = {}
+
+    part_name = {int(p.part_id): str(getattr(p, "part_name", "") or f"part_{p.part_id}")
+                 for p in parts}
+    part_ids_all = [int(p.part_id) for p in parts]
+
+    # group results by part
+    by_part = defaultdict(list)  # part_id -> list of (pos_id, peak_g, peak_stress, peak_strain)
+    for r in results:
+        pid = getattr(r, "part_id", None)
+        pos = getattr(r, "pos_id", None)
+        if pid is None or pos is None:
+            continue
+        try:
+            pid_i = int(pid)
+            pos_i = int(pos)
+        except Exception:
+            continue
+        pg = float(getattr(r, "peak_g", float("nan")) or float("nan"))
+        ps = float(getattr(r, "peak_stress", float("nan")) or float("nan"))
+        pe = float(getattr(r, "peak_strain", float("nan")) or float("nan"))
+        by_part[pid_i].append((pos_i, pg, ps, pe))
+
+    # Determine if yield-based DI is usable: at least one part has yield AND stress data
+    has_yield = bool(yield_map) and any(
+        pid in yield_map and any(np.isfinite(t[2]) for t in by_part.get(pid, []))
+        for pid in part_ids_all
+    )
+
+    # Global maxima for composite fallback
+    all_pg, all_ps, all_pe = [], [], []
+    for lst in by_part.values():
+        for _, pg, ps, pe in lst:
+            if np.isfinite(pg): all_pg.append(pg)
+            if np.isfinite(ps): all_ps.append(ps)
+            if np.isfinite(pe): all_pe.append(pe)
+    g_max_pg = float(max(all_pg)) if all_pg else 0.0
+    g_max_ps = float(max(all_ps)) if all_ps else 0.0
+    g_max_pe = float(max(all_pe)) if all_pe else 0.0
+
+    per_part = []
+    for pid in part_ids_all:
+        lst = by_part.get(pid, [])
+        if not lst:
+            continue
+        name = part_name.get(pid, f"part_{pid}")
+        if has_yield and pid in yield_map:
+            ys = yield_map[pid]
+            di = 0.0
+            n_above = 0
+            peak_contrib = -1.0
+            peak_pos = None
+            for pos_i, _pg, ps, _pe in lst:
+                if not np.isfinite(ps):
+                    continue
+                excess = ps / ys - 1.0
+                if excess > 0.0:
+                    di += excess
+                    n_above += 1
+                    if excess > peak_contrib:
+                        peak_contrib = excess
+                        peak_pos = pos_i
+            per_part.append({
+                "part_id": pid,
+                "part_name": name,
+                "di": round(float(di), 4),
+                "di_source": "yield",
+                "yield_stress": round(float(ys), 2),
+                "peak_pos_id": int(peak_pos) if peak_pos is not None else None,
+                "n_positions_above_yield": int(n_above),
+                "n_positions": int(len(lst)),
+            })
+        else:
+            # composite fallback
+            pgs = [t[1] for t in lst if np.isfinite(t[1])]
+            pss = [t[2] for t in lst if np.isfinite(t[2])]
+            pes = [t[3] for t in lst if np.isfinite(t[3])]
+            mx_pg = max(pgs) if pgs else 0.0
+            mx_ps = max(pss) if pss else 0.0
+            mx_pe = max(pes) if pes else 0.0
+            c_pg = (mx_pg / g_max_pg) if g_max_pg > 0 else 0.0
+            c_ps = (mx_ps / g_max_ps) if g_max_ps > 0 else 0.0
+            c_pe = (mx_pe / g_max_pe) if g_max_pe > 0 else 0.0
+            di = (c_pg + c_ps + c_pe) / 3.0
+            # peak position: position with the highest normalized composite
+            best_score = -1.0
+            best_pos = None
+            for pos_i, pg, ps, pe in lst:
+                s = 0.0; n = 0
+                if g_max_pg > 0 and np.isfinite(pg): s += pg / g_max_pg; n += 1
+                if g_max_ps > 0 and np.isfinite(ps): s += ps / g_max_ps; n += 1
+                if g_max_pe > 0 and np.isfinite(pe): s += pe / g_max_pe; n += 1
+                if n > 0:
+                    score = s / n
+                    if score > best_score:
+                        best_score = score
+                        best_pos = pos_i
+            per_part.append({
+                "part_id": pid,
+                "part_name": name,
+                "di": round(float(di), 4),
+                "di_source": "composite",
+                "peak_pos_id": int(best_pos) if best_pos is not None else None,
+                "max_peak_g": round(float(mx_pg), 2),
+                "max_peak_stress": round(float(mx_ps), 2),
+                "max_peak_strain": round(float(mx_pe), 5),
+                "n_positions": int(len(lst)),
+            })
+
+    # sort desc by di, keep top 15
+    per_part.sort(key=lambda d: d["di"], reverse=True)
+    per_part_top = per_part[:15]
+
+    # Top 5 (part, position) dominant combos — compute per-pair contribution
+    pair_contribs = []
+    for pid in part_ids_all:
+        lst = by_part.get(pid, [])
+        if not lst:
+            continue
+        name = part_name.get(pid, f"part_{pid}")
+        if has_yield and pid in yield_map:
+            ys = yield_map[pid]
+            for pos_i, _pg, ps, _pe in lst:
+                if not np.isfinite(ps):
+                    continue
+                excess = ps / ys - 1.0
+                if excess > 0.0:
+                    pair_contribs.append({
+                        "part_id": pid, "part_name": name, "pos_id": pos_i,
+                        "contrib": round(float(excess), 4), "source": "yield",
+                    })
+        else:
+            for pos_i, pg, ps, pe in lst:
+                s = 0.0; n = 0
+                if g_max_pg > 0 and np.isfinite(pg): s += pg / g_max_pg; n += 1
+                if g_max_ps > 0 and np.isfinite(ps): s += ps / g_max_ps; n += 1
+                if g_max_pe > 0 and np.isfinite(pe): s += pe / g_max_pe; n += 1
+                if n > 0:
+                    pair_contribs.append({
+                        "part_id": pid, "part_name": name, "pos_id": pos_i,
+                        "contrib": round(float(s / n), 4), "source": "composite",
+                    })
+    pair_contribs.sort(key=lambda d: d["contrib"], reverse=True)
+    top_pairs = pair_contribs[:5]
+
+    max_di_value = float(per_part_top[0]["di"]) if per_part_top else 0.0
+    max_di_part = per_part_top[0]["part_name"] if per_part_top else None
+    max_di_pos = per_part_top[0].get("peak_pos_id") if per_part_top else None
+
+    return {
+        "per_part": per_part_top,
+        "top_pairs": top_pairs,
+        "summary": {
+            "has_yield": bool(has_yield),
+            "max_di_value": round(max_di_value, 4),
+            "max_di_part": max_di_part,
+            "max_di_position": max_di_pos,
+            "n_parts_total": len(part_ids_all),
+            "n_parts_with_data": len(per_part),
+        },
+    }
+
+def _build_rebound_field(report):
+    import numpy as np
+
+    grid = getattr(report.sim_params, "grid", None) or {}
+    bbox = grid.get("bbox") if isinstance(grid, dict) else None
+    if not bbox:
+        # derive from positions if missing
+        xs, ys = [], []
+        for face_positions in report.positions_by_face.values():
+            for p in face_positions:
+                xs.append(p.x); ys.append(p.y)
+        if xs and ys:
+            bbox = [min(xs), min(ys), max(xs), max(ys)]
+        else:
+            bbox = [0.0, 0.0, 1.0, 1.0]
+
+    # Flatten positions across all faces (typically one face per report)
+    positions = []
+    for face, pos_list in report.positions_by_face.items():
+        for p in pos_list:
+            positions.append((p.pos_id, float(p.x), float(p.y), face))
+
+    vectors = []
+    speeds = []
+    n_up = 0
+    n_down = 0
+    n_flat = 0
+
+    for pos_id, x, y, face in positions:
+        traj = report.impactor_trajectories.get(pos_id)
+        if traj is None:
+            vectors.append({
+                "pos_id": _pid_cast(pos_id), "x": round(x, 6), "y": round(y, 6),
+                "vx_rebound": 0.0, "vy_rebound": 0.0, "vz_final": 0.0,
+                "speed": 0.0, "color_class": "flat", "missing": True,
+            })
+            continue
+
+        # rebound_velocity_xy is typically a (vx, vy) tuple/list; guard for scalars
+        rvxy = getattr(traj, "rebound_velocity_xy", None)
+        if rvxy is None:
+            vx_r, vy_r = 0.0, 0.0
+        else:
+            try:
+                vx_r = float(rvxy[0]); vy_r = float(rvxy[1])
+            except (TypeError, IndexError):
+                vx_r, vy_r = 0.0, 0.0
+
+        # final vz from velocity arrays
+        vz_arr = getattr(traj, "vel_z", None)
+        if vz_arr is not None and len(vz_arr) > 0:
+            vz_final = float(np.asarray(vz_arr)[-1])
+        else:
+            vz_final = 0.0
+
+        # NaN/Inf guard
+        for name in ("vx_r", "vy_r", "vz_final"):
+            v = locals()[name]
+            if not np.isfinite(v):
+                locals()[name] = 0.0
+        if not np.isfinite(vx_r): vx_r = 0.0
+        if not np.isfinite(vy_r): vy_r = 0.0
+        if not np.isfinite(vz_final): vz_final = 0.0
+
+        speed_xy = float(np.hypot(vx_r, vy_r))
+        speeds.append(speed_xy)
+
+        # Color class — data-driven thresholds relative to incident speed
+        incident = getattr(traj, "incident_speed", None)
+        try:
+            incident = float(incident) if incident is not None else 0.0
+        except (TypeError, ValueError):
+            incident = 0.0
+        # vz threshold: 5% of incident or 0.1 m/s, whichever larger
+        vz_thr = max(0.05 * abs(incident), 0.1)
+
+        if vz_final > vz_thr:
+            color_class = "up"; n_up += 1
+        elif vz_final < -vz_thr:
+            color_class = "down"; n_down += 1
+        else:
+            color_class = "flat"; n_flat += 1
+
+        vectors.append({
+            "pos_id": _pid_cast(pos_id),
+            "x": round(x, 6), "y": round(y, 6),
+            "vx_rebound": round(vx_r, 4),
+            "vy_rebound": round(vy_r, 4),
+            "vz_final": round(vz_final, 4),
+            "speed": round(speed_xy, 4),
+            "color_class": color_class,
+        })
+
+    speeds_arr = np.asarray(speeds) if speeds else np.zeros(1)
+    max_speed = float(np.max(speeds_arr)) if speeds else 0.0
+    avg_speed = float(np.mean(speeds_arr)) if speeds else 0.0
+
+    # n_sliding = vxy dominant (speed > vz threshold relative to |vz|)
+    n_sliding = 0
+    for v in vectors:
+        if v.get("missing"):
+            continue
+        if v["speed"] > max(abs(v["vz_final"]), 1e-6) and v["speed"] > 0.05 * max(max_speed, 1e-6):
+            n_sliding += 1
+
+    return {
+        "vectors": vectors,
+        "max_speed": round(max_speed, 4),
+        "avg_speed": round(avg_speed, 4),
+        "n_rebound_up": n_up,
+        "n_embed_down": n_down,
+        "n_flat": n_flat,
+        "n_sliding": n_sliding,
+        "n_total": len(vectors),
+        "bbox": [round(float(b), 6) for b in bbox],
+        "vel_unit": report.unit_labels.get("velocity", "m/s") if hasattr(report, "unit_labels") else "m/s",
+        "len_unit": report.unit_labels.get("length", "m") if hasattr(report, "unit_labels") else "m",
+    }
+
+def _build_auto_recommend(report):
+    """Generate rule-based engineering recommendations from report data."""
+    import numpy as np
+    from collections import defaultdict
+
+    recs = []
+
+    results = getattr(report, "results", []) or []
+    parts = getattr(report, "parts", []) or []
+    part_name_by_id = {p.part_id: getattr(p, "part_name", f"Part {p.part_id}") for p in parts}
+
+    positions_by_face = getattr(report, "positions_by_face", {}) or {}
+    pos_xy = {}
+    for face, positions in positions_by_face.items():
+        for pos in positions or []:
+            pos_xy[pos.pos_id] = (getattr(pos, "x", float("nan")),
+                                  getattr(pos, "y", float("nan")),
+                                  face)
+
+    # ---------- Rule 1: worst position / part peak_g ----------
+    if results:
+        peaks = []
+        for r in results:
+            g = getattr(r, "peak_g", None)
+            if g is None or not np.isfinite(g):
+                continue
+            peaks.append((float(g), getattr(r, "pos_id", None), getattr(r, "part_id", None)))
+        if peaks:
+            peaks.sort(key=lambda t: -t[0])
+            worst_g, worst_pos, worst_part = peaks[0]
+            all_g = np.array([p[0] for p in peaks], dtype=float)
+            p95 = float(np.percentile(all_g, 95)) if all_g.size else worst_g
+            severity = "critical" if worst_g >= p95 else "warning"
+            pname = part_name_by_id.get(worst_part, f"Part {worst_part}")
+            xy = pos_xy.get(worst_pos)
+            if xy is not None and np.isfinite(xy[0]) and np.isfinite(xy[1]):
+                xy_str = f"(x={xy[0]:.3f}, y={xy[1]:.3f}) m"
+            else:
+                xy_str = "(좌표 미정)"
+            recs.append({
+                "severity": severity,
+                "title": "최대 응답 위치 — 보강 우선",
+                "body": f"위치 P{worst_pos} {xy_str} 에서 부품 '{pname}' 의 peak_g = {worst_g:,.1f} m/s² 로 최대 응답이 관측되었습니다. 해당 위치/부품 보강을 최우선으로 검토하십시오.",
+                "source_panel": "Peak Response Heatmap",
+                "metric": round(worst_g, 1),
+            })
+
+    # ---------- Rule 2: X-axis asymmetry ----------
+    # Compute asymmetry between positions with x>0 vs x<0 on dominant face.
+    if results and pos_xy:
+        peak_by_pos = defaultdict(list)
+        for r in results:
+            g = getattr(r, "peak_g", None)
+            pid = getattr(r, "pos_id", None)
+            if g is None or not np.isfinite(g) or pid is None:
+                continue
+            peak_by_pos[pid].append(float(g))
+        pos_mean = {pid: float(np.mean(v)) for pid, v in peak_by_pos.items() if v}
+        left = [v for pid, v in pos_mean.items()
+                if pid in pos_xy and np.isfinite(pos_xy[pid][0]) and pos_xy[pid][0] < 0]
+        right = [v for pid, v in pos_mean.items()
+                 if pid in pos_xy and np.isfinite(pos_xy[pid][0]) and pos_xy[pid][0] > 0]
+        if left and right:
+            mL, mR = float(np.mean(left)), float(np.mean(right))
+            denom = 0.5 * (mL + mR)
+            asym = (abs(mL - mR) / denom * 100.0) if denom > 0 else 0.0
+            if asym > 15.0:
+                recs.append({
+                    "severity": "warning" if asym < 30.0 else "critical",
+                    "title": "X축 비대칭 검출",
+                    "body": f"X<0 평균 peak_g = {mL:,.1f} m/s², X>0 평균 = {mR:,.1f} m/s² → 비대칭 {asym:.1f}%. 디자인 균형(질량 분포·강성 분포) 재검토 권장.",
+                    "source_panel": "Symmetry Diagnostic",
+                    "metric": round(asym, 1),
+                })
+
+    # ---------- Rule 5: KE absorption ----------
+    trajs = getattr(report, "impactor_trajectories", {}) or {}
+    if trajs:
+        rets = []
+        for pid, tr in trajs.items():
+            kr = getattr(tr, "ke_retention", None)
+            if kr is None:
+                continue
+            try:
+                arr = np.asarray(kr, dtype=float)
+                if arr.size:
+                    final = float(arr[-1])
+                    if np.isfinite(final):
+                        rets.append(final)
+            except Exception:
+                continue
+        if rets:
+            mean_ret = float(np.mean(rets))
+            mean_abs_pct = (1.0 - mean_ret) * 100.0
+            if mean_abs_pct < 30.0:
+                sev = "warning"
+            elif mean_abs_pct < 50.0:
+                sev = "info"
+            else:
+                sev = "info"
+            if mean_abs_pct < 50.0:
+                recs.append({
+                    "severity": sev,
+                    "title": "KE 흡수율 낮음 — 충격 흡수재 추가 권장",
+                    "body": f"전 위치 평균 KE 흡수율 = {mean_abs_pct:.1f}% (잔여 운동에너지 {mean_ret*100:.1f}%). 충격 흡수 폼/리브 추가 또는 두께 증가 검토.",
+                    "source_panel": "Energy Partition",
+                    "metric": round(mean_abs_pct, 1),
+                })
+            else:
+                recs.append({
+                    "severity": "info",
+                    "title": "KE 흡수율 양호",
+                    "body": f"전 위치 평균 KE 흡수율 = {mean_abs_pct:.1f}%. 현재 흡수 성능은 적정 범위.",
+                    "source_panel": "Energy Partition",
+                    "metric": round(mean_abs_pct, 1),
+                })
+
+    # ---------- Rule 6: damage index (yield-stress based) ----------
+    sim_params = getattr(report, "sim_params", None)
+    yield_by_part = {}
+    if sim_params is not None:
+        yield_by_part = getattr(sim_params, "yield_stress_by_part", {}) or {}
+    if results and yield_by_part:
+        di_by_part = defaultdict(list)
+        for r in results:
+            ps = getattr(r, "peak_stress", None)
+            pid = getattr(r, "part_id", None)
+            if ps is None or not np.isfinite(ps) or pid is None:
+                continue
+            ys = yield_by_part.get(pid)
+            if ys is None or ys <= 0:
+                continue
+            di_by_part[pid].append(float(ps) / float(ys))
+        di_summary = [(pid, float(np.max(v))) for pid, v in di_by_part.items() if v]
+        if di_summary:
+            di_summary.sort(key=lambda t: -t[1])
+            top_pid, top_di = di_summary[0]
+            if top_di >= 1.0:
+                sev = "critical"
+            elif top_di >= 0.8:
+                sev = "warning"
+            else:
+                sev = "info"
+            if top_di >= 0.6:
+                pname = part_name_by_id.get(top_pid, f"Part {top_pid}")
+                recs.append({
+                    "severity": sev,
+                    "title": "손상 지표(DI) 상위 부품",
+                    "body": f"부품 '{pname}' 의 DI = peak_stress/yield = {top_di:.2f}. 재료 보강 또는 yield 향상(고강도 등급/두께 증가) 검토 권장.",
+                    "source_panel": "Damage Index",
+                    "metric": round(top_di, 2),
+                })
+
+    # ---------- Rule 4: statistical outliers (z>2.5 on pos-level mean peak_g) ----------
+    if results:
+        pos_g = defaultdict(list)
+        for r in results:
+            g = getattr(r, "peak_g", None)
+            pid = getattr(r, "pos_id", None)
+            if g is None or not np.isfinite(g) or pid is None:
+                continue
+            pos_g[pid].append(float(g))
+        means = {pid: float(np.mean(v)) for pid, v in pos_g.items() if v}
+        if len(means) >= 4:
+            arr = np.array(list(means.values()), dtype=float)
+            mu, sd = float(np.mean(arr)), float(np.std(arr))
+            if sd > 0:
+                outliers = [(pid, v, (v - mu) / sd) for pid, v in means.items()
+                            if abs((v - mu) / sd) > 2.5]
+                outliers.sort(key=lambda t: -abs(t[2]))
+                if outliers:
+                    listing = ", ".join([f"P{pid}(z={z:+.2f})" for pid, _, z in outliers[:5]])
+                    recs.append({
+                        "severity": "warning",
+                        "title": "통계적 이상치 위치 검출",
+                        "body": f"{len(outliers)}개 위치가 통계적 이상치 (|z|>2.5): {listing}. 해당 위치 메쉬/접촉 조건 재검증 권장.",
+                        "source_panel": "Per-Position Stats",
+                        "metric": len(outliers),
+                    })
+
+    summary = {
+        "total": len(recs),
+        "critical": sum(1 for r in recs if r["severity"] == "critical"),
+        "warning": sum(1 for r in recs if r["severity"] == "warning"),
+        "info": sum(1 for r in recs if r["severity"] == "info"),
+    }
+
+    return {"recommendations": recs, "summary": summary}
+
+def _build_contact_pulse(report):
+    """Compute contact pulse statistics per impactor position."""
+    import numpy as np
+
+    per_position = []
+    durations_ms = []
+
+    trajectories = getattr(report, "impactor_trajectories", {}) or {}
+    positions_by_face = getattr(report, "positions_by_face", {}) or {}
+
+    # Build pos_id -> (x, y, face) lookup
+    pos_lookup = {}
+    for face, pos_list in positions_by_face.items():
+        for p in pos_list:
+            pid = getattr(p, "pos_id", None)
+            if pid is None:
+                continue
+            pos_lookup[pid] = {
+                "x": float(getattr(p, "x", 0.0) or 0.0),
+                "y": float(getattr(p, "y", 0.0) or 0.0),
+                "face": face,
+            }
+
+    for pos_id, traj in trajectories.items():
+        if traj is None:
+            continue
+        times = np.asarray(getattr(traj, "times", []) or [], dtype=float)
+        engaged = np.asarray(getattr(traj, "contact_engaged", []) or [], dtype=bool)
+        if times.size == 0 or engaged.size == 0:
+            continue
+        n_total = int(min(times.size, engaged.size))
+        times = times[:n_total]
+        engaged = engaged[:n_total]
+
+        n_contact = int(np.count_nonzero(engaged))
+        contact_density = float(n_contact / n_total) if n_total > 0 else 0.0
+
+        if n_contact >= 1:
+            idx = np.where(engaged)[0]
+            t_first = float(times[idx[0]])
+            t_last = float(times[idx[-1]])
+            pulse_duration_ms = (t_last - t_first) * 1000.0
+        else:
+            pulse_duration_ms = float("nan")
+
+        # pulse_to_peak: from t_first_contact to time of max penetration
+        t_fc = getattr(traj, "t_first_contact", None)
+        max_pen = getattr(traj, "max_penetration_depth", None)
+        pos_z = np.asarray(getattr(traj, "pos_z", []) or [], dtype=float)
+        pulse_to_peak_ms = float("nan")
+        if t_fc is not None and np.isfinite(t_fc) and pos_z.size == times.size and pos_z.size > 0:
+            # Find time where pos_z is at its extreme during contact (deepest penetration)
+            # Penetration depth typically reaches max while engaged
+            if n_contact > 0:
+                idx_c = np.where(engaged)[0]
+                z_contact = pos_z[idx_c]
+                # Deepest = min or max depending on impact face; use extreme deviation from first-contact z
+                z_ref = pos_z[idx_c[0]]
+                deviations = np.abs(z_contact - z_ref)
+                k = int(np.argmax(deviations))
+                t_peak = float(times[idx_c[k]])
+                pulse_to_peak_ms = (t_peak - float(t_fc)) * 1000.0
+
+        coord = pos_lookup.get(pos_id, {"x": 0.0, "y": 0.0, "face": ""})
+        behavior = getattr(traj, "behavior_class", "") or ""
+
+        entry = {
+            "pos_id": _pid_cast(pos_id),
+            "x": coord["x"],
+            "y": coord["y"],
+            "face": coord["face"],
+            "pulse_duration_ms": round(pulse_duration_ms, 3) if np.isfinite(pulse_duration_ms) else None,
+            "n_contact_steps": n_contact,
+            "contact_density": round(contact_density, 4),
+            "pulse_to_peak_ms": round(pulse_to_peak_ms, 3) if np.isfinite(pulse_to_peak_ms) else None,
+            "behavior_class": str(behavior),
+        }
+        per_position.append(entry)
+        if np.isfinite(pulse_duration_ms):
+            durations_ms.append((pos_id, pulse_duration_ms))
+
+    # Summary
+    summary = {
+        "mean_duration_ms": None,
+        "std_duration_ms": None,
+        "median_duration_ms": None,
+        "min_pos": None,
+        "max_pos": None,
+        "min_duration_ms": None,
+        "max_duration_ms": None,
+        "n_valid": len(durations_ms),
+    }
+    if durations_ms:
+        vals = np.array([d for _, d in durations_ms], dtype=float)
+        summary["mean_duration_ms"] = round(float(np.mean(vals)), 3)
+        summary["std_duration_ms"] = round(float(np.std(vals)), 3)
+        summary["median_duration_ms"] = round(float(np.median(vals)), 3)
+        i_min = int(np.argmin(vals))
+        i_max = int(np.argmax(vals))
+        summary["min_pos"] = _pid_cast(durations_ms[i_min][0])
+        summary["max_pos"] = _pid_cast(durations_ms[i_max][0])
+        summary["min_duration_ms"] = round(float(vals[i_min]), 3)
+        summary["max_duration_ms"] = round(float(vals[i_max]), 3)
+
+    return {"per_position": per_position, "summary": summary}
+
+def _build_trajectory_3d(report):
+    """Section-07 "3D 트래젝터리 번들" payload.
+
+    For each impactor trajectory in ``report.impactor_trajectories``, sample
+    the (x, y, z) position track to at most 30 points and pair it with the
+    position's (x, y) on the impact face and its ``behavior_class``.
+
+    Returns
+    -------
+    dict with keys:
+        bundles  : list[{pos_id, x, y, behavior_class, points: [[x,y,z], ...]}]
+        z_range  : [zmin, zmax]
+        bbox_xy  : [xmin, ymin, xmax, ymax]
+    Empty dict when no trajectory data.
+    """
+    raw_trajs = getattr(report, "impactor_trajectories", None) or {}
+    if not raw_trajs:
+        return {}
+
+    # pos_id -> (x, y, face) lookup from positions_by_face
+    pos_xy = {}
+    xs_pos, ys_pos = [], []
+    for face, plist in (getattr(report, "positions_by_face", None) or {}).items():
+        for p in plist:
+            try:
+                x = float(getattr(p, "x", 0.0)); y = float(getattr(p, "y", 0.0))
+            except (TypeError, ValueError):
+                continue
+            pid = getattr(p, "pos_id", None)
+            if pid is None:
+                continue
+            pos_xy[str(pid)] = (x, y, str(face))
+            xs_pos.append(x); ys_pos.append(y)
+
+    bundles = []
+    zmin = float("inf"); zmax = float("-inf")
+    MAX_PTS = 30
+
+    for pos_id, traj in raw_trajs.items():
+        if traj is None:
+            continue
+        px = list(getattr(traj, "pos_x", None) or [])
+        py = list(getattr(traj, "pos_y", None) or [])
+        pz = list(getattr(traj, "pos_z", None) or [])
+        n = min(len(px), len(py), len(pz))
+        if n == 0:
+            continue
+
+        # stride-sample down to <= MAX_PTS, always include first + last
+        if n <= MAX_PTS:
+            idxs = list(range(n))
+        else:
+            step = (n - 1) / (MAX_PTS - 1)
+            idxs = sorted({int(round(i * step)) for i in range(MAX_PTS)})
+            if idxs[-1] != n - 1:
+                idxs.append(n - 1)
+
+        pts = []
+        for i in idxs:
+            try:
+                x = float(px[i]); y = float(py[i]); z = float(pz[i])
+            except (TypeError, ValueError):
+                continue
+            if not (x == x and y == y and z == z):  # NaN guard
+                continue
+            pts.append([round(x, 4), round(y, 4), round(z, 4)])
+            if z < zmin: zmin = z
+            if z > zmax: zmax = z
+        if not pts:
+            continue
+
+        sx, sy, _face = pos_xy.get(str(pos_id), (pts[0][0], pts[0][1], ""))
+        behavior = getattr(traj, "behavior_class", "unknown") or "unknown"
+        bundles.append({
+            "pos_id": _pid_cast(pos_id),
+            "x": round(sx, 4),
+            "y": round(sy, 4),
+            "behavior_class": str(behavior),
+            "points": pts,
+        })
+
+    if not bundles:
+        return {}
+
+    # bbox_xy: prefer grid metadata, fall back to positions
+    grid = getattr(getattr(report, "sim_params", None), "grid", None) or {}
+    bbox_raw = grid.get("bbox") if isinstance(grid, dict) else None
+    if bbox_raw and len(bbox_raw) == 4:
+        bbox_xy = [float(bbox_raw[0]), float(bbox_raw[1]),
+                   float(bbox_raw[2]), float(bbox_raw[3])]
+    elif xs_pos and ys_pos:
+        bbox_xy = [min(xs_pos), min(ys_pos), max(xs_pos), max(ys_pos)]
+    else:
+        bbox_xy = [-40.0, -40.0, 40.0, 40.0]
+
+    if zmin == float("inf"):
+        zmin, zmax = 0.0, 1.0
+    if zmax <= zmin:
+        zmax = zmin + 1.0
+
+    return {
+        "bundles": bundles,
+        "z_range": [round(zmin, 4), round(zmax, 4)],
+        "bbox_xy": [round(v, 4) for v in bbox_xy],
+    }
+# === INSIGHT_PYTHON_HELPERS_INSERT_HERE ===
+# Section-07 (Insights & Recommendations) builders are inserted ABOVE this line.
+
+
+def _build_insights_payload(report: ImpactReport) -> dict:
+    """Aggregate the six Section-07 insight analyses into one payload.
+
+    Empty dict when no data; individual sub-keys may be empty dicts. The
+    JS layer hides panels whose sub-key is empty so this is safe for
+    single-d3plot / minimal reports.
+    """
+    insights: dict = {}
+    insights["Symmetry"] = _build_symmetry_insight(report)
+    insights["DamageIndex"] = _build_damage_index(report)
+    insights["ReboundField"] = _build_rebound_field(report)
+    insights["auto_recommend"] = _build_auto_recommend(report)
+    insights["ContactPulse"] = _build_contact_pulse(report)
+    insights["Trajectory3D"] = _build_trajectory_3d(report)
+    # === INSIGHT_PAYLOAD_EXT_INSERT_HERE ===
+    # Workflow-added entries assign insights["<key>"] = _build_xxx(report).
+    return insights
+
+
 # === DEEP_PYTHON_HELPERS_INSERT_HERE ===
 # Section-06 (Deep Analytics) builders are inserted ABOVE this line.
 # Each helper returns a JSON-serializable dict; ``_build_deep_payload``
@@ -2368,6 +3240,83 @@ def _build_deep_payload(report: ImpactReport) -> dict:
 # Additional Section-05 analytics builders are inserted ABOVE this line.
 # Each helper returns a JSON-serializable dict; ``_build_doe_payload``
 # merges them into ``advanced``.
+
+
+def _build_device_geometry(report: ImpactReport) -> dict:
+    """Derive device XY footprint from per-part PartMotion centroids.
+
+    Each PartMotion holds ``disp_x[0]`` / ``disp_y[0]`` — the centroid of the
+    part at t=0 in world coordinates. Collecting these across all parts (for
+    a single position — they all share the same device) yields the actual
+    device extent in XY, which is tighter than the DOE grid bbox.
+
+    Falls back to ``{"source": "grid_fallback"}`` (empty bbox) when no
+    PartMotion data is available; callers can then defer to the grid bbox.
+
+    Returns::
+
+        {
+          "bbox": [xmin, ymin, xmax, ymax],
+          "width": float,
+          "height": float,
+          "aspect": float,           # width / height, > 1 means wider than tall
+          "source": "part_motions" | "grid_fallback",
+        }
+    """
+    raw_motions = getattr(report, "part_motions", None) or {}
+    if not raw_motions:
+        return {"bbox": None, "width": 0.0, "height": 0.0, "aspect": 0.0,
+                "source": "grid_fallback"}
+
+    # Group motions by pos_id; pick the first pos with the most parts so we
+    # get the fullest device snapshot. All positions share the same device,
+    # but per-pos motion sets can be partial in edge cases.
+    by_pos: dict[str, list] = {}
+    for key, motion in raw_motions.items():
+        if motion is None:
+            continue
+        try:
+            pos_id, _pid = key
+        except Exception:  # noqa: BLE001
+            continue
+        by_pos.setdefault(str(pos_id), []).append(motion)
+    if not by_pos:
+        return {"bbox": None, "width": 0.0, "height": 0.0, "aspect": 0.0,
+                "source": "grid_fallback"}
+
+    # Choose the pos with the most parts (fullest device snapshot).
+    best_pos = max(by_pos.items(), key=lambda kv: len(kv[1]))[1]
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for pm in best_pos:
+        dx = getattr(pm, "disp_x", None) or []
+        dy = getattr(pm, "disp_y", None) or []
+        cx = float(dx[0]) if dx else 0.0
+        cy = float(dy[0]) if dy else 0.0
+        if math.isnan(cx) or math.isnan(cy) or math.isinf(cx) or math.isinf(cy):
+            continue
+        xs.append(cx)
+        ys.append(cy)
+
+    if not xs or not ys:
+        return {"bbox": None, "width": 0.0, "height": 0.0, "aspect": 0.0,
+                "source": "grid_fallback"}
+
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    width = xmax - xmin
+    height = ymax - ymin
+    # Single-point edge case (all centroids identical): width/height collapse
+    # to zero. Report it honestly — caller decides whether to fall back.
+    aspect = (width / height) if height > 0 else 0.0
+    return {
+        "bbox": [round(xmin, 4), round(ymin, 4), round(xmax, 4), round(ymax, 4)],
+        "width": round(width, 4),
+        "height": round(height, 4),
+        "aspect": round(aspect, 4),
+        "source": "part_motions",
+    }
 
 
 def _build_doe_payload(report: ImpactReport) -> dict | None:
@@ -3119,7 +4068,9 @@ def _build_payload(report: ImpactReport) -> dict:
         "part_motion": part_motion_payload,
         "doe_analysis": _build_doe_payload(report),
         "deep_analytics": _build_deep_payload(report),
+        "insights": _build_insights_payload(report),
         "unit_labels": unit_labels,
+        "device_geometry": _build_device_geometry(report),
         # risk_score = None means JS hides the panel; callers can opt in by
         # populating this with {"weights": {"worst","p95","crit"}, "crit_band", "warn_band"}.
         "risk_score": None,
@@ -3154,6 +4105,7 @@ _CSS = r"""
   --good: #4adfa1;
   --crit: #ff3854;
   --tag: #b46eff;
+  --device-aspect: 1;
 }
 html, body {
   background: var(--bg); color: var(--fg);
@@ -3408,7 +4360,7 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .doe-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; }
 @media (max-width: 1100px) { .doe-row { grid-template-columns: 1fr; } }
 .doe-grid-wrap { background: var(--bg3); border-radius: 6px; padding: 10px 12px; }
-.doe-grid-wrap svg { width: 100%; display: block; aspect-ratio: 1/1; }
+.doe-grid-wrap svg { width: 100%; display: block; aspect-ratio: var(--device-aspect, 1); }
 .doe-cell-label { font-family: 'JetBrains Mono', monospace; pointer-events: none; }
 .doe-cell rect { cursor: pointer; transition: stroke-width 0.1s; }
 .doe-cell.active rect { stroke: var(--accent); stroke-width: 2; }
@@ -3434,7 +4386,7 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .doe-failrisk-wrap{display:grid;grid-template-columns:minmax(280px, 1fr) minmax(360px, 1.2fr);gap:18px;padding:10px 4px 4px 4px;}
 .doe-failrisk-left,.doe-failrisk-right{display:flex;flex-direction:column;gap:8px;min-width:0;}
 .doe-failrisk-subhead{font-size:12px;color:var(--fg2);letter-spacing:.04em;text-transform:uppercase;}
-.doe-failrisk-grid{display:grid;gap:4px;aspect-ratio:1/1;background:var(--bg3);padding:4px;border-radius:4px;}
+.doe-failrisk-grid{display:grid;gap:4px;aspect-ratio:var(--device-aspect, 1);background:var(--bg3);padding:4px;border-radius:4px;}
 .doe-failrisk-cell{display:flex;flex-direction:column;justify-content:center;align-items:center;border-radius:3px;color:#0b0b0b;font-weight:600;padding:2px;min-height:0;line-height:1.05;}
 .doe-failrisk-cell.doe-failrisk-empty{background:transparent;color:var(--dim);font-weight:400;}
 .doe-failrisk-cell.doe-failrisk-nodata{background:var(--bg2);color:var(--dim);font-weight:400;}
@@ -3854,6 +4806,214 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 }
 
 /* DEEP_CSS_INSERT_HERE */
+
+#insight-symmetry .sym-kpis{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:10px;margin-bottom:10px}
+#insight-symmetry .sym-kpi{background:#0f1623;border:1px solid #243245;border-radius:8px;padding:10px 12px}
+#insight-symmetry .sym-kpi-lbl{font-size:11px;color:#8aa0bd;letter-spacing:.02em;margin-bottom:4px}
+#insight-symmetry .sym-kpi-val{font-size:22px;font-weight:600;color:#e6eefc}
+#insight-symmetry .sym-kpi-val-sm{font-size:15px}
+#insight-symmetry .sym-kpi-suf{font-size:11px;color:#8aa0bd;font-weight:400;margin-left:3px}
+#insight-symmetry .sym-kpi-meta{grid-column:span 1}
+#insight-symmetry .sym-verdict{padding:8px 12px;border-radius:6px;font-size:13px;font-weight:500;margin-bottom:12px}
+#insight-symmetry .sym-verdict.ok{background:#0f2a1d;border:1px solid #1f5a3d;color:#7fd4a3}
+#insight-symmetry .sym-verdict.warn{background:#2a1a12;border:1px solid #6b3a1f;color:#f0a878}
+#insight-symmetry .sym-tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#insight-symmetry .sym-tblbox{background:#0c1320;border:1px solid #1f2c40;border-radius:8px;padding:10px}
+#insight-symmetry .sym-tbl-title{font-size:13px;color:#cfd9ea;margin-bottom:6px;font-weight:600}
+#insight-symmetry .sym-tbl-sub{font-size:11px;color:#7d8da8;font-weight:400;margin-left:6px}
+#insight-symmetry .sym-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#insight-symmetry .sym-tbl th{text-align:right;color:#8aa0bd;font-weight:500;padding:4px 6px;border-bottom:1px solid #1f2c40}
+#insight-symmetry .sym-tbl th:first-child{text-align:left}
+#insight-symmetry .sym-tbl td{padding:4px 6px;border-bottom:1px solid #141d2c;color:#dde6f5}
+#insight-symmetry .sym-tbl td.sym-pair{font-family:ui-monospace,Menlo,monospace;color:#a8c2ee}
+#insight-symmetry .sym-tbl td.sym-num{text-align:right;font-variant-numeric:tabular-nums}
+#insight-symmetry .sym-tbl td.sym-asym{font-weight:600}
+#insight-symmetry .sym-tbl tr.mid td.sym-asym{color:#f0c878}
+#insight-symmetry .sym-tbl tr.hi td.sym-asym{color:#f08878}
+#insight-symmetry .sym-foot{margin-top:10px;font-size:11px;color:#7d8da8;line-height:1.5}
+#insight-symmetry .ins-empty{color:#7d8da8;font-size:12px;padding:8px 0;text-align:center}
+@media (max-width:900px){
+  #insight-symmetry .sym-kpis{grid-template-columns:repeat(2,1fr)}
+  #insight-symmetry .sym-tables{grid-template-columns:1fr}
+}
+#insight-DamageIndex .insight-title{font-weight:600;font-size:15px;margin-bottom:8px;color:#222;}
+#insight-DamageIndex .di-caption{font-size:12px;color:#444;background:#fafafa;border-left:3px solid #b30000;padding:6px 10px;margin-bottom:10px;border-radius:2px;}
+#insight-DamageIndex .di-wrap{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+#insight-DamageIndex .di-left{flex:0 0 auto;}
+#insight-DamageIndex .di-right{flex:1 1 280px;min-width:280px;}
+#insight-DamageIndex .di-subtitle{font-size:13px;font-weight:600;color:#333;margin-bottom:6px;}
+#insight-DamageIndex .di-svg{display:block;}
+#insight-DamageIndex .di-label{font-size:11px;fill:#333;font-family:monospace;}
+#insight-DamageIndex .di-value{font-size:11px;fill:#222;font-family:monospace;dominant-baseline:middle;}
+#insight-DamageIndex .di-bar{cursor:default;}
+#insight-DamageIndex .di-bar:hover{stroke:#000;stroke-width:1;}
+#insight-DamageIndex .di-pair-list{list-style:none;padding:0;margin:0;}
+#insight-DamageIndex .di-pair-list li{display:grid;grid-template-columns:24px 1fr 120px 50px;gap:6px;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px solid #eee;}
+#insight-DamageIndex .di-rank{font-weight:700;color:#b30000;text-align:center;}
+#insight-DamageIndex .di-pair-name{font-family:monospace;color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#insight-DamageIndex .di-pair-bar{background:#f6f6f6;border:1px solid #e5e5e5;height:12px;position:relative;border-radius:2px;overflow:hidden;}
+#insight-DamageIndex .di-pair-fill{display:block;height:100%;}
+#insight-DamageIndex .di-pair-val{font-family:monospace;font-size:11px;text-align:right;color:#222;}
+#insight-DamageIndex .di-empty{padding:10px;color:#888;font-size:12px;font-style:italic;}
+.rf-panel{padding:14px 16px;background:#161b22;border:1px solid #30363d;border-radius:8px;margin:12px 0;}
+.rf-panel .insight-head h3{margin:0 0 4px 0;font-size:15px;color:#e6edf3;}
+.rf-panel .insight-sub{margin:0 0 10px 0;font-size:12px;color:#8b949e;}
+.rf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;}
+.rf-kpi{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 10px;display:flex;flex-direction:column;}
+.rf-kpi-lbl{font-size:11px;color:#8b949e;}
+.rf-kpi-val{font-size:14px;color:#e6edf3;font-variant-numeric:tabular-nums;margin-top:2px;}
+.rf-kpi-val.rf-up{color:#4493f8;}
+.rf-kpi-val.rf-down{color:#f85149;}
+.rf-svg-wrap{display:flex;justify-content:center;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px;}
+.rf-svg-wrap svg{max-width:520px;width:100%;height:auto;}
+.rf-caption{margin:8px 0 0 0;font-size:11px;color:#8b949e;line-height:1.5;}
+.insight-empty{padding:20px;color:#8b949e;text-align:center;font-size:12px;}
+#insight-panel-auto-recommend .ar-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+#insight-panel-auto-recommend .ar-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #2a2f3a;
+  color: #d0d5dd;
+}
+#insight-panel-auto-recommend .ar-chip-total    { background: #2a2f3a; color: #e6e8ec; }
+#insight-panel-auto-recommend .ar-chip-critical { background: #4a1d1d; color: #ff8a8a; }
+#insight-panel-auto-recommend .ar-chip-warning  { background: #4a3a14; color: #ffc266; }
+#insight-panel-auto-recommend .ar-chip-info     { background: #1d3a4a; color: #80c8ff; }
+#insight-panel-auto-recommend .ar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
+}
+#insight-panel-auto-recommend .ar-card {
+  display: flex;
+  background: #1c2029;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #2a2f3a;
+}
+#insight-panel-auto-recommend .ar-stripe {
+  width: 6px;
+  flex-shrink: 0;
+}
+#insight-panel-auto-recommend .ar-critical .ar-stripe { background: #d94545; }
+#insight-panel-auto-recommend .ar-warning  .ar-stripe { background: #f08a24; }
+#insight-panel-auto-recommend .ar-info     .ar-stripe { background: #3a90d8; }
+#insight-panel-auto-recommend .ar-main {
+  padding: 10px 12px;
+  flex: 1;
+  min-width: 0;
+}
+#insight-panel-auto-recommend .ar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+#insight-panel-auto-recommend .ar-sev-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+#insight-panel-auto-recommend .ar-critical .ar-sev-tag { background: #d94545; color: #fff; }
+#insight-panel-auto-recommend .ar-warning  .ar-sev-tag { background: #f08a24; color: #fff; }
+#insight-panel-auto-recommend .ar-info     .ar-sev-tag { background: #3a90d8; color: #fff; }
+#insight-panel-auto-recommend .ar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6e8ec;
+  flex: 1;
+  min-width: 0;
+}
+#insight-panel-auto-recommend .ar-metric {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: #b0b8c4;
+  background: #252a35;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+#insight-panel-auto-recommend .ar-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #c0c5d0;
+  margin-bottom: 8px;
+}
+#insight-panel-auto-recommend .ar-source {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#insight-panel-auto-recommend .ar-source-label { color: #8088a0; }
+#insight-panel-auto-recommend .ar-source-tag {
+  background: #2a2f3a;
+  color: #9bb3d4;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #354055;
+}
+#insight-panel-auto-recommend .insight-empty {
+  color: #8088a0;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+}
+
+#insight-panel-ContactPulse .insight-header h3{margin:0;font-size:15px;color:#e8e8e8;}
+#insight-panel-ContactPulse .insight-sub{font-size:11px;color:#888;margin-top:2px;}
+#insight-panel-ContactPulse .insight-body{padding:8px 4px;}
+#insight-panel-ContactPulse .ins-empty{color:#888;padding:18px;text-align:center;font-size:12px;}
+#insight-panel-ContactPulse .cp-grid{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start;}
+#insight-panel-ContactPulse .cp-title{font-size:12px;color:#cfcfcf;margin-bottom:6px;font-weight:600;}
+#insight-panel-ContactPulse .cp-heatmap-wrap, #insight-panel-ContactPulse .cp-hist-wrap{background:#161616;border:1px solid #2a2a2a;border-radius:4px;padding:8px;}
+#insight-panel-ContactPulse .cp-hm-svg{display:block;}
+#insight-panel-ContactPulse .cp-legend{margin-top:6px;}
+#insight-panel-ContactPulse .cp-legend-bar{display:flex;height:8px;width:100%;border-radius:2px;overflow:hidden;}
+#insight-panel-ContactPulse .cp-legend-bar span{flex:1;display:block;}
+#insight-panel-ContactPulse .cp-legend-labels{display:flex;justify-content:space-between;font-size:10px;color:#999;margin-top:2px;}
+#insight-panel-ContactPulse .cp-hist-svg{display:block;}
+#insight-panel-ContactPulse .cp-stats{margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#bbb;}
+#insight-panel-ContactPulse .cp-stats span{color:#888;margin-right:4px;}
+#insight-panel-ContactPulse .cp-stats b{color:#f0c674;font-weight:600;}
+#insight-panel-ContactPulse .cp-rank-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px;}
+#insight-panel-ContactPulse .cp-rank-col{background:#161616;border:1px solid #2a2a2a;border-radius:4px;padding:8px;}
+#insight-panel-ContactPulse .cp-rank-tbl{width:100%;border-collapse:collapse;font-size:11px;color:#ccc;}
+#insight-panel-ContactPulse .cp-rank-tbl th{text-align:left;border-bottom:1px solid #333;padding:3px 4px;color:#999;font-weight:500;}
+#insight-panel-ContactPulse .cp-rank-tbl td{padding:3px 4px;border-bottom:1px solid #222;}
+#insight-panel-ContactPulse .cp-rank-tbl tr:hover td{background:#1f1f1f;}
+#insight-panel-ContactPulse .cp-caption{margin-top:10px;padding:8px 10px;background:#181818;border-left:3px solid #f0c674;font-size:11px;color:#bbb;line-height:1.5;}
+#insight-panel-ContactPulse .cp-empty{color:#666;font-size:11px;padding:8px;text-align:center;}
+#insight-panel-trajectory3d .insight-head{margin-bottom:8px}
+#insight-panel-trajectory3d .insight-head h3{margin:0;font-size:15px;color:#e6eefc;font-weight:600}
+#insight-panel-trajectory3d .insight-sub{margin:2px 0 0;font-size:11px;color:#7d8da8}
+#insight-panel-trajectory3d .t3d-svg-wrap{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px;display:flex;justify-content:center;min-height:360px}
+#insight-panel-trajectory3d .t3d-svg-wrap svg{max-width:720px;width:100%;display:block}
+#insight-panel-trajectory3d .t3d-caption{margin:8px 0 0;font-size:11px;color:#8aa0bd;text-align:center}
+#insight-panel-trajectory3d .insight-empty{color:#7d8da8;font-size:12px;padding:24px 0;text-align:center;width:100%}
+/* Intra-section sub-tabs (Sections 05/06/07) */
+.subtab-bar { display: flex; gap: 4px; margin: 8px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 0; flex-wrap: wrap; }
+.subtab-bar button {
+  background: transparent; border: none; color: var(--dim); padding: 8px 14px;
+  font-size: 10px; letter-spacing: 1.5px; font-weight: 600; text-transform: uppercase;
+  cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.subtab-bar button:hover { color: var(--fg2); }
+.subtab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.subtab-content { display: none; }
+.subtab-content.active { display: block; }
+/* INSIGHT_CSS_INSERT_HERE */
 """
 
 
@@ -3893,6 +5053,7 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <a data-target="s4">PER-PART G</a>
     <a data-target="s5" id="navS5">DOE</a>
     <a data-target="s6" id="navS6">DEEP</a>
+    <a data-target="s7" id="navS7">INSIGHTS</a>
   </div>
 </div>
 """
@@ -4416,7 +5577,7 @@ _PAGE5 = """
   <div id="doe-content">
     <div class="kpi-strip r" id="doe-kpi-strip" style="grid-template-columns:repeat(5, 1fr);margin-bottom:14px"></div>
 
-    <div class="ctlbar r">
+    <div class="ctlbar r" id="doe-ctlbar">
       <div class="grp"><span class="lbl">METRIC</span><span id="doe-metric-buttons"></span></div>
       <div class="grp"><span class="lbl">SORT</span>
         <button class="btn active" data-doe-sort="value">VALUE DESC</button>
@@ -4424,8 +5585,8 @@ _PAGE5 = """
       </div>
     </div>
 
-    <div class="grid g-12" style="margin-bottom:14px">
-      <div class="panel col-7 r">
+    <div class="grid g-12" style="margin-bottom:14px" id="doe-grid-heat-rank">
+      <div class="panel col-7 r" id="doe-panel-heatmap">
         <div class="ph">
           <span class="pt">SPATIAL HEATMAP &middot; <span id="doe-heat-metric-lbl">PEAK G</span></span>
           <span class="pd" id="doe-heat-sub">grid &middot; cell color = selected metric</span>
@@ -4434,7 +5595,7 @@ _PAGE5 = """
         <div class="pcap" id="doe-heat-cap">셀 클릭 시 우측 표에서 해당 위치 강조. 라벨 = 값 + 최악 영향 부품.</div>
       </div>
 
-      <div class="panel col-5 r">
+      <div class="panel col-5 r" id="doe-panel-ranking">
         <div class="ph">
           <span class="pt">POSITION RANKING</span>
           <span class="pd">sorted by selected metric desc</span>
@@ -4460,8 +5621,8 @@ _PAGE5 = """
       </div>
     </div>
 
-    <div class="grid g-12" style="margin-bottom:14px">
-      <div class="panel col-12 r">
+    <div class="grid g-12" style="margin-bottom:14px" id="doe-grid-pp">
+      <div class="panel col-12 r" id="doe-panel-pp-matrix">
         <div class="ph">
           <span class="pt">PART &times; POSITION HEATMAP</span>
           <span class="pd">rows = top 15 parts by max peak_g &middot; cols = positions by DOE index &middot; color = peak_g</span>
@@ -4471,8 +5632,8 @@ _PAGE5 = """
       </div>
     </div>
 
-    <div class="grid g-12" style="margin-bottom:14px">
-      <div class="panel col-7 r">
+    <div class="grid g-12" style="margin-bottom:14px" id="doe-grid-traj-env">
+      <div class="panel col-7 r" id="doe-panel-trajectory">
         <div class="ph">
           <span class="pt">TRAJECTORY SMALL MULTIPLES &middot; KE vs TIME</span>
           <span class="pd">25 mini-curves &middot; color = behavior class &middot; ★ = worst position</span>
@@ -4487,7 +5648,7 @@ _PAGE5 = """
         </div>
       </div>
 
-      <div class="panel col-5 r">
+      <div class="panel col-5 r" id="doe-panel-envelope">
         <div class="ph">
           <span class="pt">CROSS-POSITION ENVELOPE &middot; PER PART</span>
           <span class="pd">P5—P50—P95 whisker (peak_g) &middot; right = P95/P5</span>
@@ -4497,7 +5658,7 @@ _PAGE5 = """
       </div>
     </div>
 
-<div class="panel">
+<div class="panel" id="doe-panel-failure-risk">
   <div class="ph">
     <span class="pt">FAILURE RISK MAP</span>
     <span class="pd">위치별 최소 안전율(SF) 히트맵 + 위험 부품 랭킹</span>
@@ -4515,7 +5676,7 @@ _PAGE5 = """
   <div class="pcap">25 위치에 걸친 부품 응답의 Pearson 상관. 같은 cluster = 구조적 연결 또는 같은 충격 경로. |r| ≥ 0.7 인 셀은 흰 테두리로 강조.</div>
 </div>
 
-<div class="panel col-12 r">
+<div class="panel col-12 r" id="doe-panel-toa">
   <div class="ph">
     <span class="pt">IMPACT WAVE PROPAGATION &middot; TIME-OF-ARRIVAL</span>
     <span class="pd">part peak_g vs impactor 첫 접촉 시점 &middot; 응답 전파 순서</span>
@@ -4526,7 +5687,7 @@ _PAGE5 = """
     좌측은 최악 위치의 도착 순서(상위 12개), 우측은 모든 위치 평균 기준 항상 빠른/느린 부품.
   </div>
 </div>
-<div class="grid g-12" style="margin-bottom:14px">
+<div class="grid g-12" style="margin-bottom:14px" id="doe-grid-idw">
   <div class="panel col-12 r" id="idw-pred-panel">
     <div class="ph">
       <span class="pt">WHAT-IF POSITION PREDICTOR &middot; IDW INTERPOLATION</span>
@@ -4556,8 +5717,8 @@ _PAGE5 = """
   <div class="pcap">한 위치가 '특정 부품만 심각' 인지 '여러 부품에 광범위' 인지 시각화. 우상단 = 광범위 + 심각 → 가장 위험.</div>
 </div>
 
-<div class="grid g-12" style="margin-bottom:14px">
-  <div class="panel col-12 r">
+<div class="grid g-12" style="margin-bottom:14px" id="doe-grid-energy">
+  <div class="panel col-12 r" id="doe-panel-energy">
     <div class="ph">
       <span class="pt">ENERGY PARTITION &middot; KE ABSORBED vs RETAINED</span>
       <span class="pd">per position &middot; sorted by absorption % desc</span>
@@ -4596,7 +5757,7 @@ _PAGE6 = """
   </div>
 </div>
 
-<section class="panel deep-srs-panel">
+<section class="panel deep-srs-panel" id="deep-srs-panel">
   <h3>충격 응답 스펙트럼 — SRS</h3>
   <div id="deep-srs-body" class="srs-body"></div>
 </section>
@@ -4616,7 +5777,7 @@ _PAGE6 = """
   <div class="panel-body" id="deep-pca-modal-body"></div>
 </section>
 
-<section class="panel">
+<section class="panel" id="deep-anomaly-panel">
   <h3>이상치 위치 자동 검출</h3>
   <div id="deep-anomaly-detection" class="deep-anomaly-detection"></div>
 </section>
@@ -4650,6 +5811,62 @@ _PAGE6 = """
 </div>
 
 <!-- DEEP_PANELS_INSERT_HERE -->
+    <!-- Workflow-added panel templates are inserted ABOVE this marker. -->
+  </div>
+</section>
+"""
+
+_PAGE7 = """
+<section id="s7">
+  <div class="page-head">
+    <span class="num">07</span>
+    <span class="t">INSIGHTS & RECOMMENDATIONS</span>
+    <span class="sub">설계 검증 · 손상 정량 · 충격 후 거동 · 자동 권고</span>
+    <span class="sub">SYMMETRY / DAMAGE / REBOUND / 3D TRAJ / RECOMMEND / PULSE</span>
+  </div>
+
+  <div class="panel" style="background:transparent;border:none;padding:0;">
+<section class="insight-panel" id="insight-panel-symmetry" data-key="Symmetry">
+  <h3 class="insight-title">대칭성 &amp; 경계 효과 분석</h3>
+  <div class="insight-body" id="insight-symmetry"></div>
+</section>
+    <div id="insight-DamageIndex" class="insight-panel">
+  <div class="insight-title">부품별 누적 손상 지표 (DI)</div>
+  <div class="insight-body"></div>
+</div>
+<section id="insight-rebound-field" class="insight-panel rf-panel">
+  <header class="insight-head">
+    <h3>충격 후 반발 벡터장</h3>
+    <p class="insight-sub">5×5 격자에서 impactor 반발 속도의 xy 성분을 화살표로, vz 부호를 색으로 표시</p>
+  </header>
+  <div class="rf-kpis"></div>
+  <div class="rf-svg-wrap"></div>
+  <p class="rf-caption">화살표 = 반발 방향 (xy). 파랑 = bounce (vz↑), 빨강 = embed/penetrate (vz↓), 회색 = flat. 화살표 길이 ∝ |v_xy| / max(|v_xy|).</p>
+</section>
+<div id="insight-panel-auto-recommend" class="insight-panel">
+  <div class="insight-header">
+    <h3>엔지니어링 자동 권고</h3>
+    <div class="insight-subtitle">데이터 기반 규칙으로 생성된 보강/검토 권고 — 심각도 순 정렬</div>
+  </div>
+  <div class="insight-body"></div>
+</div>
+
+<div class="insight-panel" id="insight-panel-ContactPulse">
+  <div class="insight-header">
+    <h3>충격 펄스 통계 (Contact Pulse Statistics)</h3>
+    <div class="insight-sub">위치별 contact 지속시간 · 밀도 · 펄스→피크 시간</div>
+  </div>
+  <div id="insight-ContactPulse" class="insight-body"></div>
+</div>
+<section id="insight-panel-trajectory3d" class="insight-panel">
+  <header class="insight-head">
+    <h3>3D 트래젝터리 번들</h3>
+    <p class="insight-sub">25개 위치 impactor 경로를 등각투영으로 동시 표시 (각 경로 최대 30포인트)</p>
+  </header>
+  <div id="trajectory3d-svg" class="t3d-svg-wrap"></div>
+  <p class="t3d-caption">25 위치 충돌체 경로 동시 표시. 색 = behavior.</p>
+</section>
+<!-- INSIGHT_PANELS_INSERT_HERE -->
     <!-- Workflow-added panel templates are inserted ABOVE this marker. -->
   </div>
 </section>
@@ -6171,7 +7388,7 @@ function initNav() {
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
-    const sections = ['s1', 's2', 's3', 's4', 's5', 's6'];
+    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
     const y = window.scrollY + 120;
     let active = sections[0];
     for (const id of sections) {
@@ -6202,6 +7419,79 @@ const BEHAVIOR_COLOR = {
   unknown:'#5c6383'
 };
 const CLUSTER_PALETTE = ['#4dd6ff', '#b46eff', '#f0a830', '#4adfa1', '#ff9e64', '#ff5e84', '#aab2cf'];
+
+function svgZoomPan(svgEl, opts) {
+  // Make an existing SVG element zoom/pan/drag with wheel + mouse.
+  // Adds a <g> wrapper around current children if not already present.
+  // Double-click resets. ESC key resets.
+  if (!svgEl || svgEl.dataset.zpInit === '1') return;
+  svgEl.dataset.zpInit = '1';
+  // Move all existing children into a <g class="zp-content">.
+  const ns = 'http://www.w3.org/2000/svg';
+  const g = document.createElementNS(ns, 'g');
+  g.setAttribute('class', 'zp-content');
+  // Snapshot children list (live NodeList changes during move).
+  const kids = Array.from(svgEl.childNodes);
+  kids.forEach(k => g.appendChild(k));
+  svgEl.appendChild(g);
+  const state = { tx: 0, ty: 0, scale: 1, dragging: false, lastX: 0, lastY: 0 };
+  const apply = () => {
+    g.setAttribute('transform', 'translate(' + state.tx + ',' + state.ty + ') scale(' + state.scale + ')');
+  };
+  const reset = () => { state.tx = 0; state.ty = 0; state.scale = 1; apply(); };
+  svgEl.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const rect = svgEl.getBoundingClientRect();
+    const mouseX = ev.clientX - rect.left;
+    const mouseY = ev.clientY - rect.top;
+    // Convert mouse to SVG coordinates via current viewBox.
+    const vb = (svgEl.getAttribute('viewBox') || '0 0 100 100').split(/\s+/).map(Number);
+    const svgX = vb[0] + (mouseX / rect.width) * vb[2];
+    const svgY = vb[1] + (mouseY / rect.height) * vb[3];
+    const localX = (svgX - state.tx) / state.scale;
+    const localY = (svgY - state.ty) / state.scale;
+    const direction = ev.deltaY < 0 ? 1 : -1;
+    const factor = direction > 0 ? 1.2 : 1 / 1.2;
+    state.scale = Math.max(0.25, Math.min(10, state.scale * factor));
+    state.tx = svgX - localX * state.scale;
+    state.ty = svgY - localY * state.scale;
+    apply();
+  }, { passive: false });
+  svgEl.addEventListener('mousedown', (ev) => {
+    state.dragging = true;
+    state.lastX = ev.clientX;
+    state.lastY = ev.clientY;
+    svgEl.style.cursor = 'grabbing';
+    ev.preventDefault();
+  });
+  window.addEventListener('mousemove', (ev) => {
+    if (!state.dragging) return;
+    const dx = ev.clientX - state.lastX;
+    const dy = ev.clientY - state.lastY;
+    state.lastX = ev.clientX;
+    state.lastY = ev.clientY;
+    const rect = svgEl.getBoundingClientRect();
+    const vb = (svgEl.getAttribute('viewBox') || '0 0 100 100').split(/\s+/).map(Number);
+    state.tx += dx * (vb[2] / rect.width);
+    state.ty += dy * (vb[3] / rect.height);
+    apply();
+  });
+  window.addEventListener('mouseup', () => {
+    state.dragging = false;
+    svgEl.style.cursor = 'grab';
+  });
+  svgEl.addEventListener('dblclick', reset);
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') reset(); });
+  svgEl.style.cursor = 'grab';
+  // Visual hint: a tiny help text in a corner.
+  const hint = document.createElementNS(ns, 'text');
+  hint.setAttribute('x', 4);
+  hint.setAttribute('y', 12);
+  hint.setAttribute('font-size', 8);
+  hint.setAttribute('fill', '#5c6383');
+  hint.textContent = 'wheel: zoom · drag: pan · dbl-click: reset';
+  svgEl.appendChild(hint);
+}
 
 function _trajForPos(face, posId) {
   const t = TRAJ[posId];
@@ -7101,7 +8391,9 @@ function _doeRenderFailureRisk(doe){
   const left = el('div', {class:'doe-failrisk-left'});
   wrap.appendChild(left);
   left.appendChild(el('div', {class:'doe-failrisk-subhead'}, '위치별 최소 SF (5×5)'));
-  const gridBox = el('div', {class:'doe-failrisk-grid', style:`grid-template-columns:repeat(${nx},1fr);grid-template-rows:repeat(${ny},1fr);`});
+  const _dgFR = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  const _arFR = (_dgFR.aspect && isFinite(_dgFR.aspect) && _dgFR.aspect > 0) ? _dgFR.aspect : 1;
+  const gridBox = el('div', {class:'doe-failrisk-grid', style:`grid-template-columns:repeat(${nx},1fr);grid-template-rows:repeat(${ny},1fr);aspect-ratio:${_arFR} / 1;`});
   left.appendChild(gridBox);
 
   // Build cell map by (row,col)
@@ -7667,7 +8959,9 @@ function _doeRenderIdwPredictor(doe) {
   const span = vmax - vmin || 1;
 
   while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
-  const vbW = 540, vbH = 540;
+  const _dgI = DATA.device_geometry || {aspect: 1};
+  const _arI = (_dgI.aspect && isFinite(_dgI.aspect) && _dgI.aspect > 0) ? _dgI.aspect : 1;
+  const vbW = 540, vbH = Math.max(120, Math.round(vbW / _arI));
   svgEl.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
   svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svgEl.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 4 }));
@@ -7778,6 +9072,7 @@ function _doeRenderIdwPredictor(doe) {
     [document.createTextNode(fmt(vmax, 1))]));
   svgEl.appendChild(svg('text', { x: lgX + 4, y: lgY0 + lgH + 10, fill: '#aab2cf', 'font-size': 9, 'text-anchor': 'middle' },
     [document.createTextNode(fmt(vmin, 1))]));
+  svgZoomPan(svgEl);
 }
 
 function _doeRenderParetoSeverity(doe) {
@@ -8351,7 +9646,9 @@ function _deepRenderSafeDropZone(data) {
   const wrap = el("div", { style: "display:flex; gap:18px; padding:12px; flex-wrap:wrap;" });
 
   // ---- SVG heatmap ----
-  const W = 460, H = 460, PAD = 36;
+  const _dgZ = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  const _arZ = (_dgZ.aspect && isFinite(_dgZ.aspect) && _dgZ.aspect > 0) ? _dgZ.aspect : 1;
+  const W = 460, H = Math.max(160, Math.round(W / _arZ)), PAD = 36;
   const innerW = W - 2 * PAD, innerH = H - 2 * PAD;
   const xRange = xmax - xmin || 1;
   const yRange = ymax - ymin || 1;
@@ -8509,6 +9806,7 @@ function _deepRenderSafeDropZone(data) {
     "전 부품 안전 = peak_g/stress/disp 모두 기준 이하. 빨간 영역 = 권장 회피 구역."
   ]);
   root.appendChild(caption);
+  svgZoomPan(svgRoot);
 }
 
 function _deepRenderPCAModal(data){
@@ -8633,7 +9931,9 @@ function _deepRenderPCAModal(data){
       const nRows = (cells.reduce((mx,c)=>Math.max(mx,c.row),0) + 1) || dim;
       const nCols = (cells.reduce((mx,c)=>Math.max(mx,c.col),0) + 1) || dim;
 
-      const W = 220, H = 220, pad = 8;
+      const _dgP = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+      const _arP = (_dgP.aspect && isFinite(_dgP.aspect) && _dgP.aspect > 0) ? _dgP.aspect : 1;
+      const W = 220, H = Math.max(80, Math.round(W / _arP)), pad = 8;
       const cw = (W - pad*2) / nCols;
       const ch = (H - pad*2) / nRows;
       const svgEl = svg('svg', {class:'pca-grid', width:W, height:H,
@@ -8660,6 +9960,7 @@ function _deepRenderPCAModal(data){
         }, [lbl]));
       });
       right.appendChild(svgEl);
+      svgZoomPan(svgEl);
 
       // legend
       const legend = el('div', {class:'pca-legend'}, [
@@ -8766,10 +10067,15 @@ function _renderAnomalyForFace(root, payload, faceCode){
   var xs = Array.from(new Set(rows.map(function(r){return r.x;}))).sort(function(a,b){return a-b;});
   var ys = Array.from(new Set(rows.map(function(r){return r.y;}))).sort(function(a,b){return b-a;}); // top-down
   var nx = Math.max(xs.length,1), ny = Math.max(ys.length,1);
-  var cell = 56;
+  var _dgA = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  var _arA = (_dgA.aspect && isFinite(_dgA.aspect) && _dgA.aspect > 0) ? _dgA.aspect : 1;
+  var cellW = 56;
+  // Per-cell height tracks per-position physical extent: when nx==ny, ratio
+  // simplifies to device aspect. (Falls back to square when ar==1.)
+  var cellH = Math.max(20, Math.min(160, Math.round(cellW * (ny / nx) / _arA)));
   var pad = 28;
-  var W = pad*2 + nx*cell;
-  var H = pad*2 + ny*cell;
+  var W = pad*2 + nx*cellW;
+  var H = pad*2 + ny*cellH;
 
   var s = svg('svg',{width:W, height:H, viewBox:'0 0 '+W+' '+H, class:'anom-heatmap'});
 
@@ -8783,8 +10089,8 @@ function _renderAnomalyForFace(root, payload, faceCode){
   for(var iy=0; iy<ny; iy++){
     for(var ix=0; ix<nx; ix++){
       var r = grid[ix+'_'+iy];
-      var cx = pad + ix*cell;
-      var cy = pad + iy*cell;
+      var cx = pad + ix*cellW;
+      var cy = pad + iy*cellH;
       var fill = '#1f1f24';
       var stroke = '#3a3a44';
       var sw = 1;
@@ -8800,17 +10106,17 @@ function _renderAnomalyForFace(root, payload, faceCode){
         label = String(r.pos_id);
       }
       s.appendChild(svg('rect',{
-        x:cx, y:cy, width:cell-2, height:cell-2,
+        x:cx, y:cy, width:cellW-2, height:cellH-2,
         fill: fill, stroke: stroke, 'stroke-width': sw, rx: 4
       }));
       if(r){
         s.appendChild(svg('text',{
-          x: cx + (cell-2)/2, y: cy + (cell-2)/2 - 4,
+          x: cx + (cellW-2)/2, y: cy + (cellH-2)/2 - 4,
           'text-anchor':'middle','dominant-baseline':'middle',
           'font-size': 10, fill: '#fff'
         },[label]));
         s.appendChild(svg('text',{
-          x: cx + (cell-2)/2, y: cy + (cell-2)/2 + 10,
+          x: cx + (cellW-2)/2, y: cy + (cellH-2)/2 + 10,
           'text-anchor':'middle','dominant-baseline':'middle',
           'font-size': 10, fill: '#eaeaf0', 'font-weight':600
         },['z=' + fmt(r.max_abs_z,1)]));
@@ -8882,6 +10188,7 @@ function _renderAnomalyForFace(root, payload, faceCode){
     fmt(thresh,2),' 또는 IQR fence 초과).'
   ]);
   root.appendChild(cap);
+  svgZoomPan(s);
 }
 
 function _deepPpdPartName(p) {
@@ -8976,7 +10283,9 @@ function _deepPpdRenderHeatmap(data, active) {
   const root = document.getElementById('ppd-heatmap-svg');
   if (!root) return;
   while (root.firstChild) root.removeChild(root.firstChild);
-  const W = 320, H = 320;
+  const _dgPP = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  const _arPP = (_dgPP.aspect && isFinite(_dgPP.aspect) && _dgPP.aspect > 0) ? _dgPP.aspect : 1;
+  const W = 320, H = Math.max(120, Math.round(W / _arPP));
   root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
 
   const mat = _deepPpdGetMatrix();
@@ -9072,6 +10381,7 @@ function _deepPpdRenderHeatmap(data, active) {
   root.appendChild(svg('text', { x: margin, y: H - 4,
     fill: '#5c6383', 'font-size': 9 },
     [document.createTextNode('0 ~ ' + fmt(vmax, 1) + ' ' + _u('acc'))]));
+  svgZoomPan(root);
 }
 
 function _deepPpdRenderHistogram(data, active) {
@@ -9269,6 +10579,886 @@ function _deepRenderPerPartDrillDown(deepData) {
   }
   _deepPpdRenderList(data);
   _deepPpdRenderDetail(data);
+}
+
+function _insightRenderSymmetry(data){
+  const root = document.getElementById('insight-symmetry');
+  if(!root) return;
+  if(!data){ root.innerHTML = '<div class="ins-empty">데이터 없음</div>'; return; }
+
+  const xPairs = data.x_mirror_pairs || [];
+  const yPairs = data.y_mirror_pairs || [];
+  const bs = data.boundary_summary || {};
+  const medX = (data.median_x_asym_pct==null) ? NaN : data.median_x_asym_pct;
+  const medY = (data.median_y_asym_pct==null) ? NaN : data.median_y_asym_pct;
+
+  const symX = isFinite(medX) ? Math.max(0, 100 - medX) : NaN;
+  const symY = isFinite(medY) ? Math.max(0, 100 - medY) : NaN;
+  const bamp = (bs.boundary_amplification_pct==null) ? NaN : bs.boundary_amplification_pct;
+
+  const fnum = (v, nd=1) => (v==null || !isFinite(v)) ? '—' : Number(v).toFixed(nd);
+
+  const verdictOk = !!data.design_symmetric;
+  let verdictText, verdictCls;
+  if(verdictOk){
+    verdictText = '디자인 대칭성 양호 (X·Y 중앙값 비대칭 < 15%)';
+    verdictCls = 'sym-verdict ok';
+  } else {
+    const reasons = [];
+    if(isFinite(medX) && medX >= 15) reasons.push('X축 비대칭');
+    if(isFinite(medY) && medY >= 15) reasons.push('Y축 비대칭');
+    if(!reasons.length) reasons.push('데이터 불충분');
+    verdictText = reasons.join(' · ');
+    verdictCls = 'sym-verdict warn';
+  }
+
+  const kpi = (label, value, suffix) => `
+    <div class="sym-kpi">
+      <div class="sym-kpi-lbl">${label}</div>
+      <div class="sym-kpi-val">${fnum(value,1)}<span class="sym-kpi-suf">${suffix||''}</span></div>
+    </div>`;
+
+  const rowHtml = (p) => {
+    const cls = p.asymmetry_pct >= 15 ? 'hi' : (p.asymmetry_pct >= 8 ? 'mid' : '');
+    return `<tr class="${cls}">
+      <td class="sym-pair">#${p.pos_a} ↔ #${p.pos_b}</td>
+      <td class="sym-num">${fnum(p.peak_g_a,2)}</td>
+      <td class="sym-num">${fnum(p.peak_g_b,2)}</td>
+      <td class="sym-num sym-asym">${fnum(p.asymmetry_pct,2)}%</td>
+    </tr>`;
+  };
+
+  const tableHtml = (title, pairs, count) => {
+    if(!pairs.length){
+      return `<div class="sym-tblbox"><div class="sym-tbl-title">${title}</div>
+        <div class="ins-empty">미러 쌍 없음</div></div>`;
+    }
+    const subtitle = count > pairs.length ? `상위 ${pairs.length} / 총 ${count}` : `${pairs.length}쌍`;
+    return `<div class="sym-tblbox">
+      <div class="sym-tbl-title">${title} <span class="sym-tbl-sub">${subtitle}</span></div>
+      <table class="sym-tbl">
+        <thead><tr>
+          <th>위치 쌍</th><th>peak_g A</th><th>peak_g B</th><th>비대칭%</th>
+        </tr></thead>
+        <tbody>${pairs.map(rowHtml).join('')}</tbody>
+      </table>
+    </div>`;
+  };
+
+  const gunit = (typeof _u === 'function') ? _u('peak_g','G') : 'G';
+
+  root.innerHTML = `
+    <div class="sym-kpis">
+      ${kpi('X 대칭성 점수', symX, ' /100')}
+      ${kpi('Y 대칭성 점수', symY, ' /100')}
+      ${kpi('경계 증폭률', bamp, '%')}
+      <div class="sym-kpi sym-kpi-meta">
+        <div class="sym-kpi-lbl">외곽 / 내부 평균 peak_g</div>
+        <div class="sym-kpi-val sym-kpi-val-sm">
+          ${fnum(bs.outer_mean_peak_g,2)} <span class="sym-kpi-suf">vs</span> ${fnum(bs.inner_mean_peak_g,2)}
+          <span class="sym-kpi-suf"> ${gunit} (n=${bs.outer_n||0}/${bs.inner_n||0})</span>
+        </div>
+      </div>
+    </div>
+    <div class="${verdictCls}">${verdictText}</div>
+    <div class="sym-tables">
+      ${tableHtml('X-미러 쌍 ((x,y) ↔ (-x,y))', xPairs, data.x_pair_count||xPairs.length)}
+      ${tableHtml('Y-미러 쌍 ((x,y) ↔ (x,-y))', yPairs, data.y_pair_count||yPairs.length)}
+    </div>
+    <div class="sym-foot">
+      중앙값 비대칭: X = ${fnum(medX,2)}% · Y = ${fnum(medY,2)}% &nbsp;|&nbsp;
+      외곽 = 위치별 max(|x|,|y|)가 면 최대치인 점, 내부 = 그 외.
+    </div>
+  `;
+}
+function _insightRenderDamageIndex(data){
+  const root = document.getElementById('insight-DamageIndex');
+  if(!root) return;
+  const body = root.querySelector('.insight-body');
+  if(!body) return;
+  body.innerHTML = '';
+
+  const d = (data && data.DamageIndex) || null;
+  if(!d || !d.per_part || d.per_part.length === 0){
+    body.innerHTML = '<div class="di-empty">데이터 없음 — DI를 계산할 수 있는 부품이 없습니다.</div>';
+    return;
+  }
+
+  const per = d.per_part;
+  const pairs = d.top_pairs || [];
+  const summary = d.summary || {};
+  const source = per[0].di_source;
+  const sourceLabel = source === 'yield'
+    ? 'yield-based (∑ max(0, σ/σ_y − 1) over positions)'
+    : 'composite (normalized peak g/stress/strain → [0,1])';
+
+  // Caption
+  const cap = document.createElement('div');
+  cap.className = 'di-caption';
+  const mp = summary.max_di_part ? `${summary.max_di_part} @ pos ${summary.max_di_position ?? '—'}` : '—';
+  cap.innerHTML = `<b>DI 산정 방식:</b> ${sourceLabel} &nbsp;·&nbsp; ` +
+                  `<b>최대 DI:</b> ${(summary.max_di_value ?? 0).toFixed(3)} (${mp}) &nbsp;·&nbsp; ` +
+                  `<b>대상 부품:</b> ${summary.n_parts_with_data}/${summary.n_parts_total}`;
+  body.appendChild(cap);
+
+  // Two-column layout
+  const wrap = document.createElement('div');
+  wrap.className = 'di-wrap';
+  body.appendChild(wrap);
+
+  // --- LEFT: horizontal bar chart (top-12) ---
+  const left = document.createElement('div');
+  left.className = 'di-left';
+  wrap.appendChild(left);
+  const h2 = document.createElement('div');
+  h2.className = 'di-subtitle';
+  h2.textContent = '부품별 DI (Top 12)';
+  left.appendChild(h2);
+
+  const top12 = per.slice(0, 12);
+  const maxDi = Math.max.apply(null, top12.map(r => r.di)) || 1.0;
+  const W = 560, rowH = 26, labelW = 150, valueW = 70;
+  const chartW = W - labelW - valueW - 16;
+  const H = top12.length * rowH + 12;
+  const s = svg(W, H);
+  s.setAttribute('class', 'di-svg');
+
+  top12.forEach((r, i) => {
+    const y = i * rowH + 6;
+    const frac = (maxDi > 0) ? (r.di / maxDi) : 0;
+    const barLen = Math.max(1, frac * chartW);
+
+    // red gradient: deeper red for larger DI fraction
+    const t = Math.min(1, Math.max(0, frac));
+    // interpolate from #fee0d2 (light) to #99000d (deep red)
+    const lerp = (a,b)=> Math.round(a + (b - a) * t);
+    const r1 = lerp(254, 153), g1 = lerp(224, 0), b1 = lerp(210, 13);
+    const fill = `rgb(${r1},${g1},${b1})`;
+
+    // label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', labelW - 6);
+    label.setAttribute('y', y + rowH/2 + 4);
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('class', 'di-label');
+    const nm = (r.part_name || ('part_' + r.part_id));
+    label.textContent = nm.length > 22 ? (nm.slice(0,21) + '…') : nm;
+    label.setAttribute('title', nm);
+    s.appendChild(label);
+
+    // bar background
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('x', labelW);
+    bgRect.setAttribute('y', y + 4);
+    bgRect.setAttribute('width', chartW);
+    bgRect.setAttribute('height', rowH - 10);
+    bgRect.setAttribute('fill', '#f6f6f6');
+    bgRect.setAttribute('stroke', '#e5e5e5');
+    s.appendChild(bgRect);
+
+    // bar
+    const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bar.setAttribute('x', labelW);
+    bar.setAttribute('y', y + 4);
+    bar.setAttribute('width', barLen);
+    bar.setAttribute('height', rowH - 10);
+    bar.setAttribute('fill', fill);
+    bar.setAttribute('class', 'di-bar');
+    // Tooltip
+    let tip = `${nm}\nDI = ${r.di.toFixed(3)}\nsource: ${r.di_source}`;
+    if(r.di_source === 'yield'){
+      tip += `\nyield σ_y = ${r.yield_stress}\n초과 위치 수 = ${r.n_positions_above_yield}/${r.n_positions}`;
+      tip += `\n최대 기여 위치: pos ${r.peak_pos_id ?? '—'}`;
+    } else {
+      tip += `\nmax peak_g = ${r.max_peak_g}`;
+      tip += `\nmax peak_stress = ${r.max_peak_stress}`;
+      tip += `\nmax peak_strain = ${r.max_peak_strain}`;
+      tip += `\n최대 기여 위치: pos ${r.peak_pos_id ?? '—'}`;
+    }
+    const ttl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    ttl.textContent = tip;
+    bar.appendChild(ttl);
+    s.appendChild(bar);
+
+    // value text
+    const vt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    vt.setAttribute('x', labelW + chartW + 6);
+    vt.setAttribute('y', y + rowH/2 + 4);
+    vt.setAttribute('class', 'di-value');
+    vt.textContent = r.di.toFixed(3);
+    s.appendChild(vt);
+  });
+  left.appendChild(s);
+
+  // --- RIGHT: dominant (part, pos) Top 5 ---
+  const right = document.createElement('div');
+  right.className = 'di-right';
+  wrap.appendChild(right);
+  const h3 = document.createElement('div');
+  h3.className = 'di-subtitle';
+  h3.textContent = '지배적 (부품, 위치) Top 5';
+  right.appendChild(h3);
+
+  if(pairs.length === 0){
+    const noPair = document.createElement('div');
+    noPair.className = 'di-empty';
+    noPair.textContent = '기여 위치 없음';
+    right.appendChild(noPair);
+  } else {
+    const ol = document.createElement('ol');
+    ol.className = 'di-pair-list';
+    const maxContrib = Math.max.apply(null, pairs.map(p=>p.contrib)) || 1.0;
+    pairs.forEach((p, idx) => {
+      const li = document.createElement('li');
+      const frac = (maxContrib > 0) ? p.contrib / maxContrib : 0;
+      const t = Math.min(1, Math.max(0, frac));
+      const lerp = (a,b)=> Math.round(a + (b - a) * t);
+      const fill = `rgb(${lerp(254,153)},${lerp(224,0)},${lerp(210,13)})`;
+      const nm = (p.part_name || ('part_' + p.part_id));
+      li.innerHTML =
+        `<span class="di-rank">${idx+1}</span>` +
+        `<span class="di-pair-name" title="${nm}">${nm.length>18?nm.slice(0,17)+'…':nm}@${p.pos_id}</span>` +
+        `<span class="di-pair-bar"><span class="di-pair-fill" style="width:${(frac*100).toFixed(1)}%;background:${fill}"></span></span>` +
+        `<span class="di-pair-val">${p.contrib.toFixed(3)}</span>`;
+      ol.appendChild(li);
+    });
+    right.appendChild(ol);
+  }
+}
+function _insightRenderReboundField(data){
+  const root = document.getElementById('insight-rebound-field');
+  if(!root) return;
+  if(!data || !data.vectors || data.vectors.length === 0){
+    root.innerHTML = '<div class="insight-empty">반발 벡터 데이터 없음</div>';
+    return;
+  }
+
+  const vectors = data.vectors;
+  const bbox = data.bbox || [0,0,1,1];
+  const maxSpeed = Math.max(data.max_speed || 0, 1e-9);
+  const velU = data.vel_unit || 'm/s';
+
+  // KPI bar
+  const kpi = root.querySelector('.rf-kpis');
+  if(kpi){
+    kpi.innerHTML = `
+      <div class="rf-kpi"><span class="rf-kpi-lbl">평균 반발 속도</span><span class="rf-kpi-val">${fmt(data.avg_speed,2)} ${velU}</span></div>
+      <div class="rf-kpi"><span class="rf-kpi-lbl">최대 반발 속도</span><span class="rf-kpi-val">${fmt(data.max_speed,2)} ${velU}</span></div>
+      <div class="rf-kpi"><span class="rf-kpi-lbl">바운스 (vz↑)</span><span class="rf-kpi-val rf-up">${data.n_rebound_up} / ${data.n_total}</span></div>
+      <div class="rf-kpi"><span class="rf-kpi-lbl">관통/매립 (vz↓)</span><span class="rf-kpi-val rf-down">${data.n_embed_down} / ${data.n_total}</span></div>
+      <div class="rf-kpi"><span class="rf-kpi-lbl">슬라이딩 (xy우세)</span><span class="rf-kpi-val">${data.n_sliding} / ${data.n_total}</span></div>
+    `;
+  }
+
+  // SVG quiver — sized to device aspect (cells reflect physical layout)
+  const _dgR = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  const _arR = (_dgR.aspect && isFinite(_dgR.aspect) && _dgR.aspect > 0) ? _dgR.aspect : 1;
+  const W = 460, H = Math.max(160, Math.round(W / _arR)), pad = 36;
+  const [x0, y0, x1, y1] = bbox;
+  const dx = Math.max(x1 - x0, 1e-9);
+  const dy = Math.max(y1 - y0, 1e-9);
+  const sx = (W - 2*pad) / dx;
+  const sy = (H - 2*pad) / dy;
+  const s = Math.min(sx, sy);
+
+  // cell size (5x5 grid assumed): pick scale so max arrow ~ 0.45 * cell spacing
+  // Estimate cell spacing from positions
+  const uniqX = Array.from(new Set(vectors.map(v=>v.x))).sort((a,b)=>a-b);
+  const uniqY = Array.from(new Set(vectors.map(v=>v.y))).sort((a,b)=>a-b);
+  let cellW = (uniqX.length > 1) ? (uniqX[uniqX.length-1] - uniqX[0]) / (uniqX.length - 1) : dx/5;
+  let cellH = (uniqY.length > 1) ? (uniqY[uniqY.length-1] - uniqY[0]) / (uniqY.length - 1) : dy/5;
+  const cellPx = Math.min(cellW * s, cellH * s);
+  const arrowMaxPx = 0.45 * cellPx;
+
+  const xToPx = x => pad + (x - x0) * s;
+  const yToPx = y => H - pad - (y - y0) * s; // flip Y
+
+  let svgParts = [];
+  // bbox frame
+  svgParts.push(`<rect x="${pad}" y="${pad}" width="${W-2*pad}" height="${H-2*pad}" fill="#0d1117" stroke="#30363d" stroke-width="1"/>`);
+
+  // Grid hints — light dotted lines at unique X/Y
+  for(const xv of uniqX){
+    const px = xToPx(xv);
+    svgParts.push(`<line x1="${px}" y1="${pad}" x2="${px}" y2="${H-pad}" stroke="#21262d" stroke-width="0.5" stroke-dasharray="2 3"/>`);
+  }
+  for(const yv of uniqY){
+    const py = yToPx(yv);
+    svgParts.push(`<line x1="${pad}" y1="${py}" x2="${W-pad}" y2="${py}" stroke="#21262d" stroke-width="0.5" stroke-dasharray="2 3"/>`);
+  }
+
+  const colorFor = c => c === 'up' ? '#4493f8' : (c === 'down' ? '#f85149' : '#8b949e');
+
+  // Arrows
+  for(const v of vectors){
+    const cx = xToPx(v.x);
+    const cy = yToPx(v.y);
+    const col = colorFor(v.color_class);
+
+    // origin dot
+    svgParts.push(`<circle cx="${cx}" cy="${cy}" r="2" fill="${col}" opacity="0.9"/>`);
+
+    if(v.missing){ continue; }
+
+    const mag = v.speed;
+    if(mag < 1e-9){
+      // draw an "x" to indicate no lateral motion
+      svgParts.push(`<circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${col}" stroke-width="1" opacity="0.6"/>`);
+      continue;
+    }
+
+    const lenPx = (mag / maxSpeed) * arrowMaxPx;
+    // vy positive = up in physical space; svg y is down, so flip
+    const ux = v.vx_rebound / mag;
+    const uy = -v.vy_rebound / mag;
+    const ex = cx + ux * lenPx;
+    const ey = cy + uy * lenPx;
+
+    // arrow shaft
+    svgParts.push(`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="${col}" stroke-width="1.6" opacity="0.95"/>`);
+
+    // arrowhead
+    const ah = Math.min(6, lenPx * 0.35);
+    const ang = Math.atan2(uy, ux);
+    const a1 = ang + 2.6;
+    const a2 = ang - 2.6;
+    const hx1 = ex + Math.cos(a1) * ah;
+    const hy1 = ey + Math.sin(a1) * ah;
+    const hx2 = ex + Math.cos(a2) * ah;
+    const hy2 = ey + Math.sin(a2) * ah;
+    svgParts.push(`<polygon points="${ex},${ey} ${hx1},${hy1} ${hx2},${hy2}" fill="${col}" opacity="0.95"/>`);
+
+    // hover title
+    svgParts.push(`<title>pos ${v.pos_id}: |v_xy|=${v.speed.toFixed(2)} ${velU}, v_z=${v.vz_final.toFixed(2)} ${velU}</title>`);
+  }
+
+  // Scale reference (bottom-left)
+  const refX = pad + 6;
+  const refY = H - 10;
+  svgParts.push(`<line x1="${refX}" y1="${refY}" x2="${refX + arrowMaxPx}" y2="${refY}" stroke="#c9d1d9" stroke-width="1.5"/>`);
+  svgParts.push(`<text x="${refX + arrowMaxPx + 6}" y="${refY + 3}" fill="#c9d1d9" font-size="10">${fmt(maxSpeed,2)} ${velU}</text>`);
+
+  // Legend (top-right)
+  const legendItems = [
+    {c:'#4493f8', l:'bounce (vz↑)'},
+    {c:'#f85149', l:'embed (vz↓)'},
+    {c:'#8b949e', l:'flat'},
+  ];
+  let lx = W - pad - 110, ly = pad + 4;
+  svgParts.push(`<rect x="${lx-6}" y="${ly-2}" width="116" height="${legendItems.length*14+6}" fill="#0d1117" stroke="#30363d" stroke-width="0.5" opacity="0.85"/>`);
+  legendItems.forEach((it, i) => {
+    const yy = ly + 10 + i*14;
+    svgParts.push(`<line x1="${lx}" y1="${yy}" x2="${lx+18}" y2="${yy}" stroke="${it.c}" stroke-width="2"/>`);
+    svgParts.push(`<text x="${lx+24}" y="${yy+3}" fill="#c9d1d9" font-size="10">${it.l}</text>`);
+  });
+
+  const svgWrap = root.querySelector('.rf-svg-wrap');
+  if(svgWrap){
+    svgWrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="height:auto">${svgParts.join('')}</svg>`;
+    svgZoomPan(svgWrap.querySelector('svg'));
+  }
+}
+function _insightRenderAutoRecommend(data) {
+  const root = document.getElementById('insight-panel-auto-recommend');
+  if (!root) return;
+  const body = root.querySelector('.insight-body');
+  if (!body) return;
+  body.innerHTML = '';
+
+  if (!data || !data.recommendations) {
+    body.appendChild(el('div', {class: 'insight-empty'}, '권고 데이터 없음'));
+    return;
+  }
+
+  // Merge with doe_analysis and deep_analytics if present
+  const extra = [];
+  try {
+    const doe = (window.DATA && DATA.doe_analysis) ? DATA.doe_analysis : null;
+    if (doe && doe.pca) {
+      const pc1 = doe.pca.explained_variance_ratio
+        ? (doe.pca.explained_variance_ratio[0] || 0) * 100.0
+        : null;
+      if (pc1 !== null && isFinite(pc1)) {
+        let topLoad = '';
+        if (doe.pca.top_loadings_pc1 && doe.pca.top_loadings_pc1.length) {
+          topLoad = doe.pca.top_loadings_pc1[0].name || doe.pca.top_loadings_pc1[0].part_name || '';
+        }
+        extra.push({
+          severity: pc1 > 60 ? 'warning' : 'info',
+          title: 'PCA 모드 1 지배도',
+          body: `PCA PC1이 전체 응답의 ${pc1.toFixed(1)}%를 설명${topLoad ? ` — '${topLoad}' 가 dominant loading` : ''}. 모드 1 형상에 대한 강성 분포 검토 권장.`,
+          source_panel: 'DOE / PCA Analysis',
+          metric: Number(pc1.toFixed(1))
+        });
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  try {
+    const deep = (window.DATA && DATA.deep_analytics) ? DATA.deep_analytics : null;
+    if (deep && deep.anomalies && Array.isArray(deep.anomalies) && deep.anomalies.length) {
+      const list = deep.anomalies.slice(0, 5)
+        .map(a => `P${a.pos_id}(z=${(a.z != null ? a.z.toFixed(2) : '?')})`)
+        .join(', ');
+      extra.push({
+        severity: 'warning',
+        title: 'Deep Analytics 이상치',
+        body: `${deep.anomalies.length}개 위치가 deep analytics 기준 이상치: ${list}.`,
+        source_panel: 'Deep Analytics',
+        metric: deep.anomalies.length
+      });
+    }
+  } catch (e) { /* ignore */ }
+
+  const all = (data.recommendations || []).concat(extra);
+  const order = {critical: 0, warning: 1, info: 2};
+  all.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+
+  const total = all.length;
+  const crit = all.filter(r => r.severity === 'critical').length;
+  const warn = all.filter(r => r.severity === 'warning').length;
+  const info = all.filter(r => r.severity === 'info').length;
+
+  const header = el('div', {class: 'ar-summary'});
+  header.appendChild(el('span', {class: 'ar-chip ar-chip-total'}, `총 ${total}건`));
+  header.appendChild(el('span', {class: 'ar-chip ar-chip-critical'}, `긴급 ${crit}`));
+  header.appendChild(el('span', {class: 'ar-chip ar-chip-warning'}, `주의 ${warn}`));
+  header.appendChild(el('span', {class: 'ar-chip ar-chip-info'}, `참고 ${info}`));
+  body.appendChild(header);
+
+  if (!all.length) {
+    body.appendChild(el('div', {class: 'insight-empty'}, '생성된 권고가 없습니다. 입력 데이터 부족.'));
+    return;
+  }
+
+  const grid = el('div', {class: 'ar-grid'});
+  all.forEach(r => {
+    const card = el('div', {class: `ar-card ar-${r.severity || 'info'}`});
+    const stripe = el('div', {class: 'ar-stripe'});
+    const main = el('div', {class: 'ar-main'});
+    const titleRow = el('div', {class: 'ar-title-row'});
+    titleRow.appendChild(el('span', {class: 'ar-sev-tag'},
+      r.severity === 'critical' ? '긴급' :
+      r.severity === 'warning'  ? '주의' : '참고'));
+    titleRow.appendChild(el('span', {class: 'ar-title'}, r.title || '(제목 없음)'));
+    if (r.metric != null) {
+      titleRow.appendChild(el('span', {class: 'ar-metric'}, String(r.metric)));
+    }
+    main.appendChild(titleRow);
+    main.appendChild(el('div', {class: 'ar-body'}, r.body || ''));
+    if (r.source_panel) {
+      const src = el('div', {class: 'ar-source'});
+      src.appendChild(el('span', {class: 'ar-source-label'}, '출처:'));
+      src.appendChild(el('span', {class: 'ar-source-tag'}, r.source_panel));
+      main.appendChild(src);
+    }
+    card.appendChild(stripe);
+    card.appendChild(main);
+    grid.appendChild(card);
+  });
+  body.appendChild(grid);
+}
+
+function _insightRenderContactPulse(data){
+  const root = document.getElementById('insight-ContactPulse');
+  if(!root){ return; }
+  if(!data || !data.per_position || data.per_position.length === 0){
+    root.innerHTML = '<div class="ins-empty">유효한 contact pulse 데이터가 없습니다.</div>';
+    return;
+  }
+  const pp = data.per_position.slice();
+  const summary = data.summary || {};
+
+  // Valid durations
+  const valid = pp.filter(d => d.pulse_duration_ms !== null && isFinite(d.pulse_duration_ms));
+  const durs = valid.map(d => d.pulse_duration_ms);
+  const dMin = durs.length ? Math.min.apply(null, durs) : 0;
+  const dMax = durs.length ? Math.max.apply(null, durs) : 1;
+  const dRange = (dMax - dMin) || 1;
+
+  // Color scale: short=red (sharp), long=blue (distributed)
+  function colorFor(v){
+    if(v === null || !isFinite(v)) return '#2a2a2a';
+    const t = (v - dMin) / dRange;
+    // red(short) -> yellow -> blue(long)
+    const stops = [[220,60,60],[240,200,90],[70,140,220]];
+    const tt = Math.max(0, Math.min(1, t));
+    const seg = tt < 0.5 ? 0 : 1;
+    const lt = tt < 0.5 ? tt*2 : (tt-0.5)*2;
+    const a = stops[seg], b = stops[seg+1];
+    const r = Math.round(a[0]+(b[0]-a[0])*lt);
+    const g = Math.round(a[1]+(b[1]-a[1])*lt);
+    const bl= Math.round(a[2]+(b[2]-a[2])*lt);
+    return `rgb(${r},${g},${bl})`;
+  }
+
+  // --- Layout ---
+  root.innerHTML = `
+    <div class="cp-grid">
+      <div class="cp-heatmap-wrap">
+        <div class="cp-title">5×5 위치별 펄스 지속시간 (ms)</div>
+        <div id="cp-heatmap"></div>
+        <div class="cp-legend" id="cp-legend"></div>
+      </div>
+      <div class="cp-hist-wrap">
+        <div class="cp-title">지속시간 분포 (10 bins)</div>
+        <div id="cp-hist"></div>
+        <div class="cp-stats" id="cp-stats"></div>
+      </div>
+    </div>
+    <div class="cp-rank-wrap">
+      <div class="cp-rank-col">
+        <div class="cp-title">Top-5 최장 지속</div>
+        <div id="cp-top5"></div>
+      </div>
+      <div class="cp-rank-col">
+        <div class="cp-title">Bottom-5 최단 지속</div>
+        <div id="cp-bot5"></div>
+      </div>
+    </div>
+    <div class="cp-caption">Contact 지속시간 = first→last engaged 시간차. 짧을수록 강한 단발 충격, 길수록 분산된 충격.</div>
+  `;
+
+  // --- Heatmap (5x5) ---
+  // Group by face if multiple, else single grid. Use x,y -> rank to 5x5.
+  // Determine grid: sort unique x, unique y.
+  const xs = Array.from(new Set(pp.map(p => +p.x.toFixed(6)))).sort((a,b)=>a-b);
+  const ys = Array.from(new Set(pp.map(p => +p.y.toFixed(6)))).sort((a,b)=>a-b);
+  const nx = Math.min(xs.length, 5);
+  const ny = Math.min(ys.length, 5);
+
+  const hmHost = document.getElementById('cp-heatmap');
+  const _dgCP = (typeof DATA !== 'undefined' && DATA.device_geometry) || {aspect: 1};
+  const _arCP = (_dgCP.aspect && isFinite(_dgCP.aspect) && _dgCP.aspect > 0) ? _dgCP.aspect : (56/40);
+  const cellW = 56;
+  // Each cell is one (nx,ny) DOE slot — its physical extent is
+  // (device_w / nx) × (device_h / ny). With equal nx/ny ratios reduce to
+  // device aspect itself.
+  const cellH = Math.max(20, Math.min(120, Math.round(cellW * (ny / Math.max(nx,1)) / _arCP)));
+  const padL = 30, padT = 10;
+  const W = padL + nx*cellW + 10, H = padT + ny*cellH + 24;
+  let svgEl = `<svg width="${W}" height="${H}" class="cp-hm-svg">`;
+  // map x,y to cell indices
+  function ix(v){ let best=0,bd=1e30; for(let i=0;i<xs.length;i++){const d=Math.abs(xs[i]-v); if(d<bd){bd=d;best=i;}} return best; }
+  function iy(v){ let best=0,bd=1e30; for(let i=0;i<ys.length;i++){const d=Math.abs(ys[i]-v); if(d<bd){bd=d;best=i;}} return best; }
+
+  // Build a map for quick lookup
+  const cellMap = {};
+  pp.forEach(p => {
+    const i = ix(+p.x.toFixed(6));
+    const j = iy(+p.y.toFixed(6));
+    cellMap[`${i}_${j}`] = p;
+  });
+
+  for(let j=ny-1;j>=0;j--){
+    for(let i=0;i<nx;i++){
+      const x = padL + i*cellW;
+      const y = padT + (ny-1-j)*cellH;
+      const p = cellMap[`${i}_${j}`];
+      const fill = p ? colorFor(p.pulse_duration_ms) : '#1a1a1a';
+      const lbl = p ? (p.pulse_duration_ms!==null ? p.pulse_duration_ms.toFixed(1) : '—') : '';
+      const pid = p ? `P${p.pos_id}` : '';
+      svgEl += `<rect x="${x}" y="${y}" width="${cellW-2}" height="${cellH-2}" fill="${fill}" stroke="#444" stroke-width="0.5" rx="2">`;
+      if(p){
+        svgEl += `<title>P${p.pos_id} (${p.behavior_class})\n지속시간: ${p.pulse_duration_ms===null?'N/A':p.pulse_duration_ms.toFixed(2)+' ms'}\ncontact steps: ${p.n_contact_steps}\ndensity: ${(p.contact_density*100).toFixed(1)}%\npulse→peak: ${p.pulse_to_peak_ms===null?'N/A':p.pulse_to_peak_ms.toFixed(2)+' ms'}</title>`;
+      }
+      svgEl += `</rect>`;
+      if(p){
+        svgEl += `<text x="${x+cellW/2-1}" y="${y+cellH/2-3}" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">${pid}</text>`;
+        svgEl += `<text x="${x+cellW/2-1}" y="${y+cellH/2+9}" text-anchor="middle" fill="#fff" font-size="9">${lbl}</text>`;
+      }
+    }
+  }
+  svgEl += `<text x="${padL}" y="${H-6}" fill="#aaa" font-size="10">x →</text>`;
+  svgEl += `<text x="2" y="${padT+10}" fill="#aaa" font-size="10">y↑</text>`;
+  svgEl += `</svg>`;
+  hmHost.innerHTML = svgEl;
+  svgZoomPan(hmHost.querySelector('svg'));
+
+  // Legend
+  const legend = document.getElementById('cp-legend');
+  let legHTML = '<div class="cp-legend-bar">';
+  for(let k=0;k<20;k++){
+    const v = dMin + (k/19)*dRange;
+    legHTML += `<span style="background:${colorFor(v)}"></span>`;
+  }
+  legHTML += `</div><div class="cp-legend-labels"><span>${dMin.toFixed(1)} ms</span><span>${dMax.toFixed(1)} ms</span></div>`;
+  legend.innerHTML = legHTML;
+
+  // --- Histogram ---
+  const hHost = document.getElementById('cp-hist');
+  const nBins = 10;
+  const bins = new Array(nBins).fill(0);
+  const binEdges = [];
+  for(let k=0;k<=nBins;k++){ binEdges.push(dMin + (k/nBins)*dRange); }
+  durs.forEach(v => {
+    let k = Math.floor((v - dMin) / dRange * nBins);
+    if(k >= nBins) k = nBins-1;
+    if(k < 0) k = 0;
+    bins[k]++;
+  });
+  const maxCount = Math.max.apply(null, bins) || 1;
+  const hW = 280, hH = 140, hpadL = 28, hpadB = 22, hpadT = 6;
+  const innerW = hW - hpadL - 8;
+  const innerH = hH - hpadB - hpadT;
+  const bw = innerW / nBins;
+  let hsv = `<svg width="${hW}" height="${hH}" class="cp-hist-svg">`;
+  for(let k=0;k<nBins;k++){
+    const bh = (bins[k]/maxCount)*innerH;
+    const bx = hpadL + k*bw;
+    const by = hpadT + (innerH - bh);
+    const midVal = (binEdges[k]+binEdges[k+1])/2;
+    hsv += `<rect x="${bx+1}" y="${by}" width="${bw-2}" height="${bh}" fill="${colorFor(midVal)}" stroke="#666" stroke-width="0.5"><title>${binEdges[k].toFixed(2)}–${binEdges[k+1].toFixed(2)} ms\nn=${bins[k]}</title></rect>`;
+    if(bins[k]>0){
+      hsv += `<text x="${bx+bw/2}" y="${by-2}" text-anchor="middle" fill="#ddd" font-size="9">${bins[k]}</text>`;
+    }
+  }
+  // axes
+  hsv += `<line x1="${hpadL}" y1="${hpadT+innerH}" x2="${hpadL+innerW}" y2="${hpadT+innerH}" stroke="#666" stroke-width="1"/>`;
+  hsv += `<text x="${hpadL}" y="${hH-6}" fill="#aaa" font-size="10">${dMin.toFixed(1)}</text>`;
+  hsv += `<text x="${hpadL+innerW}" y="${hH-6}" text-anchor="end" fill="#aaa" font-size="10">${dMax.toFixed(1)} ms</text>`;
+  hsv += `<text x="${hpadL-4}" y="${hpadT+8}" text-anchor="end" fill="#aaa" font-size="10">${maxCount}</text>`;
+  hsv += `<text x="${hpadL-4}" y="${hpadT+innerH}" text-anchor="end" fill="#aaa" font-size="10">0</text>`;
+  hsv += `</svg>`;
+  hHost.innerHTML = hsv;
+
+  // Stats
+  const stats = document.getElementById('cp-stats');
+  const fmtMs = v => (v===null||v===undefined||!isFinite(v)) ? 'N/A' : v.toFixed(2)+' ms';
+  stats.innerHTML = `
+    <div><span>평균:</span><b>${fmtMs(summary.mean_duration_ms)}</b></div>
+    <div><span>중앙값:</span><b>${fmtMs(summary.median_duration_ms)}</b></div>
+    <div><span>표준편차:</span><b>${fmtMs(summary.std_duration_ms)}</b></div>
+    <div><span>유효 위치:</span><b>${summary.n_valid ?? valid.length}</b></div>
+  `;
+
+  // Top-5 / Bottom-5
+  const sorted = valid.slice().sort((a,b)=>b.pulse_duration_ms - a.pulse_duration_ms);
+  const top5 = sorted.slice(0, 5);
+  const bot5 = sorted.slice(-5).reverse();
+
+  function rankHTML(list){
+    if(list.length === 0) return '<div class="cp-empty">데이터 없음</div>';
+    let h = '<table class="cp-rank-tbl"><thead><tr><th>#</th><th>Pos</th><th>지속(ms)</th><th>density</th><th>거동</th></tr></thead><tbody>';
+    list.forEach((p, i) => {
+      const bc = p.behavior_class || '—';
+      h += `<tr><td>${i+1}</td><td>P${p.pos_id}</td><td>${p.pulse_duration_ms.toFixed(2)}</td><td>${(p.contact_density*100).toFixed(1)}%</td><td>${bc}</td></tr>`;
+    });
+    h += '</tbody></table>';
+    return h;
+  }
+  document.getElementById('cp-top5').innerHTML = rankHTML(top5);
+  document.getElementById('cp-bot5').innerHTML = rankHTML(bot5);
+}
+
+function _insightRenderTrajectory3D(data){
+  const root = document.getElementById('trajectory3d-svg');
+  if(!root) return;
+  if(!data || !data.bundles || data.bundles.length === 0){
+    root.innerHTML = '<div class="insight-empty">트래젝터리 데이터 없음</div>';
+    return;
+  }
+
+  const bundles = data.bundles;
+  const bbox = data.bbox_xy || [-40, -40, 40, 40];
+  const zr   = data.z_range || [0, 1];
+  const [x0, y0, x1, y1] = bbox;
+  const [zMin, zMax] = zr;
+
+  // Isometric projection: u = x + 0.5*y, v = z + 0.5*y
+  // (tilt angle 30° — y contributes equally to horizontal and vertical)
+  const proj = (x, y, z) => [x + 0.5 * y, z + 0.5 * y];
+
+  // Compute u/v extents across floor corners + trajectory points so the
+  // whole scene fits the viewBox.
+  const uS = [], vS = [];
+  const floorCorners = [
+    [x0, y0, zMin], [x1, y0, zMin], [x1, y1, zMin], [x0, y1, zMin]
+  ];
+  for(const c of floorCorners){
+    const [u, v] = proj(c[0], c[1], c[2]);
+    uS.push(u); vS.push(v);
+  }
+  for(const b of bundles){
+    for(const p of b.points){
+      const [u, v] = proj(p[0], p[1], p[2]);
+      uS.push(u); vS.push(v);
+    }
+  }
+  const uMin = Math.min(...uS), uMax = Math.max(...uS);
+  const vMin = Math.min(...vS), vMax = Math.max(...vS);
+
+  const W = 600, H = 360, pad = 28;
+  const sx = (W - 2*pad) / Math.max(uMax - uMin, 1e-9);
+  const sy = (H - 2*pad) / Math.max(vMax - vMin, 1e-9);
+  const s  = Math.min(sx, sy);
+  // center
+  const offU = pad + ((W - 2*pad) - (uMax - uMin) * s) / 2;
+  const offV = pad + ((H - 2*pad) - (vMax - vMin) * s) / 2;
+  const tx = (u) => offU + (u - uMin) * s;
+  // SVG y grows downward; isometric v grows upward → flip
+  const ty = (v) => H - offV - (v - vMin) * s;
+
+  while(root.firstChild) root.removeChild(root.firstChild);
+  const root_svg = svg('svg', {
+    viewBox: '0 0 ' + W + ' ' + H,
+    preserveAspectRatio: 'xMidYMid meet',
+    width: '100%'
+  });
+
+  // Background
+  root_svg.appendChild(svg('rect', {
+    x: 0, y: 0, width: W, height: H, fill: '#0d1117', rx: 6
+  }));
+
+  // 5x5 floor wireframe at z = zMin
+  const N = 5;
+  const dxF = (x1 - x0) / N;
+  const dyF = (y1 - y0) / N;
+  const gridStroke = '#2a3447';
+  // Lines parallel to x (constant y)
+  for(let i = 0; i <= N; i++){
+    const yv = y0 + dyF * i;
+    const [uA, vA] = proj(x0, yv, zMin);
+    const [uB, vB] = proj(x1, yv, zMin);
+    root_svg.appendChild(svg('line', {
+      x1: tx(uA), y1: ty(vA), x2: tx(uB), y2: ty(vB),
+      stroke: gridStroke, 'stroke-width': 0.8, opacity: 0.8
+    }));
+  }
+  // Lines parallel to y (constant x)
+  for(let i = 0; i <= N; i++){
+    const xv = x0 + dxF * i;
+    const [uA, vA] = proj(xv, y0, zMin);
+    const [uB, vB] = proj(xv, y1, zMin);
+    root_svg.appendChild(svg('line', {
+      x1: tx(uA), y1: ty(vA), x2: tx(uB), y2: ty(vB),
+      stroke: gridStroke, 'stroke-width': 0.8, opacity: 0.8
+    }));
+  }
+
+  // Polylines per trajectory
+  for(const b of bundles){
+    const color = BEHAVIOR_COLOR[b.behavior_class] || BEHAVIOR_COLOR.unknown;
+    const pts = b.points.map(p => {
+      const [u, v] = proj(p[0], p[1], p[2]);
+      return tx(u).toFixed(2) + ',' + ty(v).toFixed(2);
+    }).join(' ');
+    const line = svg('polyline', {
+      points: pts,
+      fill: 'none',
+      stroke: color,
+      'stroke-width': 1.3,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      opacity: 0.85
+    });
+    const title = svg('title', {});
+    title.appendChild(document.createTextNode(
+      'pos ' + b.pos_id + ' · ' + String(b.behavior_class).toUpperCase()
+    ));
+    line.appendChild(title);
+    root_svg.appendChild(line);
+
+    // start marker at first sampled point
+    if(b.points.length){
+      const [u0p, v0p] = proj(b.points[0][0], b.points[0][1], b.points[0][2]);
+      root_svg.appendChild(svg('circle', {
+        cx: tx(u0p), cy: ty(v0p), r: 1.8, fill: color, opacity: 0.95
+      }));
+    }
+  }
+
+  // Legend (top-right) — behavior classes present in bundles
+  const present = {};
+  for(const b of bundles) present[b.behavior_class] = (present[b.behavior_class] || 0) + 1;
+  const order = ['bounce', 'rebound', 'slide', 'embed', 'unknown'];
+  const items = order.filter(k => present[k]);
+  let lx = W - 12, ly = 14;
+  const lh = 14;
+  for(let i = 0; i < items.length; i++){
+    const k = items[i];
+    const yy = ly + i * lh;
+    root_svg.appendChild(svg('line', {
+      x1: lx - 80, y1: yy, x2: lx - 60, y2: yy,
+      stroke: BEHAVIOR_COLOR[k] || BEHAVIOR_COLOR.unknown,
+      'stroke-width': 2
+    }));
+    const t = svg('text', {
+      x: lx - 56, y: yy + 3,
+      fill: '#c9d1d9', 'font-size': 10, 'text-anchor': 'start'
+    });
+    t.appendChild(document.createTextNode(k + ' (' + present[k] + ')'));
+    root_svg.appendChild(t);
+  }
+
+  root.appendChild(root_svg);
+  svgZoomPan(root_svg);
+}
+// === INSIGHT_JS_FUNCTIONS_INSERT_HERE ===
+// Section-07 _insightRenderXxx render functions are inserted ABOVE this line.
+
+// --- Intra-section sub-tabs (Sections 05/06/07) ---------------------------
+function initSubTabs(sectionId, groups) {
+  // groups = [{tab_id, label, panel_ids: [string]}]
+  const sec = document.getElementById(sectionId);
+  if (!sec) return;
+  const bar = document.createElement('div');
+  bar.className = 'subtab-bar';
+  groups.forEach((g, idx) => {
+    const btn = document.createElement('button');
+    btn.textContent = g.label;
+    if (idx === 0) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      groups.forEach(gg => {
+        gg.panel_ids.forEach(pid => {
+          const el = document.getElementById(pid);
+          if (el) el.style.display = (gg === g) ? '' : 'none';
+        });
+      });
+    });
+    bar.appendChild(btn);
+  });
+  const head = sec.querySelector('.page-head');
+  if (head) head.insertAdjacentElement('afterend', bar);
+  groups.forEach((g, idx) => {
+    g.panel_ids.forEach(pid => {
+      const el = document.getElementById(pid);
+      if (el) el.style.display = (idx === 0) ? '' : 'none';
+    });
+  });
+}
+
+const INSIGHT_STATE = { active_panel: null, hover_pos: null };
+
+function initInsights() {
+  const data = (DATA && DATA.insights) || null;
+  const sec = document.getElementById('s7');
+  const navLink = document.getElementById('navS7');
+  if (!data || !sec) {
+    if (sec) sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+  const populated = Object.keys(data).some(k => {
+    const v = data[k];
+    return v && (typeof v !== 'object' || Object.keys(v).length > 0 || (Array.isArray(v) && v.length > 0));
+  });
+  if (!populated) {
+    sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+  _insightRenderSymmetry(DATA.insights && DATA.insights.Symmetry);
+  _insightRenderDamageIndex(DATA.insights);
+  _insightRenderReboundField(DATA.insights && DATA.insights.ReboundField);
+  _insightRenderAutoRecommend(DATA.insights.auto_recommend);
+  _insightRenderContactPulse(DATA.insights.ContactPulse);
+  _insightRenderTrajectory3D(DATA.insights && DATA.insights.Trajectory3D);
+  // === INSIGHT_BOOT_CALLS_INSERT_HERE ===
+  // Workflow-added _insightRenderXxx(data) calls are inserted ABOVE this line.
 }
 
 // === DEEP_JS_FUNCTIONS_INSERT_HERE ===
@@ -9483,7 +11673,9 @@ function _doeRenderHeatmap(doe) {
     root.appendChild(svg('text', { x: 180, y: 180, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 11 }, [document.createTextNode('No grid metadata')]));
     return;
   }
-  const vbW = 540, vbH = 540;
+  const dg = DATA.device_geometry || {aspect: 1};
+  const ar = (dg.aspect && isFinite(dg.aspect) && dg.aspect > 0) ? dg.aspect : 1;
+  const vbW = 540, vbH = Math.max(120, Math.round(vbW / ar));
   root.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
   root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   root.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 4 }));
@@ -9539,6 +11731,7 @@ function _doeRenderHeatmap(doe) {
   root.appendChild(svg('text', { x: padL, y: padT - 8, fill: '#5c6383', 'font-size': 9 }, [document.createTextNode('X: ' + bb[0].toFixed(1) + ' → ' + bb[2].toFixed(1))]));
   root.appendChild(svg('text', { x: padL, y: vbH - padB + 22, fill: '#5c6383', 'font-size': 9 }, [document.createTextNode('Y: ' + bb[1].toFixed(1) + ' → ' + bb[3].toFixed(1))]));
   root.appendChild(svg('text', { x: vbW / 2, y: vbH - 8, fill: '#aab2cf', 'font-size': 10, 'text-anchor': 'middle' }, [document.createTextNode('Grid ' + nx + '×' + ny + '   metric: ' + _doeMetricLabel(DOE_STATE.metric))]));
+  svgZoomPan(root);
 }
 
 function _doeRenderRanking(doe) {
@@ -9683,8 +11876,14 @@ function _doeRenderTrajMM(doe) {
         cellWrap.classList.add('worst');
         cellWrap.appendChild(el('div', { class: 'star' }, '★'));
       }
-      // mini svg
-      const W = 90, H = 56;
+      // mini svg — per-cell aspect ratio follows device (each cell is one DOE slot)
+      const _dgT = DATA.device_geometry || {aspect: 1};
+      const _arT = (_dgT.aspect && isFinite(_dgT.aspect) && _dgT.aspect > 0) ? _dgT.aspect : (90/56);
+      const W = 90;
+      // Cell aspect should mirror per-position physical extent: a cell spans
+      // (device_width / nx) × (device_height / ny). With equal nx == ny the
+      // ratio reduces to the device aspect itself.
+      const H = Math.max(28, Math.min(160, Math.round(W / _arT)));
       const s = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none' });
       // Native hover tooltip on the whole cell — peak KE, behavior, retention.
       const _tk = (curve && curve.ke && curve.ke.length) ? Math.max.apply(null, curve.ke) : 0;
@@ -9778,6 +11977,7 @@ function _doeRenderEnvelope(doe) {
 }
 
 function boot() {
+  document.documentElement.style.setProperty('--device-aspect', (DATA.device_geometry && DATA.device_geometry.aspect) ? DATA.device_geometry.aspect : 1);
   applyUnitLabels();
   fillHeroKpi();
   initImpactor();
@@ -9797,6 +11997,47 @@ function boot() {
   initPerPartPeakG();
   initDoeAnalysis();
   initDeepAnalytics();
+  initInsights();
+  // Intra-section sub-tabs — must come AFTER section initializers so panels exist.
+  initSubTabs('s5', [
+    { tab_id: 's5-spatial', label: 'SPATIAL', panel_ids: [
+      'doe-kpi-strip', 'doe-ctlbar',
+      'doe-grid-heat-rank', 'doe-panel-heatmap', 'doe-panel-ranking',
+      'doe-grid-pp', 'doe-panel-pp-matrix',
+      'doe-grid-traj-env', 'doe-panel-trajectory'
+    ]},
+    { tab_id: 's5-perpart', label: 'PER-PART', panel_ids: [
+      'doe-panel-envelope', 'doe-panel-failure-risk'
+    ]},
+    { tab_id: 's5-advanced', label: 'ADVANCED', panel_ids: [
+      'doe-corr-network-panel', 'panel-pareto-severity',
+      'doe-grid-idw', 'idw-pred-panel',
+      'doe-grid-energy', 'doe-panel-energy',
+      'doe-panel-toa'
+    ]}
+  ]);
+  initSubTabs('s6', [
+    { tab_id: 's6-freq', label: 'FREQUENCY', panel_ids: [
+      'deep-fft-panel', 'deep-srs-panel'
+    ]},
+    { tab_id: 's6-stat', label: 'STATISTICAL', panel_ids: [
+      'deep-pca-modal-panel', 'deep-anomaly-panel'
+    ]},
+    { tab_id: 's6-spatial', label: 'SPATIAL', panel_ids: [
+      'deep-safe-drop-zone-panel', 'ppd-host'
+    ]}
+  ]);
+  initSubTabs('s7', [
+    { tab_id: 's7-design', label: 'DESIGN', panel_ids: [
+      'insight-panel-symmetry', 'insight-panel-trajectory3d'
+    ]},
+    { tab_id: 's7-damage', label: 'DAMAGE', panel_ids: [
+      'insight-DamageIndex', 'insight-panel-ContactPulse'
+    ]},
+    { tab_id: 's7-action', label: 'ACTION', panel_ids: [
+      'insight-rebound-field', 'insight-panel-auto-recommend'
+    ]}
+  ]);
   wireControlBar();
   initReveal();
   initNav();
@@ -9861,6 +12102,7 @@ def generate_html(report: ImpactReport) -> str:
         + _PAGE4
         + _PAGE5
         + _PAGE6
+        + _PAGE7
         + "<script>\n" + js + "\n</script>\n"
         "</body>\n</html>\n"
     )
