@@ -12234,6 +12234,42 @@ function _doeRenderEnvelope(doe) {
   });
 }
 
+// === Lazy section init framework ===
+// Heavy panels (Section 3-7) defer their init until their containing
+// <section id="sX"> enters the viewport OR the user clicks the nav.
+// This drastically reduces time-to-first-paint on the OVERVIEW landing.
+const LAZY_INIT = {};
+function registerLazy(id, fn) { LAZY_INIT[id] = fn; }
+function fireLazy(id) {
+  const fn = LAZY_INIT[id];
+  if (!fn) return;
+  delete LAZY_INIT[id];
+  try { fn(); } catch (e) { console.error('lazy init ' + id + ' failed:', e); }
+}
+function setupLazyObserver() {
+  if (!('IntersectionObserver' in window)) {
+    Object.keys(LAZY_INIT).forEach(fireLazy);
+    return;
+  }
+  const obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting && LAZY_INIT[e.target.id]) {
+        fireLazy(e.target.id);
+        obs.unobserve(e.target);
+      }
+    });
+  }, { rootMargin: '300px' });
+  Object.keys(LAZY_INIT).forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) obs.observe(el);
+  });
+  document.querySelectorAll('.topbar .nav a[data-target]').forEach(function (a) {
+    a.addEventListener('click', function () {
+      fireLazy(a.getAttribute('data-target'));
+    });
+  });
+}
+
 function boot() {
   document.documentElement.style.setProperty('--device-aspect', (DATA.device_geometry && DATA.device_geometry.aspect) ? DATA.device_geometry.aspect : 1);
   applyUnitLabels();
@@ -12242,63 +12278,84 @@ function boot() {
   initDoeBreakdown();
   renderAll();
   renderFindings();
-  initEnergyGraph();
-  initSunburst();
-  initSankey();
-  initTimeForceHeatmap();
-  initConservation();
-  initBounceVectorMap();
-  initTrajectoryClustering();
-  initPhaseDiagram();
-  initContactTimeline();
-  initTrajectoryBundle3D();
-  initPerPartPeakG();
-  initDoeAnalysis();
-  initDeepAnalytics();
-  initInsights();
-  // Intra-section sub-tabs — must come AFTER section initializers so panels exist.
-  initSubTabs('s5', [
-    { tab_id: 's5-spatial', label: 'SPATIAL', panel_ids: [
-      'doe-kpi-strip', 'doe-ctlbar',
-      'doe-grid-heat-rank', 'doe-panel-heatmap', 'doe-panel-ranking',
-      'doe-grid-pp', 'doe-panel-pp-matrix',
-      'doe-grid-traj-env', 'doe-panel-trajectory'
-    ]},
-    { tab_id: 's5-perpart', label: 'PER-PART', panel_ids: [
-      'doe-panel-envelope', 'doe-panel-failure-risk'
-    ]},
-    { tab_id: 's5-advanced', label: 'ADVANCED', panel_ids: [
-      'doe-corr-network-panel', 'panel-pareto-severity',
-      'doe-grid-idw', 'idw-pred-panel',
-      'doe-grid-energy', 'doe-panel-energy',
-      'doe-panel-toa'
-    ]}
-  ]);
-  initSubTabs('s6', [
-    { tab_id: 's6-freq', label: 'FREQUENCY', panel_ids: [
-      'deep-fft-panel', 'deep-srs-panel'
-    ]},
-    { tab_id: 's6-stat', label: 'STATISTICAL', panel_ids: [
-      'deep-pca-modal-panel', 'deep-anomaly-panel'
-    ]},
-    { tab_id: 's6-spatial', label: 'SPATIAL', panel_ids: [
-      'deep-safe-drop-zone-panel', 'ppd-host'
-    ]}
-  ]);
-  initSubTabs('s7', [
-    { tab_id: 's7-design', label: 'DESIGN', panel_ids: [
-      'insight-panel-symmetry', 'insight-panel-trajectory3d'
-    ]},
-    { tab_id: 's7-damage', label: 'DAMAGE', panel_ids: [
-      'insight-DamageIndex', 'insight-panel-ContactPulse'
-    ]},
-    { tab_id: 's7-action', label: 'ACTION', panel_ids: [
-      'insight-rebound-field', 'insight-panel-auto-recommend'
-    ]}
-  ]);
-  wireControlBar();
-  initReveal();
   initNav();
+  initReveal();
+  wireControlBar();
+
+  // Section 03 — VERDICT + ENERGY FLOW
+  registerLazy('s3', function () {
+    initEnergyGraph();
+    initSunburst();
+    initSankey();
+    initTimeForceHeatmap();
+    initConservation();
+    initBounceVectorMap();
+    initTrajectoryClustering();
+    initPhaseDiagram();
+    initContactTimeline();
+    initTrajectoryBundle3D();
+  });
+
+  // Section 04 — PER-PART G
+  registerLazy('s4', function () {
+    initPerPartPeakG();
+  });
+
+  // Section 05 — DOE SPATIAL ANALYSIS (sub-tabs must come after init)
+  registerLazy('s5', function () {
+    initDoeAnalysis();
+    initSubTabs('s5', [
+      { tab_id: 's5-spatial', label: 'SPATIAL', panel_ids: [
+        'doe-kpi-strip', 'doe-ctlbar',
+        'doe-grid-heat-rank', 'doe-panel-heatmap', 'doe-panel-ranking',
+        'doe-grid-pp', 'doe-panel-pp-matrix',
+        'doe-grid-traj-env', 'doe-panel-trajectory'
+      ]},
+      { tab_id: 's5-perpart', label: 'PER-PART', panel_ids: [
+        'doe-panel-envelope', 'doe-panel-failure-risk'
+      ]},
+      { tab_id: 's5-advanced', label: 'ADVANCED', panel_ids: [
+        'doe-corr-network-panel', 'panel-pareto-severity',
+        'doe-grid-idw', 'idw-pred-panel',
+        'doe-grid-energy', 'doe-panel-energy',
+        'doe-panel-toa'
+      ]}
+    ]);
+  });
+
+  // Section 06 — DEEP ANALYTICS
+  registerLazy('s6', function () {
+    initDeepAnalytics();
+    initSubTabs('s6', [
+      { tab_id: 's6-freq', label: 'FREQUENCY', panel_ids: [
+        'deep-fft-panel', 'deep-srs-panel'
+      ]},
+      { tab_id: 's6-stat', label: 'STATISTICAL', panel_ids: [
+        'deep-pca-modal-panel', 'deep-anomaly-panel'
+      ]},
+      { tab_id: 's6-spatial', label: 'SPATIAL', panel_ids: [
+        'deep-safe-drop-zone-panel', 'ppd-host'
+      ]}
+    ]);
+  });
+
+  // Section 07 — INSIGHTS
+  registerLazy('s7', function () {
+    initInsights();
+    initSubTabs('s7', [
+      { tab_id: 's7-design', label: 'DESIGN', panel_ids: [
+        'insight-panel-symmetry', 'insight-panel-trajectory3d'
+      ]},
+      { tab_id: 's7-damage', label: 'DAMAGE', panel_ids: [
+        'insight-DamageIndex', 'insight-panel-ContactPulse'
+      ]},
+      { tab_id: 's7-action', label: 'ACTION', panel_ids: [
+        'insight-rebound-field', 'insight-panel-auto-recommend'
+      ]}
+    ]);
+  });
+
+  setupLazyObserver();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
