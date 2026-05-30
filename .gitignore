@@ -167,3 +167,21 @@ nul
 # Apptainer SIF binaries (too large for git)
 apptainer/*.sif
 *.sif
+
+# Tool-generated transient state
+.bkit/snapshots/
+.codex
+.playwright-mcp/
+imgui.ini
+**/imgui.ini
+
+# Accidental stdout-redirect catches
+--help
+
+# Render-output frame dumps (reproducible from renderer)
+iso_*/
+section_3d_z/
+
+# Local-only release/deliverable bundles (keep out of repo; store in /data)
+presentation_pack/
+presentation_2_pack/
