@@ -1707,19 +1707,15 @@ def _build_srs_payload(report):
     import numpy as np
 
     # --- pick worst position ---
+    # The report object doesn't have a `.doe_analysis` attribute (that is a
+    # PAYLOAD key, not a model attribute), so we always derive the worst
+    # position from PairResults. `r.position` is an ImpactPosition dataclass —
+    # we need its `.pos_id` string to match the part_motions key tuple
+    # `(pos_id_str, part_id)`. The previous code used the ImpactPosition
+    # object itself, which never matched and silently dropped every part.
     pos_id = None
-    # Prefer DOE worst position if present
-    try:
-        doe = getattr(report, "doe_analysis", None) or {}
-        if isinstance(doe, dict):
-            wp = doe.get("worst_position") or {}
-            pos_id = wp.get("pos_id")
-    except Exception:
-        pos_id = None
-
-    # Fallback: max peak_g across all PairResults
     results = getattr(report, "results", []) or []
-    if pos_id is None and results:
+    if results:
         try:
             best = max(
                 (r for r in results if np.isfinite(getattr(r, "peak_g", float("nan")))),
@@ -1727,11 +1723,8 @@ def _build_srs_payload(report):
                 default=None,
             )
             if best is not None:
-                # positions are keyed by face/pos id — pos_id should be on PairResult or derivable
-                pos_id = getattr(best, "pos_id", None)
-                if pos_id is None:
-                    # derive from face+position-index if needed
-                    pos_id = getattr(best, "position", None)
+                pos_obj = getattr(best, "position", None)
+                pos_id = getattr(pos_obj, "pos_id", None) if pos_obj is not None else None
         except Exception:
             pos_id = None
 
