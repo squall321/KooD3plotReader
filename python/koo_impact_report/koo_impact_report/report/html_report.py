@@ -7392,8 +7392,31 @@ function initImpactor() {
     for (const r of rows) tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
     cap.textContent = 'Asymmetric tumbler: front + outer + back 3-stage cylinder.';
   } else {
-    sub.textContent = imp.type;
-    cap.textContent = 'Unknown impactor type';
+    // Unknown / empty type: draw a neutral placeholder shape and still
+    // populate the data table with whatever fields the loader filled in
+    // (density, E, ν, mass, v₀, KE). Many real-world decks don't expose
+    // an impactor type — we don't want the panel to look broken.
+    sub.textContent = imp.type ? imp.type : '(type unspecified)';
+    svgRoot.appendChild(svg('rect', { x: 60, y: 25, width: 80, height: 60, rx: 6, fill: 'rgba(77,214,255,0.06)', stroke: '#4dd6ff', 'stroke-width': 1, 'stroke-dasharray': '3,3' }));
+    const qm = svg('text', { x: 100, y: 62, 'text-anchor': 'middle', fill: '#4dd6ff', 'font-size': 22, 'font-family': 'JetBrains Mono', 'font-weight': '700' });
+    qm.appendChild(document.createTextNode('?'));
+    svgRoot.appendChild(qm);
+    const tlab = svg('text', { x: 100, y: 100, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    tlab.appendChild(document.createTextNode('type unspecified'));
+    svgRoot.appendChild(tlab);
+    const rows = [
+      ['TYPE',              imp.type || '(unspecified)'],
+      ['ρ',                 fmt(imp.density, 3)],
+      ['E' + _uSuffix('stress'),  fmt(imp.youngs_modulus, 3)],
+      ['ν',                 (imp.poisson_ratio != null ? imp.poisson_ratio.toFixed(3) : '?')],
+      ['m' + _uSuffix('mass'),    fmt(imp.mass, 4)],
+      ['v₀' + _uSuffix('vel'),    fmt(imp.velocity, 0)],
+      ['KE' + _uSuffix('energy'), fmt(imp.kinetic_energy, 2)],
+    ];
+    for (const r of rows) {
+      tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    }
+    cap.textContent = 'Geometry not declared — material + kinematics only.';
   }
 }
 
@@ -7652,7 +7675,15 @@ function _renderInspectorClear() {
   const empty = '<div class="ii-empty">충돌 위치 위에 마우스를 올리세요.</div>';
   const hInfo = document.getElementById('ii-hover-info'); if (hInfo) hInfo.innerHTML = empty;
   const partsList = document.getElementById('ii-parts-list'); if (partsList) partsList.innerHTML = '<div class="ii-empty">-</div>';
-  const thSvg = document.getElementById('ii-th-svg'); if (thSvg) while (thSvg.firstChild) thSvg.removeChild(thSvg.firstChild);
+  const thSvg = document.getElementById('ii-th-svg');
+  if (thSvg) {
+    while (thSvg.firstChild) thSvg.removeChild(thSvg.firstChild);
+    // Initial-state placeholder so the panel doesn't look broken before
+    // the user hovers a position. Removed on first hover.
+    const t = svg('text', { x: 100, y: 38, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono, monospace' });
+    t.appendChild(document.createTextNode('hover impact → KE-time curve'));
+    thSvg.appendChild(t);
+  }
   const sub = document.getElementById('ii-th-sub'); if (sub) sub.textContent = '';
   const badge = document.getElementById('ii-behavior-badge'); if (badge) badge.innerHTML = '';
   const kpi = document.getElementById('ii-traj-kpi'); if (kpi) kpi.innerHTML = '';
@@ -9082,6 +9113,12 @@ function initTrajectoryClustering() {
         }
         s.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 1.4 }));
       }
+    } else {
+      // Empty archetype — explicit "no members" placeholder so the cell isn't blank.
+      s.appendChild(svg('rect', { x: 0, y: 0, width: 200, height: 40, fill: 'rgba(255,255,255,0.02)' }));
+      const t = svg('text', { x: 100, y: 24, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 10, 'font-family': 'JetBrains Mono, monospace' });
+      t.appendChild(document.createTextNode('no positions in this archetype'));
+      s.appendChild(t);
     }
     card.appendChild(s);
     arch.appendChild(card);
