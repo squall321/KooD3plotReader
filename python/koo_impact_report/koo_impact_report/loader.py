@@ -994,12 +994,19 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         return out
 
     def _series_to_lists(ts):
-        """Convert PartTimeSeries.data → (times, max_values)."""
+        """Convert PartTimeSeries.data → (times, max_values).
+
+        The unified_analyzer JSON uses the full word "time" for the
+        timestamp key, NOT a single "t". Accept either to stay robust
+        against legacy outputs.
+        """
         times = []
         maxes = []
         for d in ts.data or []:
-            t = d.get("t") if isinstance(d, dict) else None
-            mx = d.get("max") if isinstance(d, dict) else None
+            if not isinstance(d, dict):
+                continue
+            t = d.get("time", d.get("t"))
+            mx = d.get("max")
             if t is None:
                 continue
             try:

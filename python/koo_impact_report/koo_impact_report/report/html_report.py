@@ -97,6 +97,70 @@ def _pct(values: list[float], q: float) -> float:
     return float(s[lo] * (1 - f) + s[hi] * f)
 
 
+def _r4(v):
+    """Round numeric value to <=4 significant figures, dropping trailing zeros.
+
+    Preserves None / non-finite / non-numeric inputs unchanged. Uses the ``%.4g``
+    format which respects magnitude (works equally for 0.000123 and 1234567).
+    """
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return v
+    if math.isnan(f) or math.isinf(f):
+        return 0.0
+    if f == 0.0:
+        return 0.0
+    return float(f"{f:.4g}")
+
+
+def _sparse_matrix(d, thresh_ratio=0.01):
+    """Encode a dict-of-dict numeric matrix sparsely when >=30% of entries are
+    zero (or below ``thresh_ratio * max_abs``).
+
+    Returns either the original dense dict or
+    ``{"_sparse": True, "rows": [[row_key, col_key, value], ...]}``.
+    Non-numeric values are always kept (treated as significant).
+    """
+    if not isinstance(d, dict) or not d:
+        return d
+    # Gather all numeric magnitudes to compute threshold
+    max_abs = 0.0
+    total = 0
+    for _rk, row in d.items():
+        if not isinstance(row, dict):
+            return d
+        for _ck, v in row.items():
+            total += 1
+            try:
+                f = abs(float(v))
+                if f > max_abs:
+                    max_abs = f
+            except (TypeError, ValueError):
+                pass
+    if total == 0:
+        return d
+    thresh = max_abs * thresh_ratio
+    # Count significant entries
+    sig_rows = []
+    n_drop = 0
+    for rk, row in d.items():
+        for ck, v in row.items():
+            try:
+                f = float(v)
+                if abs(f) <= thresh:
+                    n_drop += 1
+                    continue
+            except (TypeError, ValueError):
+                pass
+            sig_rows.append([rk, ck, v])
+    if n_drop / total < 0.30:
+        return d
+    return {"_sparse": True, "rows": sig_rows}
+
+
 # ---------------------------------------------------------------------------
 # Payload assembly
 # ---------------------------------------------------------------------------
@@ -856,13 +920,13 @@ def _build_toa_payload(report):
     }
 
 def _build_idw_predictor_payload(report):
-    """Build IDW-interpolated risk surfaces (peak_g, peak_stress) on a 41x41
+    """Build IDW-interpolated risk surfaces (peak_g, peak_stress) on a 31x31
     fine grid covering the DOE bbox. Returns None when grid metadata or
     measurement points are unavailable.
 
     Pure-Python (no numpy) IDW with power p=2. Exact reproduction at
     measurement points (zero distance fallback). Payload kept compact:
-    ~13 KB per metric, rounded.
+    ~7 KB per metric, rounded to 4 sig-figs.
     """
     sim_params = getattr(report, "sim_params", None) or {}
     grid_meta = sim_params.get("grid") if isinstance(sim_params, dict) else None
@@ -927,17 +991,17 @@ def _build_idw_predictor_payload(report):
     for pid, (x, y) in pos_xy.items():
         measured.append({
             "pos_id": pid,
-            "x": round(x, 4),
-            "y": round(y, 4),
-            "peak_g": round(pos_g.get(pid, 0.0), 3),
-            "peak_stress": round(pos_s.get(pid, 0.0), 3),
+            "x": round(x, 1),
+            "y": round(y, 1),
+            "peak_g": _r4(pos_g.get(pid, 0.0)),
+            "peak_stress": _r4(pos_s.get(pid, 0.0)),
         })
     if len(measured) < 2:
         return None
 
-    # IDW interpolation, p=2
-    NX = 41
-    NY = 41
+    # IDW interpolation, p=2 — 31x31 grid (still smooth visually, ~57% smaller)
+    NX = 31
+    NY = 31
     dx = (xmax - xmin) / (NX - 1)
     dy = (ymax - ymin) / (NY - 1)
     eps2 = ((dx * dx + dy * dy) * 1e-6) or 1e-12  # snap radius
@@ -974,9 +1038,9 @@ def _build_idw_predictor_payload(report):
                 grid_g[idx] = vg / wsum
                 grid_s[idx] = vs / wsum
 
-    # Round to keep payload small
-    grid_g_r = [round(v, 3) for v in grid_g]
-    grid_s_r = [round(v, 3) for v in grid_s]
+    # Round to keep payload small (4 sig-figs)
+    grid_g_r = [_r4(v) for v in grid_g]
+    grid_s_r = [_r4(v) for v in grid_s]
 
     # Predicted max indices
     def _argmax(arr):
@@ -997,7 +1061,7 @@ def _build_idw_predictor_payload(report):
         "grid_fine": {
             "nx_fine": NX,
             "ny_fine": NY,
-            "bbox": [round(xmin, 4), round(ymin, 4), round(xmax, 4), round(ymax, 4)],
+            "bbox": [round(xmin, 1), round(ymin, 1), round(xmax, 1), round(ymax, 1)],
             "peak_g": grid_g_r,
             "peak_stress": grid_s_r,
         },
@@ -1268,7 +1332,7 @@ def _fft_dominant_freq(times, signal, f_lo=10.0):
     return f_dom, peak_amp, freqs, amps_norm, fs
 
 
-def _downsample_spectrum(freqs, amps, max_bins=256):
+def _downsample_spectrum(freqs, amps, max_bins=128):
     """Bin-average down to ≤max_bins, keep monotonic frequency axis."""
     import numpy as np
     n = freqs.size
@@ -1325,20 +1389,20 @@ def _build_fft_payload(report):
         f_doms = np.array([e["f_dom"] for e in entries], dtype=float)
         # pick the entry with the highest peak_amp for representative spectrum
         top = max(entries, key=lambda e: e["peak_amp"])
-        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=256)
-        # round for payload size
-        ds_f = [round(float(x), 2) for x in ds_f.tolist()]
-        ds_a = [round(float(x), 4) for x in ds_a.tolist()]
+        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=128)
+        # round for payload size (4 sig-fig)
+        ds_f = [_r4(float(x)) for x in ds_f.tolist()]
+        ds_a = [_r4(float(x)) for x in ds_a.tolist()]
         info = parts_by_id.get(part_id)
         name = getattr(info, "part_name", None) or f"Part {part_id}"
         per_part[str(part_id)] = {
             "name": name,
             "n_samples_used": int(f_doms.size),
-            "mean_f_dom_Hz": round(float(np.mean(f_doms)), 2),
-            "std_f_dom_Hz": round(float(np.std(f_doms)), 2),
+            "mean_f_dom_Hz": _r4(float(np.mean(f_doms))),
+            "std_f_dom_Hz": _r4(float(np.std(f_doms))),
             "top_pos_id": _pid_cast(top["pos_id"]),
-            "top_freq_Hz": round(float(top["f_dom"]), 2),
-            "top_amp": round(float(top["peak_amp"]), 4),
+            "top_freq_Hz": _r4(float(top["f_dom"])),
+            "top_amp": _r4(float(top["peak_amp"])),
             "spectrum": {"f": ds_f, "amp_normalized": ds_a},
         }
         all_fs.extend([e["fs"] for e in entries])
@@ -1405,7 +1469,7 @@ def _fft_dominant_freq(times, signal, f_lo=10.0):
     return f_dom, peak_amp, freqs, amps_norm, fs
 
 
-def _downsample_spectrum(freqs, amps, max_bins=256):
+def _downsample_spectrum(freqs, amps, max_bins=128):
     """Bin-average down to ≤max_bins, keep monotonic frequency axis."""
     import numpy as np
     n = freqs.size
@@ -1462,20 +1526,20 @@ def _build_fft_payload(report):
         f_doms = np.array([e["f_dom"] for e in entries], dtype=float)
         # pick the entry with the highest peak_amp for representative spectrum
         top = max(entries, key=lambda e: e["peak_amp"])
-        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=256)
-        # round for payload size
-        ds_f = [round(float(x), 2) for x in ds_f.tolist()]
-        ds_a = [round(float(x), 4) for x in ds_a.tolist()]
+        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=128)
+        # round for payload size (4 sig-fig)
+        ds_f = [_r4(float(x)) for x in ds_f.tolist()]
+        ds_a = [_r4(float(x)) for x in ds_a.tolist()]
         info = parts_by_id.get(part_id)
         name = getattr(info, "part_name", None) or f"Part {part_id}"
         per_part[str(part_id)] = {
             "name": name,
             "n_samples_used": int(f_doms.size),
-            "mean_f_dom_Hz": round(float(np.mean(f_doms)), 2),
-            "std_f_dom_Hz": round(float(np.std(f_doms)), 2),
+            "mean_f_dom_Hz": _r4(float(np.mean(f_doms))),
+            "std_f_dom_Hz": _r4(float(np.std(f_doms))),
             "top_pos_id": _pid_cast(top["pos_id"]),
-            "top_freq_Hz": round(float(top["f_dom"]), 2),
-            "top_amp": round(float(top["peak_amp"]), 4),
+            "top_freq_Hz": _r4(float(top["f_dom"])),
+            "top_amp": _r4(float(top["peak_amp"])),
             "spectrum": {"f": ds_f, "amp_normalized": ds_a},
         }
         all_fs.extend([e["fs"] for e in entries])
@@ -1685,8 +1749,8 @@ def _build_srs_payload(report):
             "pos_id": pos_id,
             "part_id": pid,
             "part_name": pname,
-            "f": [round(float(x), 3) for x in freqs],
-            "srs": [round(float(x), 4) for x in srs],
+            "f": [_r4(float(x)) for x in freqs],
+            "srs": [_r4(float(x)) for x in srs],
         })
 
     return {
@@ -1695,7 +1759,7 @@ def _build_srs_payload(report):
         "summary": {
             "damping_ratio": zeta,
             "n_frequencies": len(freqs),
-            "fs_Hz": round(fs_hz, 2),
+            "fs_Hz": _r4(fs_hz),
             "f_range_Hz": [f_lo, f_hi],
             "pos_id": pos_id,
         },
@@ -3436,41 +3500,43 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
         position_metrics[pid] = rec
 
     # --- per-position top parts (sorted by peak_g, max 5) -----------------
+    # part_name omitted from each entry — JS resolves via parts[] using part_id
     position_top_parts: dict[str, list] = {}
     for pid, rows in position_results.items():
         # collapse multiple entries for same part_id (max peak_g)
-        by_part: dict[int, dict] = {}
+        by_part: dict[int, tuple[float, dict]] = {}
         for r in rows:
             part_id = int(r.part_id)
-            entry = by_part.get(part_id)
+            g_val = _safe(r.peak_g)
+            prev = by_part.get(part_id)
+            if prev is not None and prev[0] >= g_val:
+                continue
             cand = {
                 "part_id": part_id,
-                "part_name": pname_lookup.get(part_id, f"part_{part_id}"),
-                "peak_g": _safe(r.peak_g),
-                "peak_stress": _safe(r.peak_stress),
-                "peak_strain": _safe(r.peak_strain),
-                "peak_disp": _safe(r.peak_disp),
-                "peak_vel": _safe(r.peak_vel),
+                "peak_g": _r4(r.peak_g),
+                "peak_stress": _r4(r.peak_stress),
+                "peak_strain": _r4(r.peak_strain),
+                "peak_disp": _r4(r.peak_disp),
+                "peak_vel": _r4(r.peak_vel),
             }
-            if entry is None or cand["peak_g"] > entry["peak_g"]:
-                by_part[part_id] = cand
-        top = sorted(by_part.values(), key=lambda d: d["peak_g"], reverse=True)[:5]
-        position_top_parts[pid] = top
+            by_part[part_id] = (g_val, cand)
+        top = sorted(by_part.values(), key=lambda t: t[0], reverse=True)[:5]
+        position_top_parts[pid] = [t[1] for t in top]
 
     # --- part-position matrices (peak_g + peak_stress) --------------------
-    peak_g_matrix: dict[int, dict[str, float]] = {}
-    peak_stress_matrix: dict[int, dict[str, float]] = {}
+    peak_g_matrix: dict[str, dict[str, float]] = {}
+    peak_stress_matrix: dict[str, dict[str, float]] = {}
     for r in report.results:
         part_id = int(r.part_id)
         pid = r.position.pos_id
         g = _safe(r.peak_g)
         s = _safe(r.peak_stress)
-        gm = peak_g_matrix.setdefault(part_id, {})
+        gm = peak_g_matrix.setdefault(str(part_id), {})
         if g > gm.get(pid, 0.0):
-            gm[pid] = g
-        sm = peak_stress_matrix.setdefault(part_id, {})
+            gm[pid] = _r4(g)
+        sm = peak_stress_matrix.setdefault(str(part_id), {})
         if s > sm.get(pid, 0.0):
-            sm[pid] = s
+            sm[pid] = _r4(s)
 
     # --- trajectory summary + KE curves -----------------------------------
     traj_summary: dict[str, dict] = {}
@@ -3505,13 +3571,13 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
         if _safe(getattr(traj, "initial_ke", 0.0)) > 0:
             total_ke_absorbed.append(max(0.0, 1.0 - ke_ret))
 
-        # Downsample KE curve to ≤~200 points. Always preserve the argmax
+        # Downsample KE curve to ≤~120 points. Always preserve the argmax
         # and argmin indices so the peak/trough is never silently dropped.
         times = list(getattr(traj, "times", []) or [])
         ke = list(getattr(traj, "ke", []) or [])
         n = min(len(times), len(ke))
         if n > 0:
-            step = max(1, n // 200)
+            step = max(1, n // 120)
             kept = set(range(0, n, step))
             kept.add(n - 1)
             argmax = max(range(n), key=lambda i: ke[i])
@@ -3520,8 +3586,8 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
             kept.add(argmin)
             kept_idx = sorted(kept)
             traj_curves[pos_id] = {
-                "t":  [round(_safe(times[i]), 8) for i in kept_idx],
-                "ke": [round(_safe(ke[i]),    5) for i in kept_idx],
+                "t":  [_r4(_safe(times[i])) for i in kept_idx],
+                "ke": [_r4(_safe(ke[i]))    for i in kept_idx],
             }
 
     # --- per-part stats across positions (peak_g distribution) ------------
@@ -7021,9 +7087,17 @@ function initEnergyGraph() {
   });
   EG.canvas.addEventListener('mousemove', function (ev) {
     const rect = EG.canvas.getBoundingClientRect();
-    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
-    const W = EG.canvas.width / (window.devicePixelRatio || 1);
-    const H = EG.canvas.height / (window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    // Convert screen-space mouse to the world coords used by renderEG (the
+    // pre-transform CSS-pixel coord space). Mirrors the (tx/dpr, scale) applied
+    // in renderEG so hover hit-tests track the visible nodes after zoom/pan.
+    const sx = (ev.clientX - rect.left) * (EG.canvas.width / rect.width) / dpr;
+    const sy = (ev.clientY - rect.top) * (EG.canvas.height / rect.height) / dpr;
+    const tr = EG.transform || { tx: 0, ty: 0, scale: 1 };
+    const mx = (sx - tr.tx / dpr) / tr.scale;
+    const my = (sy - tr.ty / dpr) / tr.scale;
+    const W = EG.canvas.width / dpr;
+    const H = EG.canvas.height / dpr;
     const cx = W / 2, cy = H / 2;
     let hit = null;
     for (const n of flow.nodes) {
@@ -7045,6 +7119,11 @@ function initEnergyGraph() {
     }
   });
   EG.canvas.addEventListener('mouseleave', () => document.getElementById('eg-side').classList.remove('show'));
+  // Attach zoom/pan. The controller exposes the live transform via getState();
+  // renderEG reads EG.transform on every frame so the animation loop and scrub
+  // input stay in sync with user-driven zoom/pan.
+  EG.transform = { tx: 0, ty: 0, scale: 1 };
+  EG.zp = canvasZoomPan(EG.canvas, { draw: (ctx, t) => { EG.transform = t; renderEG(); } });
   renderEG();
 }
 
@@ -7059,10 +7138,19 @@ function loopEG() {
 function renderEG() {
   const ctx = EG.ctx;
   if (!ctx) return;
-  const W = EG.canvas.width / (window.devicePixelRatio || 1);
-  const H = EG.canvas.height / (window.devicePixelRatio || 1);
+  const dpr = window.devicePixelRatio || 1;
+  const W = EG.canvas.width / dpr;
+  const H = EG.canvas.height / dpr;
+  // Background stays in screen space (no transform) so panning doesn't tile it.
   ctx.fillStyle = '#1a1e2e';
   ctx.fillRect(0, 0, W, H);
+  // Apply user zoom/pan to the graph contents. canvasZoomPan operates on canvas
+  // pixel coords; renderEG draws in CSS-pixel space (dpr already baked into the
+  // base transform), so divide tx/ty by dpr to keep the math consistent.
+  const tr = EG.transform || { tx: 0, ty: 0, scale: 1 };
+  ctx.save();
+  ctx.translate(tr.tx / dpr, tr.ty / dpr);
+  ctx.scale(tr.scale, tr.scale);
   const cx = W / 2, cy = H / 2;
   const flow = EG.flow;
   const ti = EG.t_idx;
@@ -7139,6 +7227,7 @@ function renderEG() {
     ctx.textAlign = 'center';
     ctx.fillText(n.name, x, y + r + 12);
   }
+  ctx.restore();
 }
 
 function initSunburst() {
@@ -7491,6 +7580,62 @@ function svgZoomPan(svgEl, opts) {
   hint.setAttribute('fill', '#5c6383');
   hint.textContent = 'wheel: zoom · drag: pan · dbl-click: reset';
   svgEl.appendChild(hint);
+}
+
+function canvasZoomPan(canvasEl, opts) {
+  // Make a canvas zoomable/pannable. The canvas must accept a redraw callback.
+  // opts.draw(ctx, transform) is invoked whenever the view changes.
+  //   transform = { tx, ty, scale }
+  if (!canvasEl || canvasEl.dataset.czpInit === '1') return;
+  canvasEl.dataset.czpInit = '1';
+  const state = { tx: 0, ty: 0, scale: 1, dragging: false, lastX: 0, lastY: 0 };
+  const redraw = () => {
+    if (opts && typeof opts.draw === 'function') opts.draw(canvasEl.getContext('2d'), state);
+  };
+  const reset = () => { state.tx = 0; state.ty = 0; state.scale = 1; redraw(); };
+  canvasEl.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const rect = canvasEl.getBoundingClientRect();
+    const mouseX = ev.clientX - rect.left;
+    const mouseY = ev.clientY - rect.top;
+    // Convert to canvas coords (account for DPR & resolution).
+    const cx = mouseX * (canvasEl.width / rect.width);
+    const cy = mouseY * (canvasEl.height / rect.height);
+    const localX = (cx - state.tx) / state.scale;
+    const localY = (cy - state.ty) / state.scale;
+    const factor = ev.deltaY < 0 ? 1.2 : 1 / 1.2;
+    state.scale = Math.max(0.25, Math.min(10, state.scale * factor));
+    state.tx = cx - localX * state.scale;
+    state.ty = cy - localY * state.scale;
+    redraw();
+  }, { passive: false });
+  canvasEl.addEventListener('mousedown', (ev) => {
+    state.dragging = true;
+    state.lastX = ev.clientX;
+    state.lastY = ev.clientY;
+    canvasEl.style.cursor = 'grabbing';
+    ev.preventDefault();
+  });
+  window.addEventListener('mousemove', (ev) => {
+    if (!state.dragging) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const dx = (ev.clientX - state.lastX) * (canvasEl.width / rect.width);
+    const dy = (ev.clientY - state.lastY) * (canvasEl.height / rect.height);
+    state.lastX = ev.clientX;
+    state.lastY = ev.clientY;
+    state.tx += dx;
+    state.ty += dy;
+    redraw();
+  });
+  window.addEventListener('mouseup', () => {
+    state.dragging = false;
+    canvasEl.style.cursor = 'grab';
+  });
+  canvasEl.addEventListener('dblclick', reset);
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') reset(); });
+  canvasEl.style.cursor = 'grab';
+  redraw();  // Initial frame.
+  return { reset, getState: () => ({...state}) };
 }
 
 function _trajForPos(face, posId) {
@@ -12092,6 +12237,7 @@ def generate_html(report: ImpactReport) -> str:
         "<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{_esc(payload['meta']['project'])} — Multi-Face Impact Report</title>\n"
+        "<link rel=\"icon\" href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%230e1320'/><text x='50%25' y='58%25' text-anchor='middle' font-family='monospace' font-size='30' font-weight='bold' fill='%234dd6ff'>K</text></svg>\">\n"
         "<style>\n" + _CSS + "\n</style>\n"
         "</head>\n"
         "<body>\n"
