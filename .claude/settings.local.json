@@ -77,7 +77,15 @@
       "Bash(/tmp/analysis_summary.txt:*)",
       "Bash(PYTHONPATH=python/koo_deep_report python3 -c \":*)",
       "Bash(PYTHONPATH=python/koo_deep_report python3 -m koo_deep_report batch /data/Tests/Test_005_Fibonacci_100/output --output /tmp/fib100_batch --ua-threads 2 --no-render --skip-existing)",
-      "Bash(PYTHONPATH=python/koo_sphere_report python3 -m koo_sphere_report --help)"
+      "Bash(PYTHONPATH=python/koo_sphere_report python3 -m koo_sphere_report --help)",
+      "Bash(grep -rn \"ImGuiTabBar\\\\|ImGuiTabItem\\\\|SetTabItemClosed\\\\|GetTabBarFromID\" /home/koopark/claude/KooD3plotReader/KooD3plotReader/viewer/src/app/*.cpp)",
+      "Bash(grep -oE '\\(peak_stress|peak_strain|von_mises|MPa\\)[^,;}\\\\n]{0,40}' /tmp/koo_impact_real_ex02.html)",
+      "Bash(grep -vE \"^\\\\*PART$|^--$\")",
+      "Bash(awk '{print $2}')",
+      "Bash(ps -p 163800 -o pid=,etime=,pcpu=,pmem=)",
+      "Bash(pstree -p 163800)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_close"
     ],
     "deny": [],
     "ask": []

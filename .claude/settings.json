@@ -97,7 +97,10 @@
       "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH time python3 -m koo_deep_report results/d3plot --section-view --section-view-axes z --output /tmp/sv_z_only --ua-threads 4)",
       "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH /usr/bin/time -f \"wall=%es cpu=%U+%S\" python3 -m koo_deep_report results/d3plot --section-view --section-view-axes x y z --output /tmp/sv_full_report --ua-threads 4 --verbose)",
       "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH /usr/bin/time -f \"wall=%es cpu=%U+%S\" python3 -m koo_deep_report results/d3plot --section-view --section-view-per-part --section-view-axes z --output /tmp/sv_perpart2 --ua-threads 4 --verbose)",
-      "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH /usr/bin/time -f \"wall=%es cpu=%U+%S\" python3 -m koo_deep_report results/d3plot --section-view --section-view-per-part --section-view-axes z --output /tmp/sv_perpart2 --ua-threads 4)"
+      "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH /usr/bin/time -f \"wall=%es cpu=%U+%S\" python3 -m koo_deep_report results/d3plot --section-view --section-view-per-part --section-view-axes z --output /tmp/sv_perpart2 --ua-threads 4)",
+      "Read(/home/koopark/claude/KooD3plotReader/KooD3plotReader/**)",
+      "Bash(cp -r /tmp/deep_report_sample/renders /home/koopark/claude/KooD3plotReader/KooD3plotReader/presentation_pack/samples/deep_report/)",
+      "Bash(cp /data/Tests/Test_006_Fibonacci_6deg/report.html /home/koopark/claude/KooD3plotReader/KooD3plotReader/presentation_pack/samples/sphere_report/)"
     ],
     "additionalDirectories": [
       "/tmp/test_multipart/renders/part_*"
