@@ -9,7 +9,7 @@
 #   ./apptainer/build.sh both        # Both variants
 #
 # Output: apptainer/SmartTwinPostprocessor.sif,
-#         apptainer/SmartTwinPostProcessorGUI.sif
+#         apptainer/SmartTwinPostprocessorGUI.sif
 # ============================================================
 set -e
 
@@ -29,8 +29,8 @@ build_one() {
             sif_file="SmartTwinPostprocessor.sif"
             ;;
         full)
-            def_file="SmartTwinPostProcessorGUI.def"
-            sif_file="SmartTwinPostProcessorGUI.sif"
+            def_file="SmartTwinPostprocessorGUI.def"
+            sif_file="SmartTwinPostprocessorGUI.sif"
             ;;
         *)
             echo "ERROR: unknown variant: ${variant}"

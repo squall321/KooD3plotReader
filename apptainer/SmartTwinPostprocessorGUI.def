@@ -17,14 +17,14 @@ From: ubuntu:22.04
       post_analyze         — Bash orchestrator
 
     Desktop usage (needs X11 + GPU):
-      apptainer exec --nv --bind /tmp/.X11-unix SmartTwinPostProcessorGUI.sif \
+      apptainer exec --nv --bind /tmp/.X11-unix SmartTwinPostprocessorGUI.sif \
           koo_viewer sphere /data/test_001
 
     Headless usage:
-      apptainer exec SmartTwinPostProcessorGUI.sif post_analyze /data/test_001
+      apptainer exec SmartTwinPostprocessorGUI.sif post_analyze /data/test_001
 
     Build:
-      apptainer build SmartTwinPostProcessorGUI.sif SmartTwinPostProcessorGUI.def
+      apptainer build SmartTwinPostprocessorGUI.sif SmartTwinPostprocessorGUI.def
 
 %post
     set -e
@@ -64,7 +64,7 @@ From: ubuntu:22.04
     if [ $# -eq 0 ]; then
         cat /opt/kood3plot/VERSION
         echo ""
-        echo "Usage: apptainer exec [--nv] SmartTwinPostProcessorGUI.sif <command> [args]"
+        echo "Usage: apptainer exec [--nv] SmartTwinPostprocessorGUI.sif <command> [args]"
         exit 0
     fi
     exec "$@"

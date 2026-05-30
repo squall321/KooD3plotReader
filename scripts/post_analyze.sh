@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# post_analyze.sh — SmartTwinPostProcessor 통합 후처리 오케스트레이션
+# post_analyze.sh — SmartTwinPostprocessor 통합 후처리 오케스트레이션
 # ============================================================
 # test_dir 을 주면 unified_analyzer → deep_report batch → sphere_report
 # 순서로 실행하여 모든 후처리 결과를 생성합니다.
@@ -224,7 +224,7 @@ fi
 check_bin() {
     if ! command -v "$1" >/dev/null 2>&1; then
         echo "ERROR: $1 바이너리를 PATH 에서 찾을 수 없음"
-        echo "  SmartTwinPostProcessor.sif 안에서 실행하거나,"
+        echo "  SmartTwinPostprocessor.sif 안에서 실행하거나,"
         echo "  /data/SmartTwinPostprocessor/bin 을 PATH 에 추가하세요."
         exit 1
     fi
@@ -241,7 +241,7 @@ ${DEEP_ONLY}   && mode_str="deep-only"
 ${SPHERE_ONLY} && mode_str="sphere-only"
 
 echo "============================================================"
-echo " SmartTwinPostProcessor — Post Analyze"
+echo " SmartTwinPostprocessor — Post Analyze"
 echo "============================================================"
 echo "  Test dir      : ${TEST_DIR}"
 echo "  Output (sims) : ${OUTPUT_DIR}"
