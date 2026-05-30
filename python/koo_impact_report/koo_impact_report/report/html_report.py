@@ -1057,6 +1057,63 @@ def _build_idw_predictor_payload(report):
     max_idx_g = _argmax(grid_g_r)
     max_idx_s = _argmax(grid_s_r)
 
+    # Leave-One-Out cross-validation on peak_g (same p=2 IDW, same snap radius)
+    loo_validation = None
+    if len(samples) >= 3:
+        per_point = []
+        sq_errs = []
+        err_pcts = []
+        max_err_abs = -1.0
+        max_err_pos_id = None
+        for i_drop, m in enumerate(measured):
+            sx_i, sy_i, actual_g, _ = samples[i_drop]
+            wsum = 0.0
+            vg = 0.0
+            exact = -1
+            for k, (sx, sy, sg, _ss) in enumerate(samples):
+                if k == i_drop:
+                    continue
+                ddx = sx_i - sx
+                ddy = sy_i - sy
+                d2 = ddx * ddx + ddy * ddy
+                if d2 <= eps2:
+                    exact = k
+                    break
+                w = 1.0 / d2
+                wsum += w
+                vg += w * sg
+            if exact >= 0:
+                predicted = samples[exact][2]
+            elif wsum > 0:
+                predicted = vg / wsum
+            else:
+                predicted = 0.0
+            err_abs = abs(predicted - actual_g)
+            denom = actual_g if actual_g > 1e-12 else 1e-12
+            err_pct = err_abs / denom * 100.0
+            sq_errs.append(err_abs * err_abs)
+            err_pcts.append(err_pct)
+            per_point.append({
+                "pos_id": m["pos_id"],
+                "x": m["x"],
+                "y": m["y"],
+                "actual": _r4(actual_g),
+                "predicted": _r4(predicted),
+                "error_abs": _r4(err_abs),
+                "error_pct": _r4(err_pct),
+            })
+            if err_abs > max_err_abs:
+                max_err_abs = err_abs
+                max_err_pos_id = m["pos_id"]
+        rmse_peak_g = math.sqrt(sum(sq_errs) / len(sq_errs)) if sq_errs else 0.0
+        median_err_pct = statistics.median(err_pcts) if err_pcts else 0.0
+        loo_validation = {
+            "rmse_peak_g": _r4(rmse_peak_g),
+            "median_err_pct": _r4(median_err_pct),
+            "max_error_pos_id": max_err_pos_id,
+            "per_point": per_point,
+        }
+
     return {
         "grid_fine": {
             "nx_fine": NX,
@@ -1071,6 +1128,7 @@ def _build_idw_predictor_payload(report):
         },
         "measured_points": measured,
         "power": 2,
+        "loo_validation": loo_validation,
     }
 
 def _build_pareto_severity_payload(report) -> dict:
@@ -4518,6 +4576,8 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .toa-li-n { color: var(--dim, #5c6383); font-size:10px; }
 
 #idw-pred-svg { width:100%; height:auto; max-height:560px; display:block; }
+#idw-pred-canvas { max-height:560px; }
+#idw-pred-stack { max-height:560px; }
 #idw-pred-panel .ctlbar { padding:6px 10px; }
 #idw-pred-info b { color: var(--fg); }
 
@@ -5768,7 +5828,8 @@ _PAGE5 = """
         </span>
       </div>
     </div>
-    <div class="doe-grid-wrap"><svg id="idw-pred-svg"></svg></div>
+    <div id="idw-pred-loo" style="margin-bottom:8px;font-size:12px;color:var(--fg2);padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px;display:none"></div>
+    <div class="doe-grid-wrap"><div id="idw-pred-stack" style="position:relative;width:100%;"><canvas id="idw-pred-canvas" width="620" height="900" style="display:block;width:100%;cursor:grab;background:#0e1320;border-radius:4px;"></canvas><svg id="idw-pred-svg" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;"></svg></div></div>
     <div id="idw-pred-info" style="margin-top:8px;font-size:12px;color:var(--fg2)"></div>
     <div class="pcap">측정 25 점 사이의 임의 위치에 떨어졌을 때 예상 응답. 점 = 실측, 면 = IDW 보간. 측정점 근처는 정확도가 높고, 측정점 사이 빈 영역은 불확실성이 커집니다 — 노란 링은 측정점 사이에 숨어 있을 가능성이 있는 "고위험 포켓"의 위치 추정입니다.</div>
   </div>
@@ -9054,15 +9115,21 @@ function _doeRenderIdwPredictor(doe) {
   if (!host) return;
   const adv = doe && doe.advanced ? doe.advanced.idw_predictor : null;
   const svgEl = document.getElementById('idw-pred-svg');
+  const canvasEl = document.getElementById('idw-pred-canvas');
   const btnHost = document.getElementById('idw-pred-buttons');
   const info = document.getElementById('idw-pred-info');
-  if (!svgEl || !btnHost || !info) return;
+  if (!svgEl || !canvasEl || !btnHost || !info) return;
 
   if (!adv || !adv.grid_fine || !adv.measured_points || adv.measured_points.length < 2) {
     while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
     svgEl.appendChild(svg('text', { x: 200, y: 200, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 11 }, [document.createTextNode('IDW 데이터 없음 (측정점 부족)')]));
+    const _ctx0 = canvasEl.getContext('2d');
+    _ctx0.fillStyle = '#0e1320';
+    _ctx0.fillRect(0, 0, canvasEl.width, canvasEl.height);
     btnHost.innerHTML = '';
     info.innerHTML = '';
+    const _looBar0 = document.getElementById('idw-pred-loo');
+    if (_looBar0) { _looBar0.style.display = 'none'; _looBar0.innerHTML = ''; }
     return;
   }
 
@@ -9109,7 +9176,10 @@ function _doeRenderIdwPredictor(doe) {
   const vbW = 540, vbH = Math.max(120, Math.round(vbW / _arI));
   svgEl.setAttribute('viewBox', '0 0 ' + vbW + ' ' + vbH);
   svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-  svgEl.appendChild(svg('rect', { x: 0, y: 0, width: vbW, height: vbH, fill: '#0e1320', rx: 4 }));
+
+  // Resize canvas to match SVG viewBox aspect (HiDPI handled by CSS width:100%)
+  canvasEl.width = vbW;
+  canvasEl.height = vbH;
 
   const padL = 56, padR = 18, padT = 22, padB = 38;
   const plotW = vbW - padL - padR;
@@ -9123,39 +9193,83 @@ function _doeRenderIdwPredictor(doe) {
   const xToPx = x => padL + ((x - xmin) / xSpan) * plotW;
   const yToPx = y => padT + (1 - (y - ymin) / ySpan) * plotH; // flip Y
 
-  // Render fine-grid heatmap (one rect per cell, no stroke for performance)
-  for (let j = 0; j < NY; j++) {
-    for (let i = 0; i < NX; i++) {
-      const v = arr[j * NX + i];
-      const t = Math.max(0, Math.min(1, (v - vmin) / span));
-      const px = padL + i * cellW;
-      // Y flip so row 0 (ymin) sits at bottom
-      const py = padT + (NY - 1 - j) * cellH;
-      svgEl.appendChild(svg('rect', {
-        x: px, y: py,
-        width: cellW + 0.6, height: cellH + 0.6,
-        fill: gColor(t), 'shape-rendering': 'crispEdges'
-      }));
+  // Canvas-based heatmap renderer (called by canvasZoomPan on every transform).
+  function drawIdwHeatmap(ctx, transform) {
+    ctx.fillStyle = '#0e1320';
+    ctx.fillRect(0, 0, vbW, vbH);
+    ctx.save();
+    const tr = transform || { tx: 0, ty: 0, scale: 1 };
+    ctx.translate(tr.tx, tr.ty);
+    ctx.scale(tr.scale, tr.scale);
+    for (let j = 0; j < NY; j++) {
+      for (let i = 0; i < NX; i++) {
+        const v = arr[j * NX + i];
+        const t = Math.max(0, Math.min(1, (v - vmin) / span));
+        const px = padL + i * cellW;
+        const py = padT + (NY - 1 - j) * cellH;
+        ctx.fillStyle = gColor(t);
+        ctx.fillRect(px, py, cellW + 0.6, cellH + 0.6);
+      }
     }
+    ctx.restore();
   }
+  canvasZoomPan(canvasEl, { draw: (ctx, t) => drawIdwHeatmap(ctx, t) });
+  // Always draw an initial frame (canvasZoomPan only attaches once; reuse on
+  // re-render needs a manual redraw with current state).
+  drawIdwHeatmap(canvasEl.getContext('2d'), { tx: 0, ty: 0, scale: 1 });
 
-  // Axis box
+  // Axis box (SVG overlay)
   svgEl.appendChild(svg('rect', {
     x: padL, y: padT, width: plotW, height: plotH,
     fill: 'none', stroke: 'rgba(255,255,255,0.18)', 'stroke-width': 0.6
   }));
 
-  // Overlay measured points (black dot, white outline)
+  // LOO validation info bar + per-point error lookup
+  const looBar = document.getElementById('idw-pred-loo');
+  const loo = adv.loo_validation || null;
+  const looErrByPos = {};
+  if (loo && Array.isArray(loo.per_point)) {
+    loo.per_point.forEach(p => { looErrByPos[p.pos_id] = p; });
+  }
+  if (looBar) {
+    if (loo && IDW_STATE.metric === 'peak_g') {
+      looBar.style.display = '';
+      looBar.innerHTML =
+        '<b>보간 신뢰도 (LOO)</b>: RMSE = <b>' + fmt(loo.rmse_peak_g, 2) + '</b> m/s²' +
+        ' &middot; 중간 오차 = <b>' + (Number(loo.median_err_pct)).toFixed(1) + '%</b>' +
+        ' &middot; 최대 오차 위치 = <b>' + (loo.max_error_pos_id == null ? '-' : loo.max_error_pos_id) + '</b>';
+    } else {
+      looBar.style.display = 'none';
+      looBar.innerHTML = '';
+    }
+  }
+
+  // Overlay measured points (color by LOO error % when peak_g + LOO available)
+  const medianErrPct = (loo && isFinite(loo.median_err_pct)) ? Number(loo.median_err_pct) : null;
   (adv.measured_points || []).forEach(m => {
     const cx = xToPx(m.x);
     const cy = yToPx(m.y);
     const g = svg('g', null);
-    g.appendChild(svg('circle', { cx: cx, cy: cy, r: 4.2, fill: '#0a0c14', stroke: '#ffffff', 'stroke-width': 1.2 }));
+    let dotFill = '#0a0c14';
+    const ep = looErrByPos[m.pos_id];
+    if (IDW_STATE.metric === 'peak_g' && ep && medianErrPct !== null && medianErrPct > 0) {
+      const pct = Number(ep.error_pct);
+      if (pct < medianErrPct) dotFill = '#2ecc71';            // green
+      else if (pct < 2 * medianErrPct) dotFill = '#f39c12';   // orange
+      else dotFill = '#e74c3c';                               // red
+    }
+    g.appendChild(svg('circle', { cx: cx, cy: cy, r: 4.2, fill: dotFill, stroke: '#ffffff', 'stroke-width': 1.2 }));
     const v = (IDW_STATE.metric === 'peak_stress') ? m.peak_stress : m.peak_g;
     const u = _idwMetricUnit(IDW_STATE.metric);
+    let tipExtra = '';
+    if (IDW_STATE.metric === 'peak_g' && ep) {
+      tipExtra = '\nLOO 예측 = ' + fmt(ep.predicted, 1) +
+        '\nLOO 오차 = ' + fmt(ep.error_abs, 2) + ' (' + Number(ep.error_pct).toFixed(1) + '%)';
+    }
     g.appendChild(svg('title', null, [document.createTextNode(
       m.pos_id + '\nx=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2) +
-      '\n측정 ' + _idwMetricLabel(IDW_STATE.metric) + ' = ' + fmt(v, 1) + (u ? ' ' + u : '')
+      '\n측정 ' + _idwMetricLabel(IDW_STATE.metric) + ' = ' + fmt(v, 1) + (u ? ' ' + u : '') +
+      tipExtra
     )]));
     svgEl.appendChild(g);
   });
@@ -9217,7 +9331,6 @@ function _doeRenderIdwPredictor(doe) {
     [document.createTextNode(fmt(vmax, 1))]));
   svgEl.appendChild(svg('text', { x: lgX + 4, y: lgY0 + lgH + 10, fill: '#aab2cf', 'font-size': 9, 'text-anchor': 'middle' },
     [document.createTextNode(fmt(vmin, 1))]));
-  svgZoomPan(svgEl);
 }
 
 function _doeRenderParetoSeverity(doe) {
