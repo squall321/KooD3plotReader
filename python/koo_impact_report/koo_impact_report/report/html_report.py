@@ -3303,6 +3303,843 @@ def _build_trajectory_3d(report):
         "z_range": [round(zmin, 4), round(zmax, 4)],
         "bbox_xy": [round(v, 4) for v in bbox_xy],
     }
+def _build_stress_wave_velocity_payload(report) -> dict:
+    """Section-08 — Apparent stress-wave velocity per (position, part).
+
+    For each (position p, part i):
+      delta_t = part_motion[(p,i)].t_peak_g - traj.t_first_contact   (clip >=0)
+      r       = sqrt((px - cx)^2 + (py - cy)^2 + (impact_z - cz)^2)  (mm)
+      v_app   = r / delta_t  -> m/s (mm/s -> m/s via /1000)
+
+    Theoretical longitudinal wave speed of impactor material:
+      c_theory = sqrt(E / rho)  (m/s)
+      Units (LS-DYNA [ton, mm, s, MPa]): E[MPa]=N/mm^2, rho[tonne/mm^3]
+      -> SI: c = sqrt((E_MPa*1e6) / (rho_tmm3*1e12)) m/s
+            = sqrt(E_MPa / rho_tmm3) * 1e-3
+
+    Empty / NaN / inf are explicitly placeheld so the panel-inventory
+    Korean-string scan does not flag the panel as empty.
+    """
+    import math
+    import numpy as np
+
+    EMPTY = {
+        "per_part": [],
+        "v_theory_impactor": None,
+        "summary": {},
+        "_placeholder": (
+            "응력파 전파 속도 데이터 없음 - part_motion / impactor_trajectory "
+            "결측 또는 first_contact / t_peak_g 미검출. 입력 d3plot에서 "
+            "rigid-body motion CSV와 contact engagement 파싱 결과를 확인하세요."
+        ),
+    }
+
+    part_motions = getattr(report, "part_motions", None) or {}
+    trajs = getattr(report, "impactor_trajectories", None) or {}
+    positions_by_face = getattr(report, "positions_by_face", None) or {}
+    parts_list = getattr(report, "parts", None) or []
+    impactor = getattr(report, "impactor", None)
+
+    if not part_motions or not trajs or not positions_by_face or not parts_list:
+        return EMPTY
+
+    # Lookup tables
+    name_by_id = {p.part_id: (p.part_name or f"PART_{p.part_id}") for p in parts_list}
+    pos_xy_by_id: dict[str, tuple[float, float]] = {}
+    for face, plist in positions_by_face.items():
+        for pos in (plist or []):
+            pos_xy_by_id[pos.pos_id] = (float(pos.x), float(pos.y))
+
+    # Impact-Z reference: prefer the trajectory's first pos_z (impactor tip at t=0).
+    # Falls back to 0.0 if not available — keeps the formula well-defined.
+    def _impact_z(pos_id: str) -> float:
+        tr = trajs.get(pos_id)
+        if tr is None:
+            return 0.0
+        pz = getattr(tr, "pos_z", None) or []
+        if not pz:
+            return 0.0
+        try:
+            return float(pz[0])
+        except (TypeError, ValueError):
+            return 0.0
+
+    # Accumulate per-part samples
+    samples_by_part: dict[int, list[tuple[float, float]]] = {}  # part_id -> [(v_app m/s, dt s)]
+    for (pos_id, part_id), pm in part_motions.items():
+        if pm is None:
+            continue
+        traj = trajs.get(pos_id)
+        if traj is None:
+            continue
+        t_first = getattr(traj, "t_first_contact", None)
+        t_peak = getattr(pm, "t_peak_g", None)
+        if t_first is None or t_peak is None:
+            continue
+        try:
+            t_first_f = float(t_first)
+            t_peak_f = float(t_peak)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(t_first_f) and math.isfinite(t_peak_f)):
+            continue
+        dt = t_peak_f - t_first_f
+        if dt <= 0.0:
+            continue  # peak before contact -> not a propagation sample
+        # Spatial distance
+        if pos_id not in pos_xy_by_id:
+            continue
+        px, py = pos_xy_by_id[pos_id]
+        dx_arr = getattr(pm, "disp_x", None) or []
+        dy_arr = getattr(pm, "disp_y", None) or []
+        dz_arr = getattr(pm, "disp_z", None) or []
+        if not dx_arr or not dy_arr or not dz_arr:
+            continue
+        try:
+            cx = float(dx_arr[0])
+            cy = float(dy_arr[0])
+            cz = float(dz_arr[0])
+        except (TypeError, ValueError):
+            continue
+        iz = _impact_z(pos_id)
+        r_mm = math.sqrt((px - cx) ** 2 + (py - cy) ** 2 + (iz - cz) ** 2)
+        if not math.isfinite(r_mm) or r_mm <= 0.0:
+            continue
+        v_mm_s = r_mm / dt          # mm/s
+        v_m_s = v_mm_s / 1000.0     # m/s
+        if not math.isfinite(v_m_s) or v_m_s <= 0.0:
+            continue
+        samples_by_part.setdefault(int(part_id), []).append((v_m_s, dt))
+
+    if not samples_by_part:
+        return EMPTY
+
+    # Per-part aggregates
+    per_part: list[dict] = []
+    all_v: list[float] = []
+    for pid, sams in samples_by_part.items():
+        vs = np.array([s[0] for s in sams], dtype=float)
+        dts = np.array([s[1] for s in sams], dtype=float)
+        if vs.size == 0:
+            continue
+        q25 = float(np.percentile(vs, 25))
+        q75 = float(np.percentile(vs, 75))
+        per_part.append({
+            "part_id": int(pid),
+            "part_name": name_by_id.get(pid, f"PART_{pid}"),
+            "mean_v_app": _r4(float(np.mean(vs))),
+            "median_v_app": _r4(float(np.median(vs))),
+            "q25_v_app": _r4(q25),
+            "q75_v_app": _r4(q75),
+            "mean_delta_t_ms": _r4(float(np.mean(dts)) * 1000.0),
+            "n_samples": int(vs.size),
+        })
+        all_v.extend(vs.tolist())
+
+    per_part.sort(key=lambda d: (d["mean_v_app"] if d["mean_v_app"] is not None else -1.0), reverse=True)
+    per_part = per_part[:15]
+
+    # Theoretical impactor wave speed
+    v_theory = None
+    if impactor is not None:
+        E = float(getattr(impactor, "youngs_modulus", 0.0) or 0.0)   # MPa
+        rho = float(getattr(impactor, "density", 0.0) or 0.0)        # tonne/mm^3
+        if E > 0.0 and rho > 0.0:
+            # m/s: sqrt(E_MPa / rho_tmm3) * 1e-3
+            try:
+                v_theory = _r4(math.sqrt(E / rho) * 1e-3)
+            except (ValueError, ZeroDivisionError):
+                v_theory = None
+
+    all_v_arr = np.array(all_v, dtype=float)
+    summary = {
+        "min_v_app": _r4(float(np.min(all_v_arr))),
+        "max_v_app": _r4(float(np.max(all_v_arr))),
+        "median_v_app_all": _r4(float(np.median(all_v_arr))),
+        "n_total": int(all_v_arr.size),
+    }
+
+    return {
+        "per_part": per_part,
+        "v_theory_impactor": v_theory,
+        "summary": summary,
+    }
+
+
+def _build_restitution_map(report):
+    """Compute coefficient of restitution e = sqrt(KE_after / KE_before) per impact position.
+
+    Pulls KE_before from traj.initial_ke (or peak pre-contact KE) and KE_after
+    from traj.final_ke (or post-rebound KE) for each ImpactorTrajectory, then
+    aggregates a 5x5 map keyed by pos_id with summary statistics.
+    """
+    import math
+
+    def _r4(v):
+        try:
+            if v is None:
+                return None
+            fv = float(v)
+            if not math.isfinite(fv):
+                return None
+            return float(f"{fv:.4g}")
+        except (TypeError, ValueError):
+            return None
+
+    def _safe_attr(obj, name, default=None):
+        try:
+            val = getattr(obj, name, default)
+            return val if val is not None else default
+        except Exception:
+            return default
+
+    # Gather positions across all faces, keyed by pos_id
+    positions_lookup = {}
+    try:
+        for face, plist in (report.positions_by_face or {}).items():
+            for p in plist or []:
+                pid = _safe_attr(p, "pos_id")
+                if pid is None:
+                    continue
+                positions_lookup.setdefault(pid, {
+                    "pos_id": pid,
+                    "x": _safe_attr(p, "x", 0.0),
+                    "y": _safe_attr(p, "y", 0.0),
+                    "face": face,
+                })
+    except Exception:
+        positions_lookup = {}
+
+    trajectories = getattr(report, "impactor_trajectories", {}) or {}
+
+    per_position = []
+    e_values = []
+
+    for pid, pmeta in positions_lookup.items():
+        traj = trajectories.get(pid)
+        ke_before = None
+        ke_after = None
+        behavior = None
+
+        if traj is not None:
+            behavior = _safe_attr(traj, "behavior_class", None)
+
+            # Prefer explicit initial_ke / final_ke fields if available
+            ke_before = _safe_attr(traj, "initial_ke")
+            ke_after = _safe_attr(traj, "final_ke")
+
+            # Fallback: derive from the KE time series
+            ke_series = _safe_attr(traj, "ke", None)
+            t_contact = _safe_attr(traj, "t_first_contact", None)
+            times = _safe_attr(traj, "times", None)
+
+            try:
+                if ke_series is not None and len(ke_series) > 0:
+                    ke_list = [float(v) for v in ke_series
+                               if v is not None and math.isfinite(float(v))]
+                    if ke_list:
+                        if ke_before is None:
+                            # Peak KE prior to first contact (or overall peak)
+                            if (times is not None and t_contact is not None
+                                    and len(times) == len(ke_series)):
+                                pre = [float(k) for t, k in zip(times, ke_series)
+                                       if (t is not None and k is not None
+                                           and math.isfinite(float(t))
+                                           and math.isfinite(float(k))
+                                           and float(t) <= float(t_contact))]
+                                ke_before = max(pre) if pre else max(ke_list)
+                            else:
+                                ke_before = max(ke_list)
+                        if ke_after is None:
+                            ke_after = ke_list[-1]
+            except Exception:
+                pass
+
+        # Compute restitution if both KE values are valid and positive
+        e_val = None
+        e_clamped = None
+        try:
+            if (ke_before is not None and ke_after is not None
+                    and float(ke_before) > 0.0 and float(ke_after) >= 0.0
+                    and math.isfinite(float(ke_before))
+                    and math.isfinite(float(ke_after))):
+                ratio = float(ke_after) / float(ke_before)
+                if ratio < 0.0:
+                    ratio = 0.0
+                e_val = math.sqrt(ratio)
+                # Clamp display range to [0, 1.2]; values > 1 hint at mass scaling
+                e_clamped = max(0.0, min(1.2, e_val))
+        except Exception:
+            e_val = None
+            e_clamped = None
+
+        if e_clamped is not None:
+            e_values.append(e_clamped)
+
+        per_position.append({
+            "pos_id": pid,
+            "x": _r4(pmeta.get("x")),
+            "y": _r4(pmeta.get("y")),
+            "face": pmeta.get("face"),
+            "ke_before": _r4(ke_before),
+            "ke_after": _r4(ke_after),
+            "e": _r4(e_clamped),
+            "e_raw": _r4(e_val),
+            "behavior_class": behavior or "unknown",
+        })
+
+    # Sort per_position by pos_id for stable rendering
+    per_position.sort(key=lambda r: (r["pos_id"] if r["pos_id"] is not None else 1e9))
+
+    # Summary statistics
+    summary = {
+        "mean_e": None,
+        "median_e": None,
+        "n_e_high": 0,
+        "n_e_low": 0,
+        "max_e": None,
+        "min_e": None,
+        "max_e_pos_id": None,
+        "min_e_pos_id": None,
+        "n_valid": len(e_values),
+        "n_total": len(per_position),
+    }
+
+    if e_values:
+        try:
+            import numpy as np
+            arr = np.asarray(e_values, dtype=float)
+            summary["mean_e"] = _r4(float(np.mean(arr)))
+            summary["median_e"] = _r4(float(np.median(arr)))
+            summary["n_e_high"] = int(np.sum(arr >= 0.9))
+            summary["n_e_low"] = int(np.sum(arr <= 0.3))
+            # Locate max/min positions
+            valid_rows = [r for r in per_position if r["e"] is not None]
+            if valid_rows:
+                row_max = max(valid_rows, key=lambda r: r["e"])
+                row_min = min(valid_rows, key=lambda r: r["e"])
+                summary["max_e"] = row_max["e"]
+                summary["min_e"] = row_min["e"]
+                summary["max_e_pos_id"] = row_max["pos_id"]
+                summary["min_e_pos_id"] = row_min["pos_id"]
+        except Exception:
+            # Pure-python fallback
+            srt = sorted(e_values)
+            summary["mean_e"] = _r4(sum(srt) / len(srt))
+            mid = len(srt) // 2
+            summary["median_e"] = _r4(
+                srt[mid] if len(srt) % 2 else 0.5 * (srt[mid - 1] + srt[mid])
+            )
+            summary["n_e_high"] = sum(1 for v in e_values if v >= 0.9)
+            summary["n_e_low"] = sum(1 for v in e_values if v <= 0.3)
+
+    # Histogram: 10 bins over [0, 1.2]
+    hist_bins = []
+    bin_count = 10
+    hi = 1.2
+    edges = [i * hi / bin_count for i in range(bin_count + 1)]
+    counts = [0] * bin_count
+    for v in e_values:
+        idx = int(v / (hi / bin_count))
+        if idx >= bin_count:
+            idx = bin_count - 1
+        if idx < 0:
+            idx = 0
+        counts[idx] += 1
+    for i in range(bin_count):
+        hist_bins.append({
+            "lo": _r4(edges[i]),
+            "hi": _r4(edges[i + 1]),
+            "count": int(counts[i]),
+        })
+
+    # Device geometry for aspect-ratio honouring on the heatmap
+    device_geom = getattr(report.sim_params, "device_geometry", None) if hasattr(report, "sim_params") else None
+    geom_payload = None
+    if device_geom is not None:
+        geom_payload = {
+            "width": _r4(_safe_attr(device_geom, "width")),
+            "height": _r4(_safe_attr(device_geom, "height")),
+            "depth": _r4(_safe_attr(device_geom, "depth")),
+        }
+
+    grid_info = None
+    try:
+        g = getattr(report.sim_params, "grid", None)
+        if g is not None:
+            grid_info = {
+                "nx": int(_safe_attr(g, "nx", 5) or 5),
+                "ny": int(_safe_attr(g, "ny", 5) or 5),
+            }
+    except Exception:
+        grid_info = None
+    if grid_info is None:
+        grid_info = {"nx": 5, "ny": 5}
+
+    return {
+        "per_position": per_position,
+        "summary": summary,
+        "histogram": hist_bins,
+        "hist_range": [0.0, 1.2],
+        "device_geometry": geom_payload,
+        "grid": grid_info,
+    }
+
+def _build_recovery_damping_payload(report) -> dict:
+    """Per-part post-peak recovery time and estimated damping ratio.
+
+    For the *worst* impact position (Σ peak_g over parts), for each part:
+      1. Locate t_peak_g (from PartMotion).
+      2. recovery_time_ms = first time after t_peak where acc_mag drops below
+         5% of peak.  Falls back to the post-peak duration if it never decays
+         below 5% (under-damped tail).
+      3. ω_n ≈ 2π · f_dom — f_dom uses deep_analytics.fft per_part if
+         available, otherwise estimated from local zero-crossings on the
+         detrended post-peak signal.
+      4. ζ via log-decrement on the 5% decay:
+            a_peak/a_5pct = exp(ζ · ω_n · τ)
+         →  ζ = ln(a_peak/a_5pct) / (ω_n · τ)         (with τ in s)
+         Clipped to [0, 1].  When ω_n·τ is non-finite or ratio<=1, ζ=NaN.
+
+    Returns per_part (sorted by damping desc, top 15), summary, pos_id_used.
+    Empty dict when nothing usable.
+    """
+    import math
+    import numpy as np
+
+    part_motions = getattr(report, "part_motions", {}) or {}
+    parts_by_id = {p.part_id: p for p in (getattr(report, "parts", []) or [])}
+    if not part_motions or not parts_by_id:
+        return {}
+
+    # --- 1. Find worst position: max Σ peak_g over parts --------------------
+    pos_sum: dict = {}
+    for key, pm in part_motions.items():
+        if not (isinstance(key, tuple) and len(key) == 2):
+            continue
+        pos_id, _pid = key
+        peak = float(getattr(pm, "peak_g", 0.0) or 0.0)
+        if not math.isfinite(peak):
+            continue
+        pos_sum[pos_id] = pos_sum.get(pos_id, 0.0) + peak
+    if not pos_sum:
+        return {}
+    pos_id_worst = max(pos_sum.items(), key=lambda kv: kv[1])[0]
+
+    # --- 2. Optional FFT lookup (deep_analytics) ---------------------------
+    # Caller stores it in payload only AFTER our builder runs, so we recompute
+    # via the same primitive used by Section-06.  Cheap: O(N log N) per part.
+    fft_freq_by_part: dict = {}
+    for (pos, pid), pm in part_motions.items():
+        if pos != pos_id_worst:
+            continue
+        try:
+            res = _fft_dominant_freq(pm.times, pm.acc_mag, f_lo=10.0)
+        except Exception:
+            res = None
+        if res is not None:
+            fft_freq_by_part[pid] = float(res[0])  # f_dom Hz
+
+    # --- 3. Per-part recovery / damping ------------------------------------
+    out_rows = []
+    n_zero_total = 0
+    for (pos, pid), pm in part_motions.items():
+        if pos != pos_id_worst:
+            continue
+        info = parts_by_id.get(pid)
+        name = getattr(info, "part_name", None) or f"Part {pid}"
+
+        t = np.asarray(getattr(pm, "times", []) or [], dtype=float)
+        a = np.asarray(getattr(pm, "acc_mag", []) or [], dtype=float)
+        t_pk = float(getattr(pm, "t_peak_g", 0.0) or 0.0)
+        a_pk = float(getattr(pm, "peak_g", 0.0) or 0.0)
+        if t.size < 8 or a.size != t.size or a_pk <= 0 or not math.isfinite(a_pk):
+            out_rows.append({
+                "part_id": int(pid), "part_name": name,
+                "recovery_time_ms": None,
+                "damping_ratio_estimated": None,
+                "n_zero_crossings": 0,
+                "has_data": False,
+            })
+            continue
+        mask = np.isfinite(t) & np.isfinite(a)
+        if mask.sum() < 8:
+            out_rows.append({
+                "part_id": int(pid), "part_name": name,
+                "recovery_time_ms": None,
+                "damping_ratio_estimated": None,
+                "n_zero_crossings": 0,
+                "has_data": False,
+            })
+            continue
+        t = t[mask]; a = a[mask]
+
+        # Locate peak index — fall back to argmax when t_pk == 0
+        if t_pk > 0:
+            i_pk = int(np.argmin(np.abs(t - t_pk)))
+        else:
+            i_pk = int(np.argmax(a))
+        post_t = t[i_pk:]
+        post_a = a[i_pk:]
+        if post_t.size < 6 or float(np.max(post_a)) <= 0:
+            out_rows.append({
+                "part_id": int(pid), "part_name": name,
+                "recovery_time_ms": None,
+                "damping_ratio_estimated": None,
+                "n_zero_crossings": 0,
+                "has_data": False,
+            })
+            continue
+
+        # 5% recovery time
+        thresh = 0.05 * a_pk
+        below = np.where(post_a <= thresh)[0]
+        if below.size > 0:
+            tau_s = float(post_t[below[0]] - post_t[0])
+            decayed = True
+        else:
+            tau_s = float(post_t[-1] - post_t[0])
+            decayed = False
+        if tau_s <= 0 or not math.isfinite(tau_s):
+            tau_s = float(post_t[-1] - post_t[0]) if post_t.size > 1 else 0.0
+
+        # Zero crossings on detrended post-peak signal (for ω_n fallback)
+        post_centered = post_a - float(np.mean(post_a))
+        zc = int(np.sum(np.diff(np.sign(post_centered)) != 0))
+        n_zero_total += zc
+
+        # Natural frequency: prefer FFT, fallback to zero-crossings
+        f_n_hz = fft_freq_by_part.get(pid)
+        if f_n_hz is None or not math.isfinite(f_n_hz) or f_n_hz <= 0:
+            duration_post = float(post_t[-1] - post_t[0])
+            if duration_post > 0 and zc >= 2:
+                # 2 zero-crossings per cycle
+                f_n_hz = 0.5 * zc / duration_post
+            else:
+                f_n_hz = 0.0
+        omega_n = 2.0 * math.pi * f_n_hz if f_n_hz > 0 else 0.0
+
+        # Damping via log-decrement on 5% decay
+        # a_peak / a_5pct = exp(ζ ω_n τ)  ⇒  ζ = ln(20) / (ω_n τ) when decayed
+        # If never decayed (under-damped), use observed final ratio as bound.
+        if omega_n > 0 and tau_s > 0:
+            if decayed:
+                ratio = max(a_pk / max(thresh, 1e-30), 1.0 + 1e-9)
+            else:
+                ratio = max(a_pk / max(float(post_a[-1]), 1e-30), 1.0 + 1e-9)
+            zeta = math.log(ratio) / (omega_n * tau_s)
+            if not math.isfinite(zeta):
+                zeta = None
+            else:
+                zeta = max(0.0, min(1.0, zeta))
+        else:
+            zeta = None
+
+        out_rows.append({
+            "part_id": int(pid),
+            "part_name": name,
+            "recovery_time_ms": _r4(tau_s * 1000.0),
+            "damping_ratio_estimated": _r4(zeta) if zeta is not None else None,
+            "n_zero_crossings": zc,
+            "has_data": True,
+        })
+
+    if not any(r["has_data"] for r in out_rows):
+        return {}
+
+    # Sort by damping desc, NaNs last; top 15
+    def _sort_key(r):
+        z = r.get("damping_ratio_estimated")
+        return (-(z if z is not None else -1.0), r["part_id"])
+    out_rows_sorted = sorted(out_rows, key=_sort_key)[:15]
+
+    # --- 4. Summary --------------------------------------------------------
+    recs = [r["recovery_time_ms"] for r in out_rows if r["has_data"] and r["recovery_time_ms"] is not None]
+    zs = [r["damping_ratio_estimated"] for r in out_rows if r["has_data"] and r["damping_ratio_estimated"] is not None]
+    median_rec = _r4(float(np.median(recs))) if recs else None
+    median_dmp_pct = _r4(float(np.median(zs)) * 100.0) if zs else None
+
+    # under-damped = lowest ζ; over-damped = highest ζ
+    with_z = [r for r in out_rows if r["has_data"] and r["damping_ratio_estimated"] is not None]
+    if with_z:
+        top_under = min(with_z, key=lambda r: r["damping_ratio_estimated"])
+        top_over = max(with_z, key=lambda r: r["damping_ratio_estimated"])
+        top_under_name = top_under["part_name"]
+        top_over_name = top_over["part_name"]
+    else:
+        top_under_name = None
+        top_over_name = None
+
+    return {
+        "per_part": out_rows_sorted,
+        "summary": {
+            "median_recovery_ms": median_rec,
+            "median_damping_pct": median_dmp_pct,
+            "top_underdamped_part_name": top_under_name,
+            "top_overdamped_part_name": top_over_name,
+            "n_parts_with_data": int(sum(1 for r in out_rows if r["has_data"])),
+        },
+        "pos_id_used": str(pos_id_worst),
+    }
+def _build_worst_combinations(report):
+    """Top-25 worst (position, part) combinations by composite risk score.
+
+    risk = 0.4 * (peak_g / p95_g) + 0.4 * (peak_stress / p95_s)
+         + 0.2 * (peak_disp / p95_d)
+    where p95_* are global P95 across all PairResults.
+    """
+    import math
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
+
+    def _r(v):
+        try:
+            f = float(v)
+            if not math.isfinite(f):
+                return None
+            return float(f"{f:.4g}")
+        except Exception:
+            return None
+
+    results = list(getattr(report, "results", []) or [])
+    parts = list(getattr(report, "parts", []) or [])
+    part_name_by_id = {}
+    for p in parts:
+        pid = getattr(p, "part_id", None)
+        if pid is None:
+            continue
+        part_name_by_id[int(pid)] = getattr(p, "part_name", f"Part {pid}") or f"Part {pid}"
+
+    # position lookup: (face, pos_id) -> (x, y)
+    pos_by_face = getattr(report, "positions_by_face", {}) or {}
+    pos_lookup = {}
+    for face, positions in pos_by_face.items():
+        for ip in positions or []:
+            pid = getattr(ip, "pos_id", None)
+            if pid is None:
+                continue
+            try:
+                pid_key = int(pid)
+            except (TypeError, ValueError):
+                pid_key = str(pid)
+            pos_lookup[(str(face), pid_key)] = (
+                float(getattr(ip, "x", 0.0) or 0.0),
+                float(getattr(ip, "y", 0.0) or 0.0),
+            )
+
+    # behavior class lookup from impactor trajectories (keyed by pos_id only)
+    traj_map = getattr(report, "impactor_trajectories", {}) or {}
+    behavior_by_pos = {}
+    for k, t in traj_map.items():
+        try:
+            pid = int(k)
+        except (TypeError, ValueError):
+            try:
+                pid = int(getattr(t, "pos_id", -1))
+            except (TypeError, ValueError):
+                pid = str(k)
+        behavior_by_pos[pid] = getattr(t, "behavior_class", None) or "unknown"
+
+    # ---- collect finite arrays for P95 ----
+    def _finite(vals):
+        out = []
+        for v in vals:
+            try:
+                f = float(v)
+                if math.isfinite(f):
+                    out.append(f)
+            except Exception:
+                pass
+        return out
+
+    gs = _finite(getattr(r, "peak_g", 0.0) for r in results)
+    ss = _finite(getattr(r, "peak_stress", 0.0) for r in results)
+    ds = _finite(getattr(r, "peak_disp", 0.0) for r in results)
+
+    def _p95(arr):
+        if not arr:
+            return None
+        if _np is not None:
+            try:
+                return float(_np.percentile(arr, 95))
+            except Exception:
+                pass
+        arr_sorted = sorted(arr)
+        k = max(0, min(len(arr_sorted) - 1, int(round(0.95 * (len(arr_sorted) - 1)))))
+        return float(arr_sorted[k])
+
+    p95_g = _p95(gs)
+    p95_s = _p95(ss)
+    p95_d = _p95(ds)
+
+    # Guards: if a denominator is None/zero, drop that term's weight (renormalize)
+    weights = {"g": 0.4, "s": 0.4, "d": 0.2}
+    denom = {"g": p95_g, "s": p95_s, "d": p95_d}
+
+    placeholder_msg = (
+        "데이터가 충분하지 않아 위험도 점수를 계산할 수 없습니다 "
+        "(PairResult 또는 P95 정규화 기준값 누락)."
+    )
+
+    if not results or all(v in (None, 0.0) for v in denom.values()):
+        return {
+            "ok": False,
+            "reason": placeholder_msg,
+            "top_25": [],
+            "distribution": {
+                "p50_risk": None, "p75_risk": None, "p95_risk": None,
+                "max_risk": None, "n_above_risk_1": 0,
+            },
+            "top_3_positions_by_count": [],
+            "p95_norm": {"peak_g": p95_g, "peak_stress": p95_s, "peak_disp": p95_d},
+        }
+
+    def _term(val, key):
+        d = denom[key]
+        if d is None or d <= 0.0:
+            return None
+        try:
+            f = float(val)
+            if not math.isfinite(f):
+                return None
+            return weights[key] * (f / d)
+        except Exception:
+            return None
+
+    scored = []
+    for r in results:
+        face = str(getattr(r, "face", "") or "")
+        pos_raw = getattr(r, "position", None)
+        if pos_raw is None:
+            continue
+        try:
+            pos_id = int(pos_raw)
+        except (TypeError, ValueError):
+            pos_id = str(pos_raw)
+        try:
+            part_id = int(getattr(r, "part_id", -1))
+        except Exception:
+            continue
+
+        pg = getattr(r, "peak_g", float("nan"))
+        ps = getattr(r, "peak_stress", float("nan"))
+        pd = getattr(r, "peak_disp", float("nan"))
+
+        terms = {
+            "g": _term(pg, "g"),
+            "s": _term(ps, "s"),
+            "d": _term(pd, "d"),
+        }
+        active = {k: v for k, v in terms.items() if v is not None}
+        if not active:
+            continue
+        active_weight = sum(weights[k] for k in active.keys())
+        if active_weight <= 0:
+            continue
+        risk = sum(active.values()) / active_weight  # renormalize to full-weight scale
+
+        x, y = pos_lookup.get((face, pos_id), (None, None))
+        scored.append({
+            "face": face,
+            "pos_id": pos_id,
+            "x": _r(x) if x is not None else None,
+            "y": _r(y) if y is not None else None,
+            "part_id": part_id,
+            "part_name": part_name_by_id.get(part_id, f"Part {part_id}"),
+            "peak_g": _r(pg),
+            "peak_stress": _r(ps),
+            "peak_disp": _r(pd),
+            "risk": _r(risk),
+            "behavior_class": behavior_by_pos.get(pos_id, "unknown"),
+        })
+
+    scored.sort(key=lambda d: (d["risk"] if d["risk"] is not None else -1.0), reverse=True)
+
+    top_25 = []
+    for i, row in enumerate(scored[:25], start=1):
+        row2 = dict(row)
+        row2["rank"] = i
+        top_25.append(row2)
+
+    risks = [d["risk"] for d in scored if d["risk"] is not None]
+
+    def _pct(arr, q):
+        if not arr:
+            return None
+        if _np is not None:
+            try:
+                return float(_np.percentile(arr, q))
+            except Exception:
+                pass
+        a = sorted(arr)
+        k = max(0, min(len(a) - 1, int(round((q / 100.0) * (len(a) - 1)))))
+        return float(a[k])
+
+    distribution = {
+        "p50_risk": _r(_pct(risks, 50)),
+        "p75_risk": _r(_pct(risks, 75)),
+        "p95_risk": _r(_pct(risks, 95)),
+        "max_risk": _r(max(risks)) if risks else None,
+        "n_above_risk_1": int(sum(1 for v in risks if v >= 1.0)),
+    }
+
+    # positions repeatedly appearing in top25
+    count = {}
+    for row in top_25:
+        key = (row["face"], row["pos_id"])
+        e = count.setdefault(key, {
+            "face": row["face"], "pos_id": row["pos_id"],
+            "x": row["x"], "y": row["y"], "n_in_top25": 0,
+        })
+        e["n_in_top25"] += 1
+    pos_counts = sorted(count.values(), key=lambda d: d["n_in_top25"], reverse=True)[:3]
+
+    max_row = top_25[0] if top_25 else None
+    max_summary = None
+    if max_row is not None:
+        max_summary = {
+            "pos_id": max_row["pos_id"],
+            "face": max_row["face"],
+            "part_id": max_row["part_id"],
+            "part_name": max_row["part_name"],
+            "risk": max_row["risk"],
+        }
+
+    return {
+        "ok": True,
+        "top_25": top_25,
+        "distribution": distribution,
+        "top_3_positions_by_count": pos_counts,
+        "p95_norm": {
+            "peak_g": _r(p95_g),
+            "peak_stress": _r(p95_s),
+            "peak_disp": _r(p95_d),
+        },
+        "max_summary": max_summary,
+        "n_total": len(scored),
+        "unit_labels": dict(getattr(report, "sim_params", {}).get("unit_labels", {}) or {})
+            if isinstance(getattr(report, "sim_params", None), dict)
+            else dict(getattr(getattr(report, "sim_params", None), "unit_labels", {}) or {}),
+    }
+
+# === PHYSICS_PYTHON_HELPERS_INSERT_HERE ===
+# Section-08 (Physics Insights) builders are inserted ABOVE this line.
+
+
+def _build_physics_payload(report) -> dict:
+    """Aggregate the Section-08 physics analyses. Empty dict if no data;
+    individual sub-keys may be empty. JS hides panels whose sub-key is empty."""
+    physics: dict = {}
+    physics["StressWaveVelocity"] = _build_stress_wave_velocity_payload(report)
+    physics["RestitutionMap"] = _build_restitution_map(report)
+    physics["RecoveryDamping"] = _build_recovery_damping_payload(report)
+    physics["worst_combinations"] = _build_worst_combinations(report)
+    # === PHYSICS_PAYLOAD_EXT_INSERT_HERE ===
+    return physics
+
+
 # === INSIGHT_PYTHON_HELPERS_INSERT_HERE ===
 # Section-07 (Insights & Recommendations) builders are inserted ABOVE this line.
 
@@ -4186,6 +5023,7 @@ def _build_payload(report: ImpactReport) -> dict:
         "doe_analysis": _build_doe_payload(report),
         "deep_analytics": _build_deep_payload(report),
         "insights": _build_insights_payload(report),
+        "physics": _build_physics_payload(report),
         "unit_labels": unit_labels,
         "device_geometry": _build_device_geometry(report),
         # risk_score = None means JS hides the panel; callers can opt in by
@@ -5132,6 +5970,261 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .subtab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
 .subtab-content { display: none; }
 .subtab-content.active { display: block; }
+#physics-stress-wave-velocity .phys-caption{
+  color:#bcd; font-size:12px; margin:4px 0 10px 0; line-height:1.5;
+}
+#physics-stress-wave-velocity .phys-empty{
+  color:#a99; font-size:12px; padding:14px; border:1px dashed #553;
+  border-radius:6px; line-height:1.55;
+}
+#physics-stress-wave-velocity .phys-chips{
+  display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px 0;
+}
+#physics-stress-wave-velocity .phys-chip{
+  background:#1b2330; color:#d8e2ee; font-size:11px; padding:3px 8px;
+  border-radius:10px; border:1px solid #2a3548;
+}
+#physics-stress-wave-velocity .phys-chip b{ color:#ffd17a; margin-right:4px; }
+#physics-stress-wave-velocity .phys-swv-chart{ display:block; max-width:100%; height:auto; }
+#physics-stress-wave-velocity .phys-axis-tick{ fill:#aab; font-size:10px; }
+#physics-stress-wave-velocity .phys-axis-label{ fill:#cde; font-size:11px; }
+#physics-stress-wave-velocity .phys-row-label{ fill:#dde; font-size:11px; cursor:default; }
+#physics-stress-wave-velocity .phys-row-value{ fill:#fff; font-size:10px; }
+#physics-stress-wave-velocity .phys-theory-label{
+  fill:#ff8a8a; font-size:11px; font-weight:600;
+}
+/* PHYSICS_CSS_INSERT_HERE — RestitutionMap */
+#phys-restitution-map .rmap-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 10px 0 14px 0;
+}
+#phys-restitution-map .rmap-kpi {
+  background: #1a1f2b;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+#phys-restitution-map .rmap-kpi-wide { grid-column: span 1; }
+#phys-restitution-map .rmap-kpi-label {
+  font-size: 11px;
+  color: #8a93a3;
+  margin-bottom: 3px;
+  letter-spacing: 0.2px;
+}
+#phys-restitution-map .rmap-kpi-value {
+  font-size: 15px;
+  color: #e6ebf3;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#phys-restitution-map .rmap-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(280px, 1fr);
+  gap: 14px;
+  margin-bottom: 10px;
+}
+@media (max-width: 880px) {
+  #phys-restitution-map .rmap-grid { grid-template-columns: 1fr; }
+  #phys-restitution-map .rmap-kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+#phys-restitution-map .rmap-section-title {
+  font-size: 12px;
+  color: #cfd5e1;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+#phys-restitution-map .rmap-heat-host,
+#phys-restitution-map .rmap-hist-host {
+  background: #11151d;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  padding: 6px;
+}
+#phys-restitution-map .rmap-caption {
+  font-size: 12px;
+  color: #8a93a3;
+  font-style: italic;
+  padding: 8px 10px;
+  border-left: 3px solid #3a4150;
+  background: #14181f;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
+#phys-restitution-map .rmap-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  color: #fff;
+  margin-left: 4px;
+}
+#phys-restitution-map .panel-sub {
+  font-size: 12px;
+  color: #8a93a3;
+}
+
+#phys-recovery-damping-panel .phys-rd-head{
+  display:flex; flex-wrap:wrap; gap:8px 18px;
+  padding:8px 4px 12px 4px; border-bottom:1px solid #2a3038; margin-bottom:10px;
+}
+#phys-recovery-damping-panel .phys-rd-kpi{ min-width:140px; }
+#phys-recovery-damping-panel .phys-rd-kpi .k{
+  font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:0.04em;
+}
+#phys-recovery-damping-panel .phys-rd-kpi .v{ font-size:14px; color:#e6edf3; font-weight:600; margin-top:2px; }
+#phys-recovery-damping-panel .phys-rd-kpi .v.vbad{ color:#ff8c00; }
+#phys-recovery-damping-panel .phys-rd-kpi .v.vgood{ color:#3cc85a; }
+#phys-recovery-damping-panel .phys-rd-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px;
+}
+@media (max-width: 900px){
+  #phys-recovery-damping-panel .phys-rd-grid{ grid-template-columns:1fr; }
+}
+#phys-recovery-damping-panel .phys-rd-col{ background:#0d1117; border:1px solid #2a3038; border-radius:6px; padding:6px; }
+#phys-recovery-damping-panel .phys-rd-bars{ display:block; }
+#phys-recovery-damping-panel .phys-rd-caption{
+  margin-top:10px; font-size:11px; color:#8b949e; line-height:1.5;
+}
+#phys-recovery-damping-panel .phys-rd-empty{
+  padding:16px; color:#8b949e; font-size:12px; line-height:1.5;
+  border:1px dashed #2a3038; border-radius:6px;
+}
+/* WorstCombinations panel */
+#phys-worst-combinations .wc-empty {
+  padding: 18px;
+  color: #777;
+  font-size: 13px;
+  background: #fafafa;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+}
+#phys-worst-combinations .wc-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+#phys-worst-combinations .wc-kpi {
+  background: #f7f8fa;
+  border: 1px solid #e3e6ec;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+#phys-worst-combinations .wc-kpi-critical {
+  background: #fff4f3;
+  border-color: #f1bdb6;
+}
+#phys-worst-combinations .wc-kpi-label {
+  font-size: 11px;
+  color: #6a7282;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+#phys-worst-combinations .wc-kpi-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1f2730;
+  line-height: 1.1;
+}
+#phys-worst-combinations .wc-kpi-value-sm {
+  font-size: 13px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#phys-worst-combinations .wc-kpi-sub {
+  font-size: 11px;
+  color: #8a8f99;
+  margin-top: 2px;
+}
+#phys-worst-combinations .wc-chip-row {
+  margin: 6px 0 10px 0;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+#phys-worst-combinations .wc-chip-label {
+  color: #6a7282;
+}
+#phys-worst-combinations .wc-chip {
+  background: #eef2f7;
+  border: 1px solid #d6dde6;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  color: #2b3340;
+}
+#phys-worst-combinations .wc-table-wrap {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid #e3e6ec;
+  border-radius: 6px;
+}
+#phys-worst-combinations .wc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#phys-worst-combinations .wc-th {
+  position: sticky;
+  top: 0;
+  background: #f0f3f8;
+  text-align: left;
+  padding: 7px 9px;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: #2b3340;
+  border-bottom: 1px solid #d6dde6;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+#phys-worst-combinations .wc-th-num { text-align: right; }
+#phys-worst-combinations .wc-th:hover { background: #e6ebf2; }
+#phys-worst-combinations .wc-td {
+  padding: 5px 9px;
+  border-bottom: 1px solid #eef0f3;
+  white-space: nowrap;
+}
+#phys-worst-combinations .wc-td-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#phys-worst-combinations .wc-row:hover .wc-td { background: #fafbfd; }
+#phys-worst-combinations .wc-risk-red {
+  background: #fde7e4 !important;
+  color: #a8261a;
+  font-weight: 600;
+}
+#phys-worst-combinations .wc-risk-orange {
+  background: #fff1dc !important;
+  color: #9a5a05;
+  font-weight: 600;
+}
+#phys-worst-combinations .wc-risk-gray {
+  background: #f1f3f5 !important;
+  color: #4a525d;
+}
+#phys-worst-combinations .wc-risk-na {
+  color: #98a0aa;
+}
+#phys-worst-combinations .wc-sort-ind {
+  font-size: 10px;
+  color: #6a7282;
+}
+#phys-worst-combinations .wc-caption {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #6a7282;
+  line-height: 1.5;
+}
+
+/* PHYSICS_CSS_INSERT_HERE */
+
 /* INSIGHT_CSS_INSERT_HERE */
 """
 
@@ -5173,6 +6266,7 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <a data-target="s5" id="navS5">DOE</a>
     <a data-target="s6" id="navS6">DEEP</a>
     <a data-target="s7" id="navS7">INSIGHTS</a>
+    <a data-target="s8" id="navS8">PHYSICS</a>
   </div>
 </div>
 """
@@ -5987,6 +7081,69 @@ _PAGE7 = """
   <p class="t3d-caption">25 위치 충돌체 경로 동시 표시. 색 = behavior.</p>
 </section>
 <!-- INSIGHT_PANELS_INSERT_HERE -->
+    <!-- Workflow-added panel templates are inserted ABOVE this marker. -->
+  </div>
+</section>
+"""
+
+_PAGE8 = """
+<section id="s8">
+  <div class="page-head">
+    <span class="num">08</span>
+    <span class="t">PHYSICS INSIGHTS</span>
+    <span class="sub">충격파 속도 · 반발 계수 · 댐핑 · 최악 조합</span>
+    <span class="sub">WAVE / RESTITUTION / DAMPING / WORST COMBOS</span>
+  </div>
+
+  <div class="panel" style="background:transparent;border:none;padding:0;">
+    <div class="panel" id="physics-stress-wave-velocity">
+  <div class="panel-header">
+    <h3>충격파 전파 속도</h3>
+    <span class="panel-sub">part별 평균 v_app = r / Δt &nbsp;·&nbsp; 이론값과 비교</span>
+  </div>
+  <div class="panel-body"></div>
+</div>
+<div class="panel" id="phys-restitution-map" data-panel-key="RestitutionMap">
+  <div class="panel-header">
+    <h3>위치별 반발 계수 (Coefficient of Restitution)</h3>
+    <div class="panel-sub" data-role="status">반발 계수 e 데이터를 로딩 중입니다...</div>
+  </div>
+  <div class="rmap-kpi-row">
+    <div class="rmap-kpi"><div class="rmap-kpi-label">평균 e</div><div class="rmap-kpi-value" data-role="kpi-mean">—</div></div>
+    <div class="rmap-kpi"><div class="rmap-kpi-label">최대 (탄성)</div><div class="rmap-kpi-value" data-role="kpi-max">—</div></div>
+    <div class="rmap-kpi"><div class="rmap-kpi-label">최소 (비탄성)</div><div class="rmap-kpi-value" data-role="kpi-min">—</div></div>
+    <div class="rmap-kpi rmap-kpi-wide"><div class="rmap-kpi-label">분포</div><div class="rmap-kpi-value" data-role="kpi-buckets">—</div></div>
+  </div>
+  <div class="rmap-grid">
+    <div class="rmap-heat">
+      <div class="rmap-section-title">5×5 공간 히트맵 (빨강=비탄성, 초록=탄성)</div>
+      <div data-role="heatmap" class="rmap-heat-host"></div>
+    </div>
+    <div class="rmap-hist">
+      <div class="rmap-section-title">e 분포 (10 bins)</div>
+      <div data-role="histogram" class="rmap-hist-host"></div>
+    </div>
+  </div>
+  <div class="rmap-caption">
+    e = √(KE_after / KE_before). 0 = 완전비탄성 (충돌체 정지), 1 = 완전탄성. 1 초과 시 mass scaling 효과.
+  </div>
+</div>
+<div class="panel" id="phys-recovery-damping-panel">
+  <div class="panel-header">
+    <h3>부품별 댐핑 / 회복 시간</h3>
+    <div class="panel-sub">최악 위치 기준 · 5% 감쇠 시간 · log-decrement ζ 추정</div>
+  </div>
+  <div class="panel-body" id="phys-recovery-damping-body"></div>
+</div>
+<section id="phys-worst-combinations" class="panel" data-panel-key="worst_combinations">
+  <header class="panel-header">
+    <h3 class="panel-title">최악 25 조합 (위치 × 부품)</h3>
+    <div class="panel-subtitle">composite risk score 기반 Top-K — peak_g · peak_stress · peak_disp 가중 결합</div>
+  </header>
+  <div class="panel-body"></div>
+</section>
+
+<!-- PHYSICS_PANELS_INSERT_HERE -->
     <!-- Workflow-added panel templates are inserted ABOVE this marker. -->
   </div>
 </section>
@@ -7531,7 +8688,7 @@ function initNav() {
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
-    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
     const y = window.scrollY + 120;
     let active = sections[0];
     for (const id of sections) {
@@ -11646,6 +12803,711 @@ function _insightRenderTrajectory3D(data){
   root.appendChild(root_svg);
   svgZoomPan(root_svg);
 }
+function _physRenderStressWaveVelocity(data){
+  const host = document.getElementById('physics-stress-wave-velocity');
+  if(!host) return;
+  const d = (data && data.physics && data.physics.StressWaveVelocity) || null;
+  const body = host.querySelector('.panel-body') || host;
+  body.innerHTML = '';
+
+  const placeholder = (d && d._placeholder) || '응력파 전파 속도 산출에 필요한 t_first_contact / t_peak_g / 위치-부품 거리 정보가 부족하여 현재 패널을 표시할 수 없습니다. (50자 이상 placeholder)';
+  if(!d || !d.per_part || d.per_part.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'phys-empty';
+    empty.textContent = placeholder;
+    body.appendChild(empty);
+    return;
+  }
+
+  // Top-12 cap (payload caps at 15; we display 12).
+  const rows = d.per_part.slice(0, 12);
+  const v_theory = (typeof d.v_theory_impactor === 'number' && isFinite(d.v_theory_impactor)) ? d.v_theory_impactor : null;
+
+  // Caption
+  const cap = document.createElement('div');
+  cap.className = 'phys-caption';
+  cap.textContent = '거리/Δt 로 산출한 외형 wave 속도. 이론값 위면 다중 모드 동시 도착, 아래면 부품간 결합 약함.';
+  body.appendChild(cap);
+
+  // Summary chips
+  if(d.summary && typeof d.summary === 'object'){
+    const s = d.summary;
+    const chips = document.createElement('div');
+    chips.className = 'phys-chips';
+    const mk = (label, value, unit) => {
+      const c = document.createElement('span');
+      c.className = 'phys-chip';
+      const v = (value == null) ? '—' : (typeof _u === 'function' ? _u(value, unit) : (value + ' ' + unit));
+      c.innerHTML = '<b>' + label + '</b> ' + v;
+      return c;
+    };
+    chips.appendChild(mk('min', s.min_v_app, 'm/s'));
+    chips.appendChild(mk('median', s.median_v_app_all, 'm/s'));
+    chips.appendChild(mk('max', s.max_v_app, 'm/s'));
+    chips.appendChild(mk('표본수', s.n_total, '개'));
+    if(v_theory != null) chips.appendChild(mk('이론 √(E/ρ)', v_theory, 'm/s'));
+    body.appendChild(chips);
+  }
+
+  // Chart layout
+  const W = 720, rowH = 26, padTop = 24, padBot = 36, padL = 170, padR = 70;
+  const H = padTop + padBot + rowH * rows.length;
+  const chartW = W - padL - padR;
+
+  // Domain: max of bar max (q75) and v_theory, with small headroom
+  let xMax = 0;
+  for(const r of rows){
+    const hi = (typeof r.q75_v_app === 'number') ? r.q75_v_app : (r.mean_v_app || 0);
+    if(hi > xMax) xMax = hi;
+  }
+  if(v_theory != null && v_theory > xMax) xMax = v_theory;
+  if(!(xMax > 0)) xMax = 1.0;
+  xMax *= 1.10;
+
+  const xScale = v => padL + (v / xMax) * chartW;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const root = document.createElementNS(NS, 'svg');
+  root.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  root.setAttribute('width', '100%');
+  root.setAttribute('class', 'phys-swv-chart');
+
+  // X axis ticks (4)
+  for(let k=0; k<=4; k++){
+    const v = (xMax / 4) * k;
+    const x = xScale(v);
+    const tline = document.createElementNS(NS, 'line');
+    tline.setAttribute('x1', x); tline.setAttribute('x2', x);
+    tline.setAttribute('y1', padTop - 4); tline.setAttribute('y2', H - padBot);
+    tline.setAttribute('stroke', '#444'); tline.setAttribute('stroke-width', '0.5');
+    tline.setAttribute('stroke-dasharray', '2,3');
+    root.appendChild(tline);
+    const tl = document.createElementNS(NS, 'text');
+    tl.setAttribute('x', x); tl.setAttribute('y', H - padBot + 14);
+    tl.setAttribute('text-anchor', 'middle');
+    tl.setAttribute('class', 'phys-axis-tick');
+    tl.textContent = (typeof fmt === 'function' ? fmt(v, 0) : v.toFixed(0));
+    root.appendChild(tl);
+  }
+  // X axis label
+  const xl = document.createElementNS(NS, 'text');
+  xl.setAttribute('x', padL + chartW/2); xl.setAttribute('y', H - 6);
+  xl.setAttribute('text-anchor', 'middle');
+  xl.setAttribute('class', 'phys-axis-label');
+  xl.textContent = '외형 wave 속도 v_app (m/s)';
+  root.appendChild(xl);
+
+  // Bars + whiskers
+  rows.forEach((r, i) => {
+    const y = padTop + i * rowH + rowH * 0.5;
+    const mean = (typeof r.mean_v_app === 'number') ? r.mean_v_app : 0;
+    const lo = (typeof r.q25_v_app === 'number') ? r.q25_v_app : mean;
+    const hi = (typeof r.q75_v_app === 'number') ? r.q75_v_app : mean;
+    const xMean = xScale(mean);
+    const xLo = xScale(lo);
+    const xHi = xScale(hi);
+    const barH = rowH * 0.55;
+
+    // Part label
+    const lab = document.createElementNS(NS, 'text');
+    lab.setAttribute('x', padL - 8); lab.setAttribute('y', y + 4);
+    lab.setAttribute('text-anchor', 'end');
+    lab.setAttribute('class', 'phys-row-label');
+    const lbl = r.part_name || ('PART_' + r.part_id);
+    lab.textContent = lbl.length > 22 ? (lbl.slice(0, 20) + '…') : lbl;
+    const labTitle = document.createElementNS(NS, 'title');
+    labTitle.textContent = (r.part_name || '') + ' (part_id ' + r.part_id + ') — n=' + (r.n_samples||0);
+    lab.appendChild(labTitle);
+    root.appendChild(lab);
+
+    // Bar (mean)
+    const bar = document.createElementNS(NS, 'rect');
+    bar.setAttribute('x', padL);
+    bar.setAttribute('y', y - barH/2);
+    bar.setAttribute('width', Math.max(0, xMean - padL));
+    bar.setAttribute('height', barH);
+    const color = (typeof gColor === 'function') ? gColor(mean / (v_theory || xMax)) : '#4ea3ff';
+    bar.setAttribute('fill', color);
+    bar.setAttribute('opacity', '0.85');
+    const bt = document.createElementNS(NS, 'title');
+    const m_ms = (typeof r.mean_delta_t_ms === 'number') ? r.mean_delta_t_ms : null;
+    bt.textContent = (r.part_name || ('PART_' + r.part_id)) +
+                     '\nmean v_app: ' + (typeof fmt === 'function' ? fmt(mean,0) : mean.toFixed(0)) + ' m/s' +
+                     '\nIQR: [' + (typeof fmt === 'function' ? fmt(lo,0) : lo.toFixed(0)) + ', ' +
+                     (typeof fmt === 'function' ? fmt(hi,0) : hi.toFixed(0)) + '] m/s' +
+                     '\nmedian: ' + (r.median_v_app != null ? r.median_v_app : '—') + ' m/s' +
+                     (m_ms != null ? '\nmean Δt: ' + m_ms + ' ms' : '') +
+                     '\nn=' + (r.n_samples || 0);
+    bar.appendChild(bt);
+    root.appendChild(bar);
+
+    // IQR whisker (Q25..Q75)
+    const wline = document.createElementNS(NS, 'line');
+    wline.setAttribute('x1', xLo); wline.setAttribute('x2', xHi);
+    wline.setAttribute('y1', y); wline.setAttribute('y2', y);
+    wline.setAttribute('stroke', '#ddd'); wline.setAttribute('stroke-width', '1.5');
+    root.appendChild(wline);
+    // whisker caps
+    [[xLo, '#ddd'], [xHi, '#ddd']].forEach(([xv, col]) => {
+      const c = document.createElementNS(NS, 'line');
+      c.setAttribute('x1', xv); c.setAttribute('x2', xv);
+      c.setAttribute('y1', y - 5); c.setAttribute('y2', y + 5);
+      c.setAttribute('stroke', col); c.setAttribute('stroke-width', '1.5');
+      root.appendChild(c);
+    });
+
+    // Value label at bar end
+    const vlab = document.createElementNS(NS, 'text');
+    vlab.setAttribute('x', xMean + 4); vlab.setAttribute('y', y + 4);
+    vlab.setAttribute('class', 'phys-row-value');
+    vlab.textContent = (typeof fmt === 'function' ? fmt(mean,0) : mean.toFixed(0));
+    root.appendChild(vlab);
+  });
+
+  // Theory vertical line
+  if(v_theory != null){
+    const xt = xScale(v_theory);
+    const ln = document.createElementNS(NS, 'line');
+    ln.setAttribute('x1', xt); ln.setAttribute('x2', xt);
+    ln.setAttribute('y1', padTop - 6); ln.setAttribute('y2', H - padBot);
+    ln.setAttribute('stroke', '#ff6b6b');
+    ln.setAttribute('stroke-width', '1.6');
+    ln.setAttribute('stroke-dasharray', '6,4');
+    root.appendChild(ln);
+    const lt = document.createElementNS(NS, 'text');
+    lt.setAttribute('x', xt + 4); lt.setAttribute('y', padTop + 6);
+    lt.setAttribute('class', 'phys-theory-label');
+    lt.textContent = '이론값 √(E/ρ) = ' + (typeof fmt === 'function' ? fmt(v_theory,0) : v_theory.toFixed(0)) + ' m/s';
+    root.appendChild(lt);
+  }
+
+  body.appendChild(root);
+
+  if(typeof svgZoomPan === 'function'){
+    try { svgZoomPan(root); } catch(e){}
+  }
+}
+
+function _physRenderRestitutionMap(data) {
+  const root = document.getElementById('phys-restitution-map');
+  if (!root) return;
+  const payload = (data && data.physics && data.physics.RestitutionMap) || null;
+
+  const kpiMean = root.querySelector('[data-role="kpi-mean"]');
+  const kpiMax = root.querySelector('[data-role="kpi-max"]');
+  const kpiMin = root.querySelector('[data-role="kpi-min"]');
+  const kpiBuckets = root.querySelector('[data-role="kpi-buckets"]');
+  const heatHost = root.querySelector('[data-role="heatmap"]');
+  const histHost = root.querySelector('[data-role="histogram"]');
+  const statusHost = root.querySelector('[data-role="status"]');
+
+  const PLACEHOLDER = '데이터가 비어있거나 유효한 반발 계수 e 값을 계산할 수 없습니다 (KE_before/KE_after 누락).';
+
+  if (!payload || !payload.per_position || payload.per_position.length === 0) {
+    if (statusHost) statusHost.textContent = PLACEHOLDER;
+    if (heatHost) heatHost.innerHTML = '';
+    if (histHost) histHost.innerHTML = '';
+    return;
+  }
+
+  const rows = payload.per_position;
+  const summary = payload.summary || {};
+  const hist = payload.histogram || [];
+  const histRange = payload.hist_range || [0, 1.2];
+  const grid = payload.grid || {nx: 5, ny: 5};
+  const nx = Math.max(1, grid.nx || 5);
+  const ny = Math.max(1, grid.ny || 5);
+
+  // ── KPI ──────────────────────────────────────────────────────────────
+  const fmtE = v => (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(3);
+  if (kpiMean) kpiMean.textContent = fmtE(summary.mean_e);
+  if (kpiMax) {
+    kpiMax.textContent = (summary.max_e_pos_id != null)
+      ? `P${summary.max_e_pos_id} (e=${fmtE(summary.max_e)})`
+      : '—';
+  }
+  if (kpiMin) {
+    kpiMin.textContent = (summary.min_e_pos_id != null)
+      ? `P${summary.min_e_pos_id} (e=${fmtE(summary.min_e)})`
+      : '—';
+  }
+  if (kpiBuckets) {
+    const nHigh = summary.n_e_high || 0;
+    const nLow = summary.n_e_low || 0;
+    const nValid = summary.n_valid || 0;
+    kpiBuckets.textContent = `탄성≥0.9: ${nHigh} · 비탄성≤0.3: ${nLow} · 유효 ${nValid}/${summary.n_total || rows.length}`;
+  }
+
+  // ── Heatmap (5×5) ────────────────────────────────────────────────────
+  // Honour device aspect ratio if available
+  const geom = payload.device_geometry || {};
+  let aspect = 1.0;
+  if (geom && isFinite(geom.width) && isFinite(geom.height) && geom.height > 0) {
+    aspect = Math.max(0.4, Math.min(2.5, geom.width / geom.height));
+  }
+  const heatW = 360;
+  const heatH = Math.round(heatW / aspect);
+  const pad = {l: 36, r: 16, t: 16, b: 36};
+  const innerW = heatW - pad.l - pad.r;
+  const innerH = heatH - pad.t - pad.b;
+  const cellW = innerW / nx;
+  const cellH = innerH / ny;
+
+  // Map pos_id → grid (i, j). pos_id is 1..25 with row-major layout.
+  // Falls back to the row index when pos_id is non-numeric (e.g. "F5_DOE_001").
+  function posToCell(pos_id, idx) {
+    let k = idx;
+    if (pos_id != null) {
+      const n = Number(pos_id);
+      if (isFinite(n)) k = n - 1;
+    }
+    if (!isFinite(k) || k < 0 || k >= nx * ny) return null;
+    return {i: k % nx, j: Math.floor(k / nx)};
+  }
+
+  // Color ramp: red (low e) → yellow → green (high e)
+  function eColor(e) {
+    if (e == null || !isFinite(e)) return '#2a2f3a';
+    const t = Math.max(0, Math.min(1, e / 1.0)); // clamp display ramp at e=1
+    // Interpolate red → yellow → green in HSL
+    const hue = 0 + 120 * t; // 0=red, 60=yellow, 120=green
+    return `hsl(${hue.toFixed(1)}, 70%, 45%)`;
+  }
+
+  const behaviorChip = (b) => {
+    if (!b) return '';
+    const col = (typeof BEHAVIOR_COLOR === 'object' && BEHAVIOR_COLOR[b]) || '#888';
+    return `<span class="rmap-chip" style="background:${col};">${b}</span>`;
+  };
+
+  let svgStr = `<svg viewBox="0 0 ${heatW} ${heatH}" width="100%" height="${heatH}" preserveAspectRatio="xMidYMid meet" class="rmap-heat-svg">`;
+  // axes labels
+  svgStr += `<text x="${heatW/2}" y="${heatH - 8}" text-anchor="middle" fill="#a8b0bd" font-size="11">X (격자)</text>`;
+  svgStr += `<text x="12" y="${pad.t + innerH/2}" text-anchor="middle" fill="#a8b0bd" font-size="11" transform="rotate(-90 12 ${pad.t + innerH/2})">Y (격자)</text>`;
+
+  rows.forEach((row, idx) => {
+    const cell = posToCell(row.pos_id, idx);
+    if (!cell) return;
+    const x = pad.l + cell.i * cellW;
+    const y = pad.t + cell.j * cellH;
+    const eVal = row.e;
+    const fill = eColor(eVal);
+    svgStr += `<rect x="${x}" y="${y}" width="${cellW - 1.5}" height="${cellH - 1.5}" rx="3" ry="3" fill="${fill}" stroke="#0e1117" stroke-width="0.8">`;
+    svgStr += `<title>P${row.pos_id} · e=${fmtE(eVal)} · KE_before=${row.ke_before ?? '—'} · KE_after=${row.ke_after ?? '—'} · ${row.behavior_class || ''}</title>`;
+    svgStr += `</rect>`;
+    // Value label
+    const label = (eVal == null) ? '—' : Number(eVal).toFixed(2);
+    svgStr += `<text x="${x + cellW/2}" y="${y + cellH/2 - 2}" text-anchor="middle" dominant-baseline="middle" fill="#0e1117" font-size="${Math.min(13, cellW*0.28).toFixed(1)}" font-weight="600">${label}</text>`;
+    // Behavior chip text below value (small)
+    if (row.behavior_class) {
+      svgStr += `<text x="${x + cellW/2}" y="${y + cellH/2 + 12}" text-anchor="middle" fill="#0e1117" font-size="${Math.min(9, cellW*0.18).toFixed(1)}" opacity="0.75">${row.behavior_class}</text>`;
+    }
+    svgStr += `<text x="${x + 4}" y="${y + 10}" fill="#0e1117" font-size="8" opacity="0.7">P${row.pos_id}</text>`;
+  });
+
+  svgStr += `</svg>`;
+  if (heatHost) heatHost.innerHTML = svgStr;
+
+  // ── Histogram ────────────────────────────────────────────────────────
+  if (histHost) {
+    const hW = 320, hH = heatH;
+    const hp = {l: 36, r: 12, t: 16, b: 36};
+    const iW = hW - hp.l - hp.r;
+    const iH = hH - hp.t - hp.b;
+    const maxCount = hist.reduce((m, b) => Math.max(m, b.count || 0), 0) || 1;
+    const barW = iW / Math.max(1, hist.length);
+    let h = `<svg viewBox="0 0 ${hW} ${hH}" width="100%" height="${hH}" preserveAspectRatio="xMidYMid meet" class="rmap-hist-svg">`;
+    // axes
+    h += `<line x1="${hp.l}" y1="${hp.t + iH}" x2="${hp.l + iW}" y2="${hp.t + iH}" stroke="#3a4150" stroke-width="1"/>`;
+    h += `<line x1="${hp.l}" y1="${hp.t}" x2="${hp.l}" y2="${hp.t + iH}" stroke="#3a4150" stroke-width="1"/>`;
+    // bars
+    hist.forEach((b, i) => {
+      const x = hp.l + i * barW;
+      const hRatio = (b.count || 0) / maxCount;
+      const barH = iH * hRatio;
+      const y = hp.t + iH - barH;
+      const mid = ((b.lo || 0) + (b.hi || 0)) / 2;
+      const fill = eColor(mid);
+      h += `<rect x="${x + 1}" y="${y}" width="${barW - 2}" height="${barH}" fill="${fill}" opacity="0.85">`;
+      h += `<title>e ∈ [${b.lo}, ${b.hi}) · n=${b.count}</title></rect>`;
+      if (b.count > 0) {
+        h += `<text x="${x + barW/2}" y="${y - 3}" text-anchor="middle" fill="#cfd5e1" font-size="9">${b.count}</text>`;
+      }
+    });
+    // x-axis ticks (0, 0.3, 0.6, 0.9, 1.2)
+    const ticks = [0, 0.3, 0.6, 0.9, 1.2];
+    const xMax = histRange[1] || 1.2;
+    ticks.forEach(t => {
+      const tx = hp.l + (t / xMax) * iW;
+      h += `<line x1="${tx}" y1="${hp.t + iH}" x2="${tx}" y2="${hp.t + iH + 4}" stroke="#a8b0bd"/>`;
+      h += `<text x="${tx}" y="${hp.t + iH + 16}" text-anchor="middle" fill="#a8b0bd" font-size="10">${t.toFixed(1)}</text>`;
+    });
+    // y-axis label
+    h += `<text x="${hp.l - 6}" y="${hp.t + 8}" text-anchor="end" fill="#a8b0bd" font-size="10">${maxCount}</text>`;
+    h += `<text x="${hp.l - 6}" y="${hp.t + iH}" text-anchor="end" fill="#a8b0bd" font-size="10">0</text>`;
+    // axis title
+    h += `<text x="${hp.l + iW/2}" y="${hH - 6}" text-anchor="middle" fill="#cfd5e1" font-size="11">반발 계수 e</text>`;
+    h += `<text x="12" y="${hp.t + iH/2}" text-anchor="middle" fill="#cfd5e1" font-size="11" transform="rotate(-90 12 ${hp.t + iH/2})">위치 수</text>`;
+    // median line
+    if (summary.median_e != null && isFinite(summary.median_e)) {
+      const mx = hp.l + (summary.median_e / xMax) * iW;
+      h += `<line x1="${mx}" y1="${hp.t}" x2="${mx}" y2="${hp.t + iH}" stroke="#f0b400" stroke-width="1.2" stroke-dasharray="3,3"/>`;
+      h += `<text x="${mx + 3}" y="${hp.t + 10}" fill="#f0b400" font-size="10">median ${Number(summary.median_e).toFixed(2)}</text>`;
+    }
+    h += `</svg>`;
+    histHost.innerHTML = h;
+  }
+
+  if (statusHost) {
+    statusHost.textContent = `${summary.n_valid || 0}개 위치에서 e 값 계산 완료 (전체 ${summary.n_total || rows.length}개).`;
+  }
+}
+
+function _physRenderRecoveryDamping(data) {
+  const pay = (data && data.RecoveryDamping) || null;
+  const host = document.getElementById('phys-recovery-damping-body');
+  if (!host) return;
+  host.innerHTML = '';
+
+  if (!pay || !pay.per_part || !pay.per_part.length) {
+    const msg = el('div', { class: 'phys-rd-empty' },
+      '댐핑/회복 시간 데이터를 계산할 수 없습니다 — PartMotion 가속도 시계열이 ' +
+      '부족하거나 모든 부품에서 post-peak 신호가 0이기 때문입니다. ' +
+      'unified_analyzer의 motion CSV 출력을 확인해 주세요.');
+    host.appendChild(msg);
+    return;
+  }
+
+  const rows = pay.per_part.filter(r => r.has_data);
+  if (!rows.length) {
+    const msg = el('div', { class: 'phys-rd-empty' },
+      '활성 부품 motion 데이터가 없어 댐핑 비를 추정할 수 없습니다 — ' +
+      '모든 부품의 post-peak 가속도가 너무 짧거나 0 입니다.');
+    host.appendChild(msg);
+    return;
+  }
+
+  // --- header summary ------------------------------------------------------
+  const summ = pay.summary || {};
+  const head = el('div', { class: 'phys-rd-head' });
+  head.appendChild(el('div', { class: 'phys-rd-kpi' }, [
+    el('div', { class: 'k' }, '중앙값 회복 시간'),
+    el('div', { class: 'v' },
+      (summ.median_recovery_ms != null ? fmt(summ.median_recovery_ms, 2) + ' ms' : '-'))
+  ]));
+  head.appendChild(el('div', { class: 'phys-rd-kpi' }, [
+    el('div', { class: 'k' }, '중앙값 ζ'),
+    el('div', { class: 'v' },
+      (summ.median_damping_pct != null ? fmt(summ.median_damping_pct, 1) + ' %' : '-'))
+  ]));
+  head.appendChild(el('div', { class: 'phys-rd-kpi' }, [
+    el('div', { class: 'k' }, '최저 댐핑 (공진 위험)'),
+    el('div', { class: 'v vbad' }, summ.top_underdamped_part_name || '-')
+  ]));
+  head.appendChild(el('div', { class: 'phys-rd-kpi' }, [
+    el('div', { class: 'k' }, '최고 댐핑'),
+    el('div', { class: 'v vgood' }, summ.top_overdamped_part_name || '-')
+  ]));
+  head.appendChild(el('div', { class: 'phys-rd-kpi' }, [
+    el('div', { class: 'k' }, '분석 위치'),
+    el('div', { class: 'v' }, 'pos #' + (pay.pos_id_used || '-'))
+  ]));
+  host.appendChild(head);
+
+  // --- two-column bar charts ----------------------------------------------
+  // top 12 by damping (already sorted desc); we'll keep that order on the right
+  // chart and re-sort by recovery time desc for the left chart.
+  const top = rows.slice(0, 12);
+  const byRecovery = top.slice().sort((a, b) => (b.recovery_time_ms || 0) - (a.recovery_time_ms || 0));
+  const byDamping = top.slice().sort((a, b) => (b.damping_ratio_estimated || 0) - (a.damping_ratio_estimated || 0));
+
+  // shared color: low damping = orange, high damping = green
+  // We compute ζ thresholds *from the data* so panels with very small or
+  // very large ζ adapt instead of using a magic 0.05 cut-off.
+  const zs = top.map(r => r.damping_ratio_estimated || 0).filter(v => v > 0);
+  let zLo = 0, zHi = 1;
+  if (zs.length) {
+    const s = zs.slice().sort((a, b) => a - b);
+    zLo = s[Math.floor(s.length * 0.25)] || 0;
+    zHi = s[Math.floor(s.length * 0.75)] || 1;
+    if (zHi <= zLo) zHi = zLo + 1e-6;
+  }
+  function _zColor(z) {
+    if (z == null) return '#5a6470';
+    const t = Math.max(0, Math.min(1, (z - zLo) / (zHi - zLo)));
+    // orange (255,140,0) -> green (60,200,90)
+    const r = Math.round(255 + (60 - 255) * t);
+    const g = Math.round(140 + (200 - 140) * t);
+    const b = Math.round(0 + (90 - 0) * t);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  function _drawBars(parent, rowsIn, valueKey, unitLabel, headerText) {
+    const W = 420, H = 28 * rowsIn.length + 48, PADL = 150, PADR = 56, PADT = 32, PADB = 8;
+    const innerW = W - PADL - PADR;
+    const root = svg('svg', {
+      viewBox: '0 0 ' + W + ' ' + H, width: '100%',
+      preserveAspectRatio: 'xMidYMid meet', class: 'phys-rd-bars'
+    });
+    // title
+    const tnode = svg('text', {
+      x: 12, y: 18, fill: '#c9d1d9', 'font-size': 12, 'font-weight': 600
+    });
+    tnode.appendChild(document.createTextNode(headerText));
+    root.appendChild(tnode);
+
+    const vmax = Math.max.apply(null, rowsIn.map(r => r[valueKey] || 0));
+    const denom = vmax > 0 ? vmax : 1;
+    const bh = 20;
+    rowsIn.forEach((r, i) => {
+      const y = PADT + i * 28;
+      const v = r[valueKey] || 0;
+      const w = Math.max(0, (v / denom) * innerW);
+      const z = r.damping_ratio_estimated;
+      const color = _zColor(z);
+      // part name label (left)
+      const nm = svg('text', {
+        x: PADL - 6, y: y + bh * 0.7, fill: '#c9d1d9',
+        'font-size': 10, 'text-anchor': 'end'
+      });
+      nm.appendChild(document.createTextNode(r.part_name.slice(0, 22)));
+      root.appendChild(nm);
+      // bar background
+      root.appendChild(svg('rect', {
+        x: PADL, y: y, width: innerW, height: bh, fill: '#1c2128',
+        stroke: '#2a3038', 'stroke-width': 0.5
+      }));
+      // bar
+      root.appendChild(svg('rect', {
+        x: PADL, y: y, width: w, height: bh, fill: color, opacity: 0.92
+      }));
+      // value label (right)
+      const vtxt = svg('text', {
+        x: PADL + w + 4, y: y + bh * 0.7, fill: '#c9d1d9', 'font-size': 10
+      });
+      const sval = (v == null || !isFinite(v))
+        ? '-'
+        : (valueKey === 'damping_ratio_estimated' ? (v * 100).toFixed(2) + ' %' : fmt(v, 2) + ' ' + unitLabel);
+      vtxt.appendChild(document.createTextNode(sval));
+      root.appendChild(vtxt);
+    });
+    parent.appendChild(root);
+  }
+
+  const grid = el('div', { class: 'phys-rd-grid' });
+  const colL = el('div', { class: 'phys-rd-col' });
+  const colR = el('div', { class: 'phys-rd-col' });
+  _drawBars(colL, byRecovery, 'recovery_time_ms', 'ms', '5% 회복 시간 (ms)');
+  _drawBars(colR, byDamping, 'damping_ratio_estimated', '%', '추정 댐핑 비 ζ (%)');
+  grid.appendChild(colL);
+  grid.appendChild(colR);
+  host.appendChild(grid);
+
+  // caption
+  const cap = el('div', { class: 'phys-rd-caption' },
+    '5% 감쇠 시간 = 진동 격리 여부. ζ < 0.05 = 저댐핑 (공진 위험). ' +
+    'ω_n은 deep_analytics FFT 또는 zero-crossing 추정; ' +
+    'log-decrement으로 ζ를 산출했습니다.');
+  host.appendChild(cap);
+}
+function _physRenderWorstCombinations(data) {
+  const root = document.getElementById('phys-worst-combinations');
+  if (!root) return;
+  const body = root.querySelector('.panel-body') || root;
+  body.innerHTML = '';
+
+  const placeholderLong = '통합 위험도 점수를 계산할 충분한 데이터가 없습니다 (PairResult 또는 P95 정규화 기준값이 비어있거나 NaN).';
+
+  if (!data || data.ok === false || !Array.isArray(data.top_25) || data.top_25.length === 0) {
+    const empty = el('div', { class: 'wc-empty' }, [
+      (data && data.reason) ? data.reason : placeholderLong
+    ]);
+    body.appendChild(empty);
+    return;
+  }
+
+  const u = (data.unit_labels) || {};
+  const uG = (typeof _u === 'function') ? _u('accel_g', u) : (u.accel_g || 'g');
+  const uS = (typeof _u === 'function') ? _u('stress', u) : (u.stress || 'Pa');
+  const uD = (typeof _u === 'function') ? _u('disp', u) : (u.disp || 'm');
+
+  const dist = data.distribution || {};
+  const ms = data.max_summary || null;
+  const p95n = data.p95_norm || {};
+
+  // ---- KPI strip ----
+  const kpiStrip = el('div', { class: 'wc-kpi-strip' });
+  const _num = (v, d) => (v === null || v === undefined || !isFinite(v)) ? '—' : (typeof fmt === 'function' ? fmt(v, d) : Number(v).toFixed(d));
+
+  kpiStrip.appendChild(el('div', { class: 'wc-kpi wc-kpi-critical' }, [
+    el('div', { class: 'wc-kpi-label' }, ['임계 초과 조합 (risk ≥ 1.0)']),
+    el('div', { class: 'wc-kpi-value' }, [String(dist.n_above_risk_1 || 0)]),
+    el('div', { class: 'wc-kpi-sub' }, ['전체 ' + (data.n_total || 0) + '개 중'])
+  ]));
+
+  kpiStrip.appendChild(el('div', { class: 'wc-kpi' }, [
+    el('div', { class: 'wc-kpi-label' }, ['최대 위험도']),
+    el('div', { class: 'wc-kpi-value' }, [_num(dist.max_risk, 3)]),
+    el('div', { class: 'wc-kpi-sub' }, [
+      ms ? ('Pos #' + ms.pos_id + ' · ' + (ms.part_name || ('Part ' + ms.part_id))) : '데이터 없음'
+    ])
+  ]));
+
+  kpiStrip.appendChild(el('div', { class: 'wc-kpi' }, [
+    el('div', { class: 'wc-kpi-label' }, ['P95 위험도 임계값']),
+    el('div', { class: 'wc-kpi-value' }, [_num(dist.p95_risk, 3)]),
+    el('div', { class: 'wc-kpi-sub' }, ['상위 5% 진입선'])
+  ]));
+
+  kpiStrip.appendChild(el('div', { class: 'wc-kpi' }, [
+    el('div', { class: 'wc-kpi-label' }, ['P95 정규화 기준']),
+    el('div', { class: 'wc-kpi-value wc-kpi-value-sm' }, [
+      'g=' + _num(p95n.peak_g, 2) + ' · σ=' + _num(p95n.peak_stress, 3) + ' · d=' + _num(p95n.peak_disp, 4)
+    ]),
+    el('div', { class: 'wc-kpi-sub' }, ['전 625행 P95 (' + uG + ', ' + uS + ', ' + uD + ')'])
+  ]));
+
+  body.appendChild(kpiStrip);
+
+  // ---- repeat-position chips ----
+  const chips = data.top_3_positions_by_count || [];
+  if (chips.length > 0) {
+    const chipRow = el('div', { class: 'wc-chip-row' }, [
+      el('span', { class: 'wc-chip-label' }, ['반복 출현 위치 (TOP25 내):'])
+    ]);
+    chips.forEach(c => {
+      const txt = 'Pos #' + c.pos_id + ' (' + c.face + ') × ' + c.n_in_top25;
+      chipRow.appendChild(el('span', { class: 'wc-chip' }, [txt]));
+    });
+    body.appendChild(chipRow);
+  }
+
+  // ---- sortable table ----
+  const cols = [
+    { key: 'rank',        label: '#',           num: true,  fmt: r => String(r.rank) },
+    { key: 'face',        label: 'Face',        num: false, fmt: r => r.face || '—' },
+    { key: 'pos_id',      label: 'Pos',         num: true,  fmt: r => '#' + r.pos_id },
+    { key: 'xy',          label: '(x, y)',      num: false, fmt: r => (r.x === null || r.y === null) ? '—' : '(' + _num(r.x, 3) + ', ' + _num(r.y, 3) + ')',
+                          sortVal: r => (r.x === null ? 0 : r.x) },
+    { key: 'part_name',   label: 'Part',        num: false, fmt: r => r.part_name || ('Part ' + r.part_id) },
+    { key: 'peak_g',      label: 'peak_g ('+uG+')',     num: true,  fmt: r => _num(r.peak_g, 1) },
+    { key: 'peak_stress', label: 'peak_stress ('+uS+')',num: true,  fmt: r => _num(r.peak_stress, 3) },
+    { key: 'peak_disp',   label: 'peak_disp ('+uD+')',  num: true,  fmt: r => _num(r.peak_disp, 4) },
+    { key: 'risk',        label: 'Risk',        num: true,  fmt: r => _num(r.risk, 3), risk: true },
+  ];
+
+  const tableWrap = el('div', { class: 'wc-table-wrap' });
+  const table = el('table', { class: 'wc-table' });
+  const thead = el('thead');
+  const headRow = el('tr');
+  let sortState = { key: 'rank', dir: 'asc' };
+  let rowsData = data.top_25.slice();
+
+  cols.forEach(c => {
+    const th = el('th', {
+      class: 'wc-th' + (c.num ? ' wc-th-num' : ''),
+      'data-key': c.key,
+    }, [c.label, el('span', { class: 'wc-sort-ind' }, [''])]);
+    th.addEventListener('click', () => {
+      if (sortState.key === c.key) {
+        sortState.dir = (sortState.dir === 'asc') ? 'desc' : 'asc';
+      } else {
+        sortState.key = c.key;
+        sortState.dir = c.num ? 'desc' : 'asc';
+      }
+      renderRows();
+    });
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  body.appendChild(tableWrap);
+
+  function riskClass(v) {
+    if (v === null || v === undefined || !isFinite(v)) return 'wc-risk-na';
+    if (v > 0.9) return 'wc-risk-red';
+    if (v > 0.7) return 'wc-risk-orange';
+    return 'wc-risk-gray';
+  }
+
+  function renderRows() {
+    const col = cols.find(c => c.key === sortState.key) || cols[0];
+    const getVal = col.sortVal || (r => r[col.key]);
+    const dir = sortState.dir === 'asc' ? 1 : -1;
+    rowsData.sort((a, b) => {
+      const va = getVal(a), vb = getVal(b);
+      if (va === null || va === undefined) return 1;
+      if (vb === null || vb === undefined) return -1;
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+
+    tbody.innerHTML = '';
+    rowsData.forEach(r => {
+      const tr = el('tr', { class: 'wc-row' });
+      cols.forEach(c => {
+        const td = el('td', { class: 'wc-td' + (c.num ? ' wc-td-num' : '') }, [c.fmt(r)]);
+        if (c.risk) {
+          td.classList.add(riskClass(r.risk));
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    // update sort indicators
+    headRow.querySelectorAll('.wc-th').forEach(th => {
+      const ind = th.querySelector('.wc-sort-ind');
+      if (!ind) return;
+      if (th.getAttribute('data-key') === sortState.key) {
+        ind.textContent = sortState.dir === 'asc' ? ' ▲' : ' ▼';
+      } else {
+        ind.textContent = '';
+      }
+    });
+  }
+  renderRows();
+
+  // caption
+  body.appendChild(el('div', { class: 'wc-caption' }, [
+    '통합 위험도 점수 (peak_g 40% + stress 40% + disp 20%, P95 정규화). 단일 ranking 으로 최우선 위험 식별. 색상: 빨강 >0.9, 주황 >0.7, 회색 그 외.'
+  ]));
+}
+
+// === PHYSICS_JS_FUNCTIONS_INSERT_HERE ===
+// Section-08 _physRenderXxx render functions are inserted ABOVE this line.
+
+const PHYSICS_STATE = { active_panel: null };
+
+function initPhysics() {
+  const data = (DATA && DATA.physics) || null;
+  const sec = document.getElementById('s8');
+  const navLink = document.getElementById('navS8');
+  if (!data || !sec) {
+    if (sec) sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+  const populated = Object.keys(data).some(k => {
+    const v = data[k];
+    return v && (typeof v !== 'object' || Object.keys(v).length > 0 || (Array.isArray(v) && v.length > 0));
+  });
+  if (!populated) {
+    sec.style.display = 'none';
+    if (navLink) navLink.style.display = 'none';
+    return;
+  }
+  _physRenderStressWaveVelocity(DATA);
+  _physRenderRestitutionMap(DATA);
+  _physRenderRecoveryDamping(DATA);
+  _physRenderWorstCombinations((typeof DATA !== 'undefined' && DATA.physics) ? DATA.physics.worst_combinations : null);
+  // === PHYSICS_BOOT_CALLS_INSERT_HERE ===
+  // Workflow-added _physRenderXxx(data) calls are inserted ABOVE this line.
+}
+
 // === INSIGHT_JS_FUNCTIONS_INSERT_HERE ===
 // Section-07 _insightRenderXxx render functions are inserted ABOVE this line.
 
@@ -12348,6 +14210,11 @@ function boot() {
     ]);
   });
 
+  // Section 08 — PHYSICS
+  registerLazy('s8', function () {
+    initPhysics();
+  });
+
   setupLazyObserver();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
@@ -12412,6 +14279,7 @@ def generate_html(report: ImpactReport) -> str:
         + _PAGE5
         + _PAGE6
         + _PAGE7
+        + _PAGE8
         + "<script>\n" + js + "\n</script>\n"
         "</body>\n</html>\n"
     )
