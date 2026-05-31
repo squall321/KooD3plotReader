@@ -1145,7 +1145,7 @@ def _build_pareto_severity_payload(report) -> dict:
                 "quadrant_labels": {
                     "q1": "고집중 고심각", "q2": "광범위 고심각",
                     "q3": "광범위 저심각", "q4": "고집중 저심각",
-                }, "unit_acc": "m/s²"}
+                }, "unit_acc": ""}
 
     # global P75 over all (pos, part) peak_g values
     all_g = []
@@ -1224,7 +1224,7 @@ def _build_pareto_severity_payload(report) -> dict:
     sp = getattr(report, "sim_params", None) or {}
     if isinstance(sp, dict):
         unit_labels = sp.get("unit_labels") or {}
-    unit_acc = unit_labels.get("acc", "m/s²")
+    unit_acc = unit_labels.get("acc", "") or ""
 
     return {
         "points": points,
@@ -2910,6 +2910,13 @@ def _build_auto_recommend(report):
 
     recs = []
 
+    # Unit labels for interpolation into Korean recommendation strings.
+    _ul = (report.sim_params or {}).get("unit_labels") or {}
+    _u_acc = _ul.get("acc") or ""
+    _u_len = _ul.get("disp") or ""
+    _u_acc_str = f" {_u_acc}" if _u_acc else ""
+    _u_len_str = f" {_u_len}" if _u_len else ""
+
     results = getattr(report, "results", []) or []
     parts = getattr(report, "parts", []) or []
     part_name_by_id = {p.part_id: getattr(p, "part_name", f"Part {p.part_id}") for p in parts}
@@ -2939,13 +2946,13 @@ def _build_auto_recommend(report):
             pname = part_name_by_id.get(worst_part, f"Part {worst_part}")
             xy = pos_xy.get(worst_pos)
             if xy is not None and np.isfinite(xy[0]) and np.isfinite(xy[1]):
-                xy_str = f"(x={xy[0]:.3f}, y={xy[1]:.3f}) m"
+                xy_str = f"(x={xy[0]:.3f}, y={xy[1]:.3f}){_u_len_str}"
             else:
                 xy_str = "(좌표 미정)"
             recs.append({
                 "severity": severity,
                 "title": "최대 응답 위치 — 보강 우선",
-                "body": f"위치 P{worst_pos} {xy_str} 에서 부품 '{pname}' 의 peak_g = {worst_g:,.1f} m/s² 로 최대 응답이 관측되었습니다. 해당 위치/부품 보강을 최우선으로 검토하십시오.",
+                "body": f"위치 P{worst_pos} {xy_str} 에서 부품 '{pname}' 의 peak_g = {worst_g:,.1f}{_u_acc_str} 로 최대 응답이 관측되었습니다. 해당 위치/부품 보강을 최우선으로 검토하십시오.",
                 "source_panel": "Peak Response Heatmap",
                 "metric": round(worst_g, 1),
             })
@@ -2973,7 +2980,7 @@ def _build_auto_recommend(report):
                 recs.append({
                     "severity": "warning" if asym < 30.0 else "critical",
                     "title": "X축 비대칭 검출",
-                    "body": f"X<0 평균 peak_g = {mL:,.1f} m/s², X>0 평균 = {mR:,.1f} m/s² → 비대칭 {asym:.1f}%. 디자인 균형(질량 분포·강성 분포) 재검토 권장.",
+                    "body": f"X<0 평균 peak_g = {mL:,.1f}{_u_acc_str}, X>0 평균 = {mR:,.1f}{_u_acc_str} → 비대칭 {asym:.1f}%. 디자인 균형(질량 분포·강성 분포) 재검토 권장.",
                     "source_panel": "Symmetry Diagnostic",
                     "metric": round(asym, 1),
                 })
@@ -4962,33 +4969,56 @@ def _build_payload(report: ImpactReport) -> dict:
             t_first_contact = float(tfc)
             break
 
+    # g_divisor: depends on the acc unit declared by the loader/CLI override.
+    # Computed below from unit_labels; default 9810 (mm/s²) preserved when
+    # detection failed, so legacy reports keep rendering.
+    _ul = (report.sim_params or {}).get("unit_labels") or {}
+    _acc_for_div = (_ul.get("acc") or "").strip()
+    if _acc_for_div == "m/s²":
+        _g_div_pm = 9.81
+    elif _acc_for_div == "mm/s²":
+        _g_div_pm = 9810.0
+    elif _acc_for_div == "mm/ms²":
+        _g_div_pm = 9.81   # mm/ms² ≡ m/s²
+    else:
+        _g_div_pm = 9810.0
+
     part_motion_payload = {
         "summary": summary_rows,
         "series": part_motion_series,
         "impactor_part_id": impactor_part_id,
         "t_first_contact": t_first_contact,
-        "g_mm_s2": 9810.0,
+        "g_divisor": _g_div_pm,
+        "g_mm_s2": _g_div_pm,  # backward-compat alias
+        "acc_unit": _acc_for_div,
     }
 
-    # --- unit labels (data-driven; empty when units unspecified) ------------
-    # Currently the only supported LS-DYNA convention is [ton, mm, s, MPa]
-    # (consistent with the d3plot loader). If sim_params doesn't declare a
-    # unit system we leave the labels empty rather than fabricate them.
-    _unit_system = (report.sim_params or {}).get("units", "")
-    if isinstance(_unit_system, str) and _unit_system.strip().lower() in (
-        "ton_mm_s_mpa", "ton-mm-s-mpa", "ton,mm,s,mpa", "dyna_mm",
-    ):
-        unit_labels = {
-            "acc": "mm/s²", "stress": "MPa", "disp": "mm",
-            "vel": "mm/s", "energy": "mJ", "time": "ms",
-            "mass": "ton", "force": "N",
-        }
+    # --- unit labels (data-driven) ------------------------------------------
+    # Single source of truth: report.sim_params['unit_labels'] populated by the
+    # loader's _detect_unit_system() (or overridden via --units). We mirror
+    # whatever it produced here so the JS layer's DATA.unit_labels never falls
+    # behind meta.sim_params.unit_labels.
+    _sp_unit_labels = (report.sim_params or {}).get("unit_labels") or {}
+    unit_labels = {
+        "acc":    _sp_unit_labels.get("acc",    "") or "",
+        "stress": _sp_unit_labels.get("stress", "") or "",
+        "disp":   _sp_unit_labels.get("disp",   "") or "",
+        "vel":    _sp_unit_labels.get("vel",    "") or "",
+        "energy": _sp_unit_labels.get("energy", "") or "",
+        "time":   _sp_unit_labels.get("time",   "") or "",
+        "mass":   _sp_unit_labels.get("mass",   "") or "",
+        "force":  _sp_unit_labels.get("force",  "") or "",
+    }
+    # Acceleration→g divisor matches the unit system: 9.81 m/s² = 1 g.
+    _acc_unit = unit_labels.get("acc", "")
+    if _acc_unit == "m/s²":
+        _g_div = 9.81
+    elif _acc_unit == "mm/s²":
+        _g_div = 9810.0
+    elif _acc_unit in ("mm/ms²", "m/s²"):  # mm/ms² ≡ m/s²
+        _g_div = 9.81
     else:
-        unit_labels = {
-            "acc": "", "stress": "", "disp": "",
-            "vel": "", "energy": "", "time": "",
-            "mass": "", "force": "",
-        }
+        _g_div = 9810.0  # legacy default — matches pre-fix JS behaviour
 
     # --- energy-flow normalization constants (data-driven) ------------------
     _max_ie = 0.0
@@ -7307,10 +7337,14 @@ function applyUnitLabels() {
 
 function fillHeroKpi() {
   const k = DATA.kpi;
+  // Acceleration→g divisor: matches the solver unit declared by the loader.
+  // mm/s² → /9810, m/s² → /9.81 (= mm/ms²).
+  const _gDiv = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+  const _worstG_in_G = (k.worst_g || 0) / _gDiv;
   document.getElementById('kPositions').innerHTML = k.n_positions + '<span class="u">pos</span>';
   document.getElementById('kFaces').textContent = k.n_faces;
   document.getElementById('kParts').textContent = k.n_parts;
-  document.getElementById('kWorstG').innerHTML = fmt(k.worst_g, 0) + '<span class="u">G</span>';
+  document.getElementById('kWorstG').innerHTML = fmt(_worstG_in_G, 0) + '<span class="u">G</span>';
   document.getElementById('kWorstS').innerHTML = fmt(k.worst_s, 1) + '<span class="u">' + _u('stress') + '</span>';
   document.getElementById('kCritPairs').textContent = k.n_critical;
   document.getElementById('kSafePos').textContent = k.n_safe;
@@ -10422,7 +10456,7 @@ function _doeRenderIdwPredictor(doe) {
     if (loo && IDW_STATE.metric === 'peak_g') {
       looBar.style.display = '';
       looBar.innerHTML =
-        '<b>보간 신뢰도 (LOO)</b>: RMSE = <b>' + fmt(loo.rmse_peak_g, 2) + '</b> m/s²' +
+        '<b>보간 신뢰도 (LOO)</b>: RMSE = <b>' + fmt(loo.rmse_peak_g, 2) + '</b> ' + _u('acc') +
         ' &middot; 중간 오차 = <b>' + (Number(loo.median_err_pct)).toFixed(1) + '%</b>' +
         ' &middot; 최대 오차 위치 = <b>' + (loo.max_error_pos_id == null ? '-' : loo.max_error_pos_id) + '</b>';
     } else {
@@ -10536,7 +10570,7 @@ function _doeRenderParetoSeverity(doe) {
     return;
   }
 
-  const unitAcc = (data.unit_acc) || (typeof _u === 'function' ? _u('acc') : 'm/s²');
+  const unitAcc = (data.unit_acc) || (typeof _u === 'function' ? _u('acc') : '');
 
   // layout
   const W = 760, H = 460;
@@ -10925,7 +10959,7 @@ function _deepRenderSRS(data) {
   }
 
   const curves = pay.srs_curves;
-  const accUnit = (typeof _u === 'function') ? _u('acc') : 'm/s²';
+  const accUnit = (typeof _u === 'function') ? _u('acc') : '';
 
   // Layout
   const W = 720, H = 360;
@@ -11072,8 +11106,8 @@ function _deepRenderSafeDropZone(data) {
   const positions = dz.positions;
   const polygon = dz.critical_polygon || [];
   const thr = dz.thresholds_used || {};
-  const accU = (typeof _u === "function") ? _u("acc") : "m/s²";
-  const stressU = (typeof _u === "function") ? _u("stress") : "Pa";
+  const accU = (typeof _u === "function") ? _u("acc") : "";
+  const stressU = (typeof _u === "function") ? _u("stress") : "";
   const dispU = (typeof _u === "function") ? _u("disp") : "m";
 
   // Compute coordinate extent
@@ -13748,7 +13782,10 @@ function _doeBuildKpiStrip(doe) {
   };
 
   host.appendChild(mkCell('TOTAL POSITIONS', String(n_pos) + '<span class="u">pos</span>'));
-  host.appendChild(mkCell('MAX PEAK G', fmt(worst_g, 0) + '<span class="u">' + _u('acc') + '</span>'));
+  {
+    const _gDivExec = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+    host.appendChild(mkCell('MAX PEAK G', fmt((worst_g || 0) / _gDivExec, 0) + '<span class="u">G</span>'));
+  }
   host.appendChild(mkCell('MAX STRESS', fmt(worst_s, 1) + '<span class="u">' + _u('stress') + '</span>'));
 
   // behavior distribution mini bar

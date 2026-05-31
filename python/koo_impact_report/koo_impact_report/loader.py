@@ -800,52 +800,95 @@ def _compute_contact_mask(
     return mask
 
 
-def _detect_unit_system(density: float) -> dict:
-    """Guess the LS-DYNA unit system from a typical RHO magnitude.
-
-    LS-DYNA decks are unitless — the user picks a consistent set. The two
-    common conventions for solid-mechanics impact studies are:
-
-    ============  ============  =============  ============  ==========
-    name          length        mass           time          stress
-    ============  ============  =============  ============  ==========
-    SI            m             kg             s             Pa
-    ton-mm-s      mm            tonne (1000 kg) s            MPa
-    ============  ============  =============  ============  ==========
-
-    For steel:
-      SI       → ρ ≈ 7.85e+3 kg/m³
-      ton-mm-s → ρ ≈ 7.85e-9 tonne/mm³
-
-    The order of magnitude differs by ~12, so a single density sample is
-    enough to discriminate. We return a dict with an ``id`` label and
-    user-facing ``labels`` consistent with the decoded system.
-    """
-    SI = {
+_UNIT_PRESETS = {
+    "SI": {
         "id": "SI",
         "labels": {
             "acc": "m/s²", "vel": "m/s", "disp": "m",
             "stress": "Pa", "strain": "", "force": "N",
             "energy": "J", "time": "s", "mass": "kg",
         },
-    }
-    TON_MM_S = {
+    },
+    "ton-mm-s": {
         "id": "ton-mm-s",
         "labels": {
             "acc": "mm/s²", "vel": "mm/s", "disp": "mm",
             "stress": "MPa", "strain": "", "force": "N",
             "energy": "mJ", "time": "s", "mass": "tonne",
         },
-    }
-    UNKNOWN = {"id": "", "labels": {k: "" for k in SI["labels"]}}
+    },
+    "ton-mm-ms": {
+        "id": "ton-mm-ms",
+        "labels": {
+            "acc": "mm/ms²", "vel": "mm/ms", "disp": "mm",
+            "stress": "MPa", "strain": "", "force": "kN",
+            "energy": "kJ", "time": "ms", "mass": "tonne",
+        },
+    },
+    "g-mm-ms": {
+        "id": "g-mm-ms",
+        "labels": {
+            "acc": "mm/ms²", "vel": "mm/ms", "disp": "mm",
+            "stress": "MPa", "strain": "", "force": "N",
+            "energy": "mJ", "time": "ms", "mass": "g",
+        },
+    },
+}
+_UNIT_UNKNOWN = {"id": "", "labels": {k: "" for k in _UNIT_PRESETS["SI"]["labels"]}}
 
-    if density <= 0:
-        return UNKNOWN
-    if density >= 1.0:           # 7800 kg/m³ class
-        return SI
-    if density <= 1.0e-5:        # 7.85e-9 tonne/mm³ class
-        return TON_MM_S
-    return UNKNOWN
+
+def _detect_unit_system(
+    density: float,
+    length_sample: float | None = None,
+    velocity_sample: float | None = None,
+) -> dict:
+    """Guess the LS-DYNA unit system from typical magnitudes.
+
+    LS-DYNA decks are unitless — the user picks a consistent set. Density alone
+    is ambiguous when the user wrote SI-style ρ (7800) into a ton-mm-s deck;
+    we therefore consult ``length_sample`` (e.g. impactor radius) and
+    ``velocity_sample`` (e.g. initial velocity magnitude) when available.
+
+    ============   ============  =============  ============  ==========
+    name           length        mass           time          stress
+    ============   ============  =============  ============  ==========
+    SI             m             kg             s             Pa
+    ton-mm-s       mm            tonne (1000 kg) s            MPa
+    ton-mm-ms      mm            tonne           ms            MPa
+    g-mm-ms        mm            g               ms            MPa
+    ============   ============  =============  ============  ==========
+
+    Decision tree (length wins when it disagrees with density):
+      length > 10           → solver length is mm  (rules out SI)
+      length < 0.5  & density>=1  → SI
+      density <= 1e-5       → ton-mm-s
+      otherwise unknown
+    """
+    if density <= 0 and length_sample is None:
+        return _UNIT_UNKNOWN
+
+    # Length is the strongest single discriminator: a 57-unit "radius" cannot be 57 m.
+    length_says_mm = length_sample is not None and length_sample > 10.0
+    length_says_m = length_sample is not None and 0 < length_sample < 0.5
+
+    if length_says_mm:
+        return _UNIT_PRESETS["ton-mm-s"]
+    if length_says_m and density >= 1.0:
+        return _UNIT_PRESETS["SI"]
+    if density <= 1.0e-5:
+        return _UNIT_PRESETS["ton-mm-s"]
+    if density >= 1.0:
+        # Falls back to SI when no length disagrees, but flag is weak.
+        return _UNIT_PRESETS["SI"]
+    return _UNIT_UNKNOWN
+
+
+def get_unit_preset(name: str) -> dict | None:
+    """CLI helper — return a copy of the preset by id or None if unknown."""
+    p = _UNIT_PRESETS.get(name)
+    if p is None:
+        return None
+    return {"id": p["id"], "labels": dict(p["labels"])}
 
 
 def _derive_mass_from_matsum(
@@ -1502,8 +1545,20 @@ def load_single_d3plot_report(
             # when undetectable). The HTML/terminal layers consume only the
             # labels, never the numeric magnitudes, so this is purely
             # presentational metadata.
-            "units": _detect_unit_system(impactor_spec.density)["id"],
-            "unit_labels": _detect_unit_system(impactor_spec.density)["labels"],
+            **(
+                lambda _d: {"units": _d["id"], "unit_labels": _d["labels"]}
+            )(_detect_unit_system(
+                impactor_spec.density,
+                length_sample=max(
+                    impactor_spec.radius or 0.0,
+                    getattr(impactor_spec, "front_radius", 0.0) or 0.0,
+                    getattr(impactor_spec, "outer_radius", 0.0) or 0.0,
+                ),
+                velocity_sample=abs(
+                    impactor_spec.initial_velocity[-1]
+                    if impactor_spec.initial_velocity else 0.0
+                ),
+            )),
             # Per-part yield stress (MPa) sourced from the *MAT_ card. Empty
             # when keyword data is missing or the material exposes no yield.
             "yield_stress_by_part": (
@@ -1871,6 +1926,25 @@ def load_partial_impact_doe_report(
     # Assemble final sim_params: keep unit metadata + yield map from any sub
     # (they should all match), plus DOE summary.
     sim_params = dict(sample_sim_params)
+    # Override unit metadata at the DOE level — impactor.radius is the strongest
+    # single discriminator (a 57-unit radius cannot be 57 m), and the sub-runs
+    # were detected without that length context.
+    if impactor_spec is not None and (impactor_spec.radius or 0.0) > 0:
+        _u = _detect_unit_system(
+            impactor_spec.density,
+            length_sample=max(
+                impactor_spec.radius or 0.0,
+                getattr(impactor_spec, "front_radius", 0.0) or 0.0,
+                getattr(impactor_spec, "outer_radius", 0.0) or 0.0,
+            ),
+            velocity_sample=abs(
+                impactor_spec.initial_velocity[-1]
+                if impactor_spec.initial_velocity else 0.0
+            ),
+        )
+        if _u["id"]:
+            sim_params["units"] = _u["id"]
+            sim_params["unit_labels"] = _u["labels"]
     sim_params.update({
         "doe_kind":      "partial_impact_multi_position",
         "n_positions":   len(positions),

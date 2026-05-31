@@ -48,6 +48,9 @@ def main() -> int:
                         "it (skipping unified_analyzer); otherwise the new report is loaded "
                         "and written there for next time. Use this to iterate on the HTML "
                         "template without re-running the 16-min DOE.")
+    p.add_argument("--units", default=None,
+                   choices=["SI", "ton-mm-s", "ton-mm-ms", "g-mm-ms"],
+                   help="Override solver unit system after load (also works with --cache).")
     args = p.parse_args()
 
     if not args.test_dir.exists():
@@ -86,6 +89,15 @@ def main() -> int:
     face_code = report.faces[0].code if report.faces else ""
     print(f"[demo] loaded in {t_load:.1f}s — {len(report.positions_by_face.get(face_code, []))} "
           f"positions × {len(report.parts)} parts = {len(report.results)} PairResults")
+
+    if args.units:
+        from koo_impact_report.loader import get_unit_preset
+        preset = get_unit_preset(args.units)
+        if preset:
+            report.sim_params["units"] = preset["id"]
+            report.sim_params["unit_labels"] = preset["labels"]
+            print(f"[demo] --units override → {preset['id']} "
+                  f"(acc={preset['labels']['acc']}, stress={preset['labels']['stress']})")
 
     print(f"[demo] analyzing …")
     report = analyze(report)

@@ -76,6 +76,12 @@ def main() -> None:
                         help="Severity weights as 'g=0.5,s=0.3,e=0.2'. "
                              "When omitted, severity score is not computed "
                              "(no implicit default ratio).")
+    parser.add_argument("--units", default=None,
+                        choices=["SI", "ton-mm-s", "ton-mm-ms", "g-mm-ms"],
+                        help="Override solver unit system. When omitted the loader "
+                             "auto-detects from density + impactor radius. "
+                             "Use this when auto-detection picks the wrong system "
+                             "(e.g. SI-style density in a ton-mm-s deck).")
 
     args = parser.parse_args()
 
@@ -116,6 +122,15 @@ def main() -> None:
         t0 = time.time()
         report = loader.load_impact_report(test_dir)
         print(f"[main] Loaded in {time.time() - t0:.1f}s")
+
+    # Optional explicit unit-system override (highest priority).
+    if args.units:
+        preset = loader.get_unit_preset(args.units)
+        if preset:
+            report.sim_params["units"] = preset["id"]
+            report.sim_params["unit_labels"] = preset["labels"]
+            print(f"[main] --units override: {preset['id']} "
+                  f"(acc={preset['labels']['acc']}, stress={preset['labels']['stress']})")
 
     # Optional face filter
     face_subset = _parse_face_list(args.faces)
