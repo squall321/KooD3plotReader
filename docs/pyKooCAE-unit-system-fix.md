@@ -7,6 +7,21 @@
 
 ---
 
+## 📌 상태 (2026-06-04 갱신)
+
+| 항목 | 상태 |
+|---|---|
+| **P0 / P1 / P1b / P1c** | ✅ **적용 완료** — pyKooCAE commit `381ba31` (2026-06-03 push) |
+| **P2 (silent warning + `unit_system` 필드)** | ❌ **의도적으로 미적용** — 사용자 입력 책임 명확화 정책. 현재 KooMeshModifier 의 pass-through 동작이 의도된 동작. |
+| **P3 (자동 단위 변환)** | ❌ **의도적으로 미적용** — 동일한 정책. 모든 입력을 deck 단위계 (ton-mm-s) 로 받는 게 정답. |
+| 사용자 가이드 | `pyKooCAE/Examples/scenario_examples/README.md` 에 단위계 일관 사용 가이드 신규 |
+| 검증 데이터 | DROP 100/100 Normal termination (Test_005_Fibonacci_100, slurm 568-667) · IMPACT deck 결정적 검증 (ImpactorMaterial `7.85e-09` / WallMaterial `1.0e-09`) · VIBRATION `*LOAD_BODY_GENERALIZED_SET_PART` 정식 카드 동반 fix |
+| §6.1 의 sed 백업 / .unit_fix_bak / Test_Impact_A 옛 백업 | ✅ **모두 정리됨** (2026-06-04) |
+
+본 문서는 진단 history + 패치 reference 로 유지. P2/P3 권고는 정책상 미적용 명시.
+
+---
+
 ## 1. 한 줄 요약
 
 `CumulativeScenarioRunner.py:1227-1229` 가 **KooMeshModifier 가 인식하지 못하는 키 이름**으로
@@ -210,7 +225,11 @@ P0 패치에 포함됨 (default 값 변경: `7800` → `7.85e-9`, `201e9` → `2
 
 ---
 
-### 🟢 P2 — KooMeshModifier 의 silent fallback 개선
+### 🟢 P2 — KooMeshModifier 의 silent fallback 개선  *[적용 안 함 — 의도된 정책]*
+
+> **2026-06-04 결정**: 본 권고는 적용하지 않음. 현재 KooMeshModifier 의 pass-through
+> 동작이 의도된 동작이며, 사용자 입력 책임을 명확히 하는 정책. 입력 단위계 일관성은
+> `Examples/scenario_examples/README.md` 가이드로 관리.
 
 **파일**: KooMeshModifier 본체 (호스트 소스 위치는 사용자가 알 가능성)
 
@@ -227,7 +246,11 @@ P0 패치에 포함됨 (default 값 변경: `7800` → `7.85e-9`, `201e9` → `2
 
 ---
 
-### 🟢 P2 — `scenario.json` 의 `unit_system` 필드 신설
+### 🟢 P2 — `scenario.json` 의 `unit_system` 필드 신설  *[적용 안 함 — 의도된 정책]*
+
+> **2026-06-04 결정**: 본 권고는 적용하지 않음. 모든 입력은 deck 단위계 (ton-mm-s) 로
+> 받는 것이 정답이며, scenario 스키마 확장으로 단위 추상화는 도리어 단위 혼용 패턴을
+> 유도한다는 판단. README 가이드로 단위계 일관 사용을 안내.
 
 **파일**: `Runner/*` (입력 파싱 측), 그리고 사용자 문서
 
@@ -274,7 +297,11 @@ Runner 가:
 
 ---
 
-### 🟢 P3 — 길이는 자동 변환되지만 ρ/E 는 변환 안 됨 (inconsistency)
+### 🟢 P3 — 길이는 자동 변환되지만 ρ/E 는 변환 안 됨 (inconsistency)  *[적용 안 함 — 의도된 정책]*
+
+> **2026-06-04 결정**: 본 권고는 적용하지 않음. 일관 변환 (P3) + unit_system 필드 (P2)
+> 가 함께 가야 의미가 있는데 둘 다 미적용 결정. **모든 입력을 deck 단위계 (ton-mm-s)
+> 로 받기** — 가이드로 명시.
 
 **진단**: 현재 KooMeshModifier 동작:
 - `Dimension,0.008` (m 입력) → mesh 노드 좌표 8 mm (자동 변환 ✓)
@@ -320,7 +347,22 @@ Runner 가:
 
 ## 6. 부수 발견 + 작업 흔적 (참고용)
 
-### 6.1 본 진단 과정에서 변경된 사용자 데이터
+### 6.1 본 진단 과정에서 변경된 사용자 데이터  ✅ *전부 정리됨 (2026-06-04)*
+
+> P0 fix 가 pyKooCAE commit `381ba31` 에 적용되었고 새 SIF 가 배포되었으므로, 본
+> 진단 과정에서 생성한 모든 sed 백업 / `.unit_fix_bak` / Test_Impact_A 옛 Run
+> 디렉토리는 더 이상 필요 없음. 모두 삭제 완료.
+>
+> ```text
+> /data/.deck_unit_fix_backup_2026-05-31/         (4025 파일, 17 GB)   — 삭제됨
+> /data/koopark/Test_Impact_A/.deck_unit_fix_backup/ (76 파일)         — 삭제됨
+> /data/koopark/Test_Impact_A/output/.bak/          (5.5 GB)           — 삭제됨
+> /data/koopark/Test_Impact_A/scenario.json.unit_fix_bak                — 삭제됨
+> /data/koopark/Test_Impact_A/runner_config.json.unit_fix_bak           — 삭제됨
+> /home/koopark/serviceApptainers/.../Runner/*.unit_fix_bak             — 삭제됨
+> ```
+
+원본 inventory (참고용):
 
 | 위치 | 변경 내용 | 백업 |
 |---|---|---|
