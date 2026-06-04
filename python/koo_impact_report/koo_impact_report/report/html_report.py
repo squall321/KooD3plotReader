@@ -5053,6 +5053,72 @@ def _build_payload(report: ImpactReport) -> dict:
         "active_ratio": 0.001,
     }
 
+    # --- solver_quality: glstat 기반 energy-balance audit per DOE ----------
+    # 각 ImpactPosition.run_dir 의 Output/glstat 를 audit_run() 으로 파싱 →
+    # {pos_id: {pass_fail, summary, flags, ...}}. 한 run 당 ~10 ms (작은 파일).
+    # P0/P1 의 trust signal 들을 보강하는 가장 결정적 출처.
+    try:
+        from ..solver_quality import audit_run as _audit_run
+    except Exception:
+        _audit_run = None
+    solver_quality_per_pos: dict[str, dict] = {}
+    if _audit_run is not None:
+        for face_code, positions_list in (report.positions_by_face or {}).items():
+            for pos in positions_list or []:
+                rd = getattr(pos, "run_dir", None)
+                if rd is None:
+                    continue
+                # Sub-runs typically have Output/glstat. dynain 단계 폴더(DynamicRelaxation/)는 제외.
+                gp = rd / "Output" / "glstat" if hasattr(rd, "__truediv__") else None
+                if gp is None:
+                    continue
+                # pos.pos_id 가 보통 "F5_DOE_001" 형식이므로 face_code 가 이미 prefix.
+                # 중복 'F5_' 방지: pos_id 가 face_code 로 시작하면 그대로, 아니면 합성.
+                _raw_pid = str(getattr(pos, "pos_id", "") or "")
+                if _raw_pid.startswith(f"{face_code}_") or _raw_pid.startswith(face_code):
+                    pos_key = _raw_pid
+                else:
+                    pos_key = f"{face_code}_{_raw_pid}" if _raw_pid else face_code
+                try:
+                    solver_quality_per_pos[pos_key] = _audit_run(gp)
+                except Exception:
+                    solver_quality_per_pos[pos_key] = {"available": False, "pass_fail": "UNKNOWN", "flags": ["parser-error"]}
+    # 집계 — verdict 분포 + 평균 drift.
+    sq_summary = {"pass": 0, "warn": 0, "fail": 0, "unknown": 0, "n": len(solver_quality_per_pos)}
+    te_drifts: list[float] = []
+    hg_fracs: list[float] = []
+    sl_fracs: list[float] = []
+    diss_pcts: list[float] = []
+    for sq in solver_quality_per_pos.values():
+        v = (sq or {}).get("pass_fail", "UNKNOWN")
+        if v == "PASS":   sq_summary["pass"] += 1
+        elif v == "WARN": sq_summary["warn"] += 1
+        elif v == "FAIL": sq_summary["fail"] += 1
+        else:             sq_summary["unknown"] += 1
+        s = (sq or {}).get("summary", {}) or {}
+        for arr, key in ((te_drifts, "te_drift_pct"), (hg_fracs, "hg_fraction_pct"),
+                         (sl_fracs, "sl_fraction_pct"), (diss_pcts, "diss_pct")):
+            v2 = s.get(key)
+            if isinstance(v2, (int, float)):
+                arr.append(float(v2))
+    def _med(arr: list[float]) -> float | None:
+        if not arr:
+            return None
+        arr2 = sorted(arr)
+        return arr2[len(arr2) // 2]
+    sq_summary.update({
+        "te_drift_pct_median":      _med(te_drifts),
+        "hg_fraction_pct_median":   _med(hg_fracs),
+        "sl_fraction_pct_median":   _med(sl_fracs),
+        "diss_pct_median":          _med(diss_pcts),
+    })
+
+    # 진짜 glstat 기반 diss_pct 가 있으면 KPI ENERGY DISSIPATED 도 업데이트.
+    # (이전: Mock 차단 후 None → "—N/A" 표시. 이제 glstat 평균으로 실제 값.)
+    sq_median_diss = sq_summary.get("diss_pct_median")
+    if sq_median_diss is not None and kpi.get("diss_pct") is None:
+        kpi["diss_pct"] = round(float(sq_median_diss), 1)
+
     return {
         "meta": meta,
         "kpi": kpi,
@@ -5078,6 +5144,11 @@ def _build_payload(report: ImpactReport) -> dict:
         "risk_score": None,
         "energy_flow_thresholds": energy_flow_thresholds,
         "energy_flow_max_ie": _max_ie,
+        # solver_quality: glstat 기반 (per-DOE + 집계)
+        "solver_quality": {
+            "per_position": solver_quality_per_pos,
+            "summary": sq_summary,
+        },
         # None disables the conservation-tolerance banner; set to a percent
         # (e.g. 5.0) to enable the residual check.
         "energy_conservation_tolerance": None,
@@ -14249,14 +14320,17 @@ function _renderDataQualityBadges() {
       title: 'part footprint XY 가 loader 의 hash 기반 placeholder 임. 실측 mesh 가 아님.',
     });
   }
-  // energy_flow 측정 여부
+  // energy_flow per-position 시계열 측정 여부 — solver_quality (glstat) 있으면
+  // global energy 는 있으므로 이 배지 hide. (per-position node-level energy_flow
+  // 가 진짜 측정된 게 아닌 경우만 경고.)
   const ef = DATA.energy_flows || {};
-  const hasReal = Object.keys(ef).length > 0 && !('__mock__' in ef);
-  if (!hasReal) {
+  const hasFlowReal = Object.keys(ef).length > 0 && !('__mock__' in ef);
+  const hasSolverQuality = !!(DATA.solver_quality && DATA.solver_quality.summary && DATA.solver_quality.summary.n > 0);
+  if (!hasFlowReal && !hasSolverQuality) {
     badges.push({
       cls: 'warn',
       label: 'NO ENERGY MEASURED',
-      title: 'binout 의 glstat 파싱 모듈 미구현 — KE/IE/HG/SL 시계열 측정 안 됨. ENERGY DISSIPATED KPI 도 N/A.',
+      title: 'glstat / binout 의 energy 시계열 측정 안 됨. ENERGY DISSIPATED KPI 도 N/A.',
     });
   }
   // mass=0 (impactor mass 추출 실패 잔재)
@@ -14268,13 +14342,49 @@ function _renderDataQualityBadges() {
       title: 'matsum/keyword 에서 mass 추출 실패. scenario.json 의 impactor.type 명시 권장.',
     });
   }
+  // solver_quality: glstat 기반 energy-balance verdict
+  const sq = (DATA.solver_quality && DATA.solver_quality.summary) || null;
+  if (sq && sq.n > 0) {
+    const total = sq.n;
+    const pass = sq.pass || 0, warn = sq.warn || 0, fail = sq.fail || 0;
+    const td = sq.te_drift_pct_median, hg = sq.hg_fraction_pct_median, sf = sq.sl_fraction_pct_median;
+    const tooltip = 'glstat 기반 energy-balance audit (LSDYNA 안정성 게이트)\\n'
+                  + '  PASS=' + pass + ' / WARN=' + warn + ' / FAIL=' + fail + ' / total=' + total + '\\n'
+                  + '  TE drift median = ' + (td != null ? td.toFixed(2) + '%' : '?')
+                  + ' (산업 기준 < 2% PASS, < 5% WARN)\\n'
+                  + '  Hourglass / IE median = ' + (hg != null ? hg.toFixed(1) + '%' : '?')
+                  + ' (< 10% PASS, < 20% WARN)\\n'
+                  + '  Sliding / KE0 median = ' + (sf != null ? sf.toFixed(1) + '%' : '?')
+                  + ' (< 5% PASS, < 10% WARN)';
+    let label, cls;
+    if (fail > 0) {
+      label = 'ENERGY BALANCE: FAIL (' + fail + '/' + total + ')';
+      cls = 'crit';
+    } else if (warn > 0) {
+      label = 'ENERGY BALANCE: WARN (' + warn + '/' + total + ')';
+      cls = 'warn';
+    } else if (pass === total && total > 0) {
+      label = 'ENERGY BALANCE: PASS (' + total + '/' + total + ')';
+      cls = 'good';
+    } else {
+      label = 'ENERGY BALANCE: UNKNOWN';
+      cls = 'warn';
+    }
+    badges.push({ cls, label, title: tooltip });
+  }
   if (!badges.length) return;
+  const _palette = {
+    warn: { bg: 'rgba(240,180,0,0.12)', fg: 'var(--warn)', border: 'var(--warn)' },
+    crit: { bg: 'rgba(232,93,117,0.14)', fg: 'var(--crit)', border: 'var(--crit)' },
+    good: { bg: 'rgba(93,210,138,0.12)', fg: 'var(--good)', border: 'var(--good)' },
+  };
   badges.forEach(b => {
+    const p = _palette[b.cls] || _palette.warn;
     const el = document.createElement('span');
     el.title = b.title;
     el.textContent = b.label;
     el.style.cssText = 'display:inline-block;padding:3px 8px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.6px;font-family:JetBrains Mono,monospace;'
-      + 'background:rgba(240,180,0,0.12);color:var(--warn);border:1px solid var(--warn);cursor:help';
+      + 'background:' + p.bg + ';color:' + p.fg + ';border:1px solid ' + p.border + ';cursor:help;white-space:pre';
     host.appendChild(el);
   });
 }
