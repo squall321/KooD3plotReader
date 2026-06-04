@@ -95,7 +95,13 @@ class ImpactorSpec:
 
     @property
     def volume(self) -> float:
-        """Volume in mm³."""
+        """Volume in mm³.
+
+        type 미지정인데 radius>0 이면 Sphere fallback. drop-weight impact 의
+        표준 geometry 는 sphere 이므로 합리적 default. 이전 코드는 type=""
+        일 때 V=0 → mass=0/KE=0 으로 떨어졌음. 정확한 geometry 필요하면
+        scenario.json 의 ``impactor.type`` 명시 권장.
+        """
         if self.type == "Sphere":
             return (4.0 / 3.0) * math.pi * (self.radius ** 3)
         if self.type == "Cylinder":
@@ -106,6 +112,9 @@ class ImpactorSpec:
             bh = self.back_height or 0.0
             # rough volume: front cylinder + back cylinder
             return math.pi * (fr * fr * fh + br * br * bh)
+        # Type unspecified — sphere fallback when we at least have a radius.
+        if not self.type and self.radius > 0:
+            return (4.0 / 3.0) * math.pi * (self.radius ** 3)
         return 0.0
 
     @property

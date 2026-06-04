@@ -6327,6 +6327,8 @@ _PAGE1 = """
         <span class="num">01</span><span class="tagline">METHOD &middot; OVERVIEW</span>
       </div>
       <h1>전위치 부분충격 &mdash; <span class="acc">Multi-Face Pair-wise 해석</span></h1>
+      <!-- data-quality 배지 (JS 가 채움) — synthetic geometry / mock-blocked energy 등 -->
+      <div id="data-quality-badges" style="margin:6px 0 8px 0;display:flex;gap:6px;flex-wrap:wrap"></div>
       <div class="lede">
         Cuboid-26 표준 자세 중 <b id="kHeroFaces">__N_FACES__</b>개 면 &times; XY 격자
         <b id="kHeroPos">__N_POSITIONS__</b> 위치 &times; <b id="kHeroParts">__N_PARTS__</b> 부품
@@ -6418,8 +6420,8 @@ _PAGE1 = """
     <div class="k"><div class="v" id="kPositions">__N_POSITIONS__<span class="u">pos</span></div><div class="l">TOTAL POSITIONS</div></div>
     <div class="k"><div class="v" id="kFaces">__N_FACES__</div><div class="l">FACES</div></div>
     <div class="k"><div class="v" id="kParts">__N_PARTS__</div><div class="l">PARTS</div></div>
-    <div class="k"><div class="v" id="kWorstG">__WORST_G__<span class="u">G</span></div><div class="l">WORST PEAK G</div></div>
-    <div class="k"><div class="v" id="kWorstS">__WORST_S__<span class="u" id="kWorstSUnit"></span></div><div class="l">WORST STRESS</div></div>
+    <div class="k"><div class="v" id="kWorstG">__WORST_G__<span class="u">G</span></div><div class="l">WORST PEAK G</div><div class="cap" style="font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px" title="LSDYNA 의 element 별 nodal acceleration 의 max — mesh 거칠기/contact penalty 의 영향을 받는 raw 값. 디바이스 평균이 아님.">element-local peak</div></div>
+    <div class="k"><div class="v" id="kWorstS">__WORST_S__<span class="u" id="kWorstSUnit"></span></div><div class="l">WORST STRESS</div><div class="cap" style="font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px" title="element 별 stress 의 global max — mesh 거칠기 영향을 받는 raw 값. 평균 아님.">element-local peak</div></div>
     <div class="k"><div class="v" id="kCritPairs">__N_CRIT__</div><div class="l">CRITICAL PAIRS</div></div>
     <div class="k"><div class="v" id="kSafePos">__N_SAFE__</div><div class="l">SAFE POSITIONS</div></div>
     <div class="k"><div class="v" id="kDiss">__DISS_PCT__<span class="u">%</span></div><div class="l">ENERGY DISSIPATED</div></div>
@@ -14232,10 +14234,56 @@ function setupLazyObserver() {
   });
 }
 
+function _renderDataQualityBadges() {
+  // s1 page-head 아래 데이터 신뢰성 배지 — reviewer 가 "측정값" 으로 오해 안 하도록.
+  const host = document.getElementById('data-quality-badges');
+  if (!host) return;
+  const badges = [];
+  // synthetic footprint
+  const parts = DATA.parts || [];
+  const syn = parts.filter(p => p._synthetic_footprint).length;
+  if (syn > 0) {
+    badges.push({
+      cls: 'warn',
+      label: 'SYNTHETIC FOOTPRINTS ' + syn + '/' + parts.length,
+      title: 'part footprint XY 가 loader 의 hash 기반 placeholder 임. 실측 mesh 가 아님.',
+    });
+  }
+  // energy_flow 측정 여부
+  const ef = DATA.energy_flows || {};
+  const hasReal = Object.keys(ef).length > 0 && !('__mock__' in ef);
+  if (!hasReal) {
+    badges.push({
+      cls: 'warn',
+      label: 'NO ENERGY MEASURED',
+      title: 'binout 의 glstat 파싱 모듈 미구현 — KE/IE/HG/SL 시계열 측정 안 됨. ENERGY DISSIPATED KPI 도 N/A.',
+    });
+  }
+  // mass=0 (impactor mass 추출 실패 잔재)
+  const imp = (DATA.meta && DATA.meta.impactor) || {};
+  if (!(imp.mass > 0)) {
+    badges.push({
+      cls: 'warn',
+      label: 'IMPACTOR MASS UNKNOWN',
+      title: 'matsum/keyword 에서 mass 추출 실패. scenario.json 의 impactor.type 명시 권장.',
+    });
+  }
+  if (!badges.length) return;
+  badges.forEach(b => {
+    const el = document.createElement('span');
+    el.title = b.title;
+    el.textContent = b.label;
+    el.style.cssText = 'display:inline-block;padding:3px 8px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.6px;font-family:JetBrains Mono,monospace;'
+      + 'background:rgba(240,180,0,0.12);color:var(--warn);border:1px solid var(--warn);cursor:help';
+    host.appendChild(el);
+  });
+}
+
 function boot() {
   document.documentElement.style.setProperty('--device-aspect', (DATA.device_geometry && DATA.device_geometry.aspect) ? DATA.device_geometry.aspect : 1);
   applyUnitLabels();
   fillHeroKpi();
+  _renderDataQualityBadges();
   initImpactor();
   initDoeBreakdown();
   renderAll();
