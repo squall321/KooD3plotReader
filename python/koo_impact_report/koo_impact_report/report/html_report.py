@@ -2899,8 +2899,10 @@ def _build_rebound_field(report):
         "n_sliding": n_sliding,
         "n_total": len(vectors),
         "bbox": [round(float(b), 6) for b in bbox],
-        "vel_unit": report.unit_labels.get("velocity", "m/s") if hasattr(report, "unit_labels") else "m/s",
-        "len_unit": report.unit_labels.get("length", "m") if hasattr(report, "unit_labels") else "m",
+        # unit_labels 의 정확한 키는 'vel' / 'disp' (loader._detect_unit_system 의 dict).
+        # 'velocity' / 'length' 는 항상 fallback 'm/s' / 'm' 을 반환하던 silent 버그.
+        "vel_unit": (report.sim_params.get("unit_labels") or {}).get("vel", "") if getattr(report, "sim_params", None) else "",
+        "len_unit": (report.sim_params.get("unit_labels") or {}).get("disp", "") if getattr(report, "sim_params", None) else "",
     }
 
 def _build_auto_recommend(report):
@@ -3937,17 +3939,15 @@ def _build_worst_combinations(report):
             )
 
     # behavior class lookup from impactor trajectories (keyed by pos_id only)
+    # traj_map 의 key 는 DOE 케이스에서 'F5_DOE_001' 같은 string. 이전 코드는
+    # int(k) 실패 후 fallback 으로 pos_id=-1 을 반환해 모든 entry 가 같은 키로
+    # 덮어쓰기 → behavior_by_pos = {-1: <last>} → worst_combo lookup 전부 unknown.
+    # worst_combinations 가 string pos_id 사용하므로 그대로 str() 키로 통일.
     traj_map = getattr(report, "impactor_trajectories", {}) or {}
     behavior_by_pos = {}
     for k, t in traj_map.items():
-        try:
-            pid = int(k)
-        except (TypeError, ValueError):
-            try:
-                pid = int(getattr(t, "pos_id", -1))
-            except (TypeError, ValueError):
-                pid = str(k)
-        behavior_by_pos[pid] = getattr(t, "behavior_class", None) or "unknown"
+        key = str(getattr(t, "pos_id", k))
+        behavior_by_pos[key] = getattr(t, "behavior_class", None) or "unknown"
 
     # ---- collect finite arrays for P95 ----
     def _finite(vals):
@@ -4021,10 +4021,16 @@ def _build_worst_combinations(report):
         pos_raw = getattr(r, "position", None)
         if pos_raw is None:
             continue
-        try:
-            pos_id = int(pos_raw)
-        except (TypeError, ValueError):
-            pos_id = str(pos_raw)
+        # ImpactPosition dataclass 의 경우 .pos_id 속성을 우선 — 그대로 str() 하면
+        # repr() 이 200+자 dump 로 누출됨 (worst_combinations top_25 에서 발생).
+        _pid_attr = getattr(pos_raw, "pos_id", None)
+        if _pid_attr is not None:
+            pos_id = str(_pid_attr)
+        else:
+            try:
+                pos_id = int(pos_raw)
+            except (TypeError, ValueError):
+                pos_id = str(pos_raw)
         try:
             part_id = int(getattr(r, "part_id", -1))
         except Exception:
@@ -4707,11 +4713,16 @@ def _build_payload(report: ImpactReport) -> dict:
             prec["_synthetic_footprint"] = True
 
     # --- energy flow --------------------------------------------------------
+    # Mock energy_flow 가 is_mock=false 로 출고되면 (ke_init=100, diss=18.5%)
+    # lab 외 reviewer 가 즉시 신뢰 깨짐. 진짜 데이터 없으면 빈 dict — JS 측에서
+    # has_real_energy_flow=false 분기 + 'ENERGY FLOW NOT MEASURED' 배지 처리.
+    # 데모 path 가 필요하면 환경변수 KOO_IMPACT_USE_MOCK=1 로 gate.
+    import os as _os
     energy_flows: dict[str, dict] = {}
     if report.energy_flows:
         for pos_id, flow in report.energy_flows.items():
             energy_flows[pos_id] = _energy_flow_dict(flow)
-    if not energy_flows:
+    if not energy_flows and _os.environ.get("KOO_IMPACT_USE_MOCK") == "1":
         energy_flows["__mock__"] = _build_mock_energy_flow()
 
     # --- aggregates ---------------------------------------------------------
@@ -4733,12 +4744,18 @@ def _build_payload(report: ImpactReport) -> dict:
         pos_max[key] = max(pos_max.get(key, 0.0), r["g"])
     median_g = statistics.median(pos_max.values()) if pos_max else 0.0
     n_safe = sum(1 for v in pos_max.values() if v < median_g * 0.6)
-    diss_pct = 0.0
-    for fl in energy_flows.values():
-        ki = fl.get("ke_init", 0.0)
-        d = fl.get("dissipated", 0.0)
-        if ki > 0:
-            diss_pct = max(diss_pct, 100.0 * d / ki)
+    # energy_flows 가 비어있으면 (real 데이터 없음 + Mock 차단) diss_pct 는
+    # 측정 불가 → None 으로 표시 (JS 측에서 '—' 또는 'N/A' 렌더). 이전 코드는
+    # 0.0 으로 fallback 해서 '0%' 가 표시되어 "에너지 0% 흡수" 라는 거짓 의미.
+    if energy_flows:
+        diss_pct = 0.0
+        for fl in energy_flows.values():
+            ki = fl.get("ke_init", 0.0)
+            d = fl.get("dissipated", 0.0)
+            if ki > 0:
+                diss_pct = max(diss_pct, 100.0 * d / ki)
+    else:
+        diss_pct = None  # 측정 불가
 
     kpi = {
         "n_positions": n_pos,
@@ -4749,7 +4766,7 @@ def _build_payload(report: ImpactReport) -> dict:
         "worst_s": round(max(s_vals) if s_vals else 0.0, 1),
         "n_critical": n_crit,
         "n_safe": n_safe,
-        "diss_pct": round(diss_pct, 1),
+        "diss_pct": (round(diss_pct, 1) if diss_pct is not None else None),
         "worst": {
             "face": worst.get("face", "-"),
             "x": round(worst.get("x", 0.0), 2),
@@ -7192,6 +7209,8 @@ function fmt(n, d) {
   const a = Math.abs(n);
   if (a >= 1e6) return (n / 1e6).toFixed(d == null ? 2 : d) + 'M';
   if (a >= 1e3) return (n / 1e3).toFixed(d == null ? 1 : d) + 'k';
+  // 매우 작은 값 (예: ton-mm-s 의 density 7.85e-9) 은 fixed-point 로 표현 못함 → exponential
+  if (a > 0 && a < 1e-3) return n.toExponential(d == null ? 2 : Math.max(2, d));
   if (a < 1 && a > 0) return n.toFixed((d == null ? 2 : d) + 2);
   return n.toFixed(d == null ? 2 : d);
 }
@@ -7320,6 +7339,14 @@ const UNIT_LABELS = DATA.unit_labels || {
 };
 function _u(key) { return UNIT_LABELS[key] || ''; }
 function _uSuffix(key) { const v = _u(key); return v ? ' (' + v + ')' : ''; }
+// density 단위 (mass/length³) — unit_labels 에는 별도 키가 없으니 mass + disp 로 조합.
+// ton-mm-s → 'tonne/mm³'  /  SI → 'kg/m³'.
+function _uDensity() {
+  const m = (UNIT_LABELS.mass || '').trim();
+  const l = (UNIT_LABELS.disp || '').trim();
+  return (m && l) ? m + '/' + l + '³' : '';
+}
+function _uDensitySuffix() { const v = _uDensity(); return v ? ' (' + v + ')' : ''; }
 
 function applyUnitLabels() {
   // Inject unit labels into HTML placeholders. Empty when units unspecified.
@@ -7348,13 +7375,17 @@ function fillHeroKpi() {
   document.getElementById('kWorstS').innerHTML = fmt(k.worst_s, 1) + '<span class="u">' + _u('stress') + '</span>';
   document.getElementById('kCritPairs').textContent = k.n_critical;
   document.getElementById('kSafePos').textContent = k.n_safe;
-  document.getElementById('kDiss').innerHTML = k.diss_pct.toFixed(1) + '<span class="u">%</span>';
+  // diss_pct=null → energy_flow 진짜 데이터 없음 (Mock 출고 차단 후). '—' 표시.
+  document.getElementById('kDiss').innerHTML = (k.diss_pct != null)
+    ? (k.diss_pct.toFixed(1) + '<span class="u">%</span>')
+    : '<span style="opacity:0.5">—</span><span class="u" style="opacity:0.5" title="energy_flow 데이터 없음">N/A</span>';
   document.getElementById('kHeroFaces').textContent = k.n_faces;
   document.getElementById('kHeroPos').textContent = k.n_positions;
   document.getElementById('kHeroParts').textContent = k.n_parts;
   document.getElementById('kHeroPairs').textContent = k.n_pairs;
   document.getElementById('heroWorstCoord').textContent = k.worst.face + ' · X ' + k.worst.x.toFixed(1) + ' / Y ' + k.worst.y.toFixed(1);
-  document.getElementById('heroWorstPart').textContent = fmt(k.worst.g, 0) + ' G  ON  ' + k.worst.part_name;
+  // _gDiv 가 위에서 acc unit 기반으로 결정됨 (mm/s²→9810, m/s²→9.81)
+  document.getElementById('heroWorstPart').textContent = fmt((k.worst.g || 0) / _gDiv, 0) + ' G  ON  ' + k.worst.part_name;
 }
 
 function initImpactor() {
@@ -7440,7 +7471,7 @@ function initImpactor() {
     svgRoot.appendChild(tlab);
     const rows = [
       ['TYPE',              imp.type || '(unspecified)'],
-      ['ρ',                 fmt(imp.density, 3)],
+      ['ρ' + _uDensitySuffix(),   fmt(imp.density, 3)],
       ['E' + _uSuffix('stress'),  fmt(imp.youngs_modulus, 3)],
       ['ν',                 (imp.poisson_ratio != null ? imp.poisson_ratio.toFixed(3) : '?')],
       ['m' + _uSuffix('mass'),    fmt(imp.mass, 4)],
@@ -8267,7 +8298,9 @@ function renderFindings() {
     items = [
       { severity: 'CRITICAL', title: '가장 위험한 셀', detail: k.worst.face + ' (' + k.worst.x.toFixed(1) + ', ' + k.worst.y.toFixed(1) + ') — ' + k.worst.part_name + ' @ ' + fmt(k.worst.g, 0) + ' G', recommendation: '해당 영역에 완충재/보강 구조 검토' },
       { severity: 'WARNING', title: 'Critical pairs', detail: k.n_critical + '개 페어가 임계치 이상으로 응답', recommendation: '다중 페어 영향 부품 우선 보강' },
-      { severity: 'INFO', title: 'Energy dissipation', detail: '초기 KE의 ' + k.diss_pct.toFixed(1) + '%만 소산', recommendation: '소산 효율이 낮은 페이스에 완충 패드 추가' }
+      (k.diss_pct != null
+        ? { severity: 'INFO', title: 'Energy dissipation', detail: '초기 KE의 ' + k.diss_pct.toFixed(1) + '%만 소산', recommendation: '소산 효율이 낮은 페이스에 완충 패드 추가' }
+        : { severity: 'INFO', title: 'Energy dissipation', detail: '측정 불가 (energy_flow 데이터 없음)', recommendation: 'binout 의 glstat 파싱 모듈 추가 권장' })
     ];
   }
   for (const f of items.slice(0, 6)) {
@@ -14315,6 +14348,18 @@ def generate_html(report: ImpactReport) -> str:
     kpi = payload["kpi"]
     worst = kpi["worst"]
 
+    # SSR g-divisor — JS 와 일관되게 acc unit 기반.
+    # mm/s² → 9810,  m/s²/mm/ms² → 9.81.  raw mm/s² 를 'G' 라벨로 출력하면 안 됨.
+    _acc_label = (payload.get("unit_labels") or {}).get("acc", "")
+    if _acc_label == "mm/s²":
+        _g_div_ssr = 9810.0
+    elif _acc_label in ("m/s²", "mm/ms²"):
+        _g_div_ssr = 9.81
+    else:
+        _g_div_ssr = 9810.0  # legacy default
+    _worst_g_in_G = (worst.get("g", 0) or 0) / _g_div_ssr
+    _kpi_worst_g_in_G = (kpi.get("worst_g", 0) or 0) / _g_div_ssr
+
     page1 = (
         _PAGE1
         .replace("__N_FACES__", str(kpi["n_faces"]))
@@ -14322,12 +14367,12 @@ def generate_html(report: ImpactReport) -> str:
         .replace("__N_PARTS__", str(kpi["n_parts"]))
         .replace("__N_PAIRS__", str(kpi["n_pairs"]))
         .replace("__WORST_LINE__", _esc(f"{worst['face']} · X {worst['x']:.1f} / Y {worst['y']:.1f}"))
-        .replace("__WORST_PART_LINE__", _esc(f"{worst['g']:.0f} G  ON  {worst['part_name']}"))
-        .replace("__WORST_G__", f"{worst['g']:.0f}")
+        .replace("__WORST_PART_LINE__", _esc(f"{_worst_g_in_G:,.0f} G  ON  {worst['part_name']}"))
+        .replace("__WORST_G__", f"{_kpi_worst_g_in_G:,.0f}")
         .replace("__WORST_S__", f"{kpi['worst_s']:.0f}")
         .replace("__N_CRIT__", str(kpi["n_critical"]))
         .replace("__N_SAFE__", str(kpi["n_safe"]))
-        .replace("__DISS_PCT__", f"{kpi['diss_pct']:.1f}")
+        .replace("__DISS_PCT__", f"{kpi['diss_pct']:.1f}" if kpi.get('diss_pct') is not None else "—")
         .replace("__IMP_SUB__", _esc(payload["meta"]["impactor"]["type"]))
     )
 
