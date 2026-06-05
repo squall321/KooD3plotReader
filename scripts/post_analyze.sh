@@ -51,15 +51,23 @@ ANALYSIS_GROUPS=()   # unified_analyzer 가 발견한 그룹 목록 (Output, Out
 DEEP_CONFIG=""       # koo_deep_report --config 로 전달할 YAML
 DEEP_ONLY=false
 SPHERE_ONLY=false
+IMPACT_ONLY=false
 FORCE=false
 THREADS=4
 YIELD_STRESS=""
+
+# scenario.json 의 cumulative.mode_sequence 자동 감지 → 종합 리포트 모듈 선택
+#   ['DROP', ...]                   → sphere_report (전각도)
+#   ['IMPACT'] 또는 ['IMPACT', ...] → impact_report (부분충격 DOE)
+#   감지 실패 / 둘 다 섞임          → sphere (현행 default), --impact-only 또는 --sphere-only 로 강제
+SCENARIO_MODE=""     # "DROP" | "IMPACT" | "" (감지 결과)
 
 # deep_report 로 pass-through 할 편의 플래그 배열
 # 기본: 섹션뷰 ON (모든 파트 × x/y/z × von_mises × lsprepost backend)
 SECTION_VIEW=true
 DEEP_EXTRA=()
 SPHERE_EXTRA=()
+IMPACT_EXTRA=()
 
 usage() {
     cat << 'HELPEOF'
@@ -71,8 +79,13 @@ usage() {
 
 [모드]
     --deep-only             deep report 만
-    --sphere-only           sphere report 만
+    --sphere-only           sphere report 만 (DROP 전각도 강제)
+    --impact-only           impact report 만 (IMPACT 부분충격 DOE 강제)
     --force                 기존 결과 무시하고 전체 재계산
+
+    (scenario.json 의 cumulative.mode_sequence 로 자동 감지:
+       ['DROP', ...]   → sphere_report
+       ['IMPACT', ...] → impact_report)
 
 [설정]
     --config YAML           unified_analyzer 용 YAML (common_analysis.yaml)
@@ -107,6 +120,7 @@ usage() {
 [고급]
     --deep-opts "..."       koo_deep_report 추가 옵션 pass-through
     --sphere-opts "..."     koo_sphere_report 추가 옵션 pass-through
+    --impact-opts "..."     koo_impact_report 추가 옵션 pass-through (예: '--units ton-mm-s')
     -h|--help
 
 예시:
@@ -114,7 +128,9 @@ usage() {
     post_analyze /data/drop_test_001 --yield-stress 250 --threads 8
     post_analyze /data/drop_test_001 --deep-only --no-render
     post_analyze /data/drop_test_001 --sphere-only
-    post_analyze /data/drop_test_001 --section-view --section-view-backend lsprepost
+    post_analyze /data/Test_Impact_A                       # 자동: IMPACT 감지
+    post_analyze /data/Test_Impact_A --impact-only         # 명시
+    post_analyze /data/test_001 --section-view --section-view-backend lsprepost
 HELPEOF
     exit 0
 }
@@ -124,6 +140,7 @@ while [[ $# -gt 0 ]]; do
         # 오케스트레이션 제어
         --deep-only)     DEEP_ONLY=true; shift ;;
         --sphere-only)   SPHERE_ONLY=true; shift ;;
+        --impact-only)   IMPACT_ONLY=true; shift ;;
         --force)         FORCE=true; shift ;;
 
         # unified_analyzer / deep_report 공통 YAML 분리
@@ -176,6 +193,7 @@ while [[ $# -gt 0 ]]; do
         # 고급 pass-through
         --deep-opts)     read -r -a _extra <<< "$2"; DEEP_EXTRA+=("${_extra[@]}"); shift 2 ;;
         --sphere-opts)   read -r -a _extra <<< "$2"; SPHERE_EXTRA+=("${_extra[@]}"); shift 2 ;;
+        --impact-opts)   read -r -a _extra <<< "$2"; IMPACT_EXTRA+=("${_extra[@]}"); shift 2 ;;
 
         -h|--help)       usage ;;
         -*)              echo "ERROR: 알 수 없는 옵션: $1"; usage ;;
@@ -188,6 +206,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# 모드 상호 배타 체크 (test_dir 검증보다 먼저 — 옵션 오류는 인자 검증보다 우선)
+_only_count=0
+${DEEP_ONLY}   && _only_count=$((_only_count + 1))
+${SPHERE_ONLY} && _only_count=$((_only_count + 1))
+${IMPACT_ONLY} && _only_count=$((_only_count + 1))
+if [ "${_only_count}" -gt 1 ]; then
+    echo "ERROR: --deep-only / --sphere-only / --impact-only 중 하나만 사용 가능"
+    exit 1
+fi
+
 if [ -z "${TEST_DIR}" ]; then
     echo "ERROR: test_dir 인자가 필요합니다."
     usage
@@ -198,10 +226,45 @@ if [ ! -d "${TEST_DIR}" ]; then
     exit 1
 fi
 
-if ${DEEP_ONLY} && ${SPHERE_ONLY}; then
-    echo "ERROR: --deep-only 와 --sphere-only 는 동시 사용 불가"
-    exit 1
-fi
+# ============================================================
+# scenario.json 의 cumulative.mode_sequence 자동 감지
+#   ['DROP', ...]   → SCENARIO_MODE=DROP  → sphere_report
+#   ['IMPACT', ...] → SCENARIO_MODE=IMPACT → impact_report
+#   감지 실패        → SCENARIO_MODE=""    → 현행 default (sphere)
+# 명시적 --sphere-only / --impact-only 가 자동 감지를 override.
+# ============================================================
+detect_scenario_mode() {
+    local sc="${TEST_DIR}/scenario.json"
+    if [ ! -f "${sc}" ]; then
+        SCENARIO_MODE=""
+        return
+    fi
+    SCENARIO_MODE=$(python3 - "$sc" << 'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    scs = d.get("scenarios") or []
+    if not scs:
+        print("")
+        sys.exit(0)
+    seq = scs[0].get("cumulative", {}).get("mode_sequence") or []
+    if not seq:
+        print("")
+        sys.exit(0)
+    # 첫 mode 기준 판정. 모두 IMPACT 면 IMPACT, 모두 DROP 이면 DROP.
+    if all(m == "IMPACT" for m in seq):
+        print("IMPACT")
+    elif all(m == "DROP" for m in seq):
+        print("DROP")
+    else:
+        # mixed — first mode
+        print(seq[0])
+except Exception:
+    print("")
+PYEOF
+)
+}
+detect_scenario_mode
 
 TEST_DIR="$(readlink -f "${TEST_DIR}")"
 OUTPUT_DIR="${TEST_DIR}/output"
@@ -231,14 +294,27 @@ check_bin() {
 }
 check_bin unified_analyzer
 check_bin koo_deep_report
-check_bin koo_sphere_report
+# koo_sphere_report / koo_impact_report 는 실제 사용 분기에서만 강제. 옛 SIF
+# (impact 미포함) 호환성을 위해 여기서 강제하지 않고, 호출 직전에 검사.
 
 # ============================================================
-# 헤더
+# 헤더 + 효과 모드 (자동 감지 + override)
 # ============================================================
+# 효과 모드: deep-only/sphere-only/impact-only 가 있으면 그것. 없으면 SCENARIO_MODE
+# 가 IMPACT 면 impact, DROP 또는 빈 값이면 sphere (현행 default).
+EFFECTIVE_REPORT_MODE="sphere"  # 기본
+if ${IMPACT_ONLY}; then
+    EFFECTIVE_REPORT_MODE="impact"
+elif ${SPHERE_ONLY}; then
+    EFFECTIVE_REPORT_MODE="sphere"
+elif [ "${SCENARIO_MODE}" = "IMPACT" ]; then
+    EFFECTIVE_REPORT_MODE="impact"
+fi
+
 mode_str="all"
 ${DEEP_ONLY}   && mode_str="deep-only"
 ${SPHERE_ONLY} && mode_str="sphere-only"
+${IMPACT_ONLY} && mode_str="impact-only"
 
 echo "============================================================"
 echo " SmartTwinPostprocessor — Post Analyze"
@@ -255,6 +331,8 @@ echo "  Threads       : ${THREADS}"
 [ -n "${YIELD_STRESS}" ]          && echo "  Yield stress  : ${YIELD_STRESS} MPa"
 [ "${#DEEP_EXTRA[@]}" -gt 0 ]     && echo "  Deep extras   : ${DEEP_EXTRA[*]}"
 [ "${#SPHERE_EXTRA[@]}" -gt 0 ]   && echo "  Sphere extras : ${SPHERE_EXTRA[*]}"
+[ "${#IMPACT_EXTRA[@]}" -gt 0 ]   && echo "  Impact extras : ${IMPACT_EXTRA[*]}"
+[ -n "${SCENARIO_MODE}" ]         && echo "  Scenario mode : ${SCENARIO_MODE} → ${EFFECTIVE_REPORT_MODE}"
 echo "============================================================"
 
 # ============================================================
@@ -579,21 +657,56 @@ run_step_deep() {
 }
 
 # ============================================================
-# 실행 분기
-#   전체: unified_analyzer → sphere (빠름) → deep (느림)
-#   sphere 먼저 → 종합 결과 빨리 확인, deep 은 렌더까지 하므로 나중에
+# Step 2-impact: koo_impact_report --test-dir   (부분충격 DOE 종합)
+#  - scenarios[*].cumulative.mode_sequence == ['IMPACT'] 일 때
+#  - sphere 와 동일하게 analysis_results/ 가 필수 (unified_analyzer 결과)
+# ============================================================
+run_step_impact() {
+    echo ""
+    echo "=== [Step 2] koo_impact_report (부분충격 DOE 종합) ==="
+
+    check_bin koo_impact_report
+
+    if [ ! -d "${ANALYSIS_DIR}" ] || \
+       [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" = "" ]; then
+        echo "  ERROR: analysis_results/ 없음 또는 비어있음"
+        echo "         Step 1 을 먼저 실행하거나 --config 를 지정하세요"
+        return 1
+    fi
+
+    local cmd=(koo_impact_report --test-dir "${TEST_DIR}")
+    [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
+    [ "${#IMPACT_EXTRA[@]}" -gt 0 ] && cmd+=("${IMPACT_EXTRA[@]}")
+
+    echo "  $ ${cmd[*]}"
+    "${cmd[@]}"
+}
+
+# ============================================================
+# 실행 분기 (auto-detect + override)
+#   --deep-only        : deep_report 만
+#   --sphere-only      : unified → sphere
+#   --impact-only      : unified → impact
+#   default + SCENARIO_MODE==IMPACT : unified → impact → deep
+#   default            : unified → sphere → deep
 # ============================================================
 if ${DEEP_ONLY}; then
-    # deep 만: unified_analyzer 선행 실행은 불필요 (deep 내부에서 처리)
     run_step_deep
 elif ${SPHERE_ONLY}; then
-    # sphere 만: unified_analyzer 필수
     run_step_unified
     run_step_sphere
+elif ${IMPACT_ONLY}; then
+    run_step_unified
+    run_step_impact
 else
-    # 전체: unified_analyzer → sphere (빠름) → deep (느림)
     run_step_unified
-    run_step_sphere
+    if [ "${EFFECTIVE_REPORT_MODE}" = "impact" ]; then
+        echo ""
+        echo "  ※ scenario.json mode_sequence=['IMPACT'] 감지 → koo_impact_report 사용"
+        run_step_impact
+    else
+        run_step_sphere
+    fi
     run_step_deep
 fi
 
@@ -602,5 +715,13 @@ echo "============================================================"
 echo " 완료"
 echo "============================================================"
 echo "  결과 위치:"
-${SPHERE_ONLY} || { [ -d "${DEEP_REPORTS_DIR}" ] && echo "    ${DEEP_REPORTS_DIR}/ (개별 deep HTML)"; }
-${DEEP_ONLY}   || { [ -f "${TEST_DIR}/report.html" ] && echo "    ${TEST_DIR}/report.html (sphere 종합)"; }
+if ! ${SPHERE_ONLY} && ! ${IMPACT_ONLY}; then
+    [ -d "${DEEP_REPORTS_DIR}" ] && echo "    ${DEEP_REPORTS_DIR}/ (개별 deep HTML)"
+fi
+if ! ${DEEP_ONLY}; then
+    if [ "${EFFECTIVE_REPORT_MODE}" = "impact" ] || ${IMPACT_ONLY}; then
+        [ -f "${TEST_DIR}/impact_report.html" ] && echo "    ${TEST_DIR}/impact_report.html (impact 종합)"
+    else
+        [ -f "${TEST_DIR}/report.html" ] && echo "    ${TEST_DIR}/report.html (sphere 종합)"
+    fi
+fi

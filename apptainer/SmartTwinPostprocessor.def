@@ -3,8 +3,8 @@ From: ubuntu:22.04
 
 %labels
     Author       KooD3plotReader Team
-    Version      2.3.1
-    Description  LS-DYNA d3plot post-processing toolchain (headless, Slurm-ready)
+    Version      2.4.0
+    Description  LS-DYNA d3plot post-processing toolchain (headless, Slurm-ready) — DROP/IMPACT 통합
 
 %help
     KooD3plotReader — Headless post-processing module.
@@ -12,8 +12,9 @@ From: ubuntu:22.04
     Bundled tools (PATH):
       unified_analyzer     — C++ d3plot analysis engine
       koo_deep_report      — Python single-sim report (HTML)
-      koo_sphere_report    — Python all-angle sphere report
-      post_analyze         — Bash orchestrator (unified → deep → sphere)
+      koo_sphere_report    — Python all-angle sphere report (DROP cumulative)
+      koo_impact_report    — Python multi-position partial-impact DOE report (IMPACT cumulative)
+      post_analyze         — Bash orchestrator (unified → sphere|impact → deep, auto-detect by scenario.json)
 
     Usage:
       apptainer exec SmartTwinPostprocessor.sif unified_analyzer --help
@@ -74,7 +75,7 @@ From: ubuntu:22.04
 %environment
     export KOOD3PLOT_HOME=/opt/kood3plot
     export PATH=/opt/kood3plot/bin:$PATH
-    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
 
@@ -83,7 +84,7 @@ From: ubuntu:22.04
         cat /opt/kood3plot/VERSION
         echo ""
         echo "Usage: apptainer exec SmartTwinPostprocessor.sif <command> [args]"
-        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, post_analyze"
+        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, koo_impact_report, post_analyze"
         exit 0
     fi
     exec "$@"
@@ -92,4 +93,5 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/unified_analyzer --help >/dev/null
     /opt/kood3plot/bin/koo_deep_report --help >/dev/null
     /opt/kood3plot/bin/koo_sphere_report --help >/dev/null
+    /opt/kood3plot/bin/koo_impact_report --help >/dev/null
     echo "All tools available"
