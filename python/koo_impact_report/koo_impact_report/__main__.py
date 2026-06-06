@@ -120,8 +120,35 @@ def main() -> None:
             sys.exit(1)
         print(f"[main] Loading {test_dir} …")
         t0 = time.time()
-        report = loader.load_impact_report(test_dir)
+
+        # Layout-aware dispatch:
+        #   F*/Run_*/analysis_result.json present  → load_impact_report (face-tree)
+        #   else if output/Run_*/Output/d3plot present → load_partial_impact_doe_report (flat DOE)
+        face_dirs = loader._discover_face_dirs(test_dir)
+        output_dir = test_dir / "output"
+        flat_runs = (
+            sorted(output_dir.glob("Run_*/Output/d3plot")) if output_dir.is_dir() else []
+        )
+        if not face_dirs and flat_runs:
+            print(
+                f"[main] flat output/Run_* layout detected ({len(flat_runs)} runs) "
+                f"→ load_partial_impact_doe_report"
+            )
+            report = loader.load_partial_impact_doe_report(
+                test_dir=test_dir, threads_per_run=2, parallel_runs=4
+            )
+        else:
+            report = loader.load_impact_report(test_dir)
         print(f"[main] Loaded in {time.time() - t0:.1f}s")
+
+        if not report.results:
+            print(
+                f"[main] ERROR: no (face, position, part) results discovered under {test_dir}. "
+                f"Check that either F*/Run_*/analysis_result.json or "
+                f"output/Run_*/Output/d3plot exists.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     # Optional explicit unit-system override (highest priority).
     if args.units:

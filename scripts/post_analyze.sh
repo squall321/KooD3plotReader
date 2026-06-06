@@ -665,16 +665,26 @@ run_step_impact() {
     echo ""
     echo "=== [Step 2] koo_impact_report (부분충격 DOE 종합) ==="
 
-    check_bin koo_impact_report
+    # Soft-skip: 옛 SIF (2.3.x) 호환성. koo_impact_report 가 없으면 deep_report 진행.
+    if ! command -v koo_impact_report >/dev/null 2>&1; then
+        echo "  WARN: koo_impact_report 가 PATH 에 없음 (옛 SIF?) — SKIP"
+        return 0
+    fi
 
-    if [ ! -d "${ANALYSIS_DIR}" ] || \
-       [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" = "" ]; then
-        echo "  ERROR: analysis_results/ 없음 또는 비어있음"
-        echo "         Step 1 을 먼저 실행하거나 --config 를 지정하세요"
+    # Layout 게이트: F*/Run_*/analysis_result.json (face-tree)
+    #                또는 output/Run_*/Output/d3plot (flat DOE) 중 하나 필요
+    _face_layout=$(find "${TEST_DIR}" -maxdepth 3 -path '*/F*/Run_*/analysis_result.json' 2>/dev/null | head -1)
+    _flat_layout=$(find "${OUTPUT_DIR}" -maxdepth 3 -name 'd3plot' -type f 2>/dev/null | head -1)
+    if [ -z "${_face_layout}" ] && [ -z "${_flat_layout}" ]; then
+        echo "  ERROR: F*/Run_*/analysis_result.json 도, output/Run_*/d3plot 도 없음"
+        echo "         IMPACT 분석을 위한 데이터가 없습니다"
         return 1
     fi
 
-    local cmd=(koo_impact_report --test-dir "${TEST_DIR}")
+    local cmd=(koo_impact_report --test-dir "${TEST_DIR}"
+                   --format html json terminal
+                   --output "${TEST_DIR}/impact_report.html"
+                   --json   "${TEST_DIR}/impact_report.json")
     [ -n "${YIELD_STRESS}" ] && cmd+=(--yield-stress "${YIELD_STRESS}")
     [ "${#IMPACT_EXTRA[@]}" -gt 0 ] && cmd+=("${IMPACT_EXTRA[@]}")
 
@@ -690,21 +700,42 @@ run_step_impact() {
 #   default + SCENARIO_MODE==IMPACT : unified → impact → deep
 #   default            : unified → sphere → deep
 # ============================================================
+# Helper: IMPACT 모드일 때, common_analysis.yaml 이 없고 output/Run_*/d3plot 만 있으면
+# run_step_unified 를 건너뛴다. koo_impact_report.load_partial_impact_doe_report 가
+# 내부에서 unified_analyzer 를 Run 별로 직접 실행한다.
+should_skip_unified_for_impact() {
+    [ -z "${CONFIG_FILE}" ] || return 1
+    local _d3
+    _d3=$(find "${OUTPUT_DIR}" -maxdepth 3 -name 'd3plot' -type f 2>/dev/null | head -1)
+    [ -n "${_d3}" ]
+}
+
 if ${DEEP_ONLY}; then
     run_step_deep
 elif ${SPHERE_ONLY}; then
     run_step_unified
     run_step_sphere
 elif ${IMPACT_ONLY}; then
-    run_step_unified
+    if should_skip_unified_for_impact; then
+        echo ""
+        echo "  ※ IMPACT 모드 + common_analysis.yaml 없음 + flat output/Run_* 감지"
+        echo "    → run_step_unified SKIP. koo_impact_report 가 내부에서 unified_analyzer 실행"
+    else
+        run_step_unified
+    fi
     run_step_impact
 else
-    run_step_unified
     if [ "${EFFECTIVE_REPORT_MODE}" = "impact" ]; then
         echo ""
         echo "  ※ scenario.json mode_sequence=['IMPACT'] 감지 → koo_impact_report 사용"
+        if should_skip_unified_for_impact; then
+            echo "    common_analysis.yaml 없음 + flat layout → run_step_unified SKIP"
+        else
+            run_step_unified
+        fi
         run_step_impact
     else
+        run_step_unified
         run_step_sphere
     fi
     run_step_deep

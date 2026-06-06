@@ -116,7 +116,7 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    choices=["section", "section_3d", "iso_surface"],
                    help="단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut 없는 iso 외곽 (기본: section)")
     p.add_argument("--section-view-background-alpha", type=float, default=0.3, metavar="A",
-                   help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70% 투명)")
+                   help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70%% 투명)")
     p.add_argument("--section-view-per-part", dest="section_view_per_part",
                    action="store_true",
                    help="파트별 단면뷰 렌더링 강제 ON (기본은 target ID/pattern 미지정 시 자동 ON)")
