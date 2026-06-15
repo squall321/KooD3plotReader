@@ -24,7 +24,7 @@ def _make_stress_ts(peak: float, peak_time: float) -> TimeSeriesData:
 
 
 def _make_motion(peak_g: float, peak_disp: float, peak_g_time: float) -> MotionData:
-    G = 9810.0
+    G = MotionData.G_FACTOR  # mm/s² per G — single source of truth
     mo = MotionData()
     if peak_g > 0:
         t = peak_g_time if peak_g_time > 0 else 0.001

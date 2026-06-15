@@ -182,6 +182,7 @@ def _impactor_dict(imp: ImpactorSpec) -> dict:
         "mass": _safe(imp.mass),
         "velocity": _safe(imp.velocity),
         "kinetic_energy": _safe(imp.kinetic_energy),
+        "geometry_source": getattr(imp, "geometry_source", ""),
     }
 
 
@@ -14340,6 +14341,16 @@ function _renderDataQualityBadges() {
       cls: 'warn',
       label: 'IMPACTOR MASS UNKNOWN',
       title: 'matsum/keyword 에서 mass 추출 실패. scenario.json 의 impactor.type 명시 권장.',
+    });
+  } else if (imp.geometry_source === 'motion-bbox') {
+    // mass>0 이지만 geometry 가 d3plot bounding-box 에서 추정됨 (step_config
+    // 부재). bbox 는 진짜 radius 를 과대평가 → ρ·V mass 가 부풀 수 있음.
+    badges.push({
+      cls: 'warn',
+      label: 'IMPACTOR GEOMETRY ESTIMATED',
+      title: 'impactor radius 가 d3plot bounding-box 에서 추정됨 (step_config.txt 부재). '
+           + '실제 mesh radius 보다 클 수 있어 mass/KE 가 과대평가될 위험. '
+           + 'step_config.txt 또는 scenario.json 의 impactor geometry 명시 권장.',
     });
   }
   // solver_quality: glstat 기반 energy-balance verdict

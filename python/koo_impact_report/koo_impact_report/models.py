@@ -81,6 +81,11 @@ class ImpactorSpec:
     part_name: str = ""
     mat_type: str = ""                    # MAT keyword (e.g. "RIGID")
     initial_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)  # mm/s
+    # Provenance of the geometry (type/radius). "step_config" = authoritative
+    # (the exact mesh-generation radius); "motion-bbox" = estimated from the
+    # d3plot bounding extent (over-reads radius → trust badge should fire);
+    # "" = no geometry resolved.
+    geometry_source: str = ""
     # cylinder-only
     front_radius: float | None = None
     outer_radius: float | None = None

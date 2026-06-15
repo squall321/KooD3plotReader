@@ -5,7 +5,7 @@ import json
 import math
 from enum import Enum
 
-from ..models import Report, Severity, SimulationResult
+from ..models import MotionData, Report, Severity, SimulationResult
 
 
 def _esc(s) -> str:
@@ -115,7 +115,7 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                     pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in range(0, len(pr.strain.avg_values), step)]
             if pr.motion and pr.motion.times:
                 step = max(1, len(pr.motion.times) // ts_pts)
-                g_factor = 9810.0
+                g_factor = MotionData.G_FACTOR  # single source of truth
                 pd["g_ts"] = {
                     "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
                     "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],

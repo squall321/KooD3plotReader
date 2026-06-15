@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
-from ..models import Report
+from ..models import MotionData, Report
 
 
 class ReportEncoder(json.JSONEncoder):
@@ -90,7 +90,7 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                     }
                 if pr.motion and pr.motion.times:
                     step = max(1, len(pr.motion.times) // ts_pts)
-                    g_factor = 9810.0
+                    g_factor = MotionData.G_FACTOR  # single source of truth
                     pd["g_ts"] = {
                         "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
                         "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],

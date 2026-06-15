@@ -185,3 +185,6 @@ section_3d_z/
 # Local-only release/deliverable bundles (keep out of repo; store in /data)
 presentation_pack/
 presentation_2_pack/
+
+# transient end-to-end verification artifacts
+.verify/

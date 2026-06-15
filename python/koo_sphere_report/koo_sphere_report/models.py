@@ -117,7 +117,12 @@ class MotionData:
     true_peak_g_time: float | None = None
     true_peak_disp: float | None = None
 
-    G_FACTOR = 9810.0  # mm/s² per G
+    # mm/s² per G — single source of truth for the [ton, mm, s] unit system.
+    # WARNING: koo_sphere_report assumes ton-mm-s decks (no unit auto-detection
+    # yet — unlike koo_impact_report). An SI deck (m/s² acceleration) would be
+    # divided by 9810 instead of 9.81 → peak-G reported ~1000× too small with
+    # no warning. Unit auto-detection backport is tracked in ROADMAP.md (3-1).
+    G_FACTOR = 9810.0
 
     @property
     def peak_g(self) -> float:

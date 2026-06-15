@@ -650,11 +650,63 @@ def _bbox_from_d3plot_part(d3plot_path: Path, pid: int, work_dir: Path) -> tuple
     return None
 
 
+def _geometry_from_step_config(
+    step_config: dict | None,
+) -> tuple[str, float] | None:
+    """Extract authoritative (type, radius_mm) from a step_config.txt dict.
+
+    KooDWITestSetRunner / DropWeightImpactWorkflow write the *exact* impactor
+    geometry the mesh was built from::
+
+        Type,Sphere
+        Dimension,8           # ← this IS the radius (mm), not the diameter
+
+    Confirmed against pyKooCAE: ``DropWeightImpactWorkflow.py`` emits
+    ``ImpactorDimension,{imp_radius}`` and ``KooImpactSimulationGenerator``
+    calls ``BRepPrimAPI_MakeSphere(..., impactBallRadius, ...)``.
+
+    This is the ground truth and MUST be preferred over the motion-CSV
+    ``Max_Disp_Mag`` heuristic, which measures the mesh bounding extent
+    (off by ~radius-vs-bbox factors → e.g. 8 mm sphere read as 67 mm).
+
+    Returns ``(type, radius)`` or ``None`` if the config lacks usable
+    geometry. Cylinder uses ``Dimension``'s first field as front_radius.
+    """
+    if not step_config:
+        return None
+    raw_type = (step_config.get("Type") or "").strip()
+    if not raw_type:
+        return None
+    # Dimension may be a single value (sphere) or comma-joined (cylinder).
+    # _parse_step_config_kv splits on the FIRST comma, so a cylinder's
+    # "Dimension,a,b,c,d,e" arrives as val="a,b,c,d,e". Take the leading
+    # field as the primary radius either way.
+    dim_raw = (step_config.get("Dimension") or "").strip()
+    if not dim_raw:
+        return None
+    first = dim_raw.split(",")[0].strip()
+    try:
+        radius = float(first)
+    except ValueError:
+        return None
+    if radius <= 0:
+        return None
+    # Normalize type capitalization to the ImpactorSpec vocabulary.
+    t = raw_type.lower()
+    if t == "sphere":
+        return ("Sphere", radius)
+    if t == "cylinder":
+        return ("Cylinder", radius)
+    # Unknown explicit type — pass it through so volume falls to mass_override.
+    return (raw_type, radius)
+
+
 def _build_impactor_from_keyword(
     d3plot_path: Path,
     impactor_part_name: str | None = None,
     impactor_part_id: int | None = None,
     work_dir: Path | None = None,
+    step_config: dict | None = None,
 ) -> ImpactorSpec | None:
     """Build ImpactorSpec from the .k keyword file beside the d3plot.
 
@@ -718,15 +770,28 @@ def _build_impactor_from_keyword(
 
     _, v0 = _parse_initial_velocity_any(kfile, pid=pid)
 
-    bbox = _bbox_from_d3plot_part(d3plot_path, pid, work_dir) if work_dir else None
-    radius = bbox[0] if bbox else 0.0
-    height = bbox[1] if bbox else 0.0
+    # Geometry resolution — step_config.txt is the ground truth (the exact
+    # radius the mesh was generated from). The motion-CSV Max_Disp_Mag
+    # heuristic is a last-resort fallback only; it measures the mesh bounding
+    # extent, which over-reads the true radius (e.g. an 8 mm sphere → 67 mm)
+    # and inflates ρ·V mass by ~(67/8)³ ≈ 590×.
+    geo = _geometry_from_step_config(step_config)
+    if geo is not None:
+        geo_type, radius = geo
+        height = 0.0
+        geo_src = "step_config"
+    else:
+        bbox = _bbox_from_d3plot_part(d3plot_path, pid, work_dir) if work_dir else None
+        radius = bbox[0] if bbox else 0.0
+        height = bbox[1] if bbox else 0.0
+        # Without an authoritative type we leave it empty; volume() applies a
+        # sphere fallback only when radius>0 (and a UNKNOWN badge fires if the
+        # whole geometry is missing). Never silently assume a shape.
+        geo_type = ""
+        geo_src = "motion-bbox" if bbox else ""
 
-    # Geometry type cannot be inferred from a single *PART card alone — it
-    # is left empty so downstream code never silently assumes a sphere.
-    # mass derivation in ``load_single_d3plot_report`` uses matsum directly.
     spec = ImpactorSpec(
-        type="",
+        type=geo_type,
         radius=radius,
         height=height,
         density=density,
@@ -736,9 +801,12 @@ def _build_impactor_from_keyword(
         part_name=part.name,
         mat_type=mat_type,
         initial_velocity=v0,
+        geometry_source=geo_src,
     )
     print(f"[loader] impactor from .k: PID={pid} '{part.name}' MAT_{mat_type} "
           f"ρ={density:.3e} E={young:.3e} ν={nu:.3f} v₀={v0}")
+    print(f"[loader] impactor geometry: type='{geo_type}' radius={radius:.4g} mm "
+          f"(source: {geo_src or 'none'})")
     return spec
 
 
@@ -1308,6 +1376,7 @@ def load_single_d3plot_report(
     face_code: str | None = None,
     work_dir: Path | None = None,
     threads: int = 2,
+    step_config: dict | None = None,
 ) -> ImpactReport:
     """Wrap a single d3plot as a 1-position ImpactReport (testing/demo path).
 
@@ -1326,7 +1395,8 @@ def load_single_d3plot_report(
 
     # 1) Parse keyword file: impactor spec + parts dict (PID → name, MID)
     impactor_spec = _build_impactor_from_keyword(
-        d3plot_path, impactor_part_name=impactor_part_name
+        d3plot_path, impactor_part_name=impactor_part_name,
+        work_dir=work_dir, step_config=step_config,
     )
     impactor_pid: int | None = impactor_spec.part_id if impactor_spec else None
     if impactor_pid is None:
@@ -1364,11 +1434,24 @@ def load_single_d3plot_report(
     )
     stress_strain = _extract_part_stress_strain(d3plot_result)
 
-    # Refresh impactor bbox from motion CSV now that work_dir is populated
-    if impactor_spec is not None and impactor_pid is not None and impactor_pid in motions:
+    # Refresh impactor bbox from motion CSV now that work_dir is populated —
+    # BUT only when step_config gave no authoritative geometry. step_config's
+    # Dimension is the exact mesh-generation radius; the motion-CSV bbox
+    # over-reads it (8 mm sphere → 67 mm → ρ·V mass ~590× too large) and must
+    # never overwrite a known-good value.
+    _has_step_geo = _geometry_from_step_config(step_config) is not None
+    if (
+        not _has_step_geo
+        and impactor_spec is not None
+        and impactor_pid is not None
+        and impactor_pid in motions
+    ):
         bbox = _bbox_from_d3plot_part(d3plot_path, impactor_pid, work_dir)
         if bbox is not None:
             impactor_spec.radius, impactor_spec.height = bbox
+            impactor_spec.geometry_source = "motion-bbox"
+            print(f"[loader] impactor radius from motion-CSV bbox = {bbox[0]:.4g} mm "
+                  f"(no step_config geometry — value may be over-read)")
 
     # 3) Binout: matsum/rcforc + mass derivation
     bin_data = load_binout_energy(parent)
@@ -1705,7 +1788,7 @@ def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
     ``concurrent.futures.ProcessPoolExecutor``. The arg is a tuple to ease
     parameter passing through the executor.
     """
-    d3plot_path, project_name, impactor_part_name, threads, work_dir_str = args
+    d3plot_path, project_name, impactor_part_name, threads, work_dir_str, step_config = args
     work_dir = Path(work_dir_str) if work_dir_str else None
     return load_single_d3plot_report(
         d3plot_path=Path(d3plot_path),
@@ -1714,6 +1797,7 @@ def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
         face_code=None,             # auto-detect from v₀
         work_dir=work_dir,
         threads=threads,
+        step_config=step_config,
     )
 
 
@@ -1772,6 +1856,7 @@ def load_partial_impact_doe_report(
             impactor_part_name,
             threads_per_run,
             str(work_root / f"{run['pos_name']}"),
+            run.get("config"),          # step_config.txt kv dict — authoritative geometry
         )
         for run in runs
     ]
