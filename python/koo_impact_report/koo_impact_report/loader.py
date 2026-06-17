@@ -999,7 +999,7 @@ def load_per_part_motions(
     failure). This exposes per-part stress/strain histories for downstream use.
     """
     try:
-        from koo_deep_report.core.d3plot_reader import run_analysis
+        from koo_deep_report.core.d3plot_reader import run_analysis, _parse_outputs
     except ImportError:
         print("[loader] koo_deep_report not importable — cannot extract per-part motion")
         return {}, None
@@ -1009,18 +1009,39 @@ def load_per_part_motions(
         work_dir = Path(tempfile.mkdtemp(prefix="koo_impact_motion_"))
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    # Reuse existing deep_report output when present: koo_deep_report already
+    # ran unified_analyzer on this d3plot and dumped analysis_result.json +
+    # motion/ CSVs here. Re-parsing them (a) avoids a second unified_analyzer
+    # pass over the same d3plot, and (b) lets the impact report be rebuilt even
+    # after the (large) d3plot has been deleted — only the deep outputs remain.
+    _reuse = (
+        (work_dir / "analysis_result.json").exists()
+        and (work_dir / "motion").is_dir()
+        and any((work_dir / "motion").glob("part_*_motion.csv"))
+    )
     d3plot_result = None
-    try:
-        d3plot_result = run_analysis(
-            d3plot_path=d3plot_path,
-            output_dir=work_dir,
-            part_ids=part_ids,
-            threads=threads,
-            verbose=False,
-        )
-    except Exception as e:
-        print(f"[loader] unified_analyzer failed: {e}")
-        return {}, None
+    if _reuse:
+        try:
+            d3plot_result = _parse_outputs(work_dir)
+            print(f"[loader] reusing deep_report output (no unified_analyzer rerun): {work_dir}")
+        except Exception as e:
+            print(f"[loader] deep_report output reuse failed ({e}) — falling back to unified_analyzer")
+            _reuse = False
+    if not _reuse:
+        if not Path(d3plot_path).exists():
+            print(f"[loader] ERROR: d3plot missing and no reusable deep_report output in {work_dir}")
+            return {}, None
+        try:
+            d3plot_result = run_analysis(
+                d3plot_path=d3plot_path,
+                output_dir=work_dir,
+                part_ids=part_ids,
+                threads=threads,
+                verbose=False,
+            )
+        except Exception as e:
+            print(f"[loader] unified_analyzer failed: {e}")
+            return {}, None
 
     motions: dict[int, PartMotion] = {}
     motion_dir = work_dir / "motion"
@@ -1386,8 +1407,18 @@ def load_single_d3plot_report(
     Returns an ImpactReport ready for analyzer.analyze() + html generation.
     """
     d3plot_path = Path(d3plot_path).resolve()
-    if not d3plot_path.exists():
-        raise FileNotFoundError(f"d3plot not found: {d3plot_path}")
+    # d3plot may be absent IF a reusable deep_report output (analysis_result.json
+    # + motion/) is available in work_dir — load_per_part_motions reuses it and
+    # never touches the d3plot. Only hard-fail when neither source exists.
+    _reusable_deep = bool(
+        work_dir is not None
+        and (Path(work_dir) / "analysis_result.json").exists()
+        and (Path(work_dir) / "motion").is_dir()
+    )
+    if not d3plot_path.exists() and not _reusable_deep:
+        raise FileNotFoundError(
+            f"d3plot not found and no reusable deep_report output: {d3plot_path}"
+        )
 
     parent = d3plot_path.parent
     if project_name is None:
@@ -1425,7 +1456,10 @@ def load_single_d3plot_report(
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[loader] running unified_analyzer for parts={part_ids_to_extract or 'auto'}")
+    # load_per_part_motions reuses an existing deep_report output in work_dir
+    # when present (logs "reusing deep_report output"); otherwise it runs
+    # unified_analyzer. Either way it returns per-part motions + d3plot_result.
+    print(f"[loader] extracting per-part motion for parts={part_ids_to_extract or 'auto'}")
     motions, d3plot_result = load_per_part_motions(
         d3plot_path=d3plot_path,
         part_ids=part_ids_to_extract,
@@ -1700,18 +1734,45 @@ def _parse_step_config_kv(path: Path) -> dict[str, str]:
     return out
 
 
+def _find_deep_output_dir(run_dir: Path, test_dir: Path) -> Path | None:
+    """Locate a reusable koo_deep_report output dir for a flat-DOE run.
+
+    deep_report writes analysis_result.json + motion/ CSVs. Two known layouts:
+      1. chainrun deep_report.sh  → <run_dir>/Output/report/
+      2. post_analyze deep batch  → <test_dir>/deep_reports/<run_dir.name>/
+
+    Returns the first dir containing analysis_result.json + a non-empty motion/
+    subdir, else None. Reusing it lets impact skip a second unified_analyzer
+    pass and survive deletion of the (large) d3plot.
+    """
+    candidates = [
+        run_dir / "Output" / "report",
+        test_dir / "deep_reports" / run_dir.name,
+    ]
+    for c in candidates:
+        if (
+            (c / "analysis_result.json").exists()
+            and (c / "motion").is_dir()
+            and any((c / "motion").glob("part_*_motion.csv"))
+        ):
+            return c
+    return None
+
+
 def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
     """List ``output/Run_*`` directories with their step_config + d3plot path.
 
     Returns a list of dicts sorted by DOE index (parsed from
     ``*Description``):
 
-        [{"run_dir": Path(...), "d3plot": Path(...),
+        [{"run_dir": Path(...), "d3plot": Path(...), "deep_dir": Path|None,
           "step_config": Path(...), "config": {...kv...},
           "doe_index": int, "pos_name": str,
           "location_x": float, "location_y": float}, ...]
 
-    Skips runs with missing d3plot or step_config.
+    A run is included when it has step_config AND (d3plot OR a reusable
+    deep_report output). Runs whose d3plot was deleted but whose deep_report
+    output survives are still processed (impact rebuilt from deep outputs).
     """
     output_dir = test_dir / "output"
     if not output_dir.exists():
@@ -1723,7 +1784,10 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
             continue
         d3plot = run / "Output" / "d3plot"
         cfg_path = run / "step_config.txt"
-        if not d3plot.exists() or not cfg_path.exists():
+        if not cfg_path.exists():
+            continue
+        deep_dir = _find_deep_output_dir(run, test_dir)
+        if not d3plot.exists() and deep_dir is None:
             continue
         cfg = _parse_step_config_kv(cfg_path)
         # *Description = "DOE001 Step1 IMPACT P_001_001"
@@ -1768,6 +1832,7 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
         items.append({
             "run_dir":     run,
             "d3plot":      d3plot,
+            "deep_dir":    deep_dir,
             "step_config": cfg_path,
             "config":      cfg,
             "doe_index":   doe_idx,
@@ -1849,13 +1914,16 @@ def load_partial_impact_doe_report(
     # Process each run as its own single-d3plot report, in parallel.
     import tempfile
     work_root = Path(tempfile.mkdtemp(prefix="koo_impact_doe_"))
+    # work_dir per run: reuse the deep_report output dir when present (skips a
+    # second unified_analyzer pass and works even if the d3plot was deleted);
+    # otherwise a fresh scratch dir under work_root (unified_analyzer runs there).
     job_args = [
         (
             str(run["d3plot"]),
             f"{project_name}_{run['pos_name']}",
             impactor_part_name,
             threads_per_run,
-            str(work_root / f"{run['pos_name']}"),
+            str(run["deep_dir"]) if run.get("deep_dir") else str(work_root / f"{run['pos_name']}"),
             run.get("config"),          # step_config.txt kv dict — authoritative geometry
         )
         for run in runs

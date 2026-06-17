@@ -123,15 +123,18 @@ def main() -> None:
 
         # Layout-aware dispatch:
         #   F*/Run_*/analysis_result.json present  → load_impact_report (face-tree)
-        #   else if output/Run_*/Output/d3plot present → load_partial_impact_doe_report (flat DOE)
+        #   else output/Run_* with step_config + (d3plot OR deep_report output)
+        #        → load_partial_impact_doe_report (flat DOE). _discover_test_impact_runs
+        #        detects runs even when the d3plot was deleted but deep_report output
+        #        (analysis_result.json + motion/) survives.
         face_dirs = loader._discover_face_dirs(test_dir)
-        output_dir = test_dir / "output"
-        flat_runs = (
-            sorted(output_dir.glob("Run_*/Output/d3plot")) if output_dir.is_dir() else []
-        )
+        flat_runs = loader._discover_test_impact_runs(test_dir)
         if not face_dirs and flat_runs:
+            _n_d3 = sum(1 for r in flat_runs if r["d3plot"].exists())
+            _n_reuse = sum(1 for r in flat_runs if r.get("deep_dir"))
             print(
-                f"[main] flat output/Run_* layout detected ({len(flat_runs)} runs) "
+                f"[main] flat output/Run_* layout detected ({len(flat_runs)} runs; "
+                f"{_n_d3} with d3plot, {_n_reuse} reusing deep_report output) "
                 f"→ load_partial_impact_doe_report"
             )
             report = loader.load_partial_impact_doe_report(
