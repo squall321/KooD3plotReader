@@ -139,9 +139,17 @@ Vec3 MotionAnalyzer::computeAverageDisplacement(int32_t part_id, const std::vect
     for (size_t node_idx : it->second) {
         if (node_idx * 3 + 2 < displacements.size()) {
             // Displacements are already Ux, Uy, Uz
-            sum.x += displacements[node_idx * 3 + 0];
-            sum.y += displacements[node_idx * 3 + 1];
-            sum.z += displacements[node_idx * 3 + 2];
+            double dx = displacements[node_idx * 3 + 0];
+            double dy = displacements[node_idx * 3 + 1];
+            double dz = displacements[node_idx * 3 + 2];
+            // Skip non-finite (eroded free-node inf/nan) so the average is not
+            // poisoned to inf/nan; average over the surviving nodes only.
+            if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz)) {
+                continue;
+            }
+            sum.x += dx;
+            sum.y += dy;
+            sum.z += dz;
             count++;
         }
     }
@@ -171,6 +179,13 @@ std::pair<double, int32_t> MotionAnalyzer::computeMaxDisplacement(int32_t part_i
             double dy = displacements[node_idx * 3 + 1];
             double dz = displacements[node_idx * 3 + 2];
             double disp = std::sqrt(dx*dx + dy*dy + dz*dz);
+
+            // Skip non-finite displacement: eroded elements leave free nodes
+            // whose displacement diverges to inf/nan. Including one would make
+            // the part max_disp inf and poison the all-angle sphere report.
+            if (!std::isfinite(disp)) {
+                continue;
+            }
 
             if (disp > max_disp) {
                 max_disp = disp;

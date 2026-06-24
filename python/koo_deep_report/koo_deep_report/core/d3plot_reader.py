@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import math
 import os
 import subprocess
 import sys
@@ -519,9 +520,13 @@ def _parse_motion_csv(csv_path: Path) -> MotionData | None:
             for row in reader:
                 def fv(key: str) -> float:
                     try:
-                        return float(row.get(key, 0) or 0)
+                        v = float(row.get(key, 0) or 0)
                     except ValueError:
                         return 0.0
+                    # Eroded elements leave free nodes whose motion diverges to
+                    # inf/nan (esp. Max_Disp_Mag). Coerce non-finite → 0.0 so it
+                    # never propagates into deep/sphere/impact peaks.
+                    return v if math.isfinite(v) else 0.0
 
                 md.t.append(fv("Time"))
                 md.disp_x.append(fv("Avg_Disp_X"))

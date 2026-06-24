@@ -200,7 +200,16 @@ def _load_motion_csv(csv_path: Path, target_points: int | None = None) -> Motion
         md.true_peak_g = abs_acc[idx] / MotionData.G_FACTOR
         md.true_peak_g_time = all_t[idx]
     if buf["max_disp_mag"]:
-        md.true_peak_disp = max(buf["max_disp_mag"])
+        # Eroded elements leave free nodes whose displacement diverges to
+        # inf/nan; a single such sample would make true_peak_disp inf and
+        # poison the all-angle sphere ranking. Peak over finite samples only.
+        finite_disp = [v for v in buf["max_disp_mag"] if math.isfinite(v)]
+        n_dropped = len(buf["max_disp_mag"]) - len(finite_disp)
+        if n_dropped:
+            print(f"[sphere] WARN  {csv_path.name}: dropped {n_dropped} non-finite "
+                  f"max_disp sample(s) (eroded free node?) from peak_disp")
+        if finite_disp:
+            md.true_peak_disp = max(finite_disp)
 
     step = _downsample_step(len(all_t), target_points)
     md.times = all_t[::step]
