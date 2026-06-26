@@ -46,9 +46,13 @@ void FileFamily::discover_files() {
         directory = ".";
     }
 
-    // Discover family files: d3plot01, d3plot02, ..., d3plot99
-    // Format: base_name + two-digit number (01-99)
-    for (int i = 1; i <= 99; ++i) {
+    // Discover family files: d3plot01..d3plot99, then d3plot100..d3plot999.
+    // LS-DYNA spec (ls-dyna_database.txt): successive members append a two- OR
+    // three-digit number, 01,02,...,99,100,...,999. setw(2) is a MINIMUM width,
+    // so i>=100 renders as 3 digits naturally. Capping at 99 silently dropped
+    // every family file past d3plot99 → truncated state history → wrong peaks.
+    // (Mesh-adaptivity letter appendage d3plotaa.. is a separate, unhandled case.)
+    for (int i = 1; i <= 999; ++i) {
         std::ostringstream oss;
         oss << base_name << std::setfill('0') << std::setw(2) << i;
 
