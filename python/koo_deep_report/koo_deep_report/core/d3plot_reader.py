@@ -17,12 +17,34 @@ if TYPE_CHECKING:
     from ..render.job_builder import RenderConfig, SectionViewRenderConfig
 
 
-# unified_analyzer 바이너리 탐색: install_dir → 패키지 상대 경로 → PATH
+# SIF/배포 환경 기본 설치 경로: install_dir 미지정 시 env fallback.
+# SmartTwinPostprocessor.sif 는 KOOD3PLOT_HOME=/opt/kood3plot,
+# LSPREPOST_PATH=/opt/kood3plot/lsprepost 를 export 한다. --install-dir 를
+# 안 줘도 이 env 로 unified_analyzer / lsprepost 를 자동 탐색하게 한다.
+def _env_install_dir() -> Path | None:
+    import os
+    home = os.environ.get("KOOD3PLOT_HOME")
+    if home and Path(home).exists():
+        return Path(home)
+    lspp = os.environ.get("LSPREPOST_PATH")
+    if lspp:
+        p = Path(lspp)
+        if p.exists():
+            # LSPREPOST_PATH=.../kood3plot/lsprepost → install_dir=.../kood3plot
+            return p.parent if p.name == "lsprepost" else p
+    return None
+
+
+# unified_analyzer 바이너리 탐색: install_dir → env → 패키지 상대 경로 → PATH
 def find_unified_analyzer(install_dir: Path | None = None) -> Path | None:
     import shutil
     import platform
 
     exe = "unified_analyzer.exe" if platform.system() == "Windows" else "unified_analyzer"
+
+    # install_dir 미지정 시 SIF/배포 env 로 fallback ($KOOD3PLOT_HOME 등)
+    if install_dir is None:
+        install_dir = _env_install_dir()
 
     # 0) install_dir 지정 시 최우선 탐색
     if install_dir is not None:
@@ -341,6 +363,10 @@ def _resolve_lsprepost(render_config: "RenderConfig | None", install_dir: Path |
     import shutil
 
     exe_name = "lsprepost.exe" if platform.system() == "Windows" else "lsprepost"
+
+    # install_dir 미지정 시 SIF/배포 env 로 fallback ($KOOD3PLOT_HOME 등)
+    if install_dir is None:
+        install_dir = _env_install_dir()
 
     # 0) install_dir 지정 시 최우선 탐색
     if install_dir is not None:
