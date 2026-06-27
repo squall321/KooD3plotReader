@@ -41,7 +41,37 @@ struct LSPrePostRenderer::Impl {
     std::string last_error;
     std::string last_output;
     int worker_id = g_worker_counter.fetch_add(1);  // unique per instance
+    // GPU 렌더 모드: KOOD3PLOT_GPU_RENDER=1 일 때 ON. 기본 OFF(소프트웨어 mesa).
+    // ON 이면 non-mesa wrapper + vglrun(-d egl) 경유로 NVIDIA GPU 가속.
+    // GLX 전용 LSPrePost 를 헤드리스 GPU 로 돌리는 유일한 경로(VirtualGL).
+    // apptainer 는 --nv 로 실행되어야 NVIDIA 드라이버가 컨테이너에 바인드됨.
+    bool gpu_mode = false;
 };
+
+#ifndef _WIN32
+// gpu_mode 일 때 non-mesa wrapper(lspp412), 아니면 lspp412_mesa 선택.
+// 둘 다 없으면 입력 경로 그대로 반환.
+static std::string _pick_lsprepost_wrapper(const std::filesystem::path& exe_path,
+                                           bool gpu_mode) {
+    namespace fs = std::filesystem;
+    const char* name = gpu_mode ? "lspp412" : "lspp412_mesa";
+    fs::path wrapper = exe_path.parent_path() / name;
+    if (fs::exists(wrapper)) {
+        return fs::absolute(wrapper).string();
+    }
+    // GPU 모드인데 non-mesa wrapper 가 없으면 mesa wrapper 라도 사용(graceful).
+    if (gpu_mode) {
+        fs::path mesa = exe_path.parent_path() / "lspp412_mesa";
+        if (fs::exists(mesa)) return fs::absolute(mesa).string();
+    }
+    return fs::absolute(exe_path).string();
+}
+#endif
+
+static bool _gpu_render_enabled() {
+    const char* v = std::getenv("KOOD3PLOT_GPU_RENDER");
+    return v && (v[0] == '1' || v[0] == 't' || v[0] == 'T' || v[0] == 'y' || v[0] == 'Y');
+}
 
 // ============================================================
 // Constructor/Destructor
@@ -56,14 +86,12 @@ LSPrePostRenderer::LSPrePostRenderer(const std::string& lsprepost_path)
         exe_path = std::filesystem::absolute(exe_path);
     }
     pImpl->lsprepost_path = exe_path.string();
+    pImpl->gpu_mode = _gpu_render_enabled();
 
-    // On Linux, automatically use Mesa wrapper if available
+    // On Linux, pick the wrapper: GPU mode → non-mesa (lspp412) for NVIDIA GL,
+    // else lspp412_mesa (software). Auto-applied if the wrapper exists.
     #ifndef _WIN32
-    std::filesystem::path mesa_wrapper = exe_path.parent_path() / "lspp412_mesa";
-
-    if (std::filesystem::exists(mesa_wrapper)) {
-        pImpl->lsprepost_path = std::filesystem::absolute(mesa_wrapper).string();
-    }
+    pImpl->lsprepost_path = _pick_lsprepost_wrapper(exe_path, pImpl->gpu_mode);
     #endif
 }
 
@@ -76,14 +104,9 @@ LSPrePostRenderer::~LSPrePostRenderer() = default;
 void LSPrePostRenderer::setLSPrePostPath(const std::string& path) {
     pImpl->lsprepost_path = path;
 
-    // On Linux, automatically use Mesa wrapper if available
+    // On Linux, pick wrapper by GPU mode (see constructor).
     #ifndef _WIN32
-    std::filesystem::path exe_path(path);
-    std::filesystem::path mesa_wrapper = exe_path.parent_path() / "lspp412_mesa";
-
-    if (std::filesystem::exists(mesa_wrapper)) {
-        pImpl->lsprepost_path = mesa_wrapper.string();
-    }
+    pImpl->lsprepost_path = _pick_lsprepost_wrapper(std::filesystem::path(path), pImpl->gpu_mode);
     #endif
 }
 
@@ -339,10 +362,19 @@ bool LSPrePostRenderer::executeLSPrePost(
 #ifndef _WIN32
     // Dedicated Xvfb display per worker (avoids conflicts in parallel rendering)
     int display_num = 10 + pImpl->worker_id;  // :10, :11, :12, ...
+    // GPU 모드: GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속하는 유일한 경로는
+    // VirtualGL. vglrun 이 GLX 호출을 가로채 EGL(/dev/dri/renderDxxx)에서 GPU
+    // 렌더 후 Xvfb 프레임버퍼로 blit. apptainer --nv 로 NVIDIA 드라이버 바인드 필요.
+    // vglrun 부재 시(또는 GPU 모드 OFF) 기존 소프트웨어 경로 그대로.
+    std::string gl_prefix;
+    if (pImpl->gpu_mode && std::system("command -v vglrun >/dev/null 2>&1") == 0) {
+        gl_prefix = "vglrun -d egl ";
+    }
     cmd << "Xvfb :" << display_num << " -ac -screen 0 1600x1200x24 &"
         << " XVFB_PID=$!; sleep 0.5;"
-        << " DISPLAY=:" << display_num << ".0"
-        << " \"" << pImpl->lsprepost_path << "\" c=\"" << script_path << "\";"
+        << " DISPLAY=:" << display_num << ".0 "
+        << gl_prefix
+        << "\"" << pImpl->lsprepost_path << "\" c=\"" << script_path << "\";"
         << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null";
 #else
     cmd << "\"" << pImpl->lsprepost_path << "\" -nographics c=\"" << script_path << "\"";

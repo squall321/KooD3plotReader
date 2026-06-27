@@ -25,6 +25,17 @@ From: ubuntu:22.04
       apptainer exec --bind /data:/data SmartTwinPostprocessor.sif \
           post_analyze /data/test_001 --section-view --section-view-backend lsprepost
 
+    Headless rendering:
+      - software backend (CPU, no GPU/display needed — recommended for headless):
+          ... --section-view --section-view-backend software
+      - lsprepost backend, GPU-accelerated (NVIDIA, VirtualGL):
+          apptainer exec --nv --bind /data:/data SmartTwinPostprocessor.sif \
+            env KOOD3PLOT_GPU_RENDER=1 post_analyze /data/test_001 \
+            --section-view --section-view-backend lsprepost
+        (requires --nv to bind the host NVIDIA driver; KOOD3PLOT_GPU_RENDER=1
+         routes LSPrePost through `vglrun -d egl` + the non-mesa wrapper.
+         Without --nv or the env, it falls back to software mesa GL.)
+
     Build:
       apptainer build SmartTwinPostprocessor.sif SmartTwinPostprocessor.def
 
@@ -42,7 +53,21 @@ From: ubuntu:22.04
         libomp-dev python3 python3-pip python3-venv \
         ffmpeg libpng-dev xvfb \
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
-        libxinerama1 libxkbcommon0
+        libxinerama1 libxkbcommon0 \
+        virtualgl libglvnd0 libgl1-mesa-dri libegl1 libegl-mesa0 libgles2
+
+    # VirtualGL: GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속 (KOOD3PLOT_GPU_RENDER=1
+    # + apptainer --nv 일 때만 사용). apt 에 virtualgl 패키지가 없으면 GitHub
+    # 릴리스 .deb 로 fallback. (libglvnd/libEGL 은 vglrun 의 EGL 백엔드용.)
+    if ! command -v vglrun >/dev/null 2>&1; then
+        echo "virtualgl apt 미존재 → .deb fallback 시도"
+        VGL_DEB=/tmp/virtualgl.deb
+        ( wget -q -O "$VGL_DEB" \
+            "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
+          && apt-get install -y --no-install-recommends "$VGL_DEB" ) \
+          || echo "WARN: VirtualGL 설치 실패 — GPU 렌더 비활성(SW/mesa 경로는 정상)"
+        rm -f "$VGL_DEB"
+    fi
 
     # Clone source and build
     cd /opt
@@ -81,6 +106,9 @@ From: ubuntu:22.04
     export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
+    # VirtualGL EGL 백엔드 기본 GPU 디바이스(헤드리스). KOOD3PLOT_GPU_RENDER=1
+    # 일 때만 vglrun 이 사용. GPU 모드 OFF 면 무영향.
+    export VGL_DISPLAY=egl
 
 %runscript
     if [ $# -eq 0 ]; then
