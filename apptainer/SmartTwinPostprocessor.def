@@ -48,26 +48,33 @@ From: ubuntu:22.04
 
     # System dependencies
     apt-get update
+    # 빌드 필수 패키지 (하나라도 빠지면 빌드 실패해야 하는 것들)
     apt-get install -y --no-install-recommends \
-        build-essential cmake g++ git ca-certificates pkg-config \
+        build-essential cmake g++ git ca-certificates pkg-config wget \
         libomp-dev python3 python3-pip python3-venv \
         ffmpeg libpng-dev xvfb \
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
-        libxinerama1 libxkbcommon0 \
-        virtualgl libglvnd0 libgl1-mesa-dri libegl1 libegl-mesa0 libgles2
+        libxinerama1 libxkbcommon0
 
-    # VirtualGL: GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속 (KOOD3PLOT_GPU_RENDER=1
-    # + apptainer --nv 일 때만 사용). apt 에 virtualgl 패키지가 없으면 GitHub
-    # 릴리스 .deb 로 fallback. (libglvnd/libEGL 은 vglrun 의 EGL 백엔드용.)
-    if ! command -v vglrun >/dev/null 2>&1; then
-        echo "virtualgl apt 미존재 → .deb fallback 시도"
-        VGL_DEB=/tmp/virtualgl.deb
-        ( wget -q -O "$VGL_DEB" \
-            "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
-          && apt-get install -y --no-install-recommends "$VGL_DEB" ) \
-          || echo "WARN: VirtualGL 설치 실패 — GPU 렌더 비활성(SW/mesa 경로는 정상)"
-        rm -f "$VGL_DEB"
+    # --- GPU 렌더(VirtualGL) — best-effort, 실패해도 빌드 안 죽음 ---
+    # GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속하는 경로(KOOD3PLOT_GPU_RENDER=1
+    # + apptainer --nv 일 때만 사용). virtualgl 은 Ubuntu 기본 repo 에 없어
+    # GitHub 릴리스 .deb 로 설치. EGL 런타임(libglvnd/libegl)은 vglrun 의 EGL
+    # 백엔드용 — 패키지명이 배포본마다 달라 개별 설치 후 실패는 무시.
+    # 모두 실패해도 SW/mesa 렌더 경로는 정상 동작하므로 빌드는 계속 진행.
+    for p in libegl1 libegl-mesa0 libgles2 libglvnd0 libgl1-mesa-dri; do
+        apt-get install -y --no-install-recommends "$p" 2>/dev/null \
+            || echo "WARN: optional GPU pkg '$p' 설치 실패 (skip)"
+    done
+    VGL_DEB=/tmp/virtualgl.deb
+    if wget -q -O "$VGL_DEB" \
+         "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb"; then
+        apt-get install -y --no-install-recommends "$VGL_DEB" \
+            || echo "WARN: VirtualGL .deb 설치 실패 — GPU 렌더 비활성(SW/mesa 정상)"
+    else
+        echo "WARN: VirtualGL .deb 다운로드 실패 — GPU 렌더 비활성(SW/mesa 정상)"
     fi
+    rm -f "$VGL_DEB"
 
     # Clone source and build
     cd /opt
