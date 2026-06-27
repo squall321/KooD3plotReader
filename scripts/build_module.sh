@@ -45,6 +45,10 @@ JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 BUILD_VIEWER=true
 BUILD_NUITKA=false
 LSPREPOST_SRC=""
+# 자체 SW 섹션렌더(VTK-free, 순수 CPU) 강제 ON. true 면 libpng 자동감지에
+# 의존하지 않고 무조건 켠다(감지 실패로 stub 출고되던 회귀 방지). libpng 가
+# 정말 없으면 빌드를 fail-loud 시킨다(조용히 OFF 금지).
+FORCE_SECTION_RENDER=false
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -63,6 +67,7 @@ while [[ $# -gt 0 ]]; do
         --build-type)      BUILD_TYPE="$2"; shift 2 ;;
         --no-viewer)       BUILD_VIEWER=false; shift ;;
         --nuitka)          BUILD_NUITKA=true; shift ;;
+        --section-render)  FORCE_SECTION_RENDER=true; shift ;;
         --with-lsprepost)  LSPREPOST_SRC="$2"; shift 2 ;;
         --help|-h)
             sed -n '/^# ==/,/^# ==/p' "$0" | sed 's/^# //' | head -35
@@ -98,13 +103,30 @@ command -v python3 &>/dev/null && ok "python3 $(python3 --version | cut -d' ' -f
 command -v ffmpeg &>/dev/null && ok "ffmpeg found" \
     || warn "ffmpeg not found — section view MP4 re-encode will fail"
 
-# Check libpng for section render
-SECTION_RENDER=OFF
-if pkg-config --exists libpng 2>/dev/null || ldconfig -p 2>/dev/null | grep -q libpng; then
-    ok "libpng found"
+# Software section renderer (VTK-free, CPU). libpng 필요.
+# 자동감지(pkg-config/ldconfig)는 빌드환경에 따라 불안정해 과거 SIF 에서
+# stub("software renderer not available") 가 출고됐다. --section-render 로
+# 강제 ON 하면 감지에 의존하지 않고, libpng 가 정말 없으면 fail-loud.
+_have_libpng=false
+if pkg-config --exists libpng 2>/dev/null \
+   || ldconfig -p 2>/dev/null | grep -q libpng \
+   || ls /usr/lib/*/libpng*.so* /usr/lib/libpng*.so* >/dev/null 2>&1; then
+    _have_libpng=true
+fi
+if ${FORCE_SECTION_RENDER}; then
+    if ${_have_libpng}; then
+        ok "section render forced ON (libpng present)"
+        SECTION_RENDER=ON
+    else
+        err "--section-render requested but libpng not found (install libpng-dev)"
+        exit 1
+    fi
+elif ${_have_libpng}; then
+    ok "libpng found — software section renderer ON"
     SECTION_RENDER=ON
 else
     warn "libpng not found — software section renderer disabled"
+    SECTION_RENDER=OFF
 fi
 
 # Check Xvfb for LSPrePost batch
