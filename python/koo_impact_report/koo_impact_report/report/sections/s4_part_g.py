@@ -72,6 +72,12 @@ _JS_S4 = r"""function initPerPartPeakG() {
   const pm = DATA.part_motion || { summary: [], series: [], impactor_part_id: null, t_first_contact: null, g_mm_s2: 9810.0 };
   const summary = pm.summary || [];
   const series = pm.series || [];
+  // t_ref dedup (P4): series 는 위치별 공유 시간축을 "tref" 로 참조 — 여기서 수화.
+  const tRef = pm.t_ref || {};
+  for (const s of series) {
+    if (!s.t && s.tref !== undefined) s.t = tRef[s.tref] || [];
+    if (!s.t) s.t = [];
+  }
   const empty = document.getElementById('ppg-empty');
   const content = document.getElementById('ppg-content');
   const hasData = summary.some(r => (r.peak_g || 0) > 0) || series.length > 0;
@@ -267,6 +273,7 @@ _JS_S4 = r"""function initPerPartPeakG() {
         const pts = [];
         const N = Math.min(s.t.length, s.a.length);
         for (let i = 0; i < N; i++) {
+          if (s.a[i] == null) continue; // t_ref 공유축에서 짧은 시리즈의 패딩(P4)
           const xp = px(s.t[i]);
           const yp = py(s.a[i]);
           pts.push(xp.toFixed(1) + ',' + yp.toFixed(1));

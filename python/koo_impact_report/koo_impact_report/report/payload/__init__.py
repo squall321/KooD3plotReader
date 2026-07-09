@@ -428,6 +428,11 @@ def _build_payload(report: ImpactReport) -> dict:
         _topk_pos = set(sorted(_pos_worst, key=_pos_worst.get, reverse=True)
                         [:_tier.part_motion_topk])
 
+    # P4 t_ref dedup: 같은 run(pos_id)의 모든 부품은 같은 시간축을 공유한다.
+    # 위치별 공유 인덱스 = 스트라이드 ∪ {마지막} ∪ {각 부품의 peak 인덱스}
+    # → t 배열을 pos 당 1회만 출고 (t_ref[pos_id]), series 는 "tref" 로 참조.
+    # 구 ``n // 600`` 버그(992//600=1, 다운샘플 미작동)는 ceil 스텝으로 교체.
+    _by_pos: dict[str, list] = {}
     for key, motion in raw_motions.items():
         if motion is None:
             continue
@@ -440,28 +445,45 @@ def _build_payload(report: ImpactReport) -> dict:
             continue  # tier D: 곡선 인라인 없음 (요약은 summary_rows 가 담당)
         if _topk_pos is not None and str(pos_id) not in _topk_pos:
             continue
-        times = list(getattr(motion, "times", []) or [])
-        acc_mag = list(getattr(motion, "acc_mag", []) or [])
-        if not times or not acc_mag:
+        _by_pos.setdefault(str(pos_id), []).append((pid, motion))
+
+    part_motion_t_ref: dict[str, list] = {}
+    for pos_id, entries in _by_pos.items():
+        n_pos = 0
+        peaks: list[int] = []
+        prepped = []
+        for pid, motion in entries:
+            times = list(getattr(motion, "times", []) or [])
+            acc_mag = list(getattr(motion, "acc_mag", []) or [])
+            if not times or not acc_mag:
+                continue
+            n = min(len(times), len(acc_mag))
+            pk = _argmax(acc_mag[:n])
+            if pk is not None:
+                peaks.append(pk)
+            prepped.append((pid, motion, times, acc_mag, n))
+            n_pos = max(n_pos, n)
+        if not prepped:
             continue
-        n = min(len(times), len(acc_mag))
-        # P4: ceil 스텝 + true-peak splice — 구 ``n // 600`` 은 992//600=1 로
-        # 다운샘플 미작동 (payload 12.5MB 의 주범).
-        idx = _downsample_indices(n, PART_MOTION_MAX_PTS,
-                                  peak_idx=_argmax(acc_mag[:n]))
-        t_arr = [round(_safe(times[i]), 8) for i in idx]
-        a_arr = [round(_safe(acc_mag[i]), _VAL_DP) for i in idx]
-        part_motion_series.append({
-            "pos_id": str(pos_id),
-            "part_id": pid,
-            "part_name": getattr(motion, "part_name", "") or pname_lookup.get(pid, f"part_{pid}"),
-            "t": t_arr,
-            "a": a_arr,
-            "peak_g": _safe(getattr(motion, "peak_g", 0.0)),
-            "t_peak_g": _safe(getattr(motion, "t_peak_g", 0.0)),
-            "peak_vel": _safe(getattr(motion, "peak_vel", 0.0)),
-            "peak_disp": _safe(getattr(motion, "peak_disp", 0.0)),
-        })
+        idx = _downsample_indices(n_pos, PART_MOTION_MAX_PTS)
+        keep = set(idx) | {p for p in peaks if 0 <= p < n_pos}
+        idx = sorted(keep)
+        _t_src = max(prepped, key=lambda e: e[4])  # 가장 긴 times 로 t_ref 구성
+        part_motion_t_ref[pos_id] = [round(_safe(_t_src[2][i]), 8) for i in idx]
+        for pid, motion, times, acc_mag, n in prepped:
+            a_arr = [round(_safe(acc_mag[i]), _VAL_DP) if i < n else None
+                     for i in idx]
+            part_motion_series.append({
+                "pos_id": pos_id,
+                "part_id": pid,
+                "part_name": getattr(motion, "part_name", "") or pname_lookup.get(pid, f"part_{pid}"),
+                "tref": pos_id,
+                "a": a_arr,
+                "peak_g": _safe(getattr(motion, "peak_g", 0.0)),
+                "t_peak_g": _safe(getattr(motion, "t_peak_g", 0.0)),
+                "peak_vel": _safe(getattr(motion, "peak_vel", 0.0)),
+                "peak_disp": _safe(getattr(motion, "peak_disp", 0.0)),
+            })
 
     # Per-part summary rows: prefer PartMotion's scalars when available,
     # otherwise fall back to the aggregated PairResult.peak_g.
@@ -523,6 +545,7 @@ def _build_payload(report: ImpactReport) -> dict:
     part_motion_payload = {
         "summary": summary_rows,
         "series": part_motion_series,
+        "t_ref": part_motion_t_ref,
         "impactor_part_id": impactor_part_id,
         "t_first_contact": t_first_contact,
         "g_divisor": _g_div_pm,
