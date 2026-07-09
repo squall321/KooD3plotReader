@@ -1,6 +1,7 @@
 """CLI entry point: python -m koo_impact_report"""
 from __future__ import annotations
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -82,6 +83,12 @@ def main() -> None:
                              "auto-detects from density + impactor radius. "
                              "Use this when auto-detection picks the wrong system "
                              "(e.g. SI-style density in a ton-mm-s deck).")
+    parser.add_argument("--parallel-runs", type=int, default=0, metavar="N",
+                        help="Concurrent DOE run workers (process pool). "
+                             "0 = auto: SLURM_CPUS_PER_TASK (or CPU count) // threads-per-run. "
+                             "Was hardcoded to 4 before — unreachable from chainrun.")
+    parser.add_argument("--threads-per-run", type=int, default=2, metavar="N",
+                        help="unified_analyzer threads per DOE worker (default 2).")
 
     args = parser.parse_args()
 
@@ -137,8 +144,20 @@ def main() -> None:
                 f"{_n_d3} with d3plot, {_n_reuse} reusing deep_report output) "
                 f"→ load_partial_impact_doe_report"
             )
+            # 풀 크기: CLI > SLURM auto. 과거 4×2 하드코딩은 chainrun 에서
+            # 조정 불가 + SLURM cpus-per-task 와 무관하게 고정이었다 (P2-3).
+            threads_per_run = max(1, int(args.threads_per_run))
+            parallel_runs = int(args.parallel_runs)
+            if parallel_runs <= 0:
+                cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", 0) or 0) \
+                    or (os.cpu_count() or 8)
+                parallel_runs = max(1, cpus // threads_per_run)
+            print(f"[main] pool: parallel_runs={parallel_runs}, "
+                  f"threads_per_run={threads_per_run}")
             report = loader.load_partial_impact_doe_report(
-                test_dir=test_dir, threads_per_run=2, parallel_runs=4
+                test_dir=test_dir,
+                threads_per_run=threads_per_run,
+                parallel_runs=parallel_runs,
             )
         else:
             report = loader.load_impact_report(test_dir)
