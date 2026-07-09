@@ -163,6 +163,13 @@ def main() -> None:
             report = loader.load_impact_report(test_dir)
         print(f"[main] Loaded in {time.time() - t0:.1f}s")
 
+        # 출처 메타 — CLI 레이어에서만 주입 (loader 는 결정적 유지, P2-5).
+        try:
+            from .provenance import build_provenance
+            report.provenance = build_provenance(report)
+        except Exception as e:
+            print(f"[main] WARN provenance skipped: {type(e).__name__}: {e}")
+
         if not report.results:
             print(
                 f"[main] ERROR: no (face, position, part) results discovered under {test_dir}. "

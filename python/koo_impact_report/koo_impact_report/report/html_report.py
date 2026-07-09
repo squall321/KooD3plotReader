@@ -4584,6 +4584,11 @@ def _build_payload(report: ImpactReport) -> dict:
     # 구조화 로드 진단 (P1b) — binout 실패/런 로드 실패/impactor 불일치 등.
     # JS 배지·Finding 승격의 원천 데이터.
     meta["load_issues"] = list(getattr(report, "load_issues", []) or [])
+    # provenance 는 CLI 가 채웠을 때만 노출 — 빈 dict 키를 만들지 않아
+    # loader 직접 호출 경로(골든 테스트)의 payload 바이트가 불변 (P2-5).
+    _prov = getattr(report, "provenance", None)
+    if _prov:
+        meta["provenance"] = dict(_prov)
 
     # --- faces / parts / positions / results --------------------------------
     if has_real:

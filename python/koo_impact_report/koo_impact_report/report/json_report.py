@@ -74,6 +74,10 @@ def save_json(report: ImpactReport, path: str) -> None:
         "sim_params": report.sim_params,
         "doe_config": report.doe_config,
     }
+    # 출처 메타 — CLI 가 채운 경우에만 (P2-5).
+    prov = getattr(report, "provenance", None)
+    if prov:
+        summary["provenance"] = prov
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(summary, f, cls=ImpactReportEncoder, ensure_ascii=False, indent=2)

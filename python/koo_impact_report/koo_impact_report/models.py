@@ -394,3 +394,7 @@ class ImpactReport:
     # DOE 워커가 병렬로 채운다 — 비어 있으면 payload 가 직렬 fallback 감사
     # (face-tree 경로 등)를 수행한다 (SOTA P2-4).
     solver_quality: dict[str, dict] = field(default_factory=dict)
+    # 출처 메타 (tool_version/SIF/UTC/argv/입력 digest). CLI 레이어만 채운다 —
+    # loader 는 건드리지 않으므로 골든 테스트가 타임스탬프에 오염되지 않는다
+    # (SOTA P2-5). 비어 있으면 payload/JSON 에 키 자체가 나가지 않는다.
+    provenance: dict = field(default_factory=dict)
