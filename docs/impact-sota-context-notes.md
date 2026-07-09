@@ -82,6 +82,22 @@
   입력 digest 는 내용 해시가 아닌 stat(size:mtime_ns) 기반 — 수백 run ~ms.
   SIF 버전은 $KOOD3PLOT_HOME/VERSION 의 "Version:/Built:" 라인 파싱.
 
+## P3 완료 (2026-07-09) — 14,609줄 → 154줄 + 19모듈, 11커밋 전부 골든 불변
+
+- 이동 도구: AST 기반 move_leaf.py (scratchpad) — 함수 블록 verbatim 이동 +
+  미정의 이름 자동 import 생성. **한계 발견**: 모듈 전체를 한 스코프로 보므로
+  다른 함수의 지역 정의(`import math`, 지역 `_pct=` Store)가 모듈 필요를
+  가림. → **pyflakes 전수 감사**로 3건 교정 (doe:_pct+math, physics:_r4,
+  common:dataclasses+Enum). 골든 샘플이 doe 의 p5-percentile 분기를 안 타서
+  바이트 골든만으론 안 잡혔음 — 실데이터 재생성이 잡음.
+  **교훈: 분할 검증 = 골든 + pyflakes + 실데이터 3종 세트.**
+- JS 307KB → 15세그먼트(원본 순서 보존), `_JS="".join(...)` 조립 == 원본
+  바이트 assert 후 이동. 세그먼트는 각 섹션 모듈에 HTML 템플릿과 동거.
+- FFT 사장본(첫 벌 136줄) 삭제 — 나중 def 가 이기므로 동작 불변.
+- **nested _r4 는 dedupe 하지 않음** (계획 수정): restitution 내부본은
+  비유한→None, 모듈본은 →0.0 — 의미가 달라 통합 시 payload 변형.
+- 실데이터 확증: Test_Impact_A payload 분할 전후 deep-equal (provenance 제외).
+
 ## 커밋 로그 (진행하며 기록)
 
 - fdc545c test(impact): 골든 하니스 + generate_sample PYTHONHASHSEED 결정성 fix

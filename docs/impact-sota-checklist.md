@@ -28,9 +28,9 @@
 
 ## P3 — 기계적 분할 (모듈당 1커밋, 골든 assert)
 
-- [ ] assets/css.py → assets/topbar.py → sections HTML → JS 세그먼트 → payload 리프 → 오케스트레이터
-- [ ] FFT 중복 정의(:1342+ vs :1479+) 생존본만 이동, nested _r4(:3488) dedupe
-- [ ] 정규화 골든 전환 + JS 재그룹
+- [x] assets/css.py → assets/topbar.py → sections HTML → JS 세그먼트 → payload 리프 → 오케스트레이터 (11커밋, 14,609줄→154줄)
+- [x] FFT 중복 정의 생존본만 이동 (사장본 136줄 삭제). nested _r4 는 **dedupe 안 함** — 모듈본과 의미 다름(비유한→None vs 0.0), 골든 우선
+- [ ] 정규화 골든 전환 + JS 재그룹 (P4 스케일 작업과 함께 — 바이트 골든이 깨지는 첫 시점에)
 
 ## P4 — 스케일
 
