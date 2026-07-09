@@ -5090,6 +5090,7 @@ def _build_payload(report: ImpactReport) -> dict:
     hg_fracs: list[float] = []
     sl_fracs: list[float] = []
     diss_pcts: list[float] = []
+    impact_visible_count = 0
     for sq in solver_quality_per_pos.values():
         v = (sq or {}).get("pass_fail", "UNKNOWN")
         if v == "PASS":   sq_summary["pass"] += 1
@@ -5097,10 +5098,13 @@ def _build_payload(report: ImpactReport) -> dict:
         elif v == "FAIL": sq_summary["fail"] += 1
         else:             sq_summary["unknown"] += 1
         s = (sq or {}).get("summary", {}) or {}
+        if s.get("impact_visible"):
+            impact_visible_count += 1
         for arr, key in ((te_drifts, "te_drift_pct"), (hg_fracs, "hg_fraction_pct"),
                          (sl_fracs, "sl_fraction_pct"), (diss_pcts, "diss_pct")):
             v2 = s.get(key)
-            if isinstance(v2, (int, float)):
+            # bool 은 int 의 서브클래스 — 명시적으로 제외 (isinstance(True,int)==True)
+            if isinstance(v2, (int, float)) and not isinstance(v2, bool):
                 arr.append(float(v2))
     def _med(arr: list[float]) -> float | None:
         if not arr:
@@ -5111,7 +5115,10 @@ def _build_payload(report: ImpactReport) -> dict:
         "te_drift_pct_median":      _med(te_drifts),
         "hg_fraction_pct_median":   _med(hg_fracs),
         "sl_fraction_pct_median":   _med(sl_fracs),
+        # diss_pct 는 impact_visible=True 인 런의 값만 (solver_quality 가
+        # non-visible 런에 None 을 주므로 위 isinstance 필터가 자동 제외).
         "diss_pct_median":          _med(diss_pcts),
+        "impact_visible_count":     impact_visible_count,
     })
 
     # 진짜 glstat 기반 diss_pct 가 있으면 KPI ENERGY DISSIPATED 도 업데이트.
@@ -14321,17 +14328,34 @@ function _renderDataQualityBadges() {
       title: 'part footprint XY 가 loader 의 hash 기반 placeholder 임. 실측 mesh 가 아님.',
     });
   }
-  // energy_flow per-position 시계열 측정 여부 — solver_quality (glstat) 있으면
-  // global energy 는 있으므로 이 배지 hide. (per-position node-level energy_flow
-  // 가 진짜 측정된 게 아닌 경우만 경고.)
+  // 에너지 측정 배지 — 3상태 (정직화):
+  //   1) NO ENERGY MEASURED     : binout energy_flow 도 없고, glstat 에서도
+  //      impact 가 보이는 런이 0 → 어디에서도 에너지 미측정.
+  //   2) IMPACT NOT IN GLSTAT WINDOW (k/N): 일부 런의 glstat 윈도우에서 KE 가
+  //      평탄 — 그 런들은 dissipation 통계에서 제외됨.
+  //   3) 없음: 진짜로 측정됨.
+  // (이전: solver_quality 가 '존재만' 해도 배지를 숨겨 energy_flows={} 전량
+  //  빈 값이 무음 통과 — 2026-06 산출물 실증. 존재가 아니라 impact_visible
+  //  기준으로 판정한다.)
   const ef = DATA.energy_flows || {};
   const hasFlowReal = Object.keys(ef).length > 0 && !('__mock__' in ef);
-  const hasSolverQuality = !!(DATA.solver_quality && DATA.solver_quality.summary && DATA.solver_quality.summary.n > 0);
-  if (!hasFlowReal && !hasSolverQuality) {
+  const sqSum0 = (DATA.solver_quality && DATA.solver_quality.summary) || null;
+  const sqN0 = sqSum0 ? (sqSum0.n || 0) : 0;
+  const sqVisible = sqSum0 ? (sqSum0.impact_visible_count || 0) : 0;
+  if (!hasFlowReal && sqVisible === 0) {
     badges.push({
       cls: 'warn',
       label: 'NO ENERGY MEASURED',
-      title: 'glstat / binout 의 energy 시계열 측정 안 됨. ENERGY DISSIPATED KPI 도 N/A.',
+      title: 'binout energy_flow 없음 + glstat 윈도우에 impact 가 보이는 런 0. '
+           + 'ENERGY DISSIPATED KPI 는 N/A (조작성 0.0 표시 금지).',
+    });
+  } else if (sqN0 > 0 && sqVisible < sqN0) {
+    const kNv = sqN0 - sqVisible;
+    badges.push({
+      cls: 'warn',
+      label: 'IMPACT NOT IN GLSTAT WINDOW (' + kNv + '/' + sqN0 + ')',
+      title: '해당 런들의 glstat 기록 구간에서 KE 가 평탄 — 충돌이 그 윈도우에 '
+           + '없음. dissipation 통계·KPI 에서 제외됨.',
     });
   }
   // mass=0 (impactor mass 추출 실패 잔재)
