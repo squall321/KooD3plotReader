@@ -179,3 +179,153 @@ _PAGE1 = """
   </div>
 </section>
 """
+
+
+_JS_S1 = r"""function fillHeroKpi() {
+  const k = DATA.kpi;
+  // Acceleration→g divisor: matches the solver unit declared by the loader.
+  // mm/s² → /9810, m/s² → /9.81 (= mm/ms²).
+  const _gDiv = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+  const _worstG_in_G = (k.worst_g || 0) / _gDiv;
+  document.getElementById('kPositions').innerHTML = k.n_positions + '<span class="u">pos</span>';
+  document.getElementById('kFaces').textContent = k.n_faces;
+  document.getElementById('kParts').textContent = k.n_parts;
+  document.getElementById('kWorstG').innerHTML = fmt(_worstG_in_G, 0) + '<span class="u">G</span>';
+  document.getElementById('kWorstS').innerHTML = fmt(k.worst_s, 1) + '<span class="u">' + _u('stress') + '</span>';
+  document.getElementById('kCritPairs').textContent = k.n_critical;
+  document.getElementById('kSafePos').textContent = k.n_safe;
+  // diss_pct=null → energy_flow 진짜 데이터 없음 (Mock 출고 차단 후). '—' 표시.
+  document.getElementById('kDiss').innerHTML = (k.diss_pct != null)
+    ? (k.diss_pct.toFixed(1) + '<span class="u">%</span>')
+    : '<span style="opacity:0.5">—</span><span class="u" style="opacity:0.5" title="energy_flow 데이터 없음">N/A</span>';
+  document.getElementById('kHeroFaces').textContent = k.n_faces;
+  document.getElementById('kHeroPos').textContent = k.n_positions;
+  document.getElementById('kHeroParts').textContent = k.n_parts;
+  document.getElementById('kHeroPairs').textContent = k.n_pairs;
+  document.getElementById('heroWorstCoord').textContent = k.worst.face + ' · X ' + k.worst.x.toFixed(1) + ' / Y ' + k.worst.y.toFixed(1);
+  // _gDiv 가 위에서 acc unit 기반으로 결정됨 (mm/s²→9810, m/s²→9.81)
+  document.getElementById('heroWorstPart').textContent = fmt((k.worst.g || 0) / _gDiv, 0) + ' G  ON  ' + k.worst.part_name;
+}
+
+function initImpactor() {
+  const imp = DATA.meta.impactor;
+  const svgRoot = document.getElementById('impactor-svg');
+  const tbl = document.getElementById('impactor-tbl');
+  const cap = document.getElementById('impCap');
+  const sub = document.getElementById('impSubLabel');
+  while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
+  while (tbl.firstChild) tbl.removeChild(tbl.firstChild);
+  if (imp.type === 'Sphere') {
+    sub.textContent = 'Sphere';
+    svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 32, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 1.2 }));
+    svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 8, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 0.6, 'stroke-dasharray': '2,2' }));
+    svgRoot.appendChild(svg('line', { x1: 100, y1: 23, x2: 100, y2: 87, stroke: '#5c6383', 'stroke-width': 0.5, 'stroke-dasharray': '1,2' }));
+    const t = svg('text', { x: 100, y: 102, 'text-anchor': 'middle', fill: '#4dd6ff', 'font-size': 10, 'font-family': 'JetBrains Mono' });
+    t.appendChild(document.createTextNode('R=' + imp.radius.toFixed(2)));
+    svgRoot.appendChild(t);
+    const rows = [
+      ['TYPE', 'Sphere'],
+      ['R' + _uSuffix('disp'), imp.radius.toFixed(2)],
+      ['h' + _uSuffix('disp'), imp.height.toFixed(1)],
+      ['v0' + _uSuffix('vel'), fmt(imp.velocity, 0)],
+      ['m' + _uSuffix('mass'), fmt(imp.mass, 4)],
+      ['KE' + _uSuffix('energy'), fmt(imp.kinetic_energy, 2)]
+    ];
+    for (const r of rows) {
+      tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    }
+    cap.textContent = 'KE = 1/2 m v² (free-fall v = sqrt(2gh))';
+  } else if (imp.type === 'Cylinder') {
+    sub.textContent = 'Cylinder · asymmetric';
+    const fr = imp.front_radius || imp.radius || 12;
+    const out = imp.outer_radius || fr * 1.4;
+    const br = imp.back_radius || out;
+    const fh = imp.front_height || 15;
+    const bh = imp.back_height || 25;
+    const cx = 100, cy = 55;
+    const totalH = fh + bh;
+    const sx = 90 / totalH;
+    const sy = 40 / Math.max(fr, out, br);
+    const x0 = cx - (fh + bh) * sx / 2;
+    const x1 = x0 + fh * sx;
+    const x2 = x1 + bh * sx;
+    const ftop = cy - fr * sy, fbot = cy + fr * sy;
+    const mtop = cy - out * sy, mbot = cy + out * sy;
+    const btop = cy - br * sy,  bbot = cy + br * sy;
+    svgRoot.appendChild(svg('polygon', {
+      points: x0 + ',' + ftop + ' ' + x1 + ',' + mtop + ' ' + x1 + ',' + mbot + ' ' + x0 + ',' + fbot,
+      fill: 'rgba(77,214,255,0.12)', stroke: '#4dd6ff', 'stroke-width': 1
+    }));
+    svgRoot.appendChild(svg('polygon', {
+      points: x1 + ',' + mtop + ' ' + x2 + ',' + btop + ' ' + x2 + ',' + bbot + ' ' + x1 + ',' + mbot,
+      fill: 'rgba(180,110,255,0.12)', stroke: '#b46eff', 'stroke-width': 1
+    }));
+    const lab1 = svg('text', { x: x0 - 4, y: cy + 4, fill: '#5c6383', 'font-size': 8, 'text-anchor': 'end' });
+    lab1.appendChild(document.createTextNode('Rf=' + fr.toFixed(1)));
+    svgRoot.appendChild(lab1);
+    const lab2 = svg('text', { x: x2 + 4, y: cy + 4, fill: '#5c6383', 'font-size': 8 });
+    lab2.appendChild(document.createTextNode('Rb=' + br.toFixed(1)));
+    svgRoot.appendChild(lab2);
+    const rows = [
+      ['TYPE', 'Cylinder'],
+      ['Rf/Ro/Rb', fr.toFixed(1) + ' / ' + out.toFixed(1) + ' / ' + br.toFixed(1)],
+      ['hf/hb' + _uSuffix('disp'), fh.toFixed(1) + ' / ' + bh.toFixed(1)],
+      ['v0' + _uSuffix('vel'), fmt(imp.velocity, 0)],
+      ['KE' + _uSuffix('energy'), fmt(imp.kinetic_energy, 2)]
+    ];
+    for (const r of rows) tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    cap.textContent = 'Asymmetric tumbler: front + outer + back 3-stage cylinder.';
+  } else {
+    // Unknown / empty type: draw a neutral placeholder shape and still
+    // populate the data table with whatever fields the loader filled in
+    // (density, E, ν, mass, v₀, KE). Many real-world decks don't expose
+    // an impactor type — we don't want the panel to look broken.
+    sub.textContent = imp.type ? imp.type : '(type unspecified)';
+    svgRoot.appendChild(svg('rect', { x: 60, y: 25, width: 80, height: 60, rx: 6, fill: 'rgba(77,214,255,0.06)', stroke: '#4dd6ff', 'stroke-width': 1, 'stroke-dasharray': '3,3' }));
+    const qm = svg('text', { x: 100, y: 62, 'text-anchor': 'middle', fill: '#4dd6ff', 'font-size': 22, 'font-family': 'JetBrains Mono', 'font-weight': '700' });
+    qm.appendChild(document.createTextNode('?'));
+    svgRoot.appendChild(qm);
+    const tlab = svg('text', { x: 100, y: 100, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
+    tlab.appendChild(document.createTextNode('type unspecified'));
+    svgRoot.appendChild(tlab);
+    const rows = [
+      ['TYPE',              imp.type || '(unspecified)'],
+      ['ρ' + _uDensitySuffix(),   fmt(imp.density, 3)],
+      ['E' + _uSuffix('stress'),  fmt(imp.youngs_modulus, 3)],
+      ['ν',                 (imp.poisson_ratio != null ? imp.poisson_ratio.toFixed(3) : '?')],
+      ['m' + _uSuffix('mass'),    fmt(imp.mass, 4)],
+      ['v₀' + _uSuffix('vel'),    fmt(imp.velocity, 0)],
+      ['KE' + _uSuffix('energy'), fmt(imp.kinetic_energy, 2)],
+    ];
+    for (const r of rows) {
+      tbl.appendChild(el('tr', null, [el('td', { class: 'tl dim' }, r[0]), el('td', { class: 'num b' }, r[1])]));
+    }
+    cap.textContent = 'Geometry not declared — material + kinematics only.';
+  }
+}
+
+function initDoeBreakdown() {
+  const tbl = document.getElementById('doe-breakdown');
+  const sub = document.getElementById('doeSubLabel');
+  while (tbl.firstChild) tbl.removeChild(tbl.firstChild);
+  const cnt = {};
+  for (const f of FACES) cnt[f.code] = 0;
+  for (const p of DATA.positions) cnt[p.face] = (cnt[p.face] || 0) + 1;
+  const total = Object.values(cnt).reduce((a, b) => a + b, 0);
+  const doeType = (DATA.meta.doe_config && DATA.meta.doe_config.type) || 'grid';
+  sub.textContent = doeType + ' · ' + total + ' pos';
+  for (const f of FACES) {
+    tbl.appendChild(el('tr', null, [
+      el('td', { class: 'tl b' }, f.code),
+      el('td', { class: 'tl dim' }, f.name),
+      el('td', { class: 'num' }, String(cnt[f.code]))
+    ]));
+  }
+  tbl.appendChild(el('tr', null, [
+    el('td', { class: 'tl b', style: { color: 'var(--accent)' } }, 'TOTAL'),
+    el('td', { class: 'tl dim' }, DATA.meta.generation_mode),
+    el('td', { class: 'num b', style: { color: 'var(--accent)' } }, String(total))
+  ]));
+}
+
+"""
