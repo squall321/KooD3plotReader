@@ -115,3 +115,9 @@ def _sparse_matrix(d, thresh_ratio=0.01):
     return {"_sparse": True, "rows": sig_rows}
 
 
+def _pid_cast(pid):
+    """Cast pos_id to int when possible, else keep original (e.g. DOE string IDs)."""
+    try:
+        return int(pid)
+    except (ValueError, TypeError):
+        return pid
