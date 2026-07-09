@@ -27,6 +27,7 @@ import csv
 import json
 import math
 import random
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -1053,8 +1054,13 @@ def main() -> None:
 
             # Per-run impactor 3D trajectory.
             # Deterministic seed from face+u+v keeps trajectories reproducible.
-            traj_seed = abs(hash((face["code"], round(pos["u"], 3),
-                                    round(pos["v"], 3), args.seed))) % (2 ** 31)
+            # NOTE: must NOT use builtin hash() — str hashing is salted by
+            # PYTHONHASHSEED per process, which silently broke --seed
+            # reproducibility (golden tests caught runs differing despite
+            # identical seeds). crc32 is stable across processes/machines.
+            _seed_key = (f"{face['code']}:{round(pos['u'], 3)}:"
+                         f"{round(pos['v'], 3)}:{args.seed}").encode()
+            traj_seed = zlib.crc32(_seed_key) % (2 ** 31)
             _write_trajectory_csv(
                 run_dir,
                 face["code"],
