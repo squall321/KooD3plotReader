@@ -1,12 +1,13 @@
 # payload DOE — 위치별 응답 지도/failure risk/corr/TOA/IDW/pareto/energy partition (html_report.py 기계적 분할, 바이트 불변)
 from __future__ import annotations
 
+import math
 import statistics
 
 from ...models import (
     ImpactReport,
 )
-from .common import _r4, _safe
+from .common import _pct, _r4, _safe
 
 
 def _build_mock_doe() -> dict:

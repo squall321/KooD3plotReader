@@ -1,9 +1,11 @@
 # payload 공용 헬퍼: _esc/_Encoder/_safe/_pct/_r4/_sparse_matrix (기계적 분할, 바이트 불변)
 from __future__ import annotations
 
+import dataclasses
 import html
 import json
 import math
+from enum import Enum
 from typing import Any
 
 

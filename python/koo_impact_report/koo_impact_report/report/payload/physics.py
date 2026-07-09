@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .analytics import _fft_dominant_freq
+from .common import _r4
 
 
 def _build_stress_wave_velocity_payload(report) -> dict:
