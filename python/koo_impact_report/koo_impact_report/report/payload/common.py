@@ -123,3 +123,36 @@ def _pid_cast(pid):
         return int(pid)
     except (ValueError, TypeError):
         return pid
+
+
+def _downsample_indices(n: int, max_pts: int, peak_idx: int | None = None) -> list[int]:
+    """스트라이드 다운샘플 인덱스 — 마지막 샘플과 peak 샘플을 항상 보존한다.
+
+    true-peak-before-downsample 불변식 (SOTA P4): peak "스칼라"는 호출부가
+    풀해상도에서 선계산하고, 여기서는 peak "샘플"이 곡선에서 사라지지 않도록
+    splice 한다. step 은 ceil(n/max_pts) — 과거 ``n // 600`` 은 992//600=1 이라
+    다운샘플이 사실상 미작동이었다 (임계값 설계 오류).
+    """
+    if max_pts <= 0 or n <= max_pts:
+        return list(range(n))
+    step = -(-n // max_pts)  # ceil
+    keep = set(range(0, n, step))
+    keep.add(n - 1)
+    if peak_idx is not None and 0 <= peak_idx < n:
+        keep.add(int(peak_idx))
+    return sorted(keep)
+
+
+def _argmax(values) -> int | None:
+    """유한 값 기준 argmax 인덱스. 비어있거나 전부 비유한이면 None."""
+    best_i, best_v = None, None
+    for i, v in enumerate(values):
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(fv):
+            continue
+        if best_v is None or fv > best_v:
+            best_i, best_v = i, fv
+    return best_i

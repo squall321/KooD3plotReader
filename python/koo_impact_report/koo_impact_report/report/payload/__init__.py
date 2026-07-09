@@ -12,7 +12,9 @@ from ...models import (
 )
 from .common import (  # noqa: F401 — re-export (분할 과도기)
     _esc, _Encoder, _safe, _pct, _r4, _sparse_matrix, _pid_cast,
+    _downsample_indices, _argmax,
 )
+from .tiers import tier_for
 from .core import (
     _impactor_dict, _energy_flow_dict, _build_mock_energy_flow, _build_device_geometry,
 )
@@ -29,6 +31,14 @@ def _build_payload(report: ImpactReport) -> dict:
     matrix stays under ~500 KB.
     """
     has_real = bool(report.results)
+
+    # --- tier 정책 (P4) — 위치 수가 모든 다운샘플/캡/정밀도를 결정 ----------
+    _n_pos_tier = sum(len(v or []) for v in (report.positions_by_face or {}).values())
+    _tier = tier_for(_n_pos_tier)
+    STRESS_TS_MAX_PTS = _tier.stress_ts_pts
+    PART_MOTION_MAX_PTS = _tier.part_motion_pts
+    TRAJECTORY_MAX_PTS = _tier.trajectory_pts
+    _VAL_DP = _tier.precision
 
     # --- meta ---------------------------------------------------------------
     meta = {
@@ -74,14 +84,20 @@ def _build_payload(report: ImpactReport) -> dict:
                     "x": _safe(pos.x), "y": _safe(pos.y),
                 })
         def _ts_payload(ts):
-            """Down-sample TimeSeriesData (times+max_values) for transport."""
+            """Down-sample TimeSeriesData (times+max_values) for transport.
+
+            true-peak 보존: peak 샘플은 splice 로 항상 유지 (P4).
+            """
             if not ts or not ts.times or not ts.max_values:
                 return None
-            n = len(ts.times)
-            step = max(1, n // 300)  # cap ~300 pts to keep payload small
+            if STRESS_TS_MAX_PTS <= 0:
+                return None  # tier D: envelope(스칼라 s)만 — 시계열 인라인 없음
+            n = min(len(ts.times), len(ts.max_values))
+            idx = _downsample_indices(n, STRESS_TS_MAX_PTS,
+                                      peak_idx=_argmax(ts.max_values[:n]))
             return {
-                "times":      [float(ts.times[i])      for i in range(0, n, step)],
-                "max_values": [float(ts.max_values[i]) for i in range(0, n, step)],
+                "times":      [float(ts.times[i])      for i in idx],
+                "max_values": [float(ts.max_values[i]) for i in idx],
             }
         results = [
             {
@@ -285,9 +301,22 @@ def _build_payload(report: ImpactReport) -> dict:
         if face_code not in keep_faces:
             continue
         n = len(getattr(traj, "times", []) or [])
+        # P4: trajectory 는 종전 무캡(992 states × 25+ 위치가 payload 를 지배).
+        # 공유 인덱스로 t/pos/vel/ke/contact 를 일관 다운샘플. "peak" = KE 최소
+        # 시점(최대 에너지 전달 순간) — 접촉 물리의 특징점이 사라지지 않게.
+        _ke_full = list(traj.ke or [])
+        _ke_min_idx = None
+        if _ke_full:
+            _am = _argmax([-v for v in _ke_full[:n]])
+            _ke_min_idx = _am
+        # tier C/D (pts=0): 시계열 인라인 없음 — 요약 스칼라만 (청크는 P4-3).
+        if TRAJECTORY_MAX_PTS <= 0:
+            _tidx = []
+        else:
+            _tidx = _downsample_indices(n, TRAJECTORY_MAX_PTS, peak_idx=_ke_min_idx)
         pos_list_xyz = []
         vel_list_xyz = []
-        for i in range(n):
+        for i in _tidx:
             pos_list_xyz.append([
                 _safe(traj.pos_x[i] if i < len(traj.pos_x) else 0.0),
                 _safe(traj.pos_y[i] if i < len(traj.pos_y) else 0.0),
@@ -298,15 +327,17 @@ def _build_payload(report: ImpactReport) -> dict:
                 _safe(traj.vel_y[i] if i < len(traj.vel_y) else 0.0),
                 _safe(traj.vel_z[i] if i < len(traj.vel_z) else 0.0),
             ])
+        _times_full = list(traj.times or [])
+        _contact_full = list(traj.contact_engaged or [])
         rebound_xy = getattr(traj, "rebound_velocity_xy", (0.0, 0.0)) or (0.0, 0.0)
         trajectories[pos_id] = {
             "face": face_code,
             "x": _safe(x), "y": _safe(y),
-            "t": [round(_safe(v), 8) for v in (traj.times or [])],
+            "t": [round(_safe(_times_full[i]), 8) for i in _tidx if i < len(_times_full)],
             "pos": pos_list_xyz,
             "vel": vel_list_xyz,
-            "ke": [round(_safe(v), 5) for v in (traj.ke or [])],
-            "contact": [bool(v) for v in (traj.contact_engaged or [])],
+            "ke": [round(_safe(_ke_full[i]), _VAL_DP + 1) for i in _tidx if i < len(_ke_full)],
+            "contact": [bool(_contact_full[i]) for i in _tidx if i < len(_contact_full)],
             "init_ke": _safe(traj.initial_ke),
             "final_ke": _safe(traj.final_ke),
             "ke_retention": _safe(traj.ke_retention),
@@ -384,6 +415,19 @@ def _build_payload(report: ImpactReport) -> dict:
     # Build per-(pos_id, part_id) time-series list (compact key strings)
     part_motion_series: list[dict] = []
     raw_motions = getattr(report, "part_motions", None) or {}
+
+    # tier C/D: 인라인 series 를 worst-K 위치로 제한 (위치별 최악 peak_g 순위).
+    # 나머지 위치의 요약 스칼라(summary_rows)는 그대로 — 곡선만 청크로 (P4-3).
+    _topk_pos: set | None = None
+    if _tier.part_motion_topk > 0:
+        _pos_worst: dict[str, float] = {}
+        for (p_pos, _p_pid), m in raw_motions.items():
+            g = _safe(getattr(m, "peak_g", 0.0)) if m is not None else 0.0
+            if g > _pos_worst.get(str(p_pos), 0.0):
+                _pos_worst[str(p_pos)] = g
+        _topk_pos = set(sorted(_pos_worst, key=_pos_worst.get, reverse=True)
+                        [:_tier.part_motion_topk])
+
     for key, motion in raw_motions.items():
         if motion is None:
             continue
@@ -392,15 +436,21 @@ def _build_payload(report: ImpactReport) -> dict:
             pid = int(pid)
         except Exception:  # noqa: BLE001
             continue
+        if PART_MOTION_MAX_PTS <= 0:
+            continue  # tier D: 곡선 인라인 없음 (요약은 summary_rows 가 담당)
+        if _topk_pos is not None and str(pos_id) not in _topk_pos:
+            continue
         times = list(getattr(motion, "times", []) or [])
         acc_mag = list(getattr(motion, "acc_mag", []) or [])
         if not times or not acc_mag:
             continue
         n = min(len(times), len(acc_mag))
-        # downsample if very long (keep <= 600 points for SVG perf)
-        step = max(1, n // 600)
-        t_arr = [round(_safe(times[i]), 8) for i in range(0, n, step)]
-        a_arr = [round(_safe(acc_mag[i]), 4) for i in range(0, n, step)]
+        # P4: ceil 스텝 + true-peak splice — 구 ``n // 600`` 은 992//600=1 로
+        # 다운샘플 미작동 (payload 12.5MB 의 주범).
+        idx = _downsample_indices(n, PART_MOTION_MAX_PTS,
+                                  peak_idx=_argmax(acc_mag[:n]))
+        t_arr = [round(_safe(times[i]), 8) for i in idx]
+        a_arr = [round(_safe(acc_mag[i]), _VAL_DP) for i in idx]
         part_motion_series.append({
             "pos_id": str(pos_id),
             "part_id": pid,
@@ -615,7 +665,7 @@ def _build_payload(report: ImpactReport) -> dict:
         "clusters": clusters_payload,
         "part_motion": part_motion_payload,
         "doe_analysis": _build_doe_payload(report),
-        "deep_analytics": _build_deep_payload(report),
+        "deep_analytics": _build_deep_payload(report, fft_bins=_tier.fft_bins),
         "insights": _build_insights_payload(report),
         "physics": _build_physics_payload(report),
         "unit_labels": unit_labels,

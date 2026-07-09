@@ -75,7 +75,7 @@ def _downsample_spectrum(freqs, amps, max_bins=128):
     return f_trim.mean(axis=1), a_trim.max(axis=1)
 
 
-def _build_fft_payload(report):
+def _build_fft_payload(report, max_bins: int = 128):
     """Aggregate FFT dominant frequencies per part across all positions."""
     import numpy as np
     parts_by_id = {p.part_id: p for p in getattr(report, "parts", [])}
@@ -116,7 +116,7 @@ def _build_fft_payload(report):
         f_doms = np.array([e["f_dom"] for e in entries], dtype=float)
         # pick the entry with the highest peak_amp for representative spectrum
         top = max(entries, key=lambda e: e["peak_amp"])
-        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=128)
+        ds_f, ds_a = _downsample_spectrum(top["freqs"], top["amps_norm"], max_bins=max_bins)
         # round for payload size (4 sig-fig)
         ds_f = [_r4(float(x)) for x in ds_f.tolist()]
         ds_a = [_r4(float(x)) for x in ds_a.tolist()]
@@ -993,7 +993,7 @@ def _build_per_part_drilldown(report) -> dict:
     }
 
 
-def _build_deep_payload(report: ImpactReport) -> dict:
+def _build_deep_payload(report: ImpactReport, fft_bins: int = 128) -> dict:
     """Aggregate the six Section-06 advanced analyses into one payload.
 
     Returns an empty dict when no data is available; individual sub-keys
@@ -1001,7 +1001,7 @@ def _build_deep_payload(report: ImpactReport) -> dict:
     panels whose sub-key is empty.
     """
     deep: dict = {}
-    deep["fft"] = _build_fft_payload(report)
+    deep["fft"] = _build_fft_payload(report, max_bins=fft_bins)
     deep["srs"] = _build_srs_payload(report)
     deep["safe_drop_zone"] = _build_safe_drop_zone(report)
     deep["pca_modal"] = _pca_modal_build(report)
