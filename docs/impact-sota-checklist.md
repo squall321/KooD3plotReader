@@ -20,11 +20,11 @@
 
 ## P2 — 로더 성능 (분할 전)
 
-- [ ] keyword 1회 파싱 (kw_data 전달) + velocity 카드 1-스캔 캐시 (3콜사이트 통합)
-- [ ] `_parse_outputs(parse_motion=False, series=...)` (koo_deep_report, 기본 True 호환)
-- [ ] CLI `--parallel-runs`(0=auto SLURM) / `--threads-per-run`
-- [ ] solver_quality 감사 워커 이동 (ImpactReport.solver_quality 슬롯)
-- [ ] provenance (tool_version/SIF/timestamp/digest → payload+JSON+HTML)
+- [x] keyword 1회 파싱 (kw_data 전달) + velocity 카드 1-스캔 캐시 (3콜사이트 통합)
+- [x] `_parse_outputs(parse_motion=False, series=...)` (koo_deep_report, 기본 True 호환)
+- [x] CLI `--parallel-runs`(0=auto SLURM) / `--threads-per-run`
+- [x] solver_quality 감사 워커 이동 (ImpactReport.solver_quality 슬롯)
+- [x] provenance (tool_version/SIF/timestamp/digest → payload+JSON+HTML)
 
 ## P3 — 기계적 분할 (모듈당 1커밋, 골든 assert)
 

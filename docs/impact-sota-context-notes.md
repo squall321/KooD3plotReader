@@ -63,6 +63,25 @@
   = 1.6836e-05 (0.5% 일치) — 독립 두 경로 상호 확증. KE 201.5 mJ = glstat
   ke 201.486 과 일치 (6월의 "flat KE"가 사실 임팩터 KE 였음도 설명됨).
 
+## P2 완료 (2026-07-09)
+
+- **P2-1/2-2 (638f81c)**: keyword 1회 파싱 + velocity 1-스캔 캐시 +
+  `_parse_outputs(parse_motion=False, series={stress,strain})` — 로드 57.6s→7.7s
+  (7.5×), payload 바이트 불변.
+- **P2-3 (af9037a)**: `--parallel-runs`(0=auto) / `--threads-per-run`.
+  auto = SLURM_CPUS_PER_TASK(없으면 cpu_count) // threads_per_run.
+  로컬 32코어 → 16워커 → **3.7s** (4워커 7.7s 대비 2×). deep-reuse 모드라
+  워커가 unified_analyzer 를 안 돌리므로 워커 수 증가의 OOM 위험 없음.
+- **P2-4 (56b3f68)**: solver_quality 감사를 _build_payload 직렬 루프에서 DOE
+  워커로 이동. 키 절충: 워커는 generic pos_id("F5_P_0001")로 저장 → merge 가
+  trajectories 와 같은 `next(iter(...))` re-key. payload 는
+  `report.solver_quality` 우선, 비면 기존 직렬 fallback (face-tree 경로 보존).
+  실데이터 per_position 25건 PASS16/FAIL9 — 이전과 동일 확인.
+- **P2-5 (d6c6de3)**: provenance 는 **CLI 레이어만** 주입 — loader 를 결정적으로
+  유지해 골든 바이트가 타임스탬프에 오염되지 않게 함(빈 dict 면 키 미출력).
+  입력 digest 는 내용 해시가 아닌 stat(size:mtime_ns) 기반 — 수백 run ~ms.
+  SIF 버전은 $KOOD3PLOT_HOME/VERSION 의 "Version:/Built:" 라인 파싱.
+
 ## 커밋 로그 (진행하며 기록)
 
 - fdc545c test(impact): 골든 하니스 + generate_sample PYTHONHASHSEED 결정성 fix
