@@ -181,9 +181,37 @@ def _summary(cycles: list[dict[str, float]]) -> dict[str, float]:
     te0 = cycles[0].get("te", math.nan)
     te_final = _last("te")
 
+    hg_peak = _peak("hg")
+    sl_peak_abs = _max_abs("sl")
+    ie_peak = _peak("ie")
+
+    # ── significance / visibility 판정 ─────────────────────────────
+    # impact_visible: glstat 윈도우 안에서 KE 가 실제로 변했는가.
+    # 강체 낙하 초기 구간만 기록됐거나 접촉 전 구간이면 KE 가 평평(flat)해서
+    # dissipation 통계가 무의미 — 이때 diss_pct 를 0.0 으로 보고하면
+    # "0.0% ENERGY DISSIPATED" 라는 조작성 숫자가 된다 (2026-06 산출물 실증).
+    ke_vals = [c["ke"] for c in cycles
+               if "ke" in c and math.isfinite(c["ke"])]
+    impact_visible = False
+    if ke_vals:
+        ke_span = max(ke_vals) - min(ke_vals)
+        ke_ref = ke0 if (math.isfinite(ke0) and ke0 > 0) else max(ke_vals)
+        if ke_ref > 0:
+            impact_visible = (ke_span / ke_ref) >= KE_FLAT_TOL_FRAC
+
+    # ie_significant: HG/IE 게이트가 의미를 갖는가. 강체/탄성 임팩터는 IE 가
+    # 수치 노이즈 수준(KE 대비 ~10자리 아래)이라 HG/IE 는 0/0 비율 — 이 비율로
+    # FAIL 을 찍으면 검증된 런 전부가 거짓 FAIL 이 된다 (25/25 FAIL 실증).
+    ie_significant = (
+        math.isfinite(ie_peak) and math.isfinite(ke0) and ke0 > 0
+        and ie_peak >= IE_SIGNIFICANCE_FLOOR_FRAC * ke0
+    )
+
     # Dissipation: 초기 KE 중 얼마나 빠져나갔는지 (IE + HG + SL 흡수 또는 변환).
+    # impact 가 안 보이는 윈도우에서는 None (0.0 조작 금지).
     diss_pct = math.nan
-    if math.isfinite(ke0) and ke0 > 0 and math.isfinite(ke_final):
+    if (impact_visible and math.isfinite(ke0) and ke0 > 0
+            and math.isfinite(ke_final)):
         diss_pct = max(0.0, 100.0 * (ke0 - ke_final) / ke0)
 
     # Conservation ratio drift: TE_final / TE_initial 의 절대 편차.
@@ -191,11 +219,8 @@ def _summary(cycles: list[dict[str, float]]) -> dict[str, float]:
     if math.isfinite(te0) and te0 > 0 and math.isfinite(te_final):
         te_drift_pct = abs(te_final - te0) / te0 * 100.0
 
-    hg_peak = _peak("hg")
-    sl_peak_abs = _max_abs("sl")
-    ie_peak = _peak("ie")
-
-    # Hourglass fraction of internal energy.
+    # Hourglass fraction of internal energy (정보성 — 게이트 적용 여부는
+    # ie_significant 가 결정, assess_energy_balance 참조).
     hg_frac = math.nan
     if math.isfinite(ie_peak) and ie_peak > 0 and math.isfinite(hg_peak):
         hg_frac = 100.0 * hg_peak / ie_peak
@@ -213,6 +238,8 @@ def _summary(cycles: list[dict[str, float]]) -> dict[str, float]:
         "ie_peak":          ie_peak,
         "hg_peak":          hg_peak,
         "sl_peak_abs":      sl_peak_abs,
+        "ie_significant":   ie_significant,
+        "impact_visible":   impact_visible,
         "diss_pct":         round(diss_pct, 2) if math.isfinite(diss_pct) else None,
         "te_drift_pct":     round(te_drift_pct, 4) if math.isfinite(te_drift_pct) else None,
         "hg_fraction_pct":  round(hg_frac, 2) if math.isfinite(hg_frac) else None,
@@ -247,6 +274,15 @@ HG_FRAC_FAIL  = 20.0
 SL_FRAC_WARN  = 5.0    # of initial KE
 SL_FRAC_FAIL  = 10.0
 
+# HG/IE 게이트 significance floor: ie_peak 가 초기 KE 의 이 비율 미만이면
+# (강체/탄성 임팩터의 수치 노이즈 IE) HG/IE 비율은 0/0 이라 게이트를 건너뛴다.
+# skip 은 항상 informational flag 로 표면화되며 절대 무음이 아니다.
+IE_SIGNIFICANCE_FLOOR_FRAC = 1e-3   # ie_peak >= 0.1% × KE0 일 때만 HG 게이트
+
+# KE 평탄 판정: glstat 윈도우 내 KE 변화폭이 초기 KE 의 이 비율 미만이면
+# "impact 가 이 윈도우에 안 보임" — dissipation 통계 무의미(diss_pct=None).
+KE_FLAT_TOL_FRAC = 5e-3             # 0.5%
+
 
 def assess_energy_balance(ts: GlstatTimeSeries) -> EnergyBalanceVerdict:
     """Apply industry-standard gates to glstat summary."""
@@ -268,9 +304,25 @@ def assess_energy_balance(ts: GlstatTimeSeries) -> EnergyBalanceVerdict:
             return "WARN"
         return "PASS"
 
+    # HG/IE 게이트는 IE 가 유의미할 때만 적용 (강체/탄성 임팩터의 노이즈 IE 로
+    # 0/0 비율 FAIL 을 찍던 25/25 거짓 FAIL 의 근본 fix). skip 은 정보 플래그로
+    # 표면화 — verdict 입력이 아님.
+    if s.get("ie_significant"):
+        hg_result = _check(s.get("hg_fraction_pct"),
+                           HG_FRAC_WARN, HG_FRAC_FAIL, "HG_frac")
+    else:
+        hg_result = None
+        if s.get("hg_fraction_pct") is not None:
+            flags.append("HG_gate_skipped(ie_peak<0.1%KE0)")
+
+    # impact 자체가 glstat 윈도우에 안 보이면 명시 플래그 (verdict 미영향 —
+    # TE-drift/SL 게이트는 여전히 유효). dissipation 통계에서는 제외됨.
+    if not s.get("impact_visible"):
+        flags.append("no-impact-in-glstat-window")
+
     rsts = [
         _check(s.get("te_drift_pct"),    TE_DRIFT_WARN, TE_DRIFT_FAIL, "TE_drift"),
-        _check(s.get("hg_fraction_pct"), HG_FRAC_WARN,  HG_FRAC_FAIL,  "HG_frac"),
+        hg_result,
         _check(s.get("sl_fraction_pct"), SL_FRAC_WARN,  SL_FRAC_FAIL,  "SL_frac"),
     ]
     rsts = [r for r in rsts if r is not None]
