@@ -281,6 +281,158 @@ def generate_findings(
         recommendation="",
     ))
 
+    # 구조화 로드 진단 → 집계 Finding (P1d — stdout 소멸 금지의 마지막 단).
+    findings.extend(_findings_from_load_issues(report))
+    # CLI 임계값 없이도 동작하는 통계 outlier 게이트 (절대 임계값 발명 금지).
+    findings.extend(_statistical_outlier_findings(report))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Load-issue promotion + statistical outliers (P1d)
+# ---------------------------------------------------------------------------
+
+def _findings_from_load_issues(report: ImpactReport) -> list[Finding]:
+    """report.load_issues + impactor 상태를 집계 Finding 으로 승격.
+
+    하드 룰: Finding 은 kind 당 **집계 1건** (run 목록은 detail 에) — 300+ 위치
+    에서 Finding 폭발 방지 (docs/impact-sota-checklist.md P1d).
+    """
+    findings: list[Finding] = []
+    issues = list(getattr(report, "load_issues", []) or [])
+
+    by_kind: dict[str, list[dict]] = {}
+    for it in issues:
+        by_kind.setdefault(it.get("kind", "unknown"), []).append(it)
+
+    def _names(items: list[dict], cap: int = 12) -> str:
+        names = [str(i.get("pos_name") or "?") for i in items]
+        head = ", ".join(names[:cap])
+        return head + (f" 외 {len(names) - cap}건" if len(names) > cap else "")
+
+    n_runs = int(report.doe_config.get("n_runs", 0) or 0) or max(
+        1, sum(len(v) for v in report.positions_by_face.values()))
+
+    # 1) 런 로드 실패 — 2% 초과면 CRITICAL
+    failed = by_kind.get("run-load-failed", [])
+    if failed:
+        sev = Severity.CRITICAL if len(failed) > 0.02 * n_runs else Severity.WARNING
+        findings.append(Finding(
+            severity=sev,
+            title=f"Runs failed to load ({len(failed)}/{n_runs})",
+            detail=_names(failed) + " — " + "; ".join(
+                sorted({f"{i.get('exc_class')}" for i in failed if i.get('exc_class')})),
+            recommendation="해당 run 의 로그/데이터를 확인하세요. 리포트는 나머지 run 만 반영합니다.",
+        ))
+
+    # 2) impactor 불일치 — loader 의 severity_hint 로 승격
+    mism = by_kind.get("impactor-mismatch", [])
+    if mism:
+        crit = any(i.get("severity_hint") == "critical" for i in mism)
+        findings.append(Finding(
+            severity=Severity.CRITICAL if crit else Severity.WARNING,
+            title=f"Impactor inconsistency across runs ({len(mism)}/{n_runs})",
+            detail=_names(mism) + " — 예: " + str(mism[0].get("msg", ""))[:160],
+            recommendation="DOE run 들이 동일 impactor 로 생성됐는지 확인 (혼입 의심).",
+        ))
+
+    # 3) binout 에너지 — 파일 부재(INFO, 솔버 출력 설정)와 파싱 실패(WARNING) 구분
+    binout = by_kind.get("binout", [])
+    if binout:
+        missing = [i for i in binout if i.get("exc_class") == "binout-missing"]
+        broken = [i for i in binout if i.get("exc_class") != "binout-missing"]
+        if broken:
+            findings.append(Finding(
+                severity=Severity.WARNING,
+                title=f"Binout energy parse failed ({len(broken)}/{n_runs})",
+                detail=_names(broken) + " — " + "; ".join(
+                    sorted({str(i.get('exc_class')) for i in broken})),
+                recommendation="matsum/rcforc 기반 질량·접촉·에너지 지표가 해당 run 에서 빠집니다.",
+            ))
+        if missing:
+            findings.append(Finding(
+                severity=Severity.INFO,
+                title=f"Binout not written ({len(missing)}/{n_runs})",
+                detail=_names(missing),
+                recommendation="에너지 지표가 필요하면 deck 의 *DATABASE_BINARY 출력 설정을 확인하세요.",
+            ))
+
+    # 4) DOE 인덱스 fallback
+    doe_fb = by_kind.get("doe-index-fallback", [])
+    if doe_fb:
+        findings.append(Finding(
+            severity=Severity.INFO,
+            title=f"DOE index fallback naming ({len(doe_fb)}/{n_runs})",
+            detail=_names(doe_fb),
+            recommendation="step_config *Description 의 DOE### 토큰을 확인하세요.",
+        ))
+
+    # 5) impactor geometry / mass 상태 (report.impactor 직접 판정)
+    imp = report.impactor
+    if getattr(imp, "geometry_source", "") == "motion-bbox":
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title="Impactor geometry estimated from motion bbox",
+            detail=(f"radius={imp.radius:.4g} (bbox 과대평가 가능) — "
+                    "step_config.txt 부재 시 fallback 경로"),
+            recommendation="step_config.txt 또는 scenario.json 에 impactor geometry 를 명시하세요.",
+        ))
+    if imp.mass_override is None and (imp.mass or 0.0) <= 0.0:
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title="Impactor mass unknown",
+            detail="matsum/keyword 어느 쪽에서도 질량을 유도하지 못함 — KE 지표 무효.",
+            recommendation="binout(matsum) 출력 또는 impactor geometry+density 를 확인하세요.",
+        ))
+
+    return findings
+
+
+def _statistical_outlier_findings(
+    report: ImpactReport,
+    z_threshold: float = 3.5,
+    min_positions: int = 8,
+    max_findings: int = 10,
+) -> list[Finding]:
+    """위치별 worst 응답의 robust z-score(중앙값/MAD) outlier 를 WARNING 승격.
+
+    절대 임계값을 발명하지 않는 데이터 유도 게이트 — CLI --threshold-* 가
+    없어도 이상 위치를 표면화한다. N < min_positions 에서는 MAD 가 불안정해
+    스킵. metric 전체 합산 max_findings 로 캡 (Finding 폭발 방지).
+    """
+    findings: list[Finding] = []
+    # 위치별 worst 값 집계
+    per_pos: dict[str, dict[str, float]] = {}
+    for r in report.results:
+        d = per_pos.setdefault(r.position.pos_id, {"peak_g": 0.0, "peak_stress": 0.0})
+        d["peak_g"] = max(d["peak_g"], float(r.peak_g or 0.0))
+        d["peak_stress"] = max(d["peak_stress"], float(r.peak_stress or 0.0))
+
+    if len(per_pos) < min_positions:
+        return findings
+
+    candidates: list[tuple[float, str, str, float]] = []  # (|z|, pos_id, metric, val)
+    for metric in ("peak_g", "peak_stress"):
+        vals = sorted(v[metric] for v in per_pos.values())
+        n = len(vals)
+        med = vals[n // 2]
+        mad = sorted(abs(v - med) for v in vals)[n // 2]
+        if mad <= 0:
+            continue  # 퇴화 분포(전부 동일) — z 무의미
+        for pos_id, d in per_pos.items():
+            z = 0.6745 * (d[metric] - med) / mad
+            if abs(z) > z_threshold:
+                candidates.append((abs(z), pos_id, metric, d[metric]))
+
+    candidates.sort(reverse=True)
+    for absz, pos_id, metric, val in candidates[:max_findings]:
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title=f"{pos_id}: statistical outlier for {metric} (|z|={absz:.1f})",
+            detail=f"{metric}={val:.3e} — robust z-score (median/MAD) 기준",
+            recommendation="해당 위치의 deck/결과를 우선 검토 (국소 취약부 또는 해석 이상).",
+        ))
     return findings
 
 

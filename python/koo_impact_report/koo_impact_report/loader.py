@@ -2059,6 +2059,16 @@ def load_partial_impact_doe_report(
         for _issue in (sub.load_issues or []):
             doe_load_issues.append({**_issue, "pos_name": run["pos_name"]})
 
+        # DOE 인덱스 파싱 실패 fallback 기록 (_discover 가 sort_index>=10000
+        # 로 마킹 — *Description 누락/비정상 run 표식, P1d)
+        if run.get("_sort_index", 0) >= 10000:
+            doe_load_issues.append({
+                "kind": "doe-index-fallback",
+                "pos_name": run["pos_name"],
+                "exc_class": None,
+                "msg": "DOE index not parseable from *Description — discovery-order name assigned",
+            })
+
         # Trajectory keyed by the new pos_id (sub-report had a different key)
         if sub.impactor_trajectories:
             traj = next(iter(sub.impactor_trajectories.values()))
@@ -2122,11 +2132,19 @@ def load_partial_impact_doe_report(
         if mismatches:
             print(f"[doe] WARN {run['pos_name']}: impactor mismatch — "
                   + "; ".join(mismatches))
+            # 질량/밀도 상대차 10% 초과면 CRITICAL 승격 힌트 (analyzer 소비)
+            _max_rel = max(
+                _rel_diff(float(spec.density or 0.0), ref_density),
+                (_rel_diff(float(spec.mass_override), float(ref_mass))
+                 if (ref_mass is not None and spec.mass_override is not None)
+                 else 0.0),
+            )
             doe_load_issues.append({
                 "kind": "impactor-mismatch",
                 "pos_name": run["pos_name"],
                 "exc_class": None,
                 "msg": "; ".join(mismatches),
+                "severity_hint": "critical" if _max_rel > 0.10 else "warning",
             })
 
     parts = [parts_by_id[k] for k in sorted(parts_by_id)]
