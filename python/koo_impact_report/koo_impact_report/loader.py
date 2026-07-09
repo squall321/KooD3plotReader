@@ -99,10 +99,19 @@ def load_part_result(analysis_json: Path) -> dict:
 def load_binout_energy(run_dir: Path) -> dict:
     """Real binout loader via ``koo_deep_report.core.binout_reader``.
 
-    Returns ``{"glstat": ..., "matsum": ..., "rcforc": [...]}``.
+    Returns ``{"glstat": ..., "matsum": ..., "rcforc": [...], "error": ...}``.
     Auto-detects ``binout0000`` (preferred) or any ``binout*`` in run_dir.
-    Returns dict of None values if no binout present.
+
+    ``error`` 는 실패 원인의 구조화 기록 (``None`` = 성공)::
+
+        {"class": "binout-missing" | "lasso-missing" | <ExceptionClass>,
+         "msg": str}
+
+    2026-06 산출물에서 SIF 에 lasso 가 없어 25/25 런의 에너지가 **아무 메시지
+    없이** 빈 값이 됐다 — 모든 실패 경로는 error 로 표면화한다 (무음 금지).
     """
+    _empty = {"glstat": None, "matsum": None, "rcforc": None}
+
     binout_path = None
     for cand in ["binout0000", "binout", "binout00000"]:
         p = run_dir / cand
@@ -115,25 +124,40 @@ def load_binout_energy(run_dir: Path) -> dict:
         binout_path = bins[0] if bins else None
 
     if binout_path is None or not binout_path.exists():
-        return {"glstat": None, "matsum": None, "rcforc": None}
+        return {**_empty,
+                "error": {"class": "binout-missing",
+                          "msg": f"no binout* file in {run_dir}"}}
 
     try:
         from koo_deep_report.core.binout_reader import parse_binout
+    except ImportError as e:
+        return {**_empty,
+                "error": {"class": "ImportError",
+                          "msg": f"koo_deep_report not importable: {e}"}}
+
+    try:
         data = parse_binout(binout_path)
         if data is None:
-            return {"glstat": None, "matsum": None, "rcforc": None}
+            # binout_reader 는 lasso.dyna 부재/파싱실패를 None 으로 뭉갠다 —
+            # 어느 쪽인지 여기서 판별해 기록 (SIF lasso 누락이 실제 사례).
+            try:
+                import lasso.dyna  # noqa: F401
+                err = {"class": "binout-parse-empty",
+                       "msg": f"parse_binout returned None for {binout_path.name}"}
+            except ImportError as e:
+                err = {"class": "lasso-missing", "msg": str(e)}
+            return {**_empty, "error": err}
         return {
             "glstat": None,  # glstat parsed separately if needed
             "matsum": data.matsum,
             "rcforc": data.rcforc,
             "sleout": data.sleout,
+            "error": None,
         }
-    except ImportError:
-        # koo_deep_report not installed — fallback (CSV path)
-        return {"glstat": None, "matsum": None, "rcforc": None}
     except Exception as e:
         print(f"[loader] binout parse failed for {binout_path}: {e}")
-        return {"glstat": None, "matsum": None, "rcforc": None}
+        return {**_empty,
+                "error": {"class": type(e).__name__, "msg": str(e)}}
 
 
 # ---------------------------------------------------------------------------
@@ -1491,6 +1515,13 @@ def load_single_d3plot_report(
     bin_data = load_binout_energy(parent)
     matsum = bin_data.get("matsum")
     rcforc = bin_data.get("rcforc") or []
+    # 실패는 구조화 기록 → 리포트 load_issues 로 (stdout 소멸 금지, P1b)
+    load_issues: list[dict] = []
+    _bin_err = bin_data.get("error")
+    if _bin_err:
+        load_issues.append({"kind": "binout", "pos_name": None,
+                            "exc_class": _bin_err.get("class"),
+                            "msg": _bin_err.get("msg", "")})
 
     impactor_mass: float | None = None
     if impactor_spec is not None and impactor_pid is not None:
@@ -1691,6 +1722,7 @@ def load_single_d3plot_report(
         test_dir=str(parent),
         impactor_trajectories=impactor_trajectories,
         part_motions=part_motions_keyed,
+        load_issues=load_issues,
     )
 
 
@@ -1930,6 +1962,9 @@ def load_partial_impact_doe_report(
     ]
 
     sub_reports: list[ImpactReport | None] = [None] * len(runs)
+    # 구조화 로드 진단 (P1b): 워커 실패 + sub-report 별 binout 오류 등을
+    # 집계해 리포트 load_issues 로 — stdout 소멸 금지.
+    doe_load_issues: list[dict] = []
     if parallel_runs > 1 and len(runs) > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         with ProcessPoolExecutor(max_workers=parallel_runs) as ex:
@@ -1941,6 +1976,12 @@ def load_partial_impact_doe_report(
                     print(f"[doe]   {runs[idx]['pos_name']:>9s}  ({runs[idx]['location_x']:+.1f}, {runs[idx]['location_y']:+.1f}) ✓")
                 except Exception as e:
                     print(f"[doe]   {runs[idx]['pos_name']} FAILED: {type(e).__name__}: {e}")
+                    doe_load_issues.append({
+                        "kind": "run-load-failed",
+                        "pos_name": runs[idx]["pos_name"],
+                        "exc_class": type(e).__name__,
+                        "msg": str(e),
+                    })
     else:
         for i, a in enumerate(job_args):
             try:
@@ -1948,6 +1989,12 @@ def load_partial_impact_doe_report(
                 print(f"[doe]   {runs[i]['pos_name']:>9s}  ({runs[i]['location_x']:+.1f}, {runs[i]['location_y']:+.1f}) ✓")
             except Exception as e:
                 print(f"[doe]   {runs[i]['pos_name']} FAILED: {type(e).__name__}: {e}")
+                doe_load_issues.append({
+                    "kind": "run-load-failed",
+                    "pos_name": runs[i]["pos_name"],
+                    "exc_class": type(e).__name__,
+                    "msg": str(e),
+                })
 
     # Merge sub-reports into one multi-position ImpactReport. All runs share
     # the same face (auto-detected from v₀) and the same parts list.
@@ -2007,6 +2054,10 @@ def load_partial_impact_doe_report(
             run_dir=run["run_dir"],
         )
         positions.append(pos)
+
+        # sub-report 의 구조화 로드 진단 흡수 (pos_name 부착, P1b)
+        for _issue in (sub.load_issues or []):
+            doe_load_issues.append({**_issue, "pos_name": run["pos_name"]})
 
         # Trajectory keyed by the new pos_id (sub-report had a different key)
         if sub.impactor_trajectories:
@@ -2071,6 +2122,12 @@ def load_partial_impact_doe_report(
         if mismatches:
             print(f"[doe] WARN {run['pos_name']}: impactor mismatch — "
                   + "; ".join(mismatches))
+            doe_load_issues.append({
+                "kind": "impactor-mismatch",
+                "pos_name": run["pos_name"],
+                "exc_class": None,
+                "msg": "; ".join(mismatches),
+            })
 
     parts = [parts_by_id[k] for k in sorted(parts_by_id)]
     print(f"[doe] merged: {len(positions)} positions × {len(parts)} parts "
@@ -2136,4 +2193,5 @@ def load_partial_impact_doe_report(
         test_dir=str(test_dir),
         impactor_trajectories=impactor_trajectories,
         part_motions=part_motions,
+        load_issues=doe_load_issues,
     )

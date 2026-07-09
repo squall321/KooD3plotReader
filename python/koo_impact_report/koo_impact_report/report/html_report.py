@@ -4581,6 +4581,9 @@ def _build_payload(report: ImpactReport) -> dict:
         "sim_params": report.sim_params or {},
     }
     meta["impactor"] = _impactor_dict(report.impactor)
+    # 구조화 로드 진단 (P1b) — binout 실패/런 로드 실패/impactor 불일치 등.
+    # JS 배지·Finding 승격의 원천 데이터.
+    meta["load_issues"] = list(getattr(report, "load_issues", []) or [])
 
     # --- faces / parts / positions / results --------------------------------
     if has_real:

@@ -85,12 +85,27 @@ def parse_binout(binout_path: Path) -> BinoutData | None:
     return result
 
 
+def _read_opt(b, branch: str, var: str, default=None):
+    """옵셔널 binout 변수 read — 실패해도 필수 데이터를 죽이지 않는다.
+
+    일부 lasso/binout 조합에서 legend(파트 이름) 디코딩이
+    ``ValueError: chr() arg not in range(0x110000)`` 로 죽는데, 포괄 except 가
+    멀쩡한 time/ids/IE/KE 까지 통째로 버려 에너지 파이프라인 전체가 무음으로
+    빈 값이 됐다 (2026-07 Test_Impact_A 실증). 이름/부가 필드는 실패 시
+    default 로 진행한다.
+    """
+    try:
+        return b.read(branch, var)
+    except Exception:
+        return default
+
+
 def _parse_matsum(b) -> MatSumData | None:
     try:
         import numpy as np
         t = b.read("matsum", "time")
         ids = b.read("matsum", "ids")
-        legend = b.read("matsum", "legend")
+        legend = _read_opt(b, "matsum", "legend")
         ie = b.read("matsum", "internal_energy")
         ke = b.read("matsum", "kinetic_energy")
 
@@ -114,8 +129,10 @@ def _parse_rcforc(b) -> list[RcforcInterface]:
         import numpy as np
         t = b.read("rcforc", "time")
         ids = b.read("rcforc", "ids")
-        side = b.read("rcforc", "side")
-        legend = b.read("rcforc", "legend")
+        # side/legend 는 deck 설정에 따라 브랜치에 없을 수 있음 — 부가 필드라
+        # 실패해도 힘 시계열은 살린다 (_read_opt docstring 참조).
+        side = _read_opt(b, "rcforc", "side")
+        legend = _read_opt(b, "rcforc", "legend")
         xf = b.read("rcforc", "x_force")
         yf = b.read("rcforc", "y_force")
         zf = b.read("rcforc", "z_force")
@@ -129,7 +146,7 @@ def _parse_rcforc(b) -> list[RcforcInterface]:
         interfaces: list[RcforcInterface] = []
         for i in range(n_entries):
             iid = int(ids[i])
-            s = int(side[i])
+            s = int(side[i]) if side is not None else 0
             col = xf[:, i] if xf.ndim > 1 else xf
             iface = RcforcInterface(
                 interface_id=iid,
@@ -151,7 +168,7 @@ def _parse_sleout(b) -> list[SleoutInterface]:
         import numpy as np
         t = b.read("sleout", "time")
         ids = b.read("sleout", "ids")
-        legend = b.read("sleout", "legend")
+        legend = _read_opt(b, "sleout", "legend")
         te = b.read("sleout", "total_energy")
         fe = b.read("sleout", "friction_energy")
 

@@ -33,6 +33,38 @@
   박히므로 `<DATASET>` 토큰으로 치환 후 해시.
 - 골든 결정성 확정: pytest 3회 연속 동일(바이트+정규화 3종), 기존 15 테스트 green.
 
+## P0 binout 재진단 결과 (node001, SIF 3b57b46 내부, 2026-07-09)
+
+- `from lasso.dyna import Binout` → **ModuleNotFoundError: No module named 'lasso'**.
+- 직렬(부모 프로세스) `load_binout_energy` 도 전부 None → **풀/fork 문제 아님**.
+- binout0000 파일은 존재 → 데이터 문제 아님.
+- **확정 원인: SIF 에 lasso-python 미설치** + ImportError 무음 소멸(loader.py:131-133).
+  과거 "pandas circular import" / "ProcessPoolExecutor" 진단은 모두 오진이었음.
+- 결정(1.3-B): SIF .def 에 `pip install lasso-python` 추가 (rcforc contact mask 까지
+  확보 — 네이티브 matsum 리더보다 이득). 구조화 에러 캡처(1.3-A)는 그대로 진행해
+  향후 재발 시 배지/Finding 으로 표면화.
+
+## P0 기준선 (회귀 비교용)
+
+- 재생성(25 DOE, deep-reuse): ~6s. HTML 15.7MB (payload 15.33MB).
+- 배지: ENERGY BALANCE FAIL (25/25) — 거짓. Finding: INFO 2건뿐.
+- energy_flows={}, diss_pct=0.0(조작성), impactor mass 는 b24899c 이후 정상(1.68e-5).
+
+## P1(b) 중 결정적 발견 — binout 이중 결함 (2026-07-09)
+
+- SIF: lasso 부재 (P0 진단). **로컬(lasso 있음)에서도 matsum=None** — 두 번째 층 존재.
+- 근본: binout 의 matsum 브랜치는 멀쩡(25파트×201스텝 KE/IE 존재)한데,
+  `legend`(파트 이름) 디코딩이 lasso 에서 `ValueError: chr() arg not in range` 로
+  죽고, `_parse_matsum` 의 포괄 except 가 **이름 하나 때문에 에너지 전체를 폐기**.
+  rcforc 도 `side`/`legend` 브랜치 부재로 동일 패턴 전멸(54개 인터페이스 버려짐).
+- fix: `_read_opt()` — 옵셔널 필드(legend/side)는 실패 시 default 로 진행,
+  필수 시계열은 살림. (koo_deep_report/core/binout_reader.py)
+- **교차 검증**: 부활한 matsum KE/v² 질량 = 1.6749e-05 vs step_config ρ·V
+  = 1.6836e-05 (0.5% 일치) — 독립 두 경로 상호 확증. KE 201.5 mJ = glstat
+  ke 201.486 과 일치 (6월의 "flat KE"가 사실 임팩터 KE 였음도 설명됨).
+
 ## 커밋 로그 (진행하며 기록)
 
-(작업 진행하며 여기에 추가)
+- fdc545c test(impact): 골든 하니스 + generate_sample PYTHONHASHSEED 결정성 fix
+- 095e685 fix(impact): solver_quality significance floor (25/25 거짓 FAIL 소멸)
+- d701ff4 fix(impact): 배지 3상태 + KPI diss 정직화 (실데이터 PASS16/FAIL9 진짜신호)

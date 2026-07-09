@@ -385,3 +385,8 @@ class ImpactReport:
     # and any path that runs the unified_analyzer motion extraction.
     part_motions: dict[tuple[str, int], PartMotion] = field(default_factory=dict)
     trajectory_clusters: TrajectoryClusters | None = None
+    # 구조화된 로드 진단 (stdout-only 소멸 금지 — SOTA P1b).
+    # 각 항목: {"kind": str, "pos_name": str|None, "exc_class": str|None,
+    #           "msg": str}. loader 가 채우고 payload meta.load_issues 로 노출,
+    # analyzer 가 집계 Finding 으로 승격한다.
+    load_issues: list[dict] = field(default_factory=list)
