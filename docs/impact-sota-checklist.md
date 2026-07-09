@@ -4,19 +4,19 @@
 
 ## P0 — 골든 하니스 + 진단 + 기준선
 
-- [ ] `tests/test_golden_html.py`: seed42 → 바이트 SHA-256 골든 + 정규화 골든(DATA JSON deep-compare, script-stripped HTML, JS 함수명 목록)
-- [ ] 기존 pytest 15개 green 확인
-- [ ] SIF 내 binout 재진단 (node001): lasso import → 직렬 load_binout_energy → fork/spawn
-- [ ] 기준선 기록: 재생성 시간 / HTML 크기 / 배지 상태 / Finding 수
+- [x] `tests/test_golden_html.py`: seed42 → 바이트 SHA-256 골든 + 정규화 골든(DATA JSON deep-compare, script-stripped HTML, JS 함수명 목록)
+- [x] 기존 pytest 15개 green 확인
+- [x] SIF 내 binout 재진단 (node001): lasso import → 직렬 load_binout_energy → fork/spawn
+- [x] 기준선 기록: 재생성 시간 / HTML 크기 / 배지 상태 / Finding 수
 
 ## P1 — 신뢰 fix (분할 전)
 
-- [ ] (a) solver_quality: IE_SIGNIFICANCE_FLOOR_FRAC=1e-3, KE_FLAT_TOL_FRAC=5e-3, ie_significant/impact_visible 필드, HG 게이트 조건화, diss_pct=None
-- [ ] (a) V2 단위테스트: glstat 픽스처 3종 (tiny-IE / flat-KE / 진짜 hourglassing)
-- [ ] (c) 배지 3상태화 (html_report.py:14330) + KPI diss_pct 정직화 (:5119)
-- [ ] (b-A) load_binout_energy error 슬롯 + ImpactReport.load_issues + 워커 실패 구조화
-- [ ] (d) loader 집계 Finding 7종 + analyzer 통계 outlier 게이트(z>3.5, N≥8, ≤10건)
-- [ ] (b-B/C) P0 진단 결과에 따라: lasso 의존/spawn/matsum 네이티브 or energy_flow.py 삭제
+- [x] (a) solver_quality: IE_SIGNIFICANCE_FLOOR_FRAC=1e-3, KE_FLAT_TOL_FRAC=5e-3, ie_significant/impact_visible 필드, HG 게이트 조건화, diss_pct=None
+- [x] (a) V2 단위테스트: glstat 픽스처 3종 (tiny-IE / flat-KE / 진짜 hourglassing)
+- [x] (c) 배지 3상태화 (html_report.py:14330) + KPI diss_pct 정직화 (:5119)
+- [x] (b-A) load_binout_energy error 슬롯 + ImpactReport.load_issues + 워커 실패 구조화
+- [x] (d) loader 집계 Finding 7종 + analyzer 통계 outlier 게이트(z>3.5, N≥8, ≤10건)
+- [x] (b-B/C) P0 진단 결과에 따라: lasso 의존/spawn/matsum 네이티브 or energy_flow.py 삭제
 
 ## P2 — 로더 성능 (분할 전)
 
