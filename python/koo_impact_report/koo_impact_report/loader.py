@@ -554,11 +554,14 @@ def _find_keyword_file(d3plot_path: Path) -> Path | None:
     return None
 
 
-def _parse_initial_velocity_any(
-    kfile: Path,
-    pid: int | None = None,
-) -> tuple[int | None, tuple[float, float, float]]:
-    """Parse ``*INITIAL_VELOCITY_*`` cards and return (pid, (vx, vy, vz)).
+# kfile 경로 → *INITIAL_VELOCITY_* 레코드 목록 캐시. 과거엔 콜사이트 3곳이
+# 각각 ~7MB .k 전체를 readlines 스캔했다 (P2-1: run 당 3회 → 1회).
+# 프로세스(=DOE 워커) 로컬 캐시라 메모리 부담은 run 당 수 엔트리 수준.
+_VELOCITY_RECORDS_CACHE: dict[str, list[tuple[int, tuple[float, float, float]]]] = {}
+
+
+def _scan_initial_velocities(kfile: Path) -> list[tuple[int, tuple[float, float, float]]]:
+    """``*INITIAL_VELOCITY_*`` 카드 전체를 파일 순서대로 1회 스캔·수집.
 
     Supports two LS-DYNA card variants:
       • ``*INITIAL_VELOCITY_RIGID_BODY`` — fields: PID, VX, VY, VZ, VXR, VYR, VZR
@@ -571,18 +574,22 @@ def _parse_initial_velocity_any(
     ``koo_deep_report.core.keyword_parser._read_fields`` — LS-DYNA decks
     routinely emit values like ``0.000e+00-4.905e+00`` with no whitespace
     between columns, which ``str.split()`` cannot resolve.
-
-    If ``pid`` is supplied, only matching records are returned. If ``pid``
-    is None, the first encountered record is returned (this is how the
-    impactor part-id is auto-discovered when the .k has empty PART titles).
     """
+    key = str(kfile)
+    cached = _VELOCITY_RECORDS_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    records: list[tuple[int, tuple[float, float, float]]] = []
     if not kfile.exists():
-        return (None, (0.0, 0.0, 0.0))
+        _VELOCITY_RECORDS_CACHE[key] = records
+        return records
     try:
         with open(kfile, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except OSError:
-        return (None, (0.0, 0.0, 0.0))
+        _VELOCITY_RECORDS_CACHE[key] = records
+        return records
 
     try:
         from koo_deep_report.core.keyword_parser import _read_fields, _to_float, _to_int
@@ -612,31 +619,42 @@ def _parse_initial_velocity_any(
             if j < len(lines):
                 fields = _read_fields(lines[j], 8)
                 rec_pid = _to_int(fields[0])
-                if rec_pid > 0 and (pid is None or rec_pid == pid):
-                    vx = _to_float(fields[1])
-                    vy = _to_float(fields[2])
-                    vz = _to_float(fields[3])
-                    return (rec_pid, (vx, vy, vz))
+                if rec_pid > 0:
+                    records.append((rec_pid,
+                                    (_to_float(fields[1]), _to_float(fields[2]),
+                                     _to_float(fields[3]))))
         elif upper.startswith("*INITIAL_VELOCITY_GENERATION"):
             j = _next_data_line(i + 1)
             if j < len(lines):
                 fields = _read_fields(lines[j], 8)
                 # Card 1 (LS-DYNA 971+ format):
                 #   field 1: ID  (PART id when STYP=2, set id when STYP=1)
-                #   field 2: STYP
-                #   field 3: OMEGA (rotational speed about axis)
-                #   field 4: VX
-                #   field 5: VY
-                #   field 6: VZ
+                #   field 2: STYP / field 3: OMEGA / field 4-6: VX, VY, VZ
                 rec_id = _to_int(fields[0])
                 styp = _to_int(fields[1], default=2)
                 if rec_id > 0 and styp in (1, 2):
-                    vx = _to_float(fields[3])
-                    vy = _to_float(fields[4])
-                    vz = _to_float(fields[5])
-                    if pid is None or rec_id == pid:
-                        return (rec_id, (vx, vy, vz))
+                    records.append((rec_id,
+                                    (_to_float(fields[3]), _to_float(fields[4]),
+                                     _to_float(fields[5]))))
         i += 1
+
+    _VELOCITY_RECORDS_CACHE[key] = records
+    return records
+
+
+def _parse_initial_velocity_any(
+    kfile: Path,
+    pid: int | None = None,
+) -> tuple[int | None, tuple[float, float, float]]:
+    """(pid, (vx, vy, vz)) 반환 — 캐시된 1회 스캔 결과에서 조회.
+
+    ``pid`` 지정 시 해당 레코드만, None 이면 파일 순서상 첫 레코드
+    (deck 의 PART 제목이 비어있을 때 impactor pid 자동 발견 경로).
+    기존 스캔-즉시-반환 의미와 동일 (파일 순서 첫 매치).
+    """
+    for rec_pid, v in _scan_initial_velocities(kfile):
+        if pid is None or rec_pid == pid:
+            return (rec_pid, v)
     return (None, (0.0, 0.0, 0.0))
 
 
@@ -731,6 +749,8 @@ def _build_impactor_from_keyword(
     impactor_part_id: int | None = None,
     work_dir: Path | None = None,
     step_config: dict | None = None,
+    kw=None,
+    kfile: Path | None = None,
 ) -> ImpactorSpec | None:
     """Build ImpactorSpec from the .k keyword file beside the d3plot.
 
@@ -740,22 +760,28 @@ def _build_impactor_from_keyword(
       * initial velocity from *INITIAL_VELOCITY_RIGID_BODY
       * geometric extent (radius/height) from motion CSV bounding info if work_dir provided
 
+    ``kw``/``kfile``: 호출자가 이미 파싱한 keyword 데이터 전달 (~7MB 재파싱
+    방지, P2-1). 미전달 시 내부에서 탐색·파싱 (backward compat).
+
     Returns None if the keyword file can't be located or impactor not found.
     """
-    try:
-        from koo_deep_report.core.keyword_parser import parse_keyword_file
-    except ImportError:
-        print("[loader] keyword_parser not importable — falling back to hardcoded ImpactorSpec")
-        return None
-
-    kfile = _find_keyword_file(d3plot_path)
+    if kfile is None:
+        kfile = _find_keyword_file(d3plot_path)
     if kfile is None:
         return None
 
-    try:
-        kw = parse_keyword_file(kfile)
-    except Exception as e:
-        print(f"[loader] keyword_parser failed: {e}")
+    if kw is None:
+        try:
+            from koo_deep_report.core.keyword_parser import parse_keyword_file
+        except ImportError:
+            print("[loader] keyword_parser not importable — falling back to hardcoded ImpactorSpec")
+            return None
+        try:
+            kw = parse_keyword_file(kfile)
+        except Exception as e:
+            print(f"[loader] keyword_parser failed: {e}")
+            return None
+    if kw is None:
         return None
 
     # Find impactor PID in priority order:
@@ -1046,7 +1072,11 @@ def load_per_part_motions(
     d3plot_result = None
     if _reuse:
         try:
-            d3plot_result = _parse_outputs(work_dir)
+            # motion 은 아래에서 full-column(vel/acc 성분 포함)으로 자체 파싱
+            # 하므로 skip — 이중 파싱 + 워커 내 nested ThreadPool 제거 (P2-2).
+            # history 도 stress/strain 2종만 (7종 중 5종 미사용).
+            d3plot_result = _parse_outputs(work_dir, parse_motion=False,
+                                           series={"stress", "strain"})
             print(f"[loader] reusing deep_report output (no unified_analyzer rerun): {work_dir}")
         except Exception as e:
             print(f"[loader] deep_report output reuse failed ({e}) — falling back to unified_analyzer")
@@ -1062,6 +1092,9 @@ def load_per_part_motions(
                 part_ids=part_ids,
                 threads=threads,
                 verbose=False,
+                # motion 은 아래 full-column 자체 파싱 사용 (P2-2 — reuse 경로와 동일)
+                parse_motion=False,
+                series={"stress", "strain"},
             )
         except Exception as e:
             print(f"[loader] unified_analyzer failed: {e}")
@@ -1448,10 +1481,21 @@ def load_single_d3plot_report(
     if project_name is None:
         project_name = parent.name
 
-    # 1) Parse keyword file: impactor spec + parts dict (PID → name, MID)
+    # 1) Parse keyword file ONCE (~7MB 구조 파싱 — 과거엔 impactor 빌드와
+    #    kw_data 용으로 2회 파싱했음, P2-1). 결과를 impactor 빌더에 전달.
+    kw_data = None
+    kfile = _find_keyword_file(d3plot_path)
+    try:
+        from koo_deep_report.core.keyword_parser import parse_keyword_file
+        if kfile is not None:
+            kw_data = parse_keyword_file(kfile)
+    except Exception as e:
+        print(f"[loader] keyword_parser unavailable: {e}")
+
     impactor_spec = _build_impactor_from_keyword(
         d3plot_path, impactor_part_name=impactor_part_name,
         work_dir=work_dir, step_config=step_config,
+        kw=kw_data, kfile=kfile,
     )
     impactor_pid: int | None = impactor_spec.part_id if impactor_spec else None
     if impactor_pid is None:
@@ -1461,14 +1505,6 @@ def load_single_d3plot_report(
             print(f"[loader] WARN  impactor part not found in keyword file")
 
     # 2) Run unified_analyzer once for ALL parts → motion CSVs
-    kw_data = None
-    try:
-        from koo_deep_report.core.keyword_parser import parse_keyword_file
-        kfile = _find_keyword_file(d3plot_path)
-        if kfile is not None:
-            kw_data = parse_keyword_file(kfile)
-    except Exception as e:
-        print(f"[loader] keyword_parser unavailable: {e}")
 
     part_ids_to_extract: list[int] | None = None
     if kw_data and kw_data.parts:

@@ -91,6 +91,8 @@ def run_analysis(
     element_quality: bool = False,
     install_dir: Path | None = None,
     section_view_config: "SectionViewRenderConfig | None" = None,
+    parse_motion: bool = True,
+    series: set[str] | None = None,
 ) -> D3plotResult:
     """
     1. analysis_jobs + render_jobs 통합 YAML 생성
@@ -142,7 +144,7 @@ def run_analysis(
     yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first)
     _run_ua(ua, yaml_content, verbose)
 
-    result = _parse_outputs(output_dir)
+    result = _parse_outputs(output_dir, parse_motion=parse_motion, series=series)
 
     # Second pass: per-part renders using part IDs from analysis results
     if needs_second_pass:
@@ -408,8 +410,21 @@ def _resolve_lsprepost(render_config: "RenderConfig | None", install_dir: Path |
     return found or None
 
 
-def _parse_outputs(output_dir: Path) -> D3plotResult:
-    """Parse analysis_result.json and motion CSVs."""
+def _parse_outputs(
+    output_dir: Path,
+    parse_motion: bool = True,
+    series: set[str] | None = None,
+) -> D3plotResult:
+    """Parse analysis_result.json and motion CSVs.
+
+    Args:
+        parse_motion: False 면 motion CSV 파싱을 건너뜀. koo_impact_report 는
+            vel/acc 성분까지 필요해 자체 full-column 파서로 다시 읽으므로,
+            여기서의 파싱은 순수 낭비 + 프로세스풀 워커 안 nested
+            ThreadPool 오버서브스크립션의 원인이었다 (SOTA P2-2).
+        series: 생성할 history 종류의 부분집합 (예: {"stress", "strain"}).
+            None = 전부(기존 동작). impact 파이프라인은 7종 중 2종만 사용.
+    """
     json_path = output_dir / "analysis_result.json"
     if not json_path.exists():
         raise RuntimeError(f"analysis_result.json not found in {output_dir}")
@@ -417,19 +432,22 @@ def _parse_outputs(output_dir: Path) -> D3plotResult:
     with open(json_path, encoding="utf-8") as f:
         raw = json.load(f)
 
+    def _want(name: str) -> bool:
+        return series is None or name in series
+
     metadata = raw.get("metadata", {})
-    stress = [_parse_series(s) for s in raw.get("stress_history", [])]
-    strain = [_parse_series(s) for s in raw.get("strain_history", [])]
-    max_principal = [_parse_series(s) for s in raw.get("max_principal_history", [])]
-    min_principal = [_parse_series(s) for s in raw.get("min_principal_history", [])]
-    max_principal_strain = [_parse_series(s) for s in raw.get("max_principal_strain_history", [])]
-    min_principal_strain = [_parse_series(s) for s in raw.get("min_principal_strain_history", [])]
-    accel = [_parse_series(s) for s in raw.get("acceleration_history", [])]
+    stress = [_parse_series(s) for s in raw.get("stress_history", [])] if _want("stress") else []
+    strain = [_parse_series(s) for s in raw.get("strain_history", [])] if _want("strain") else []
+    max_principal = [_parse_series(s) for s in raw.get("max_principal_history", [])] if _want("max_principal") else []
+    min_principal = [_parse_series(s) for s in raw.get("min_principal_history", [])] if _want("min_principal") else []
+    max_principal_strain = [_parse_series(s) for s in raw.get("max_principal_strain_history", [])] if _want("max_principal_strain") else []
+    min_principal_strain = [_parse_series(s) for s in raw.get("min_principal_strain_history", [])] if _want("min_principal_strain") else []
+    accel = [_parse_series(s) for s in raw.get("acceleration_history", [])] if _want("acceleration") else []
 
     # motion CSVs: motion/part_<id>_motion.csv (parallel loading)
     motion_dir = output_dir / "motion"
     motion: dict[int, MotionData] = {}
-    if motion_dir.exists():
+    if parse_motion and motion_dir.exists():
         csv_paths = sorted(motion_dir.glob("part_*_motion.csv"))
         if len(csv_paths) > 8:
             from concurrent.futures import ThreadPoolExecutor
