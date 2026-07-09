@@ -5061,12 +5061,16 @@ def _build_payload(report: ImpactReport) -> dict:
     # 각 ImpactPosition.run_dir 의 Output/glstat 를 audit_run() 으로 파싱 →
     # {pos_id: {pass_fail, summary, flags, ...}}. 한 run 당 ~10 ms (작은 파일).
     # P0/P1 의 trust signal 들을 보강하는 가장 결정적 출처.
+    # P2-4: DOE 로더는 워커에서 병렬 감사해 report.solver_quality 를 채운다 —
+    # 채워져 있으면 그대로 소비, 비어 있으면(face-tree 경로 등) 직렬 fallback.
     try:
         from ..solver_quality import audit_run as _audit_run
     except Exception:
         _audit_run = None
-    solver_quality_per_pos: dict[str, dict] = {}
-    if _audit_run is not None:
+    solver_quality_per_pos: dict[str, dict] = dict(
+        getattr(report, "solver_quality", None) or {}
+    )
+    if not solver_quality_per_pos and _audit_run is not None:
         for face_code, positions_list in (report.positions_by_face or {}).items():
             for pos in positions_list or []:
                 rd = getattr(pos, "run_dir", None)

@@ -27,6 +27,7 @@ from .models import (
     FaceOrientation, ImpactPosition, ImpactReport, ImpactorSpec,
     ImpactorTrajectory, PairResult, PartInfo, PartMotion, TimeSeriesData,
 )
+from .solver_quality import audit_run
 
 
 # Cuboid-26 face standard (§15.2). Used when scenario doesn't enumerate faces
@@ -1700,6 +1701,17 @@ def load_single_d3plot_report(
     impactor_trajectories = {pos.pos_id: traj}
     part_motions_keyed = {(pos.pos_id, pid): pm for pid, pm in motions.items()}
 
+    # solver_quality 감사를 여기(=DOE 워커 프로세스)서 수행 — 과거에는
+    # _build_payload 가 25+ 개 glstat 을 직렬로 파싱했다 (SOTA P2-4).
+    # glstat 은 d3plot 과 같은 디렉터리(parent)에 있다. audit_run 은 파일
+    # 부재를 자체 처리(glstat-missing)하므로 except 는 진짜 파서 오류만 잡는다.
+    try:
+        solver_quality = {pos.pos_id: audit_run(parent / "glstat")}
+    except Exception:
+        solver_quality = {pos.pos_id: {
+            "available": False, "pass_fail": "UNKNOWN", "flags": ["parser-error"],
+        }}
+
     print(f"[loader] single d3plot: {len(parts)} part(s), "
           f"traj n_states={len(traj.times)}, "
           f"behavior={traj.behavior_class}, KE retention={traj.ke_retention:.3f}, "
@@ -1759,6 +1771,7 @@ def load_single_d3plot_report(
         impactor_trajectories=impactor_trajectories,
         part_motions=part_motions_keyed,
         load_issues=load_issues,
+        solver_quality=solver_quality,
     )
 
 
@@ -2042,6 +2055,7 @@ def load_partial_impact_doe_report(
     results: list[PairResult] = []
     impactor_trajectories: dict[str, ImpactorTrajectory] = {}
     part_motions: dict[tuple[str, int], PartMotion] = {}
+    doe_solver_quality: dict[str, dict] = {}
     yield_stress_by_part: dict[int, float] = {}
     sample_sim_params: dict = {}
     seen_pos_ids: set[str] = set()
@@ -2111,6 +2125,10 @@ def load_partial_impact_doe_report(
             impactor_trajectories[pos_id] = traj
         else:
             traj = ImpactorTrajectory()
+
+        # solver_quality 도 동일하게 re-key (워커의 generic pos_id → 정식 pos_id)
+        if sub.solver_quality:
+            doe_solver_quality[pos_id] = next(iter(sub.solver_quality.values()))
 
         for p in sub.parts:
             parts_by_id.setdefault(p.part_id, p)
@@ -2248,4 +2266,5 @@ def load_partial_impact_doe_report(
         impactor_trajectories=impactor_trajectories,
         part_motions=part_motions,
         load_issues=doe_load_issues,
+        solver_quality=doe_solver_quality,
     )

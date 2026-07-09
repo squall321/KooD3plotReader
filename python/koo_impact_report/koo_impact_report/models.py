@@ -390,3 +390,7 @@ class ImpactReport:
     #           "msg": str}. loader 가 채우고 payload meta.load_issues 로 노출,
     # analyzer 가 집계 Finding 으로 승격한다.
     load_issues: list[dict] = field(default_factory=list)
+    # per-position solver_quality 감사 결과 (audit_run() dict), pos_id 키.
+    # DOE 워커가 병렬로 채운다 — 비어 있으면 payload 가 직렬 fallback 감사
+    # (face-tree 경로 등)를 수행한다 (SOTA P2-4).
+    solver_quality: dict[str, dict] = field(default_factory=dict)
