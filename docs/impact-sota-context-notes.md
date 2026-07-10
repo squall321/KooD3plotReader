@@ -130,3 +130,35 @@
 - fdc545c test(impact): 골든 하니스 + generate_sample PYTHONHASHSEED 결정성 fix
 - 095e685 fix(impact): solver_quality significance floor (25/25 거짓 FAIL 소멸)
 - d701ff4 fix(impact): 배지 3상태 + KPI diss 정직화 (실데이터 PASS16/FAIL9 진짜신호)
+
+## 에너지 흐름 P1-P6 완료 (2026-07-10) — 사용자 요구 "파트간 컨택힘/IE/KE 시계열"
+
+끊긴 곳은 binout→EnergyFlow 조립부 한 곳뿐(설계 에이전트 실측)이었고, 파서·모델·
+s3 7패널 JS 는 이미 완성돼 있었다. 서브에이전트 병렬 구현 + 내가 배선·검증.
+
+- **P1 (9e0b788)**: binout_reader 에 matsum rbvelocity/hourglass/eroded + glstat 브랜치.
+  ΣmatsumKE0=201.4864=glstat, 접촉런 CID173 peak|F|=1573.6N(계획서 1574 일치),
+  glstat energy_ratio=1.131(sliding +49mJ 아티팩트 — 보존은 solver_quality 배지와
+  짝지어 표기, 임계값 발명 안 함).
+- **P2/P3/P4 (51b5b99)**: contact_map.py(*CONTACT→파트 다수결, 50/50 세트 100%
+  단일파트, CID173→part24), energy_flow_builder.py(공용 중립 dict, cumtrapz
+  impulse/work, engage 판정을 'peak|F|>0'→'임팩터 운동량 1% 초과'로 — 미접촉런
+  솔버잔류력 0.5N 오판 방지), energy_flow.py 배선(dict→EnergyFlow, contact_map
+  소프트로드, propagation_order 튜플화). 캐시 v3→v4. 실측 energy_flows 25키,
+  **engage 9/25 = FAIL 런 집합과 정확히 일치**, kpi.diss_pct 41.2 소생.
+- **P5 (06cf72e)**: _pickFlow 첫키 고정 결함 해소 → _flowFor(worst 접촉 기본).
+  종전 F5_DOE_001(미접촉)이 걸려 SANKEY/TFH 빈 패널이던 것 → F5_DOE_024 기본으로
+  7패널 채워짐. s9 selectPosition → refreshEnergyFlowForPos 연동. SANKEY
+  total_w=0(pseudo) → total_imp fallback. 첫 행 "Impactor→Contact_173".
+- **P6 (68c8680)**: ENERGY RESIDENCE TIMELINE 신규 패널 — 파트별 IE stacked +
+  임팩터 KE 라인. 사용자 요구의 IE/KE 잔류 축 완성(기존 7패널이 컨택힘 담당).
+- **tier (a2cf8bc)**: energy_flows 위치당 ~90KB → C/D 는 dissipated 상위 40만 인라인.
+
+핵심 교훈:
+- CONTACT_173/172 는 single-master(임팩터 vs ALL 디바이스)라 rcforc 가 파트별
+  분해를 안 준다 → 임팩터→iface:173 pseudo 강등이 물리적으로 정직. 파트별 흡수는
+  matsum IE(RESIDENCE 패널)가 담당. "파트 지어내기 금지" 원칙 준수.
+- 미접촉 런도 솔버 잔류 접촉력 0.5N 을 가져 peak|F|>0 필터가 오작동 — 운동량 비율
+  기준이 물리적으로 옳다(미접촉≤0.5%, 접촉≥100%).
+- 최종 종합 검증(2026-07-10): 전 9섹션 Playwright 렌더 콘솔 에러 0, from-json
+  왕복 바이트 동일, report.json sq 25/PASS16/FAIL9, impact/deep 스위트 22+17 passed.
