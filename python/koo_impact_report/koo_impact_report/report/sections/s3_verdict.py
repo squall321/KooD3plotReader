@@ -55,8 +55,8 @@ _PAGE3 = """
 
   <div class="page-head r" style="margin-top:36px">
     <span class="num">&#9889;</span><span class="tagline" style="color:var(--accent2)">ENERGY FLOW DYNAMICS</span>
-    <span class="ttl">임팩트 KE의 경로 추적</span>
-    <span class="sub">FORCE GRAPH + SUNBURST + SANKEY + TIME-FORCE</span>
+    <span class="ttl">임팩트 KE의 경로 추적 <span style="color:#4dd6ff;font-size:0.8em">&middot; 위치 <b id="efd-pos-label">&mdash;</b></span></span>
+    <span class="sub">FORCE GRAPH + SUNBURST + SANKEY + TIME-FORCE &middot; s5 히트맵/s9 선택과 연동</span>
   </div>
 
   <!-- H6: binout energy_flow 부재 시 7패널 대신 표시되는 축약 모드 -->
@@ -513,7 +513,14 @@ function initEnergyFlowPage() {
   const flows = DATA.energy_flows || {};
   const grid = document.getElementById('efd-grid');
   const fb = document.getElementById('efd-fallback');
-  if (Object.keys(flows).length || !grid || !fb) return;
+  if (Object.keys(flows).length) {
+    // energy_flows 존재 → 7패널 사용. 기본 위치(worst 접촉) 확정 + 라벨.
+    _flowFor(null);
+    const lbl = document.getElementById('efd-pos-label');
+    if (lbl && _EF_POS) lbl.textContent = _EF_POS;
+    return;
+  }
+  if (!grid || !fb) return;
   grid.style.display = 'none';
   fb.style.display = 'block';
   // 흡수율 지도: doe_analysis.trajectory_summary 의 ke_retention
@@ -566,11 +573,46 @@ function initEnergyFlowPage() {
   }
 }
 
-function _pickFlow() {
+// P5: 에너지 흐름 위치 연동 — 첫 키 고정 결함 해소.
+let _EF_POS = null;
+function _flowFor(posId) {
   const flows = DATA.energy_flows || {};
   const keys = Object.keys(flows);
   if (!keys.length) return null;
-  return flows[keys[0]];
+  const want = posId || _EF_POS;
+  if (want && flows[want]) { _EF_POS = want; return flows[want]; }
+  // 기본 = 접촉(edges>0) 중 dissipated 최대. 없으면 worst KPI, 없으면 첫 키.
+  let best = null, bestD = -1;
+  for (const k of keys) {
+    const f = flows[k];
+    if ((f.edges || []).length > 0 && (f.dissipated || 0) > bestD) {
+      bestD = f.dissipated || 0; best = k;
+    }
+  }
+  if (!best) {
+    const wp = DATA.kpi && DATA.kpi.worst && DATA.kpi.worst.pos_id;
+    best = (wp && flows[wp]) ? wp : keys[0];
+  }
+  _EF_POS = best;
+  return flows[best];
+}
+function _pickFlow() { return _flowFor(null); }
+
+// s9 selectPosition 이 부르는 훅 — 에너지 페이지가 선택 위치를 따라가게.
+function refreshEnergyFlowForPos(posId) {
+  const flows = DATA.energy_flows || {};
+  if (!flows[posId]) return;   // 흐름 없는 위치면 현 상태 유지
+  _EF_POS = posId;
+  try {
+    if (typeof initEnergyGraph === 'function') initEnergyGraph();
+    if (typeof initSunburst === 'function') initSunburst();
+    if (typeof initSankey === 'function') initSankey();
+    if (typeof initTimeForceHeatmap === 'function') initTimeForceHeatmap();
+    if (typeof initConservation === 'function') initConservation();
+    if (typeof initEnergyResidence === 'function') initEnergyResidence();
+  } catch (e) { console.error('energy flow refresh failed:', e); }
+  const lbl = document.getElementById('efd-pos-label');
+  if (lbl) lbl.textContent = posId;
 }
 
 const EG = { canvas: null, ctx: null, playing: false, t_idx: 0, t_max: 100, flow: null, nodes_pos: null };
@@ -872,9 +914,12 @@ function initSankey() {
   while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
   if (!flow) return;
   const sorted = flow.edges.slice().sort((a, b) => (a.first_engage_idx || 0) - (b.first_engage_idx || 0));
-  let maxW = 0; for (const e of sorted) if (e.total_w > maxW) maxW = e.total_w;
+  // total_w=0 인 pseudo edge(양끝에 실파트 없어 work 미계산)는 total_imp 로 대체.
+  const _wOf = e => (e.total_w && e.total_w > 0) ? e.total_w : (e.total_imp || 0);
+  const _wUnit = sorted.some(e => e.total_w > 0) ? '' : ' (impulse)';
+  let maxW = 0; for (const e of sorted) if (_wOf(e) > maxW) maxW = _wOf(e);
   for (const e of sorted) {
-    const w = maxW > 0 ? e.total_w / maxW : 0;
+    const w = maxW > 0 ? _wOf(e) / maxW : 0;
     const srcNode = flow.nodes.find(n => n.id === e.src);
     const dstNode = flow.nodes.find(n => n.id === e.dst);
     const srcName = srcNode ? srcNode.name : e.src;
@@ -883,7 +928,7 @@ function initSankey() {
       el('div', { class: 'src' }, srcName),
       el('div', { class: 'bar', style: { width: (4 + w * 96) + '%' } }),
       el('div', { class: 'dst' }, '→ ' + dstName),
-      el('div', { class: 'val' }, fmt(e.total_w, 2))
+      el('div', { class: 'val' }, fmt(_wOf(e), 2) + _wUnit)
     ]);
     wrap.appendChild(row);
   }

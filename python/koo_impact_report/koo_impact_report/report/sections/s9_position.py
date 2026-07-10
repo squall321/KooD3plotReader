@@ -102,6 +102,10 @@ function selectPosition(posId, opts) {
   if (sel) sel.value = posId;
   fireLazy('s9');
   renderS9(posId);
+  // s3 에너지 흐름 페이지도 이 위치로 갱신 (P5 위치 연동)
+  if (typeof refreshEnergyFlowForPos === 'function') {
+    try { refreshEnergyFlowForPos(posId); } catch (e) {}
+  }
   // s5 활성 위치 동기화 (히트맵/랭킹 하이라이트)
   if (typeof DOE_STATE !== 'undefined' && DOE_STATE.active_pos !== posId) {
     DOE_STATE.active_pos = posId;
