@@ -12,7 +12,7 @@ _PAGE1 = """
       <div id="data-quality-badges" style="margin:6px 0 8px 0;display:flex;gap:6px;flex-wrap:wrap"></div>
       <div class="lede">
         Cuboid-26 표준 자세 중 <b id="kHeroFaces">__N_FACES__</b>개 면 &times; XY 격자
-        <b id="kHeroPos">__N_POSITIONS__</b> 위치 &times; <b id="kHeroParts">__N_PARTS__</b> 부품
+        <b id="kHeroPos">__N_POSITIONS__</b> 위치 &times; <b id="kHeroParts">__N_PARTS__</b> 부품(임팩터 포함)
         = <b id="kHeroPairs">__N_PAIRS__</b> 페어. 임팩터 운동에너지가 어디로 흘러가는지
         실시간 그래프로 추적합니다.
         <span id="heroValidRuns" style="display:block;margin-top:4px"></span>
@@ -105,7 +105,7 @@ _PAGE1 = """
     <div class="k"><div class="v" id="kWorstG">__WORST_G__<span class="u">G</span></div><div class="l">WORST PEAK G</div><div class="cap" style="font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px" title="LSDYNA 의 element 별 nodal acceleration 의 max — mesh 거칠기/contact penalty 의 영향을 받는 raw 값. 디바이스 평균이 아님.">element-local peak</div></div>
     <div class="k"><div class="v" id="kWorstS">__WORST_S__<span class="u" id="kWorstSUnit"></span></div><div class="l">WORST STRESS</div><div class="cap" style="font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px" title="element 별 stress 의 global max — mesh 거칠기 영향을 받는 raw 값. 평균 아님.">element-local peak</div></div>
     <div class="k"><div class="v" id="kCritPairs">__N_CRIT__</div><div class="l">CRITICAL PAIRS</div></div>
-    <div class="k"><div class="v" id="kSafePos">__N_SAFE__</div><div class="l">SAFE POSITIONS</div></div>
+    <div class="k"><div class="v" id="kSafePos">__N_SAFE__</div><div class="l">SAFE POSITIONS</div><div class="cap" id="kSafeCap" style="font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px"></div></div>
     <div class="k"><div class="v" id="kDiss">__DISS_PCT__<span class="u">%</span></div><div class="l">ENERGY DISSIPATED</div></div>
   </div>
 
@@ -147,7 +147,8 @@ _PAGE1 = """
       <div class="bvm-grid" id="bvm-grid"></div>
       <div class="bvm-legend" id="bvm-legend"></div>
       <div class="pcap">
-        탄성 반사(bounce)는 녹색, 부분 반발(rebound) 노랑, 미끄러짐(slide) 주황, 박힘(embed) 빨강.
+        탄성 반사(bounce)는 녹색, 부분 반발(rebound) 노랑, 미끄러짐(slide) 주황, 박힘(embed) 빨강,
+        접촉 미검출(no-contact)은 회색 — 회색 위치는 임팩터가 디바이스에 닿지 않은 런입니다.
         한눈에 어떤 영역이 임팩터를 튕겨내고 어디가 흡수하는지 보여줍니다.
       </div>
     </div>
@@ -200,6 +201,23 @@ _JS_S1 = r"""function fillHeroKpi() {
       host.innerHTML = '에너지 균형 FAIL <b style="color:var(--crit)">' + sqSum.fail + '/' + sqSum.n + '</b> 런 — 수치는 잠정치 (FINDINGS 참조).';
     }
   })();
+  // C2 (QA): ENERGY DISSIPATED 가 FAIL 런들의 median 이면 각주
+  (function () {
+    const sqSum = (DATA.solver_quality && DATA.solver_quality.summary) || null;
+    if (!sqSum) return;
+    const vis = sqSum.impact_visible_count || 0;
+    if (vis > 0 && sqSum.fail >= vis) {
+      const tile = document.getElementById('kDiss');
+      const host = tile && tile.parentElement ? tile.parentElement : null;
+      if (host && !host.querySelector('.cap')) {
+        const cap = document.createElement('div');
+        cap.className = 'cap';
+        cap.style.cssText = 'font-size:8px;letter-spacing:0.3px;color:var(--dim);margin-top:2px';
+        cap.textContent = '⚠ 에너지 균형 FAIL 런 기반 — 잠정치';
+        host.appendChild(cap);
+      }
+    }
+  })();
   // C2: worst KPI 가 FAIL 런 유래면 타일 캡션에 각주
   (function () {
     const perPos = (DATA.solver_quality && DATA.solver_quality.per_position) || {};
@@ -231,6 +249,17 @@ _JS_S1 = r"""function fillHeroKpi() {
   document.getElementById('kWorstS').innerHTML = fmt(k.worst_s, 1) + '<span class="u">' + _u('stress') + '</span>';
   document.getElementById('kCritPairs').textContent = k.n_critical;
   document.getElementById('kSafePos').textContent = k.n_safe;
+  // HIGH-1 (QA): 접촉 미검출 위치는 안전 판정에서 제외됐음을 명시
+  (function () {
+    const dz = (DATA.deep_analytics || {}).safe_drop_zone || {};
+    const capEl = document.getElementById('kSafeCap');
+    if (!capEl) return;
+    if (k.n_safe_basis === 'safe_drop_zone') {
+      capEl.textContent = (dz.no_contact_count > 0)
+        ? ('접촉 런만 판정 — 미접촉 ' + dz.no_contact_count + '개 제외')
+        : '기준: 안전 낙하 구역 지도와 동일';
+    }
+  })();
   // diss_pct=null → energy_flow 진짜 데이터 없음 (Mock 출고 차단 후). '—' 표시.
   document.getElementById('kDiss').innerHTML = (k.diss_pct != null)
     ? (k.diss_pct.toFixed(1) + '<span class="u">%</span>')

@@ -42,7 +42,7 @@ _PAGE6 = """
 
 <section class="panel" id="deep-anomaly-panel">
   <h3>이상치 위치 자동 검출</h3>
-  <div class="ppd-caption">FINDINGS 의 통계 outlier 게이트와 동일 기준 (robust z = median/MAD) — 두 화면의 수치는 상호 검증 가능.</div>
+  <div class="ppd-caption">FINDINGS 의 outlier 게이트와 동일 기준(robust z=median/MAD, |z|>3.5) — 검출 위치 집합이 일치. z 값 자체는 집계 기준이 달라(이 패널=위치 평균, FINDINGS=위치 최악값) 다를 수 있음.</div>
   <div id="deep-anomaly-detection" class="deep-anomaly-detection"></div>
 </section>
 <div class="panel" id="ppd-host">
@@ -381,15 +381,17 @@ function _deepRenderSafeDropZone(data) {
   positions.forEach(p => {
     const cx = sx(p.x), cy = sy(p.y);
     const rx = cx - cellW / 2, ry = cy - cellH / 2;
-    const fill = p.safe ? SAFE_COLOR : RISK_COLOR;
+    // HIGH-1 (QA): safe=null = 접촉 미검출 — '안전' 도 '위험' 도 아닌 미판정(회색)
+    const noContact = (p.safe === null || p.status === "no-contact");
+    const fill = noContact ? "#3a4152" : (p.safe ? SAFE_COLOR : RISK_COLOR);
     svgRoot.appendChild(svg("rect", {
       x: rx, y: ry, width: cellW - 2, height: cellH - 2,
-      fill: fill, "fill-opacity": p.safe ? 0.55 : 0.7,
+      fill: fill, "fill-opacity": noContact ? 0.5 : (p.safe ? 0.55 : 0.7),
       stroke: "#0c1116", "stroke-width": 1, rx: 3
     }));
     // Worst-metric label
-    let label = "OK";
-    if (!p.safe) {
+    let label = noContact ? "·" : "OK";
+    if (!noContact && !p.safe) {
       if (p.worst_metric === "peak_g") label = "g";
       else if (p.worst_metric === "peak_stress") label = "σ";
       else if (p.worst_metric === "peak_disp") label = "d";
@@ -408,7 +410,7 @@ function _deepRenderSafeDropZone(data) {
     const ttParts = [
       `pos_id=${p.pos_id}`,
       `face=${p.face}`,
-      `safe=${p.safe ? "예" : "아니오"}`
+      `safe=${noContact ? "미판정 (접촉 미검출)" : (p.safe ? "예" : "아니오")}`
     ];
     if (!p.safe) {
       let metricLabel = p.worst_metric || "";
@@ -461,9 +463,11 @@ function _deepRenderSafeDropZone(data) {
   // ---- KPI + thresholds + legend ----
   const side = el("div", { style: "flex:1; min-width:240px; display:flex; flex-direction:column; gap:12px;" });
 
-  const total = (dz.safe_count || 0) + (dz.at_risk_count || 0);
-  const safePct = total > 0 ? (100 * dz.safe_count / total) : 0;
-  const riskPct = total > 0 ? (100 * dz.at_risk_count / total) : 0;
+  const noC = dz.no_contact_count || 0;
+  const total = (dz.safe_count || 0) + (dz.at_risk_count || 0) + noC;
+  const judged = total - noC;
+  const safePct = judged > 0 ? (100 * dz.safe_count / judged) : 0;
+  const riskPct = judged > 0 ? (100 * dz.at_risk_count / judged) : 0;
 
   const kpiSafe = el("div", { class: "kpi-box", style: "background:#0f2418; border-left:4px solid #1f8a4c; padding:12px 14px; border-radius:6px;" }, [
     el("div", { style: "font-size:11px; color:#8a96a3; letter-spacing:0.5px;" }, ["안전 위치"]),
@@ -477,6 +481,13 @@ function _deepRenderSafeDropZone(data) {
   ]);
   side.appendChild(kpiSafe);
   side.appendChild(kpiRisk);
+  if (noC > 0) {
+    side.appendChild(el("div", { class: "kpi-box", style: "background:#151a26; border-left:4px solid #3a4152; padding:12px 14px; border-radius:6px;" }, [
+      el("div", { style: "font-size:11px; color:#8a96a3; letter-spacing:0.5px;" }, ["미판정 (접촉 미검출)"]),
+      el("div", { style: "font-size:26px; font-weight:700; color:#9aa5c0; margin-top:4px;" }, [`${noC} / ${total}`]),
+      el("div", { style: "font-size:11px; color:#8a96a3; margin-top:2px;" }, ["임팩터 미접촉 — 안전 판정에서 제외"]),
+    ]));
+  }
 
   // Thresholds box
   const thrBox = el("div", { style: "background:#10161d; padding:10px 12px; border-radius:6px; border:1px solid #1f2933;" }, [
@@ -737,8 +748,8 @@ function _deepRenderAnomalyDetection(data){
   // Header / summary
   var head = el('div',{class:'anom-head'},[
     el('div',{class:'anom-summary'},[
-      el('span',{class:'anom-stat'},['임계값 z = ', fmt(thresh,2),
-        ' (max(2.5, P95=', fmt(payload.p95_z,2), '))']),
+      el('span',{class:'anom-stat'},['임계값 |z| > ', fmt(thresh,2),
+        ' (robust z = median/MAD — FINDINGS 게이트와 동일)']),
       el('span',{class:'anom-stat'},['이상치 ', String(payload.n_anomalous), ' / ', String(rows.length), ' 위치']),
       el('span',{class:'anom-stat'},['IQR 펜스 [', fmt(payload.iqr_low,2), ', ', fmt(payload.iqr_high,2), '] (', _u('acc'), ')']),
     ])
@@ -828,7 +839,7 @@ function _renderAnomalyForFace(root, payload, faceCode){
           x: cx + (cellW-2)/2, y: cy + (cellH-2)/2 + 10,
           'text-anchor':'middle','dominant-baseline':'middle',
           'font-size': 10, fill: '#eaeaf0', 'font-weight':600
-        },['z=' + fmt(r.max_abs_z,1)]));
+        },['z=' + (r.max_abs_z > 999 ? '>999' : fmt(r.max_abs_z,1))]));
       }
     }
   }
@@ -855,9 +866,9 @@ function _renderAnomalyForFace(root, payload, faceCode){
         el('td',{},[String(i+1)]),
         el('td',{},[String(r.pos_id)]),
         el('td',{class:'anom-driver'},[driverKor]),
-        el('td',{class:'anom-zmax'},[fmt(r.max_abs_z,2)]),
-        el('td',{},[fmt(r.z_g,2)]),
-        el('td',{},[fmt(r.z_s,2)]),
+        el('td',{class:'anom-zmax'},[r.max_abs_z > 999 ? '>999' : fmt(r.max_abs_z,2)]),
+        el('td',{},[r.z_g > 999 ? '>999' : fmt(r.z_g,2)]),
+        el('td',{},[r.z_s > 999 ? '>999' : fmt(r.z_s,2)]),
         el('td',{},[fmt(r.z_d,2)]),
       ]));
     });

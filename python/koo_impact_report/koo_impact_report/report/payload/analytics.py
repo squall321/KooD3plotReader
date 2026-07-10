@@ -468,8 +468,29 @@ def _build_safe_drop_zone(report):
     unsafe_xy = []
     safe_count = 0
     at_risk_count = 0
+    no_contact_count = 0
+
+    # HIGH-1 (QA): 미접촉 런은 '응답이 작아서 안전' 이 아니라 '데이터 없음' —
+    # safe 로 승격하면 같은 화면의 CRITICAL finding 과 정면 모순.
+    _trajs = getattr(report, "impactor_trajectories", {}) or {}
 
     for (face, pos_id), rows in sorted(pos_map.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        _beh = getattr(_trajs.get(pos_id), "behavior_class", "") if _trajs.get(pos_id) else ""
+        if _beh == "no-contact":
+            no_contact_count += 1
+            xy = coord_lookup.get((face, pos_id), (0.0, 0.0))
+            positions_out.append({
+                "pos_id": pos_id,
+                "face": face,
+                "x": round(xy[0], 6),
+                "y": round(xy[1], 6),
+                "safe": None,                    # 판정 불가 — JS 는 회색 렌더
+                "status": "no-contact",
+                "worst_metric": None,
+                "worst_value": 0.0,
+                "worst_part_id": None,
+            })
+            continue
         # Worst violation across parts at this position
         worst_metric = None
         worst_ratio = -1.0
@@ -521,6 +542,7 @@ def _build_safe_drop_zone(report):
             "x": round(xy[0], 6),
             "y": round(xy[1], 6),
             "safe": bool(is_safe),
+            "status": "safe" if is_safe else "at-risk",
             "worst_metric": worst_metric,
             "worst_value": round(worst_value, 6) if worst_metric else 0.0,
             "worst_part_id": worst_part_id,
@@ -538,6 +560,7 @@ def _build_safe_drop_zone(report):
         },
         "safe_count": safe_count,
         "at_risk_count": at_risk_count,
+        "no_contact_count": no_contact_count,
         "critical_polygon": critical_polygon,
         "empty": False,
     }

@@ -333,7 +333,9 @@ def _build_restitution_map(report):
             summary["n_e_high"] = int(np.sum(arr >= 0.9))
             summary["n_e_low"] = int(np.sum(arr <= 0.3))
             # Locate max/min positions
-            valid_rows = [r for r in per_position if r["e"] is not None]
+            valid_rows = [r for r in per_position
+                          if r["e"] is not None
+                          and r.get("behavior_class") != "no-contact"]
             if valid_rows:
                 row_max = max(valid_rows, key=lambda r: r["e"])
                 row_min = min(valid_rows, key=lambda r: r["e"])

@@ -216,7 +216,7 @@ def generate_findings(
         severity=Severity.INFO,
         title=f"{n_face} face(s), {n_pos} position(s), {len(report.parts)} part(s)",
         detail=(
-            f"Generation mode: {report.generation_mode}, "
+            f"Generation mode: {report.generation_mode or 'unknown'}, "
             f"boundary={report.boundary_distance:.1f} mm, "
             f"offset={report.offset_distance:.3f} mm, "
             f"impactor={report.impactor.type or 'unknown'} h={report.impactor.height:.0f} mm"
@@ -478,12 +478,22 @@ def _statistical_outlier_findings(
                 candidates.append((abs(z), pos_id, metric, d[metric]))
 
     candidates.sort(reverse=True)
+    # C1-2 (QA): outlier 가 동시에 solver FAIL 런이면 '국소 취약부' 해석보다
+    # 수치 신뢰도 문제를 우선 안내 — 인과 역전 서사 방지.
+    _sq = getattr(report, "solver_quality", None) or {}
+    _fail_set = {str(k) for k, a in _sq.items()
+                 if (a or {}).get("pass_fail") == "FAIL"}
     for absz, pos_id, metric, val in candidates[:max_findings]:
+        if str(pos_id) in _fail_set:
+            rec = ("에너지 균형 FAIL 런 — 수치 신뢰도 문제로 우선 취급. "
+                   "hourglass/contact 세팅 수정 후 재확인.")
+        else:
+            rec = "해당 위치의 deck/결과를 우선 검토 (국소 취약부 또는 해석 이상)."
         findings.append(Finding(
             severity=Severity.WARNING,
             title=f"{pos_id}: statistical outlier for {metric} (|z|={absz:.1f})",
             detail=f"{metric}={val:.3e} — robust z-score (median/MAD) 기준",
-            recommendation="해당 위치의 deck/결과를 우선 검토 (국소 취약부 또는 해석 이상).",
+            recommendation=rec,
         ))
     return findings
 

@@ -259,7 +259,15 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     else:
         diss_pct = None  # 측정 불가
 
+    # C2 (QA): 유효(접촉) 런 수 — s1 각주/파이프라인 소비용
+    _sq_for_kpi = getattr(report, "solver_quality", None) or {}
+    _n_valid_runs = sum(
+        1 for a in _sq_for_kpi.values()
+        if ((a or {}).get("summary") or {}).get("impact_visible") is True
+    ) if _sq_for_kpi else None
+
     kpi = {
+        "n_valid_runs": _n_valid_runs,
         "n_positions": n_pos,
         "n_faces": len(faces),
         "n_parts": n_parts,

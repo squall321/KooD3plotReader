@@ -106,6 +106,8 @@ _JS_S8 = r"""function _physRenderStressWaveVelocity(data){
     chips.appendChild(mk('median', s.median_v_app_all, 'm/s'));
     chips.appendChild(mk('max', s.max_v_app, 'm/s'));
     chips.appendChild(mk('표본수', s.n_total, '개'));
+    if (s.n_dropped_no_contact) chips.appendChild(mk('미접촉 제외', s.n_dropped_no_contact, '개'));
+    if (s.n_dropped_v_ceiling) chips.appendChild(mk('상한(' + (s.v_app_ceiling_m_s || 12000) + ' m/s) 초과 드롭', s.n_dropped_v_ceiling, '개'));
     if(v_theory != null) chips.appendChild(mk('이론 √(E/ρ)', v_theory, 'm/s'));
     body.appendChild(chips);
   }
@@ -118,7 +120,7 @@ _JS_S8 = r"""function _physRenderStressWaveVelocity(data){
   // Domain: max of bar max (q75) and v_theory, with small headroom
   let xMax = 0;
   for(const r of rows){
-    const hi = (typeof r.q75_v_app === 'number') ? r.q75_v_app : (r.mean_v_app || 0);
+    const hi = (typeof r.q75_v_app === 'number') ? r.q75_v_app : (r.median_v_app || 0);
     if(hi > xMax) xMax = hi;
   }
   if(v_theory != null && v_theory > xMax) xMax = v_theory;
@@ -161,7 +163,7 @@ _JS_S8 = r"""function _physRenderStressWaveVelocity(data){
   // Bars + whiskers
   rows.forEach((r, i) => {
     const y = padTop + i * rowH + rowH * 0.5;
-    const mean = (typeof r.mean_v_app === 'number') ? r.mean_v_app : 0;
+    const mean = (typeof r.median_v_app === 'number') ? r.median_v_app : 0;
     const lo = (typeof r.q25_v_app === 'number') ? r.q25_v_app : mean;
     const hi = (typeof r.q75_v_app === 'number') ? r.q75_v_app : mean;
     const xMean = xScale(mean);

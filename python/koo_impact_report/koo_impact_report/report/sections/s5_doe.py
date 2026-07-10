@@ -141,7 +141,7 @@ _PAGE5 = """
     <div id="idw-pred-loo" style="margin-bottom:8px;font-size:12px;color:var(--fg2);padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px;display:none"></div>
     <div class="doe-grid-wrap"><div id="idw-pred-stack" style="position:relative;width:100%;"><canvas id="idw-pred-canvas" width="620" height="900" style="display:block;width:100%;cursor:grab;background:#0e1320;border-radius:4px;"></canvas><svg id="idw-pred-svg" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;"></svg></div></div>
     <div id="idw-pred-info" style="margin-top:8px;font-size:12px;color:var(--fg2)"></div>
-    <div class="pcap">측정 25 점 사이의 임의 위치에 떨어졌을 때 예상 응답. 점 = 실측, 면 = IDW 보간. 측정점 근처는 정확도가 높고, 측정점 사이 빈 영역은 불확실성이 커집니다 — 노란 링은 측정점 사이에 숨어 있을 가능성이 있는 "고위험 포켓"의 위치 추정입니다.</div>
+    <div class="pcap">측정 25 점 사이의 임의 위치에 떨어졌을 때 예상 응답. 점 = 실측, 면 = IDW 보간. 측정점 근처는 정확도가 높고, 측정점 사이 빈 영역은 불확실성이 커집니다 — 노란 링은 측정점 사이에 숨어 있을 가능성이 있는 "고위험 포켓"의 위치 추정입니다. 색상은 P95 클리핑 — 상위 5% 극단값은 포화색으로 표시됩니다.</div>
   </div>
 </div>
 
@@ -387,7 +387,7 @@ function initBounceVectorMap() {
     { code: 'F2', name: 'FRONT · F2' },
     { code: 'F1', name: 'BACK · F1'  }
   ];
-  const totals = { bounce: 0, rebound: 0, slide: 0, embed: 0, unknown: 0 };
+  const totals = { bounce: 0, rebound: 0, slide: 0, embed: 0, 'no-contact': 0, unknown: 0 };
   for (const k in TRAJ) totals[TRAJ[k].behavior] = (totals[TRAJ[k].behavior] || 0) + 1;
   for (const t of targets) {
     if (!FACE_BY_CODE[t.code]) continue;
@@ -406,7 +406,7 @@ function initBounceVectorMap() {
     _drawFaceCanvas(s, t.code, function (vbW, vbH) {
       // arrowhead marker
       const defs = svg('defs', {});
-      ['bounce', 'rebound', 'slide', 'embed', 'unknown'].forEach(function (b) {
+      ['bounce', 'rebound', 'slide', 'embed', 'no-contact', 'unknown'].forEach(function (b) {
         const m = svg('marker', { id: 'bvm-' + b + '-' + t.code, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto' });
         m.appendChild(svg('path', { d: 'M0,0 L10,5 L0,10 Z', fill: BEHAVIOR_COLOR[b] }));
         defs.appendChild(m);
@@ -444,7 +444,7 @@ function initBounceVectorMap() {
     grid.appendChild(cell);
   }
   // legend
-  const order = ['bounce', 'rebound', 'slide', 'embed'];
+  const order = ['bounce', 'rebound', 'slide', 'embed', 'no-contact'];
   for (const b of order) {
     legend.appendChild(el('div', { class: 'lg' }, [
       el('span', { class: 'sw', style: { background: BEHAVIOR_COLOR[b] } }),

@@ -204,9 +204,9 @@ def _build_damage_index(report):
             continue
         try:
             pid_i = int(pid)
-            pos_i = int(pos)
         except Exception:
             continue
+        pos_i = _pid_cast(pos)   # 문자열 DOE id ("F5_DOE_001") 그대로 통과 (H4 완결)
         pg = float(getattr(r, "peak_g", float("nan")) or float("nan"))
         ps = float(getattr(r, "peak_stress", float("nan")) or float("nan"))
         pe = float(getattr(r, "peak_strain", float("nan")) or float("nan"))
@@ -291,7 +291,7 @@ def _build_damage_index(report):
                 "part_name": name,
                 "di": round(float(di), 4),
                 "di_source": "composite",
-                "peak_pos_id": int(best_pos) if best_pos is not None else None,
+                "peak_pos_id": _pid_cast(best_pos) if best_pos is not None else None,
                 "max_peak_g": round(float(mx_pg), 2),
                 "max_peak_stress": round(float(mx_ps), 2),
                 "max_peak_strain": round(float(mx_pe), 5),
@@ -550,7 +550,7 @@ def _build_auto_recommend(report):
             pname = part_name_by_id.get(worst_part, f"Part {worst_part}")
             xy = pos_xy.get(worst_pos)
             if xy is not None and np.isfinite(xy[0]) and np.isfinite(xy[1]):
-                xy_str = f"(x={xy[0]:.3f}, y={xy[1]:.3f}){_u_len_str}"
+                xy_str = f"(x={xy[0]:.1f}, y={xy[1]:.1f}{_u_len_str})"
             else:
                 xy_str = "(좌표 미정)"
             # G 환산 병기 (M11) — s1 KPI 와 단위 감각 통일
@@ -568,6 +568,8 @@ def _build_auto_recommend(report):
                 "source_panel": "Peak Response Heatmap",
                 "metric": round(worst_g, 1),
             })
+
+    _g_div2 = 9810.0 if (_u_acc or "mm/s²") == "mm/s²" else 9.81
 
     # ---------- Rule 2: X-axis asymmetry ----------
     # Compute asymmetry between positions with x>0 vs x<0 on dominant face.
@@ -592,7 +594,14 @@ def _build_auto_recommend(report):
                 recs.append({
                     "severity": "warning" if asym < 30.0 else "critical",
                     "title": "X축 비대칭 검출",
-                    "body": f"X<0 평균 peak_g = {mL:,.1f}{_u_acc_str}, X>0 평균 = {mR:,.1f}{_u_acc_str} → 비대칭 {asym:.1f}%. 디자인 균형(질량 분포·강성 분포) 재검토 권장.",
+                    "body": (
+                    f"X<0 평균 {mL / _g_div2:,.0f} G vs X>0 평균 {mR / _g_div2:,.0f} G "
+                    f"→ 비대칭 {asym:.1f}% (|좌-우|/평균 기준). "
+                    + ("단, 접촉 미발생 런이 존재하므로(위 권고 참조) 이 비대칭은 "
+                       "디자인이 아니라 DOE 배치에서 비롯됐을 가능성이 높습니다."
+                       if _sq_fail_pos or _sq_all else
+                       "디자인 균형(질량 분포·강성 분포) 재검토를 권장합니다.")
+                ),
                     "source_panel": "Symmetry Diagnostic",
                     "metric": round(asym, 1),
                 })
@@ -605,13 +614,16 @@ def _build_auto_recommend(report):
             kr = getattr(tr, "ke_retention", None)
             if kr is None:
                 continue
+            # no-contact 런의 retention=1.0 은 '흡수 0%' 가 아니라 '접촉 없음'
+            if getattr(tr, "behavior_class", "") == "no-contact":
+                continue
             try:
-                arr = np.asarray(kr, dtype=float)
-                if arr.size:
-                    final = float(arr[-1])
-                    if np.isfinite(final):
-                        rets.append(final)
-            except Exception:
+                # ke_retention 은 scalar float (models.py) — 0-d asarray 에
+                # [-1] 인덱싱하면 IndexError 로 규칙 전체가 침묵했었다 (QA #9).
+                final = float(kr)
+                if np.isfinite(final):
+                    rets.append(final)
+            except (TypeError, ValueError):
                 continue
         if rets:
             mean_ret = float(np.mean(rets))
@@ -626,7 +638,7 @@ def _build_auto_recommend(report):
                 recs.append({
                     "severity": sev,
                     "title": "KE 흡수율 낮음 — 충격 흡수재 추가 권장",
-                    "body": f"전 위치 평균 KE 흡수율 = {mean_abs_pct:.1f}% (잔여 운동에너지 {mean_ret*100:.1f}%). 충격 흡수 폼/리브 추가 또는 두께 증가 검토.",
+                    "body": f"유효 접촉 런 평균 KE 흡수율 = {mean_abs_pct:.1f}% (잔여 운동에너지 {mean_ret*100:.1f}%). 충격 흡수 폼/리브 추가 또는 두께 증가 검토.",
                     "source_panel": "Energy Partition",
                     "metric": round(mean_abs_pct, 1),
                 })
@@ -634,7 +646,7 @@ def _build_auto_recommend(report):
                 recs.append({
                     "severity": "info",
                     "title": "KE 흡수율 양호",
-                    "body": f"전 위치 평균 KE 흡수율 = {mean_abs_pct:.1f}%. 현재 흡수 성능은 적정 범위.",
+                    "body": f"유효 접촉 런 평균 KE 흡수율 = {mean_abs_pct:.1f}%. 현재 흡수 성능은 적정 범위.",
                     "source_panel": "Energy Partition",
                     "metric": round(mean_abs_pct, 1),
                 })
@@ -735,8 +747,13 @@ def _build_contact_pulse(report):
                 "face": face,
             }
 
+    n_no_contact = 0
     for pos_id, traj in trajectories.items():
         if traj is None:
+            continue
+        # MED-5 (QA): 미접촉 런의 노이즈 펄스는 접촉 통계를 오염 — 제외
+        if getattr(traj, "behavior_class", "") == "no-contact":
+            n_no_contact += 1
             continue
         times = np.asarray(getattr(traj, "times", []) or [], dtype=float)
         engaged = np.asarray(getattr(traj, "contact_engaged", []) or [], dtype=bool)
@@ -803,6 +820,7 @@ def _build_contact_pulse(report):
         "min_duration_ms": None,
         "max_duration_ms": None,
         "n_valid": len(durations_ms),
+        "n_no_contact_excluded": n_no_contact,
     }
     if durations_ms:
         vals = np.array([d for _, d in durations_ms], dtype=float)

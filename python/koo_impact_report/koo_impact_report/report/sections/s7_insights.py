@@ -196,8 +196,10 @@ function _insightRenderDamageIndex(data){
   const W = 560, rowH = 26, labelW = 150, valueW = 70;
   const chartW = W - labelW - valueW - 16;
   const H = top12.length * rowH + 12;
-  const s = svg(W, H);
-  s.setAttribute('class', 'di-svg');
+  // svg(tag, attrs) 헬퍼 시그니처에 맞춤 — 과거 svg(W,H) 는 존재하지 않는
+  // 오버로드를 가정해 패널이 데이터를 얻은 순간 InvalidCharacterError 로
+  // 죽었다 (DamageIndex 가 H4 로 소생하며 드러난 잠재 버그).
+  const s = svg('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, 'class': 'di-svg' });
 
   top12.forEach((r, i) => {
     const y = i * rowH + 6;

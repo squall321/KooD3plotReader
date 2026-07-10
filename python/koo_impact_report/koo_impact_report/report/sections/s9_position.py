@@ -316,7 +316,7 @@ function buildPositionNarrative(posId, m) {
   if (sqv === 'FAIL') {
     const fl = (m.sq.flags || []).join(', ');
     S.push(ko
-      ? 'solver 품질 감사가 ' + B('FAIL') + ' (' + fl + ') 이므로 아래 수치는 순위 비교 용도로만 사용하고 절대값 판정은 재해석 후 권장합니다.'
+      ? 'solver 품질 감사가 ' + B('FAIL') + ' (' + fl + ') 이므로 아래 수치는 순위 비교 용도로만 사용하고, 절대값 판정은 재해석 후에 하시기를 권장합니다.'
       : 'The solver-quality audit is ' + B('FAIL') + ' (' + fl + ') — use the numbers below for ranking only and re-run before absolute judgements.');
   } else if (impactVisible === false) {
     S.push(ko
@@ -351,7 +351,13 @@ function buildPositionNarrative(posId, m) {
 
   // S3 임팩터 운명 (ke_retention 정상 범위일 때만)
   const kr = m.ts.ke_retention;
-  if (kr != null && kr >= 0 && kr <= 1.0001 && m.ts.behavior_class) {
+  if (m.ts.behavior_class === 'no-contact') {
+    // MED-7 (QA): 미접촉 런에 '관입/반발속도비' 를 쓰면 자유낙하 아티팩트가
+    // 물리량처럼 보임 — 접촉 없음 사실만 서술.
+    S.push(ko
+      ? '임팩터는 이 위치에서 디바이스와 접촉하지 않고 통과했습니다 — 관입·반발 지표는 해당 없음.'
+      : 'The impactor passed this position without contacting the device — penetration/rebound metrics are not applicable.');
+  } else if (kr != null && kr >= 0 && kr <= 1.0001 && m.ts.behavior_class) {
     const abs = ((1 - kr) * 100);
     let s3;
     if (m.ts.behavior_class === 'bounce' && abs < 1) {
