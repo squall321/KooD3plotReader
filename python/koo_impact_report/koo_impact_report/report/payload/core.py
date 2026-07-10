@@ -46,6 +46,8 @@ def _energy_flow_dict(flow: EnergyFlow) -> dict:
             "src": e.src,
             "dst": e.dst,
             "cid": e.contact_id,
+            "name": getattr(e, "name", ""),
+            "conf": getattr(e, "confidence", 1.0),
             "t": [round(_safe(v), 8) for v in e.times],
             "f": [round(_safe(v), 4) for v in e.force_mag_ts],
             "imp": [round(_safe(v), 4) for v in e.impulse_cum_ts],

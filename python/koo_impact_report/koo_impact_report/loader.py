@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .models import (
-    FaceOrientation, ImpactPosition, ImpactReport, ImpactorSpec,
+    EnergyFlow, FaceOrientation, ImpactPosition, ImpactReport, ImpactorSpec,
     ImpactorTrajectory, PairResult, PartInfo, PartMotion, TimeSeriesData,
 )
 from .solver_quality import audit_run
@@ -1725,6 +1725,28 @@ def load_single_d3plot_report(
             "available": False, "pass_fail": "UNKNOWN", "flags": ["parser-error"],
         }}
 
+    # 파트간 에너지 흐름 그래프 (matsum KE/IE + rcforc 컨택힘 → EnergyFlow).
+    # 이미 파싱한 bin_data·kfile·impactor_pid 재사용 (추가 binout open 0). 실패는
+    # 구조화 기록 — stdout 소멸 금지 (P1b 정신). SIF lasso 부재 시 bin_data 가
+    # 이미 error 를 담고 있어 flow=None → H6 fallback 패널 유지.
+    energy_flows: dict[str, EnergyFlow] = {}
+    if bin_data.get("matsum") is not None:
+        try:
+            from .energy_flow import build_energy_flow_from_binout
+            _pnames = {int(p.part_id): p.part_name for p in parts}
+            _flow = build_energy_flow_from_binout(
+                bin_data, _pnames, impactor_pid, kfile=kfile)
+            if _flow is not None:
+                energy_flows[pos.pos_id] = _flow
+            else:
+                load_issues.append({
+                    "kind": "energy-flow", "pos_name": None, "exc_class": None,
+                    "msg": "build_energy_flow returned None (no matsum nodes)"})
+        except Exception as _e:  # noqa: BLE001
+            load_issues.append({
+                "kind": "energy-flow", "pos_name": None,
+                "exc_class": type(_e).__name__, "msg": str(_e)})
+
     print(f"[loader] single d3plot: {len(parts)} part(s), "
           f"traj n_states={len(traj.times)}, "
           f"behavior={traj.behavior_class}, KE retention={traj.ke_retention:.3f}, "
@@ -1785,6 +1807,7 @@ def load_single_d3plot_report(
         part_motions=part_motions_keyed,
         load_issues=load_issues,
         solver_quality=solver_quality,
+        energy_flows=energy_flows,
     )
 
 
@@ -1977,7 +2000,7 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
 # --- per-run 증분 캐시 (P5-2) ------------------------------------------------
 # <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
 # 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
-_CACHE_SCHEMA = 3   # 워커 출력 의미 변경 시 범프 (v3: no-contact 입사부호 유도 + t_first 단독판정 완화)
+_CACHE_SCHEMA = 4   # v4: 워커 pickle 에 energy_flows(파트간 에너지 흐름) 추가
 
 
 def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:
@@ -2217,6 +2240,7 @@ def load_partial_impact_doe_report(
     impactor_trajectories: dict[str, ImpactorTrajectory] = {}
     part_motions: dict[tuple[str, int], PartMotion] = {}
     doe_solver_quality: dict[str, dict] = {}
+    doe_energy_flows: dict[str, EnergyFlow] = {}
     yield_stress_by_part: dict[int, float] = {}
     sample_sim_params: dict = {}
     seen_pos_ids: set[str] = set()
@@ -2290,6 +2314,10 @@ def load_partial_impact_doe_report(
         # solver_quality 도 동일하게 re-key (워커의 generic pos_id → 정식 pos_id)
         if sub.solver_quality:
             doe_solver_quality[pos_id] = next(iter(sub.solver_quality.values()))
+
+        # 에너지 흐름도 동일하게 pos_id re-key (워커 generic → 정식 pos_id)
+        if sub.energy_flows:
+            doe_energy_flows[pos_id] = next(iter(sub.energy_flows.values()))
 
         for p in sub.parts:
             parts_by_id.setdefault(p.part_id, p)
@@ -2428,4 +2456,5 @@ def load_partial_impact_doe_report(
         part_motions=part_motions,
         load_issues=doe_load_issues,
         solver_quality=doe_solver_quality,
+        energy_flows=doe_energy_flows,
     )

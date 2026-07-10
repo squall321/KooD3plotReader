@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict, deque
 from pathlib import Path
+from types import SimpleNamespace
 
 from .models import (
     EnergyEdge, EnergyFlow, EnergyGraphFrame, EnergyNode, PartInfo,
@@ -20,30 +21,128 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Builder (stub — see TODO)
+# Builder — koo_deep_report.core.energy_flow_builder 로 위임 후 모델 변환
 # ---------------------------------------------------------------------------
+
+def build_energy_flow_from_binout(
+    bin_data: dict,
+    part_names: dict[int, str],
+    impactor_pid: int | None,
+    kfile: Path | None = None,
+    max_pts: int = 120,
+) -> EnergyFlow | None:
+    """binout(dict) + keyword 접촉맵 → EnergyFlow.
+
+    ``bin_data`` 는 loader.load_binout_energy 반환 dict(matsum/rcforc/glstat).
+    contact_map 은 ``kfile`` 이 주어지면 소프트 로드 — 없거나 실패하면 None
+    (빌더가 pseudo 노드로 정직 강등). 조립 불가 시 None 을 반환해 downstream
+    이 빈 그래프를 "ok" 로 오인하지 않게 한다.
+    """
+    try:
+        from koo_deep_report.core.energy_flow_builder import build_flow_graph
+    except Exception:
+        return None
+
+    matsum = bin_data.get("matsum")
+    if matsum is None:
+        return None
+
+    # contact_map 소프트 로드 (P2 모듈이 아직 없거나 .k 부재면 None)
+    contact_map = None
+    if kfile is not None:
+        try:
+            from koo_deep_report.core.contact_map import parse_contact_map
+            contact_map = parse_contact_map(Path(kfile), part_names=part_names)
+        except Exception:
+            contact_map = None
+
+    # build_flow_graph 는 binout.matsum/.rcforc/.glstat 접근 — dict 를 감싼다
+    binout_obj = SimpleNamespace(
+        matsum=matsum,
+        rcforc=bin_data.get("rcforc") or [],
+        glstat=bin_data.get("glstat"),
+    )
+    try:
+        g = build_flow_graph(binout_obj, contact_map, part_names,
+                             impactor_pid, max_pts=max_pts)
+    except Exception:
+        return None
+    if not g or not g.get("nodes"):
+        return None
+
+    nodes = [
+        EnergyNode(
+            node_id=n["node_id"],
+            name=n.get("name", n["node_id"]),
+            is_impactor=bool(n.get("is_impactor")),
+            kinetic_ts=list(n.get("kinetic_ts") or []),
+            internal_ts=list(n.get("internal_ts") or []),
+            times=list(n.get("times") or []),
+        )
+        for n in g["nodes"]
+    ]
+    edges = [
+        EnergyEdge(
+            src=e["src"], dst=e["dst"],
+            contact_id=int(e.get("contact_id", -1)),
+            name=e.get("name", ""),
+            confidence=float(e.get("confidence", 1.0)),
+            times=list(e.get("times") or []),
+            force_mag_ts=list(e.get("force_mag_ts") or []),
+            impulse_cum_ts=list(e.get("impulse_cum_ts") or []),
+            work_cum_ts=list(e.get("work_cum_ts") or []),
+            peak_force=float(e.get("peak_force", 0.0)),
+            total_impulse=float(e.get("total_impulse", 0.0)),
+            total_work=float(e.get("total_work", 0.0)),
+        )
+        for e in g["edges"]
+    ]
+    # 빌더의 propagation_order 는 BFS 순서 node_id 리스트(list[str]) —
+    # 모델은 (node_id, weight) 튜플 리스트를 기대하므로 depth 를 weight 로 붙인다.
+    _depth = {k: int(v) for k, v in (g.get("depth_map") or {}).items()}
+    _prop = g.get("propagation_order", []) or []
+    prop_order: list[tuple[str, float]] = []
+    for item in _prop:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            prop_order.append((str(item[0]), float(item[1])))
+        else:
+            nid = str(item)
+            prop_order.append((nid, float(_depth.get(nid, 0))))
+
+    return EnergyFlow(
+        impactor_ke_initial=float(g.get("impactor_ke_initial", 0.0)),
+        impactor_ke_final=float(g.get("impactor_ke_final", 0.0)),
+        energy_dissipated=float(g.get("energy_dissipated", 0.0)),
+        nodes=nodes,
+        edges=edges,
+        propagation_order=prop_order,
+        depth_map=_depth,
+    )
+
 
 def build_energy_flow(
     run_dir: Path,
     parts: list[PartInfo],
     impactor_id: str | None = None,
 ) -> EnergyFlow | None:
-    """Construct an EnergyFlow for one run directory.
+    """레거시 시그니처 유지 — run_dir 에서 직접 조립.
 
-    Currently unimplemented. Returns ``None`` rather than a graph with all
-    zero scalars, so downstream code (e.g. ``verify_energy_conservation``)
-    cannot silently treat absent data as "ok".
-
-    TODO: parse binout/{matsum, rcforc, glstat} via
-    ``koo_deep_report.core.binout_reader.parse_binout`` and
-    ``glstat_reader.parse_glstat``, then:
-      1) for each part_id: build EnergyNode with kinetic_ts/internal_ts from matsum
-      2) for each contact_id: build EnergyEdge with force_mag_ts + cum impulse/work
-      3) compute frames per timestep
-      4) populate propagation_order / depth_map via compute_propagation_depth
-      5) compute impactor_ke_initial/final/dissipated from glstat
+    loader 는 이미 파싱한 bin_data 를 재사용하려고
+    ``build_energy_flow_from_binout`` 을 직접 부른다. 이 진입점은 독립
+    호출자(테스트/외부) 대비 — run_dir 에서 binout 을 새로 파싱한다.
     """
-    return None
+    from .loader import load_binout_energy
+    bin_data = load_binout_energy(run_dir)
+    if bin_data.get("error"):
+        return None
+    part_names = {int(p.part_id): p.part_name for p in parts}
+    imp_pid = None
+    if impactor_id is not None:
+        try:
+            imp_pid = int(impactor_id)
+        except (TypeError, ValueError):
+            imp_pid = None
+    return build_energy_flow_from_binout(bin_data, part_names, imp_pid)
 
 
 # ---------------------------------------------------------------------------

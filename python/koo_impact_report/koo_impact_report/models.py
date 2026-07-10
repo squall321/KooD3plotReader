@@ -325,6 +325,8 @@ class EnergyEdge:
     src: str
     dst: str
     contact_id: int = -1
+    name: str = ""                 # 접촉 카드 NAME (sankey/heatmap 라벨)
+    confidence: float = 1.0        # 파트 매핑 신뢰도 (1.0=part-id 직독, <1=다수결)
     times: list[float] = field(default_factory=list)
     force_mag_ts: list[float] = field(default_factory=list)
     impulse_cum_ts: list[float] = field(default_factory=list)
