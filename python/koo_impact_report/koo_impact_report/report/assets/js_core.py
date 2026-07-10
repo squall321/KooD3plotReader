@@ -3,6 +3,49 @@
 _JS_HEAD = r"""
 const DATA = __PAYLOAD__;
 
+// --- i18n (P6): sphere L()/toggleLang 패턴 이식. 정적 라벨은 [data-i18n],
+// 동적 프로즈는 인라인 이중 문자열 (reportLang 참조).
+let reportLang = 'ko';
+const I18N = {
+  s9Tagline:      { ko: 'POSITION \u00b7 DRILL-DOWN', en: 'POSITION \u00b7 DRILL-DOWN' },
+  s9Title:        { ko: '\uc704\uce58\ubcc4 \uc2ec\uce35 \ubd84\uc11d \u2014 \ud55c \ub099\ud558 \uc9c0\uc810\uc758 \ubaa8\ub4e0 \uac83', en: 'Per-Position Deep Dive' },
+  s9SelectPos:    { ko: '\uc704\uce58 \uc120\ud0dd', en: 'POSITION' },
+  s9SortSeverity: { ko: '\uc2ec\uac01\ub3c4\uc21c', en: 'SEVERITY' },
+  s9SortPos:      { ko: '\uc704\uce58 ID\uc21c', en: 'POS ID' },
+  s9NarrTitle:    { ko: '\uc5d4\uc9c0\ub2c8\uc5b4\ub9c1 \ud3c9\uac00', en: 'ENGINEERING ASSESSMENT' },
+  s9AccTitle:     { ko: '\uac00\uc18d\ub3c4 \uc624\ubc84\ub808\uc774 \u00b7 \uc0c1\uc704 8\ubd80\ud488', en: 'ACC-MAG OVERLAY \u00b7 TOP-8 PARTS' },
+  s9TrajTitle:    { ko: '\uc784\ud329\ud130 \uad64\uc801 \ubbf8\ub2c8\ubdf0', en: 'IMPACTOR TRAJECTORY MINI-VIEW' },
+  s9TblTitle:     { ko: '\uc774 \uc704\uce58\uc758 \ubd80\ud488\ubcc4 \uc751\ub2f5', en: 'PER-PART RESPONSE @ THIS POSITION' },
+  kpiWorstG:      { ko: '\ucd5c\ub300 \uac00\uc18d\ub3c4', en: 'WORST PEAK G' },
+  kpiWorstStress: { ko: '\ucd5c\ub300 \uc751\ub825', en: 'WORST STRESS' },
+  kpiKeAbsorbed:  { ko: '\ud761\uc218 \uc5d0\ub108\uc9c0', en: 'KE ABSORBED' },
+  kpiMaxPen:      { ko: '\ucd5c\ub300 \uad00\uc785', en: 'MAX PENETRATION' },
+  kpiSolverQ:     { ko: '\ud574\uc11d \ud488\uc9c8', en: 'SOLVER QUALITY' },
+  kpiFirstArrival:{ ko: '\ucd5c\ucd08 \uc751\ub2f5 \ub3c4\ub2ec', en: 'FIRST ARRIVAL' },
+  chunkLoading:   { ko: '\uc2dc\uacc4\uc5f4 \uccad\ud06c \ub85c\ub529 \uc911\u2026', en: 'loading time-series chunk\u2026' },
+  chunkMissing:   { ko: '\uccad\ud06c \ud30c\uc77c \uc5c6\uc74c \u2014 report_data/ \ub97c HTML \uacfc \ud568\uaed8 \ub450\uc138\uc694', en: 'chunk missing \u2014 keep report_data/ next to the HTML' },
+  noTraj:         { ko: '\uad64\uc801 \ub370\uc774\ud130 \uc5c6\uc74c', en: 'no trajectory data' },
+};
+function L(key) {
+  const e = I18N[key];
+  if (!e) return key;
+  return e[reportLang] || e.ko || key;
+}
+function toggleLang() {
+  reportLang = reportLang === 'ko' ? 'en' : 'ko';
+  const btn = document.getElementById('lang-toggle-btn');
+  if (btn) btn.textContent = reportLang === 'ko' ? 'EN' : '\ud55c';
+  document.querySelectorAll('[data-i18n]').forEach(function (n) {
+    n.textContent = L(n.dataset.i18n);
+  });
+  if (typeof S9_STATE !== 'undefined' && S9_STATE.pos) renderS9(S9_STATE.pos);
+}
+// \ud06c\ub85c\uc2a4\ub9c1\ud06c hover \uc0c1\ud638 \ud558\uc774\ub77c\uc774\ud2b8 (s5 \u2194 s9)
+function xlinkHover(posId, on) {
+  document.querySelectorAll('[data-pos="' + (window.CSS && CSS.escape ? CSS.escape(posId) : posId) + '"]')
+    .forEach(function (n) { n.classList.toggle('xlink-hi', on); });
+}
+
 function fmt(n, d) {
   if (n == null || !isFinite(n)) return '-';
   const a = Math.abs(n);
@@ -237,7 +280,7 @@ function initNav() {
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
-    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
+    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'];
     const y = window.scrollY + 120;
     let active = sections[0];
     for (const id of sections) {
@@ -617,6 +660,11 @@ function boot() {
   // Section 08 — PHYSICS
   registerLazy('s8', function () {
     initPhysics();
+  });
+
+  // Section 09 — POSITION DRILL-DOWN (P6)
+  registerLazy('s9', function () {
+    if (typeof initS9 === 'function') initS9();
   });
 
   setupLazyObserver();

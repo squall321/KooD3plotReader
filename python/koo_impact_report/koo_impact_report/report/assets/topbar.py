@@ -42,6 +42,8 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <a data-target="s6" id="navS6">DEEP</a>
     <a data-target="s7" id="navS7">INSIGHTS</a>
     <a data-target="s8" id="navS8">PHYSICS</a>
+    <a data-target="s9" id="navS9">POSITION</a>
+    <a id="lang-toggle-btn" onclick="toggleLang()" style="opacity:0.75">EN</a>
   </div>
 </div>
 """

@@ -1185,4 +1185,38 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 /* PHYSICS_CSS_INSERT_HERE */
 
 /* INSIGHT_CSS_INSERT_HERE */
+
+/* ---- s9 POSITION DRILL-DOWN (P6) -------------------------------------- */
+.s9-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+  margin-left: 4px; vertical-align: 1px;
+}
+.s9-badge.driver   { background: rgba(77,214,255,0.16); color: #4dd6ff; border: 1px solid rgba(77,214,255,0.45); }
+.s9-badge.sdriver  { background: rgba(178,140,255,0.14); color: #b28cff; border: 1px solid rgba(178,140,255,0.45); }
+.s9-badge.crit     { background: rgba(255,94,132,0.15); color: #ff5e84; border: 1px solid rgba(255,94,132,0.5); }
+.s9-badge.warn     { background: rgba(255,193,94,0.13); color: #ffc15e; border: 1px solid rgba(255,193,94,0.45); }
+.s9-badge.impactor { background: rgba(108,116,140,0.15); color: #8b93a8; border: 1px solid rgba(108,116,140,0.4); }
+.s9-badge.firsthit { background: transparent; color: #6ee7a0; border: 1px solid rgba(110,231,160,0.55); }
+.xlink-hi rect { stroke: #fff !important; stroke-width: 1.5 !important; }
+tr.xlink-hi { background: rgba(77,214,255,0.08); }
+.s9-skeleton {
+  height: 120px; border-radius: 6px;
+  background: linear-gradient(90deg, #141a2b 25%, #1b2338 50%, #141a2b 75%);
+  background-size: 200% 100%; animation: s9shimmer 1.1s infinite linear;
+}
+@keyframes s9shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+#s9-narrative {
+  padding: 12px 14px; font-size: 13px; line-height: 1.75; color: #c9d2e6;
+}
+#s9-narrative .dd-b { color: #ff5e84; font-weight: 700; }
+#s9-narrative .dd-w { color: #ffc15e; font-weight: 700; }
+#s9-narrative .dd-g { color: #6ee7a0; font-weight: 700; }
+#s9-narrative .dd-h { color: #4dd6ff; font-weight: 700; }
+#s9-pos-select {
+  background: #10182a; color: #dfe6f5; border: 1px solid #273252;
+  border-radius: 4px; padding: 3px 8px; font-family: inherit; font-size: 12px;
+  max-width: 340px;
+}
+.s9-bar { display: inline-block; height: 8px; background: linear-gradient(90deg,#265a72,#4dd6ff); border-radius: 2px; vertical-align: middle; }
 """

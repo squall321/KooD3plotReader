@@ -258,6 +258,7 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "n_safe": n_safe,
         "diss_pct": (round(diss_pct, 1) if diss_pct is not None else None),
         "worst": {
+            "pos_id": worst.get("pos_id", ""),   # s1→s9 크로스링크 (P6)
             "face": worst.get("face", "-"),
             "x": round(worst.get("x", 0.0), 2),
             "y": round(worst.get("y", 0.0), 2),

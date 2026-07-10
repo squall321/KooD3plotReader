@@ -2256,10 +2256,15 @@ function _doeRenderHeatmap(doe) {
       fill: fill, stroke: 'rgba(255,255,255,0.05)', rx: 2
     });
     rect.addEventListener('click', () => {
+      const again = DOE_STATE.active_pos === pos.pos_id;   // 재클릭 = 드릴다운 (P6)
       DOE_STATE.active_pos = pos.pos_id;
       _doeRenderHeatmap(doe);
       _doeRenderRanking(doe);
+      if (typeof selectPosition === 'function')
+        selectPosition(pos.pos_id, { scroll: again, source: 's5' });
     });
+    rect.addEventListener('mouseenter', () => xlinkHover(pos.pos_id, true));
+    rect.addEventListener('mouseleave', () => xlinkHover(pos.pos_id, false));
     const pm = (doe.position_metrics || {})[pos.pos_id] || {};
     const short = ({ peak_g: 'g', peak_stress: 's', peak_strain: 'e', peak_disp: 'd', peak_vel: 'v' })[DOE_STATE.metric] || 'g';
     const wpid = pm['worst_part_id_' + short];
@@ -2309,7 +2314,7 @@ function _doeRenderRanking(doe) {
     const beh = tsum.behavior_class || 'unknown';
     const ke_ret = tsum.ke_retention;
     const pen = tsum.max_penetration_depth;
-    const tr = el('tr', {});
+    const tr = el('tr', { 'data-pos': p.pos_id });
     if (DOE_STATE.active_pos === p.pos_id) tr.style.background = 'rgba(77,214,255,0.08)';
     tr.appendChild(el('td', { class: 'tl b' }, String(i + 1)));
     tr.appendChild(el('td', { class: 'tl' }, p.pos_id));
@@ -2323,10 +2328,15 @@ function _doeRenderRanking(doe) {
     tr.appendChild(el('td', { class: 'num' }, ke_ret != null ? (ke_ret * 100).toFixed(1) + '%' : '-'));
     tr.appendChild(el('td', { class: 'num' }, pen != null ? fmt(pen, 2) : '-'));
     tr.addEventListener('click', () => {
+      const again = DOE_STATE.active_pos === p.pos_id;     // 재클릭 = 드릴다운 (P6)
       DOE_STATE.active_pos = p.pos_id;
       _doeRenderHeatmap(doe);
       _doeRenderRanking(doe);
+      if (typeof selectPosition === 'function')
+        selectPosition(p.pos_id, { scroll: again, source: 's5' });
     });
+    tr.addEventListener('mouseenter', () => xlinkHover(p.pos_id, true));
+    tr.addEventListener('mouseleave', () => xlinkHover(p.pos_id, false));
     tr.style.cursor = 'pointer';
     tb.appendChild(tr);
   });

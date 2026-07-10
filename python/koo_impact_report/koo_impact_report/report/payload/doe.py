@@ -553,11 +553,11 @@ def _build_toa_payload(report):
         })
         per_part_dts.setdefault(pid, []).append(dt_ms)
 
-    # per-position: sort asc by dt_ms, cap 12 earliest
+    # per-position: sort asc by dt_ms. cap 없음 — s9 per-part 테이블의 TOA
+    # 컬럼이 13위 이하에서 '—' 가 되지 않게 (P6; 항목당 {id,name,dt} 뿐이라 경미).
     toa_per_position = {}
     for pos_key, rows in per_pos_rows.items():
-        rows_sorted = sorted(rows, key=lambda r: r["dt_ms"])
-        toa_per_position[pos_key] = rows_sorted[:12]
+        toa_per_position[pos_key] = sorted(rows, key=lambda r: r["dt_ms"])
 
     # per-part: mean / std / n
     def _mean_std(vals):

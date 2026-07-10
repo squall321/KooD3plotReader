@@ -183,6 +183,19 @@ _PAGE1 = """
 
 _JS_S1 = r"""function fillHeroKpi() {
   const k = DATA.kpi;
+  // s1 -> s9 크로스링크 (P6): worst KPI/히어로 클릭 -> 해당 위치 드릴다운
+  const _worstPos = (k.worst && k.worst.pos_id) ||
+    ((DATA.doe_analysis && DATA.doe_analysis.worst_position) ? DATA.doe_analysis.worst_position.pos_id : null);
+  if (_worstPos) {
+    ['kWorstG', 'heroWorstPart', 'heroWorstCoord'].forEach(function (eid) {
+      const n = document.getElementById(eid);
+      if (!n) return;
+      n.style.cursor = 'pointer';
+      n.addEventListener('click', function () {
+        if (typeof selectPosition === 'function') selectPosition(_worstPos, { source: 's1' });
+      });
+    });
+  }
   // Acceleration→g divisor: matches the solver unit declared by the loader.
   // mm/s² → /9810, m/s² → /9.81 (= mm/ms²).
   const _gDiv = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
