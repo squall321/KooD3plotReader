@@ -995,9 +995,19 @@ def main() -> None:
                         help=("Comma-separated face codes to generate "
                               "(e.g. 'F1,F2,F5') or 'all' for F1-F6. "
                               "Default: F1,F2 (smartphone Back+Front)."))
+    parser.add_argument("--grid", type=str, default=None, metavar="NX,NY",
+                        help=("모든 선택 face 의 격자 크기 오버라이드 "
+                              "(예: 13,13 → face 당 169 위치). "
+                              "tier C/D 스케일 테스트용 (V3)."))
     args = parser.parse_args()
 
     selected_faces = _parse_faces_arg(args.faces)
+    if args.grid:
+        try:
+            _nx, _ny = (int(v) for v in args.grid.split(","))
+        except ValueError:
+            raise SystemExit("--grid: 'NX,NY' 정수 쌍이어야 함 (예: 13,13)")
+        selected_faces = [{**f, "nx": _nx, "ny": _ny} for f in selected_faces]
 
     output: Path = args.output
     output.mkdir(parents=True, exist_ok=True)
