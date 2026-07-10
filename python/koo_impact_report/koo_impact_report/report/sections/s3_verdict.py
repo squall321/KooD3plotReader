@@ -28,7 +28,7 @@ _PAGE3 = """
           <thead>
             <tr>
               <th class="tl">PART</th><th class="tl">FACE</th><th>X</th><th>Y</th>
-              <th class="tl">CLASS</th><th>MAX (G)</th><th>&sigma;</th><th>&epsilon;</th><th>d</th>
+              <th class="tl" title="CRITICAL/WARNING = 자기분포 P95/P75 초과 — 설계 한계 아님">CLASS &#x24D8;</th><th>MAX (G)</th><th>&sigma;</th><th>&epsilon;</th><th>d</th>
               <th>CoV</th><th>INFL</th><th class="tl">MODE</th>
             </tr>
           </thead>
@@ -59,7 +59,30 @@ _PAGE3 = """
     <span class="sub">FORCE GRAPH + SUNBURST + SANKEY + TIME-FORCE</span>
   </div>
 
-  <div class="grid g-12">
+  <!-- H6: binout energy_flow 부재 시 7패널 대신 표시되는 축약 모드 -->
+  <div id="efd-fallback" style="display:none">
+    <div class="grid g-12">
+      <div class="panel col-7 r">
+        <div class="ph"><span class="pt">KE 흡수율 지도 (glstat 기반)</span>
+          <span class="pd">(1 &minus; KE retention) &times; 100% &middot; 회색 = 접촉 미검출</span></div>
+        <svg id="efd-absorb-svg" viewBox="0 0 540 380" preserveAspectRatio="xMidYMid meet" style="width:100%"></svg>
+        <div class="pcap" id="efd-absorb-cap"></div>
+      </div>
+      <div class="panel col-5 r">
+        <div class="ph"><span class="pt">ENERGY FLOW 미기록</span></div>
+        <div style="padding:14px;font-size:12.5px;line-height:1.7;color:#9aa5c0">
+          binout 의 per-part 에너지 흐름(matsum/rcforc)이 이 데이터셋에 없어
+          force-graph/sunburst/sankey 패널을 생략했습니다.<br><br>
+          대신 위 지도는 <b>glstat 의 임팩터 KE 감소율</b>로 각 위치의 에너지
+          전달 강도를 보여줍니다. per-part 분해가 필요하면 deck 의
+          <span style="color:#4dd6ff">*DATABASE_BINARY_D3PLOT / matsum</span>
+          출력을 활성화 후 재해석하십시오.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g-12" id="efd-grid">
     <div class="panel col-7 r">
       <div class="ph">
         <span class="pt">FORCE-DIRECTED ENERGY GRAPH</span>
@@ -482,6 +505,64 @@ function renderFindings() {
       ])
     ]);
     ul.appendChild(li);
+  }
+}
+
+// H6: energy_flows 부재 시 축약 모드 — 빈 패널 7개 대신 glstat 흡수율 지도
+function initEnergyFlowPage() {
+  const flows = DATA.energy_flows || {};
+  const grid = document.getElementById('efd-grid');
+  const fb = document.getElementById('efd-fallback');
+  if (Object.keys(flows).length || !grid || !fb) return;
+  grid.style.display = 'none';
+  fb.style.display = 'block';
+  // 흡수율 지도: doe_analysis.trajectory_summary 의 ke_retention
+  const doe = DATA.doe_analysis || {};
+  const ts = doe.trajectory_summary || {};
+  const poss = DATA.positions || [];
+  const svgEl = document.getElementById('efd-absorb-svg');
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+  if (!poss.length) return;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  poss.forEach(p => { if (p.x < xmin) xmin = p.x; if (p.x > xmax) xmax = p.x;
+                      if (p.y < ymin) ymin = p.y; if (p.y > ymax) ymax = p.y; });
+  const W = 540, Hh = 380, pad = 46;
+  const nx = Math.round(Math.sqrt(poss.length)) || 5;
+  const cw = (W - 2 * pad) / Math.max(1, nx), ch = (Hh - 2 * pad) / Math.max(1, nx);
+  const sx = v => pad + (xmax > xmin ? (v - xmin) / (xmax - xmin) : 0.5) * (W - 2 * pad - cw);
+  const sy = v => Hh - pad - ch - (ymax > ymin ? (v - ymin) / (ymax - ymin) : 0.5) * (Hh - 2 * pad - ch);
+  let absMin = null, absMax = null, minPos = null, maxPos = null;
+  poss.forEach(p => {
+    const rec = ts[p.pos_id] || {};
+    const kr = rec.ke_retention;
+    const noContact = (rec.behavior_class === 'no-contact') || kr == null;
+    const absPct = kr != null ? (1 - kr) * 100 : null;
+    let fill = '#242b3d';
+    if (!noContact && absPct != null) {
+      fill = gColor(Math.max(0, Math.min(1, absPct / 100)));
+      if (absMax == null || absPct > absMax) { absMax = absPct; maxPos = p; }
+      if (absMin == null || absPct < absMin) { absMin = absPct; minPos = p; }
+    }
+    const g = svg('g', { 'data-pos': p.pos_id, style: 'cursor:pointer' });
+    g.appendChild(svg('rect', { x: sx(p.x), y: sy(p.y), width: cw - 2, height: ch - 2,
+      rx: 3, fill: fill, stroke: 'rgba(255,255,255,0.06)' }));
+    const label = noContact ? 'no contact' : (absPct.toFixed(0) + '%');
+    const txt = svg('text', { x: sx(p.x) + (cw - 2) / 2, y: sy(p.y) + (ch - 2) / 2 + 3,
+      'text-anchor': 'middle', 'font-size': 10,
+      fill: noContact ? '#5c6383' : '#0e1320', 'font-weight': 700 }, label);
+    g.appendChild(txt);
+    g.appendChild(svg('title', null,
+      p.pos_id + ' (x=' + p.x.toFixed(1) + ', y=' + p.y.toFixed(1) + ')\n' +
+      (noContact ? '접촉 미검출' : 'KE 흡수 ' + absPct.toFixed(1) + '%')));
+    g.addEventListener('click', () => { if (typeof selectPosition === 'function') selectPosition(p.pos_id, { source: 'efd' }); });
+    svgEl.appendChild(g);
+  });
+  // 자동 인사이트 캡션: 흡수 그라디언트
+  const cap = document.getElementById('efd-absorb-cap');
+  if (cap && absMin != null && absMax != null && minPos && maxPos) {
+    cap.textContent = '유효 접촉 런 기준 흡수율 ' + absMin.toFixed(0) + '% (x=' + minPos.x.toFixed(0) +
+      ', y=' + minPos.y.toFixed(0) + ') → ' + absMax.toFixed(0) + '% (x=' + maxPos.x.toFixed(0) +
+      ', y=' + maxPos.y.toFixed(0) + ') — 클릭 시 해당 위치 드릴다운(s9).';
   }
 }
 

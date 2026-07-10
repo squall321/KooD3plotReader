@@ -42,6 +42,7 @@ _PAGE6 = """
 
 <section class="panel" id="deep-anomaly-panel">
   <h3>이상치 위치 자동 검출</h3>
+  <div class="ppd-caption">FINDINGS 의 통계 outlier 게이트와 동일 기준 (robust z = median/MAD) — 두 화면의 수치는 상호 검증 가능.</div>
   <div id="deep-anomaly-detection" class="deep-anomaly-detection"></div>
 </section>
 <div class="panel" id="ppd-host">

@@ -489,6 +489,15 @@ _JS_TAIL = r"""function _renderDataQualityBadges() {
   // (이전: solver_quality 가 '존재만' 해도 배지를 숨겨 energy_flows={} 전량
   //  빈 값이 무음 통과 — 2026-06 산출물 실증. 존재가 아니라 impact_visible
   //  기준으로 판정한다.)
+  // H5-2: 설계 한계 미제공 배지 — P95/P75 는 자기분포 기준임을 명시
+  const _yieldMap = ((DATA.meta || {}).sim_params || {}).yield_stress_by_part || {};
+  if (!DATA.risk_score && Object.keys(_yieldMap).length === 0) {
+    badges.push({
+      cls: 'warn',
+      label: 'NO DESIGN LIMITS PROVIDED',
+      title: '판정 기준(CRIT/WARN)은 자기분포 P95/P75 — 설계 한계(항복응력, G 스펙) 미제공. --yield-stress 또는 *MAT 카드로 절대 기준 제공 가능.',
+    });
+  }
   const ef = DATA.energy_flows || {};
   const hasFlowReal = Object.keys(ef).length > 0 && !('__mock__' in ef);
   const sqSum0 = (DATA.solver_quality && DATA.solver_quality.summary) || null;
@@ -591,6 +600,7 @@ function boot() {
 
   // Section 03 — VERDICT + ENERGY FLOW
   registerLazy('s3', function () {
+    initEnergyFlowPage();
     initEnergyGraph();
     initSunburst();
     initSankey();

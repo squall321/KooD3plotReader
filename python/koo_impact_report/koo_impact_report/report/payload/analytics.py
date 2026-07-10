@@ -778,12 +778,16 @@ def _anomaly_detection_helper(report):
                 "iqr_low": 0.0, "iqr_high": 0.0, "empty": True}
 
     def _zscores(key):
+        # M9: median/MAD robust z — analyzer 의 outlier 게이트와 동일 기준.
+        # 종전 mean/std 는 outlier 자신이 σ 를 부풀려 z 를 희석 (같은 데이터에서
+        # findings "outlier 9건" vs 이 패널 "1건" 모순의 원인).
         vals = np.array([r[key] for r in rows if r[key] is not None], dtype=float)
         if vals.size < 2:
             return None, None
-        mu = float(np.mean(vals))
-        sd = float(np.std(vals, ddof=0))
-        return mu, sd
+        med = float(np.median(vals))
+        mad = float(np.median(np.abs(vals - med)))
+        sd = mad / 0.6745 if mad > 0 else 0.0
+        return med, sd
 
     mu_g, sd_g = _zscores("mean_g")
     mu_s, sd_s = _zscores("mean_s")
@@ -813,10 +817,12 @@ def _anomaly_detection_helper(report):
             "driver": driver,
         })
 
-    # Threshold: max(2.5, P95 of |z|)
-    z_base = 2.5
+    # Threshold (M9): analyzer 의 outlier 게이트와 동일한 고정 |z|>3.5.
+    # 종전 max(2.5, P95(|z|)) 는 구조적으로 상위 ~5% 만 표시하는 자기제한 —
+    # findings "9건" vs 이 패널 "1건" 모순의 두 번째 원인이었다.
+    z_base = 3.5
     p95 = float(np.percentile(abs_z_pool, 95)) if abs_z_pool else 0.0
-    threshold = float(max(z_base, p95))
+    threshold = z_base
 
     # Tukey IQR fence on peak_g means
     g_vals = np.array([r["mean_g"] for r in rows if r["mean_g"] is not None], dtype=float)

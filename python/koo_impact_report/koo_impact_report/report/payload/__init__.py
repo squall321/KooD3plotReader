@@ -684,6 +684,15 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "impact_visible_count":     impact_visible_count,
     })
 
+    # H5-3: SAFE POSITIONS 기준 통일 — s1 KPI 와 s6 안전지도가 서로 다른
+    # 기준(median×0.6 vs 평균/P75 합성)으로 다른 숫자를 내던 모순 제거.
+    # deep 의 safe_drop_zone 이 유효하면 그것을 단일 소스로 삼는다.
+    _deep_payload = _build_deep_payload(report, fft_bins=_tier.fft_bins)
+    _sz = (_deep_payload or {}).get("safe_drop_zone") or {}
+    if not _sz.get("empty") and _sz.get("safe_count") is not None:
+        kpi["n_safe"] = int(_sz["safe_count"])
+        kpi["n_safe_basis"] = "safe_drop_zone"
+
     # 진짜 glstat 기반 diss_pct 가 있으면 KPI ENERGY DISSIPATED 도 업데이트.
     # (이전: Mock 차단 후 None → "—N/A" 표시. 이제 glstat 평균으로 실제 값.)
     sq_median_diss = sq_summary.get("diss_pct_median")
@@ -705,7 +714,7 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "clusters": clusters_payload,
         "part_motion": part_motion_payload,
         "doe_analysis": _build_doe_payload(report),
-        "deep_analytics": _build_deep_payload(report, fft_bins=_tier.fft_bins),
+        "deep_analytics": _deep_payload,
         "insights": _build_insights_payload(report),
         "physics": _build_physics_payload(report),
         "unit_labels": unit_labels,

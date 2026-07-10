@@ -67,12 +67,20 @@ def _build_stress_wave_velocity_payload(report) -> dict:
             return 0.0
 
     # Accumulate per-part samples
+    # M10: Δt→0 발산 샘플 + 미접촉 런(노이즈 피크)이 mean 을 지배해
+    # 190,400 m/s 같은 물리 불가능 수치가 전시되던 문제 — sanity 게이트.
+    V_APP_CEIL_M_S = 12000.0   # 고체 종파 상한(다이아몬드급) — 이 위는 Δt 해상도 부족
+    n_dropped_ceil = 0
+    n_dropped_nocontact = 0
     samples_by_part: dict[int, list[tuple[float, float]]] = {}  # part_id -> [(v_app m/s, dt s)]
     for (pos_id, part_id), pm in part_motions.items():
         if pm is None:
             continue
         traj = trajs.get(pos_id)
         if traj is None:
+            continue
+        if getattr(traj, "behavior_class", "") == "no-contact":
+            n_dropped_nocontact += 1
             continue
         t_first = getattr(traj, "t_first_contact", None)
         t_peak = getattr(pm, "t_peak_g", None)
@@ -111,6 +119,9 @@ def _build_stress_wave_velocity_payload(report) -> dict:
         v_m_s = v_mm_s / 1000.0     # m/s
         if not math.isfinite(v_m_s) or v_m_s <= 0.0:
             continue
+        if v_m_s > V_APP_CEIL_M_S:
+            n_dropped_ceil += 1
+            continue  # Δt 해상도 부족 — 물리 불가능 겉보기 속도
         samples_by_part.setdefault(int(part_id), []).append((v_m_s, dt))
 
     if not samples_by_part:
@@ -138,7 +149,8 @@ def _build_stress_wave_velocity_payload(report) -> dict:
         })
         all_v.extend(vs.tolist())
 
-    per_part.sort(key=lambda d: (d["mean_v_app"] if d["mean_v_app"] is not None else -1.0), reverse=True)
+    # M10: 대표값/정렬은 median — 발산 잔존 샘플의 mean 왜곡 회피
+    per_part.sort(key=lambda d: (d["median_v_app"] if d["median_v_app"] is not None else -1.0), reverse=True)
     per_part = per_part[:15]
 
     # Theoretical impactor wave speed
@@ -161,6 +173,9 @@ def _build_stress_wave_velocity_payload(report) -> dict:
         "n_total": int(all_v_arr.size),
     }
 
+    summary["n_dropped_v_ceiling"] = n_dropped_ceil
+    summary["n_dropped_no_contact"] = n_dropped_nocontact
+    summary["v_app_ceiling_m_s"] = V_APP_CEIL_M_S
     return {
         "per_part": per_part,
         "v_theory_impactor": v_theory,
@@ -275,7 +290,9 @@ def _build_restitution_map(report):
             e_val = None
             e_clamped = None
 
-        if e_clamped is not None:
+        # M8 후속: 미접촉 런의 e=1.0 은 반발이 아니라 '접촉 없음' — 통계 제외
+        # (지도에는 behavior_class 로 회색 렌더 유지).
+        if e_clamped is not None and (behavior or "") != "no-contact":
             e_values.append(e_clamped)
 
         per_position.append({
