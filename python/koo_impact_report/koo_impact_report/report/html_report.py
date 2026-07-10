@@ -84,14 +84,22 @@ _JS = "".join((
 # ---------------------------------------------------------------------------
 
 
-def generate_html(report: ImpactReport) -> str:
+def generate_html(report: ImpactReport, payload: dict | None = None,
+                  deferred: bool = False) -> str:
     """Generate the full single-file HTML report.
 
     The output is fully self-contained — no external scripts, stylesheets,
     fonts, or images. JavaScript reads from one ``const DATA`` payload that
     is JSON-encoded inline.
+
+    Args:
+        payload: 미리 만든 payload (emit.py 청크 매니페스트 주입용). None 이면
+            여기서 생성 — 기존 호출부/골든 테스트와 완전 호환.
+        deferred: True 면 payload 를 ``<script type="application/json">`` 블록에
+            두고 DATA 는 boot 시 JSON.parse (tier C/D, P4-3).
     """
-    payload = _build_payload(report)
+    if payload is None:
+        payload = _build_payload(report)
     payload["meta"]["_n_faces"] = len(payload["faces"])
     payload["meta"]["_n_runs"] = len({(r["face"], r["pos_id"]) for r in payload["results"]})
 
@@ -127,7 +135,19 @@ def generate_html(report: ImpactReport) -> str:
     )
 
     topbar = _build_topbar(payload["meta"], payload.get("unit_labels"))
-    js = _JS.replace("__PAYLOAD__", json.dumps(payload, cls=_Encoder, separators=(",", ":")))
+    payload_json = json.dumps(payload, cls=_Encoder, separators=(",", ":"))
+    if deferred:
+        # JSON 데이터 블록 + boot 시 JSON.parse — 대용량에서 JS 리터럴보다
+        # 파싱이 빠르고 피크 메모리가 낮다. "</" 는 태그 조기 종료 방지 이스케이프.
+        data_block = ("<script type=\"application/json\" id=\"koo-data\">"
+                      + payload_json.replace("</", "<\\/")
+                      + "</script>\n")
+        js = _JS.replace(
+            "__PAYLOAD__",
+            "JSON.parse(document.getElementById('koo-data').textContent)")
+    else:
+        data_block = ""
+        js = _JS.replace("__PAYLOAD__", payload_json)
 
     return (
         "<!DOCTYPE html>\n"
@@ -149,6 +169,7 @@ def generate_html(report: ImpactReport) -> str:
         + _PAGE6
         + _PAGE7
         + _PAGE8
+        + data_block
         + "<script>\n" + js + "\n</script>\n"
         "</body>\n</html>\n"
     )

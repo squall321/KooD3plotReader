@@ -78,6 +78,32 @@ _JS_S4 = r"""function initPerPartPeakG() {
     if (!s.t && s.tref !== undefined) s.t = tRef[s.tref] || [];
     if (!s.t) s.t = [];
   }
+  // tier C/D (P4-3): 인라인 곡선이 없으면 worst-K 위치 청크를 로드 후 재렌더.
+  if (!series.length && DATA.chunks && !pm._chunksLoaded) {
+    pm._chunksLoaded = true;
+    const posMax = {};
+    for (const r of (DATA.results || [])) {
+      const v = r.g || 0;
+      if (v > (posMax[r.pos_id] || 0)) posMax[r.pos_id] = v;
+    }
+    const ids = Object.keys(posMax).sort((a, b) => posMax[b] - posMax[a]).slice(0, 8);
+    let pending = ids.length;
+    if (pending) {
+      ids.forEach(function (pid) {
+        loadChunk(chunkIdForPos(pid), function (b) {
+          if (b) {
+            pm.t_ref = pm.t_ref || {};
+            if (b.t_ref) pm.t_ref[pid] = b.t_ref;
+            (b.series || []).forEach(function (bs) {
+              pm.series.push(Object.assign({}, bs, { pos_id: pid, tref: pid }));
+            });
+          }
+          if (--pending === 0) initPerPartPeakG();
+        });
+      });
+      return;
+    }
+  }
   const empty = document.getElementById('ppg-empty');
   const content = document.getElementById('ppg-content');
   const hasData = summary.some(r => (r.peak_g || 0) > 0) || series.length > 0;

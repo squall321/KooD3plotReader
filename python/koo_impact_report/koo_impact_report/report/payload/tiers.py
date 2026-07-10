@@ -32,8 +32,11 @@ class TierPolicy:
 _TIERS = (
     (50,          TierPolicy("A", 600, 0,  400, 300, 128, 4, "inline")),
     (100,         TierPolicy("B", 250, 0,  200, 120, 128, 4, "inline")),
-    (300,         TierPolicy("C", 200, 40, 0,   60,  64,  3, "deferred")),
-    (10 ** 9,     TierPolicy("D", 0,   40, 0,   0,   64,  3, "chunked")),
+    # C/D: trajectory 를 0 으로 비우면 5개 traj 패널이 NaN/TypeError 로
+    # 죽는다 (Playwright 실측). 초저해상 인라인로 전 패널 무수정 생존 —
+    # 풀해상은 per-position 청크가 담당 (드릴다운, P6).
+    (300,         TierPolicy("C", 200, 40, 60,  60,  64,  3, "deferred")),
+    (10 ** 9,     TierPolicy("D", 0,   40, 24,  0,   64,  3, "chunked")),
 )
 
 
@@ -43,3 +46,10 @@ def tier_for(n_positions: int) -> TierPolicy:
         if n_positions <= cap:
             return policy
     return _TIERS[-1][1]
+
+
+# 청크 파일(= 워커 pickle-back) 해상도 — 드릴다운 1개 위치를 볼 때의 충실도.
+# tier C/D 에서 워커가 이 해상도로 선축소해 부모 프로세스 RSS 를 억제한다
+# (in-worker tiering, P4-3). peak 샘플은 항상 보존.
+CHUNK_MOTION_PTS = 600
+CHUNK_TRAJ_PTS = 400

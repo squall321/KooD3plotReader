@@ -89,6 +89,10 @@ def main() -> None:
                              "Was hardcoded to 4 before — unreachable from chainrun.")
     parser.add_argument("--threads-per-run", type=int, default=2, metavar="N",
                         help="unified_analyzer threads per DOE worker (default 2).")
+    parser.add_argument("--single-file", action="store_true",
+                        help="HTML 출력 모드를 inline 단일 파일로 강제 (tier 자동 결정 무시).")
+    parser.add_argument("--chunked", action="store_true",
+                        help="HTML 출력 모드를 chunked(report_data/ 청크)로 강제.")
 
     args = parser.parse_args()
 
@@ -234,8 +238,17 @@ def main() -> None:
         )
         print(f"[main] Generating HTML report: {html_path}")
         t0 = time.time()
-        html_str = generate_html(report)
-        Path(html_path).write_text(html_str, encoding="utf-8")
+        # 출력 모드: --single-file/--chunked 오버라이드 > tier 자동 (P4-3)
+        _emit_mode = None
+        if args.single_file:
+            _emit_mode = "inline"
+        elif args.chunked:
+            _emit_mode = "chunked"
+        try:
+            from .report.emit import emit_report
+            emit_report(report, html_path, mode=_emit_mode)
+        except ImportError:
+            Path(html_path).write_text(generate_html(report), encoding="utf-8")
         try:
             size_kb = Path(html_path).stat().st_size / 1024
         except OSError:

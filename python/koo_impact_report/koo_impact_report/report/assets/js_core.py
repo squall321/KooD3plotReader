@@ -384,6 +384,36 @@ function setupLazyObserver() {
   });
 }
 
+// --- 청크 로더 (tier C/D, P4-3) --------------------------------------------
+// file:// 에서 fetch/XHR 가 막히므로 <script src> JSONP 방식만 사용한다.
+// 청크 파일은 window.KOO_CHUNKS[id] 에 per-position 번들을 넣는다.
+window.KOO_CHUNKS = window.KOO_CHUNKS || {};
+const _CHUNK_WAITERS = {};
+function loadChunk(id, cb) {
+  if (window.KOO_CHUNKS[id]) { if (cb) cb(window.KOO_CHUNKS[id]); return; }
+  const man = DATA.chunks;
+  if (!man || !man.ids || man.ids.indexOf(id) < 0) { if (cb) cb(null); return; }
+  if (_CHUNK_WAITERS[id]) { if (cb) _CHUNK_WAITERS[id].push(cb); return; }
+  _CHUNK_WAITERS[id] = cb ? [cb] : [];
+  const s = document.createElement('script');
+  s.src = man.dir + '/' + id + '.js';
+  s.onload = function () {
+    const data = window.KOO_CHUNKS[id] || null;
+    (_CHUNK_WAITERS[id] || []).forEach(function (f) { try { f(data); } catch (e) { console.error(e); } });
+    delete _CHUNK_WAITERS[id];
+  };
+  s.onerror = function () {
+    console.error('chunk load failed: ' + id);
+    (_CHUNK_WAITERS[id] || []).forEach(function (f) { try { f(null); } catch (e) {} });
+    delete _CHUNK_WAITERS[id];
+  };
+  document.head.appendChild(s);
+}
+// pos_id → 청크 id (Python emit._chunk_fname 과 동일 규칙)
+function chunkIdForPos(posId) {
+  return 'pos_' + String(posId).replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
 """
 
 

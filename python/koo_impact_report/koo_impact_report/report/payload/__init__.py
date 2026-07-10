@@ -24,17 +24,21 @@ from .insights import _build_insights_payload
 from .physics import _build_physics_payload
 
 
-def _build_payload(report: ImpactReport) -> dict:
+def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     """Distill an ImpactReport into a compact JSON payload for embedding.
 
     The payload is intentionally schema-driven (small keys) so a 5000-row
     matrix stays under ~500 KB.
+
+    Args:
+        tier_override: emit.py 가 출력 모드와 payload 캡을 일치시키기 위해
+            전달하는 TierPolicy (예: --chunked 강제 시 tier D 캡).
     """
     has_real = bool(report.results)
 
     # --- tier 정책 (P4) — 위치 수가 모든 다운샘플/캡/정밀도를 결정 ----------
     _n_pos_tier = sum(len(v or []) for v in (report.positions_by_face or {}).values())
-    _tier = tier_for(_n_pos_tier)
+    _tier = tier_override or tier_for(_n_pos_tier)
     STRESS_TS_MAX_PTS = _tier.stress_ts_pts
     PART_MOTION_MAX_PTS = _tier.part_motion_pts
     TRAJECTORY_MAX_PTS = _tier.trajectory_pts

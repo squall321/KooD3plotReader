@@ -1927,6 +1927,40 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
     return items
 
 
+def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) -> None:
+    """In-worker tiering (P4-3): 시계열을 청크 해상도로 선축소해 pickle-back 축소.
+
+    300+ 위치에서 992-state 풀해상도 배열을 부모로 회수하면 RSS 가 수 GB 로
+    치솟는다. peak 스칼라는 이미 풀해상도에서 계산돼 있으므로, 여기서는
+    peak "샘플" 만 보존(splice)하고 스트라이드 축소한다. cap<=0 이면 no-op.
+    """
+    from .report.payload.common import _downsample_indices, _argmax
+
+    def _take(lst, idx):
+        return [lst[i] for i in idx if i < len(lst)]
+
+    if motion_cap > 0:
+        for pm in (sub.part_motions or {}).values():
+            if pm is None or not pm.times or len(pm.times) <= motion_cap:
+                continue
+            n = len(pm.times)
+            idx = _downsample_indices(n, motion_cap, peak_idx=_argmax(pm.acc_mag[:n]))
+            for f in ("times", "disp_x", "disp_y", "disp_z", "disp_mag",
+                      "vel_x", "vel_y", "vel_z", "vel_mag",
+                      "acc_x", "acc_y", "acc_z", "acc_mag"):
+                setattr(pm, f, _take(getattr(pm, f), idx))
+    if traj_cap > 0:
+        for traj in (sub.impactor_trajectories or {}).values():
+            if traj is None or not traj.times or len(traj.times) <= traj_cap:
+                continue
+            n = len(traj.times)
+            ke_min = _argmax([-v for v in (traj.ke or [])[:n]]) if traj.ke else None
+            idx = _downsample_indices(n, traj_cap, peak_idx=ke_min)
+            for f in ("times", "pos_x", "pos_y", "pos_z",
+                      "vel_x", "vel_y", "vel_z", "ke", "contact_engaged"):
+                setattr(traj, f, _take(getattr(traj, f), idx))
+
+
 def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
     """Worker: load one Test_Impact_A run as a 1-position ImpactReport.
 
@@ -1934,9 +1968,10 @@ def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
     ``concurrent.futures.ProcessPoolExecutor``. The arg is a tuple to ease
     parameter passing through the executor.
     """
-    d3plot_path, project_name, impactor_part_name, threads, work_dir_str, step_config = args
+    (d3plot_path, project_name, impactor_part_name, threads, work_dir_str,
+     step_config, motion_cap, traj_cap) = args
     work_dir = Path(work_dir_str) if work_dir_str else None
-    return load_single_d3plot_report(
+    sub = load_single_d3plot_report(
         d3plot_path=Path(d3plot_path),
         project_name=project_name,
         impactor_part_name=impactor_part_name,
@@ -1945,6 +1980,9 @@ def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
         threads=threads,
         step_config=step_config,
     )
+    if sub is not None and (motion_cap > 0 or traj_cap > 0):
+        _shrink_subreport_series(sub, motion_cap, traj_cap)
+    return sub
 
 
 def load_partial_impact_doe_report(
@@ -1998,6 +2036,16 @@ def load_partial_impact_doe_report(
     # work_dir per run: reuse the deep_report output dir when present (skips a
     # second unified_analyzer pass and works even if the d3plot was deleted);
     # otherwise a fresh scratch dir under work_root (unified_analyzer runs there).
+    # in-worker tiering (P4-3): tier C/D 에서 워커가 시계열을 청크 해상도로
+    # 선축소 → 300+ 위치에서 부모 RSS 폭증 방지. A/B 는 풀해상도 유지.
+    from .report.payload.tiers import tier_for, CHUNK_MOTION_PTS, CHUNK_TRAJ_PTS
+    _tier = tier_for(len(runs))
+    _motion_cap = CHUNK_MOTION_PTS if _tier.name in ("C", "D") else 0
+    _traj_cap = CHUNK_TRAJ_PTS if _tier.name in ("C", "D") else 0
+    if _motion_cap:
+        print(f"[doe] tier {_tier.name} ({len(runs)} runs): in-worker series cap "
+              f"motion={_motion_cap}pt traj={_traj_cap}pt")
+
     job_args = [
         (
             str(run["d3plot"]),
@@ -2006,6 +2054,8 @@ def load_partial_impact_doe_report(
             threads_per_run,
             str(run["deep_dir"]) if run.get("deep_dir") else str(work_root / f"{run['pos_name']}"),
             run.get("config"),          # step_config.txt kv dict — authoritative geometry
+            _motion_cap,
+            _traj_cap,
         )
         for run in runs
     ]
