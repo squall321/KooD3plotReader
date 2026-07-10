@@ -34,26 +34,29 @@
 
 ## P4 — 스케일
 
-- [ ] `//600` 버그 fix + downsample_keep_peak (true-peak 불변식) 전면 적용
-- [ ] payload/tiers.py (A/B/C/D 표) + t_ref dedup + trajectory 캡
-- [ ] emit.py (deferred-JSON / chunked-dir + manifest) + js_core loadChunk
-- [ ] in-worker tiering (pickle-back 축소)
+- [x] `//600` 버그 fix + downsample_keep_peak (true-peak 불변식) 전면 적용 — 15.4→7.96MB
+- [x] payload/tiers.py (A/B/C/D 표) + t_ref dedup + trajectory 캡 — 7.96→5.50MB (-64%)
+- [x] emit.py (deferred-JSON / chunked-dir + manifest) + js_core loadChunk
+- [x] in-worker tiering (tier C/D 워커 선축소, pickle-back 축소)
 
 ## P5 — 파이프라인
 
-- [ ] impact_payload.json sidecar + `--from-json` 실구현 + CLI 정리(--metric 등 제거)
-- [ ] per-run 증분 캐시 (.impact_cache/v<N>/, fingerprint, --no-cache/--refresh-cache)
-- [ ] report.json 보강 (solver_quality/load_issues/provenance/schema_version)
+- [x] impact_payload.json sidecar + `--from-json` 실구현(0.1s, 왕복 바이트 동일) + CLI 정리
+- [x] per-run 증분 캐시 (cold 4.1s → warm 0.2s, 1-touch=1-miss, 스키마 범프 전량 miss)
+- [x] report.json 보강 (solver_quality/load_issues/provenance/schema_version)
 
 ## P6 — UX
 
-- [ ] payload/position.py + sections/s9_position.py (select + KPI + 내러티브 + per-part 테이블 + 차트)
-- [ ] 히트맵↔테이블↔드릴다운 크로스링크 (pos_idx)
-- [ ] L()/toggleLang i18n 포팅
+- [x] payload/position.py + sections/s9_position.py (select + KPI 6카드 + 내러티브 + per-part 테이블 + 차트 2)
+- [x] 히트맵↔테이블↔드릴다운 크로스링크 (data-pos, selectPosition, xlinkHover)
+- [x] L()/toggleLang i18n 포팅 ([data-i18n] + s9 재렌더)
+- [x] (추가) 인사이트 리뷰 12건 반영 — 패널 3개 소생(H4), 임팩터 혼입 차단(C3),
+      no-contact 클래스(M8), 신뢰 서사 정면 배치(C1/C2/H7), 에너지 페이지
+      glstat 흡수율 지도(H6), 기준 정직화(H5), 모순 제거(M9), sanity 게이트(M10), 단위 통일(M11)
 
 ## P7 — 검증·배포
 
-- [ ] V1-V4 (골든/floor/300위치 합성/캐시)
+- [x] V1-V4 (골든 22 passed / floor 픽스처 3종 / 338위치 합성: 0.9s·RSS 228MB·에러 0 / 캐시 20×·1-touch=1-miss)
 - [ ] V5 Test_Impact_A 실데이터 (SIF 내, ≤6s, 배지 PASS-다수, Finding>2)
 - [ ] commit/push → SIF 재빌드 → NFS 배포
 - [ ] V6 pyKooCAE probe 연동 (마지막)
