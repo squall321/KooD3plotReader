@@ -13,11 +13,37 @@ class MatSumData:
     t: list[float] = field(default_factory=list)
     internal_energy: list[list[float]] = field(default_factory=list)  # [n_times][n_parts]
     kinetic_energy: list[list[float]] = field(default_factory=list)
+    # 파트간 에너지 흐름 빌더용 부가 필드 (전부 옵셔널 — 없으면 빈 리스트라
+    # 기존 소비자 무영향). rbvelocity 는 강체 병진속도[mm/s], work(F·Δv) 계산용.
+    hourglass_energy: list[list[float]] = field(default_factory=list)
+    eroded_internal_energy: list[list[float]] = field(default_factory=list)
+    eroded_kinetic_energy: list[list[float]] = field(default_factory=list)
+    x_rbvelocity: list[list[float]] = field(default_factory=list)
+    y_rbvelocity: list[list[float]] = field(default_factory=list)
+    z_rbvelocity: list[list[float]] = field(default_factory=list)
 
     def peak_internal_energy(self, part_idx: int) -> float:
         if not self.internal_energy:
             return 0.0
         return max(abs(row[part_idx]) for row in self.internal_energy)
+
+
+@dataclass
+class GlstatBranchData:
+    """Global energy time series read directly from the binout ``glstat`` branch.
+
+    ASCII glstat 파서(glstat_reader)와 별개 — binout 워커가 이미 파일을 열고
+    있으므로 재사용 비용 0. 에너지 보존 체크·diss 총량의 권위 소스.
+    """
+    t: list[float] = field(default_factory=list)
+    kinetic_energy: list[float] = field(default_factory=list)
+    internal_energy: list[float] = field(default_factory=list)
+    sliding_interface_energy: list[float] = field(default_factory=list)
+    hourglass_energy: list[float] = field(default_factory=list)
+    system_damping_energy: list[float] = field(default_factory=list)
+    eroded_kinetic_energy: list[float] = field(default_factory=list)
+    total_energy: list[float] = field(default_factory=list)
+    energy_ratio: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +82,7 @@ class BinoutData:
     matsum: MatSumData | None = None
     rcforc: list[RcforcInterface] = field(default_factory=list)
     sleout: list[SleoutInterface] = field(default_factory=list)
+    glstat: GlstatBranchData | None = None
 
 
 def parse_binout(binout_path: Path) -> BinoutData | None:
@@ -81,6 +108,9 @@ def parse_binout(binout_path: Path) -> BinoutData | None:
 
     if "sleout" in entries:
         result.sleout = _parse_sleout(b)
+
+    if "glstat" in entries:
+        result.glstat = _parse_glstat_branch(b)
 
     return result
 
@@ -112,14 +142,55 @@ def _parse_matsum(b) -> MatSumData | None:
         part_ids = [int(x) for x in ids]
         part_names = _parse_legend(legend, len(part_ids))
 
+        def _opt2d(var):
+            a = _read_opt(b, "matsum", var)
+            try:
+                return a.tolist() if a is not None else []
+            except Exception:
+                return []
+
         md = MatSumData(
             part_ids=part_ids,
             part_names=part_names,
             t=t.tolist(),
             internal_energy=ie.tolist(),
             kinetic_energy=ke.tolist(),
+            hourglass_energy=_opt2d("hourglass_energy"),
+            eroded_internal_energy=_opt2d("eroded_internal_energy"),
+            eroded_kinetic_energy=_opt2d("eroded_kinetic_energy"),
+            x_rbvelocity=_opt2d("x_rbvelocity"),
+            y_rbvelocity=_opt2d("y_rbvelocity"),
+            z_rbvelocity=_opt2d("z_rbvelocity"),
         )
         return md
+    except Exception:
+        return None
+
+
+def _parse_glstat_branch(b) -> "GlstatBranchData | None":
+    """binout glstat 브랜치 → GlstatBranchData. 필수는 time+KE, 나머지 옵셔널."""
+    try:
+        t = b.read("glstat", "time")
+        ke = b.read("glstat", "kinetic_energy")
+
+        def _opt1d(var):
+            a = _read_opt(b, "glstat", var)
+            try:
+                return a.tolist() if a is not None else []
+            except Exception:
+                return []
+
+        return GlstatBranchData(
+            t=t.tolist(),
+            kinetic_energy=ke.tolist(),
+            internal_energy=_opt1d("internal_energy"),
+            sliding_interface_energy=_opt1d("sliding_interface_energy"),
+            hourglass_energy=_opt1d("hourglass_energy"),
+            system_damping_energy=_opt1d("system_damping_energy"),
+            eroded_kinetic_energy=_opt1d("eroded_kinetic_energy"),
+            total_energy=_opt1d("total_energy"),
+            energy_ratio=_opt1d("energy_ratio"),
+        )
     except Exception:
         return None
 

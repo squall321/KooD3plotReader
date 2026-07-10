@@ -150,7 +150,7 @@ def load_binout_energy(run_dir: Path) -> dict:
                 err = {"class": "lasso-missing", "msg": str(e)}
             return {**_empty, "error": err}
         return {
-            "glstat": None,  # glstat parsed separately if needed
+            "glstat": data.glstat,   # binout glstat 브랜치 (에너지 흐름 빌더용)
             "matsum": data.matsum,
             "rcforc": data.rcforc,
             "sleout": data.sleout,
