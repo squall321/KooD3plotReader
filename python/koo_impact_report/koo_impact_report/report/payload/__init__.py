@@ -222,7 +222,16 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     import os as _os
     energy_flows: dict[str, dict] = {}
     if report.energy_flows:
-        for pos_id, flow in report.energy_flows.items():
+        # tier 정책 (P4-스케일): flow 는 위치당 ~90KB — 338위치면 30MB.
+        # 에너지 페이지는 한 번에 한 위치만 보므로 tier C/D 는 dissipated
+        # 상위 K개(가장 강한 접촉)만 인라인. 나머지 위치를 s9 에서 고르면
+        # refreshEnergyFlowForPos 가 조용히 현 상태를 유지한다 (흐름 없음).
+        _ef_items = list(report.energy_flows.items())
+        _topk = getattr(_tier, "energy_flow_topk", 0)
+        if _topk > 0 and len(_ef_items) > _topk:
+            _ef_items.sort(key=lambda kv: -(getattr(kv[1], "energy_dissipated", 0.0) or 0.0))
+            _ef_items = _ef_items[:_topk]
+        for pos_id, flow in _ef_items:
             energy_flows[pos_id] = _energy_flow_dict(flow)
     if not energy_flows and _os.environ.get("KOO_IMPACT_USE_MOCK") == "1":
         energy_flows["__mock__"] = _build_mock_energy_flow()

@@ -27,16 +27,18 @@ class TierPolicy:
     fft_bins: int             # FFT/SRS 스펙트럼 bin 상한
     precision: int            # 시계열 값 반올림 소수 자릿수
     emit_mode: str            # "inline" | "deferred" | "chunked"
+    energy_flow_topk: int = 0  # energy_flows 인라인 상위 K (0=무제한)
 
 
 _TIERS = (
-    (50,          TierPolicy("A", 600, 0,  400, 300, 128, 4, "inline")),
-    (100,         TierPolicy("B", 250, 0,  200, 120, 128, 4, "inline")),
+    (50,          TierPolicy("A", 600, 0,  400, 300, 128, 4, "inline",   energy_flow_topk=0)),
+    (100,         TierPolicy("B", 250, 0,  200, 120, 128, 4, "inline",   energy_flow_topk=0)),
     # C/D: trajectory 를 0 으로 비우면 5개 traj 패널이 NaN/TypeError 로
     # 죽는다 (Playwright 실측). 초저해상 인라인로 전 패널 무수정 생존 —
     # 풀해상은 per-position 청크가 담당 (드릴다운, P6).
-    (300,         TierPolicy("C", 200, 40, 60,  60,  64,  3, "deferred")),
-    (10 ** 9,     TierPolicy("D", 0,   40, 24,  0,   64,  3, "chunked")),
+    # energy_flow 는 위치당 ~90KB 라 C/D 는 dissipated 상위 40개만 인라인.
+    (300,         TierPolicy("C", 200, 40, 60,  60,  64,  3, "deferred", energy_flow_topk=40)),
+    (10 ** 9,     TierPolicy("D", 0,   40, 24,  0,   64,  3, "chunked",  energy_flow_topk=40)),
 )
 
 

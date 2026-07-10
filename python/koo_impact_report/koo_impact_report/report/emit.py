@@ -22,7 +22,7 @@ from .payload.position import build_position_bundle
 from .payload.tiers import tier_for, TierPolicy, CHUNK_MOTION_PTS, CHUNK_TRAJ_PTS
 
 # --chunked 강제 시 인라인 payload 에 적용할 캡 — tier D 와 동일 (모드-캡 일치).
-_CHUNK_FORCED_TIER = TierPolicy("D", 0, 40, 24, 0, 64, 3, "chunked")
+_CHUNK_FORCED_TIER = TierPolicy("D", 0, 40, 24, 0, 64, 3, "chunked", energy_flow_topk=40)
 
 # impact_payload.json sidecar 스키마 버전 — payload 구조가 바뀌면 반드시 범프.
 # --from-json 은 불일치 시 hard error (조용한 오렌더 금지, P5-1).
