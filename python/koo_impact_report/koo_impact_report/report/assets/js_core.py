@@ -602,6 +602,7 @@ function boot() {
   registerLazy('s3', function () {
     initEnergyFlowPage();
     initEnergyGraph();
+    initEnergyResidence();
     initSunburst();
     initSankey();
     initTimeForceHeatmap();

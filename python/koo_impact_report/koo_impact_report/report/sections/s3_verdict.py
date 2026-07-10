@@ -136,6 +136,16 @@ _PAGE3 = """
       <div class="pcap">"몇 &micro;s 후에 어디까지 전파됐는가" &mdash; 위에서 아래로 = 시간순 전파 사슬.</div>
     </div>
 
+    <div class="panel col-12 r" id="efd-residence-panel">
+      <div class="ph">
+        <span class="pt">ENERGY RESIDENCE TIMELINE</span>
+        <span class="pd">파트별 내부에너지(누적 흡수) stacked &middot; 임팩터 KE 라인 &middot; "지금 에너지가 어디 있나"</span>
+      </div>
+      <svg id="efd-residence-svg" preserveAspectRatio="none" style="width:100%;height:280px"></svg>
+      <div id="efd-residence-legend" style="display:flex;flex-wrap:wrap;gap:8px;font-size:10.5px;padding:6px 4px"></div>
+      <div class="pcap">각 색 띠 두께 = 그 시각 해당 부품이 보유한 내부에너지(IE). 파란 굵은 선 = 임팩터 잔여 KE. 임팩터 KE가 줄며 부품 IE 띠가 두꺼워지는 것이 에너지 전달입니다.</div>
+    </div>
+
     <div class="panel col-3 r">
       <div class="ph">
         <span class="pt">CONSERVATION CHECK</span>
@@ -1003,6 +1013,93 @@ function initConservation() {
   } else if (banner) {
     banner.classList.remove('on');
   }
+}
+
+// ENERGY RESIDENCE TIMELINE (P6) — 파트별 IE stacked area + 임팩터 KE 라인.
+// "시간에 따라 에너지가 지금 어느 파트에 있는가" 의 연속 뷰.
+function initEnergyResidence() {
+  const flow = _pickFlow();
+  const svgEl = document.getElementById('efd-residence-svg');
+  const legend = document.getElementById('efd-residence-legend');
+  if (!svgEl) return;
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+  if (legend) while (legend.firstChild) legend.removeChild(legend.firstChild);
+  if (!flow || !flow.nodes || !flow.nodes.length) {
+    _s3ResMsg(svgEl, '에너지 흐름 데이터 없음');
+    return;
+  }
+  // 공유 시간축 = 임팩터 노드(or 첫 노드)의 t
+  const impNode = flow.nodes.find(n => n.is_impactor) || null;
+  const tAxis = (impNode && impNode.t && impNode.t.length) ? impNode.t
+              : (flow.nodes.find(n => n.t && n.t.length) || {}).t || [];
+  const nT = tAxis.length;
+  if (nT < 2) { _s3ResMsg(svgEl, '시계열 길이 부족'); return; }
+
+  // IE 를 가진 파트 노드(임팩터 제외) 중 최종 IE 상위 8
+  const parts = flow.nodes
+    .filter(n => !n.is_impactor && n.ie && n.ie.length)
+    .map(n => ({ node: n, ieFinal: n.ie[n.ie.length - 1] || 0 }))
+    .filter(p => p.ieFinal > 0)
+    .sort((a, b) => b.ieFinal - a.ieFinal)
+    .slice(0, 8)
+    .map(p => p.node);
+
+  const W = 1100, H = 280, pad = { l: 64, r: 12, t: 12, b: 26 };
+  svgEl.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+
+  // stacked IE 최대 + 임팩터 KE 최대로 y 스케일 (둘을 같은 축에)
+  let stackMax = 0;
+  for (let i = 0; i < nT; i++) {
+    let s = 0;
+    for (const n of parts) s += Math.max(0, (n.ie[i] || 0));
+    if (s > stackMax) stackMax = s;
+  }
+  let keMax = 0;
+  if (impNode && impNode.ke) for (const v of impNode.ke) if (v > keMax) keMax = v;
+  const yMax = Math.max(stackMax, keMax) || 1;
+  const tMin = tAxis[0], tMax = tAxis[nT - 1] || 1;
+  const px = tv => pad.l + (tv - tMin) / (tMax - tMin || 1) * plotW;
+  const py = v => pad.t + (1 - v / yMax) * plotH;
+
+  const PAL = ['#4dd6ff', '#ffc15e', '#6ee7a0', '#ff9eb9', '#b28cff', '#7ce0e0', '#e0c97c', '#9ab8ff'];
+  // stacked area: 아래에서 위로 누적
+  const cum = new Array(nT).fill(0);
+  parts.forEach((n, si) => {
+    const color = PAL[si % PAL.length];
+    const top = [], bot = [];
+    for (let i = 0; i < nT; i++) {
+      const lo = cum[i];
+      const hi = lo + Math.max(0, (n.ie[i] || 0));
+      cum[i] = hi;
+      top.push(px(tAxis[i]).toFixed(1) + ',' + py(hi).toFixed(1));
+      bot.push(px(tAxis[i]).toFixed(1) + ',' + py(lo).toFixed(1));
+    }
+    const pts = top.concat(bot.reverse()).join(' ');
+    svgEl.appendChild(svg('polygon', { points: pts, fill: color, 'fill-opacity': 0.55, stroke: color, 'stroke-width': 0.5 }));
+    if (legend) {
+      const item = el('span', { style: { color: color } },
+        (n.name || n.id) + ' · ' + fmt(n.ie[n.ie.length - 1] || 0, 2));
+      legend.appendChild(item);
+    }
+  });
+  // 임팩터 KE 라인
+  if (impNode && impNode.ke && impNode.ke.length) {
+    const pts = [];
+    for (let i = 0; i < Math.min(nT, impNode.ke.length); i++)
+      pts.push(px(tAxis[i]).toFixed(1) + ',' + py(impNode.ke[i]).toFixed(1));
+    svgEl.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: '#4dd6ff', 'stroke-width': 2.2, opacity: 0.95 }));
+    if (legend) legend.appendChild(el('span', { style: { color: '#4dd6ff', fontWeight: 700 } }, '임팩터 KE (선)'));
+  }
+  // y 라벨
+  svgEl.appendChild(svg('text', { x: 6, y: pad.t + 10, fill: '#5c6383', 'font-size': 10 }, 'E (mJ)'));
+}
+
+function _s3ResMsg(svgEl, msg) {
+  svgEl.setAttribute('viewBox', '0 0 600 120');
+  const t = svg('text', { x: 300, y: 60, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 11 });
+  t.appendChild(document.createTextNode(msg));
+  svgEl.appendChild(t);
 }
 
 """
