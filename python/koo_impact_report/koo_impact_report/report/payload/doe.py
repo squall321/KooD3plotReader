@@ -1121,7 +1121,13 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
     # --- per-position aggregates ------------------------------------------
     position_metrics: dict[str, dict] = {}
     position_results: dict[str, list] = {}
+    # C3 fix: 임팩터(가해자)를 '부품' 집계에서 제외 — 종전에는 16/25 셀의
+    # "최악 부품" 이 임팩터 자신이었고 안전지도는 임팩터 자유낙하 변위로 오염.
+    _imp_pid = getattr(getattr(report, "impactor", None), "part_id", None)
+    _imp_pid = int(_imp_pid) if _imp_pid is not None else None
     for r in report.results:
+        if _imp_pid is not None and int(r.part_id) == _imp_pid:
+            continue
         pid = r.position.pos_id
         position_results.setdefault(pid, []).append(r)
 
@@ -1238,6 +1244,8 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
     per_part_g: dict[int, list[float]] = {}
     for r in report.results:
         pid = int(r.part_id)
+        if _imp_pid is not None and pid == _imp_pid:
+            continue  # C3: 임팩터는 부품 분포에서 제외
         per_part_g.setdefault(pid, []).append(_safe(r.peak_g))
     per_part_stats: dict[int, dict] = {}
     for pid, vals in per_part_g.items():

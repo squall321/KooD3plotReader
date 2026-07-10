@@ -180,6 +180,11 @@ const UNIT_LABELS = DATA.unit_labels || {
   acc: '', stress: '', disp: '', vel: '', energy: '', time: '', mass: '', force: ''
 };
 function _u(key) { return UNIT_LABELS[key] || ''; }
+// M11: acc 원시값(mm/s2 등) → G 환산 공용 헬퍼 — s1/s3/s5 표기 통일.
+function gDivisor() {
+  return (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+}
+function toG(v) { return (v || 0) / gDivisor(); }
 function _uSuffix(key) { const v = _u(key); return v ? ' (' + v + ')' : ''; }
 // density 단위 (mass/length³) — unit_labels 에는 별도 키가 없으니 mass + disp 로 조합.
 // ton-mm-s → 'tonne/mm³'  /  SI → 'kg/m³'.

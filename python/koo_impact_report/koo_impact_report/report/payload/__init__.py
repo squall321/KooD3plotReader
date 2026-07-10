@@ -72,8 +72,20 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
              "roll": _safe(f.roll), "pitch": _safe(f.pitch), "yaw": _safe(f.yaw)}
             for f in report.faces
         ]
+        _imp_pid_lbl = getattr(getattr(report, "impactor", None), "part_id", None)
+        _imp_pid_lbl = int(_imp_pid_lbl) if _imp_pid_lbl is not None else None
+
+        def _part_label(p):
+            # C3/L12: 이름 공란 부품이 표/축에 빈칸으로 렌더되던 문제 —
+            # 임팩터는 명시 라벨, 그 외는 "Part <id>" fallback.
+            if p.part_name:
+                return p.part_name
+            if _imp_pid_lbl is not None and int(p.part_id) == _imp_pid_lbl:
+                return "Impactor"
+            return f"Part {int(p.part_id)}"
+
         parts = [
-            {"id": int(p.part_id), "name": p.part_name,
+            {"id": int(p.part_id), "name": _part_label(p),
              "group": p.group or PartInfo.extract_group(p.part_name),
              "footprint": p.footprint or None,
              "zmin": (p.z_range[0] if p.z_range else None),

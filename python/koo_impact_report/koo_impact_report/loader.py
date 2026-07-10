@@ -379,6 +379,16 @@ def classify_behavior(
     speed_z = abs(traj.vel_z[-1])
     speed_xy = math.hypot(traj.vel_x[-1], traj.vel_y[-1])
     rel_z = speed_z / inc
+    # M8 fix: 접촉 자체가 없던 런(KE 보존 + 종단에서 여전히 입사 방향 하강)이
+    # "bounce(탄성 반사)" 로 분류되어 초록/건강한 영역으로 그려지던 문제.
+    # 최우선 분기 — t_first_contact 미검출이거나, KE≥99.5% 보존 + vz 부호가
+    # 입사와 동일(여전히 하강)이면 접촉 없음.
+    _vz_last = traj.vel_z[-1]
+    _vz_incident_sign = -1.0  # 낙하 충격: 입사 z 속도는 음(하강)
+    if traj.t_first_contact is None or (
+        r >= 0.995 and _vz_last * _vz_incident_sign > 0 and rel_z >= 0.9
+    ):
+        return "no-contact"
     if r >= t.bounce_min_retention and rel_z >= t.bounce_min_rel_z:
         return "bounce"
     if r < t.embed_max_retention and rel_z < t.embed_max_rel_z:
@@ -1965,7 +1975,7 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
 # --- per-run 증분 캐시 (P5-2) ------------------------------------------------
 # <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
 # 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
-_CACHE_SCHEMA = 1   # 워커 출력(ImpactReport 구조)이 바뀌면 반드시 범프
+_CACHE_SCHEMA = 2   # 워커 출력(ImpactReport 구조/의미)이 바뀌면 반드시 범프 (v2: no-contact behavior)
 
 
 def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:

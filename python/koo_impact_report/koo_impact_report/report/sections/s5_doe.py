@@ -192,6 +192,7 @@ const BEHAVIOR_COLOR = {
   rebound: '#f0a830',
   slide:  '#b46eff',
   embed:  '#ff3854',
+  'no-contact': '#3a4152',   // M8: 미접촉 런 — 회색 (건강한 초록으로 위장 금지)
   unknown:'#5c6383'
 };
 const CLUSTER_PALETTE = ['#4dd6ff', '#b46eff', '#f0a830', '#4adfa1', '#ff9e64', '#ff5e84', '#aab2cf'];

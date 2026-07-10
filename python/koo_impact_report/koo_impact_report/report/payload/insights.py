@@ -7,6 +7,19 @@ from ...models import (
 from .common import _pid_cast
 
 
+def _pos_id(r):
+    """PairResult 의 pos_id — 직접 속성이 없으면 .position.pos_id (H4 fix).
+
+    getattr(r, "pos_id") 는 항상 None 이었음 (models.PairResult 에 해당 속성
+    부재) — Symmetry/DamageIndex/auto_recommend 3개 패널이 조용히 죽어 있던
+    원인. analytics.py 의 fallback 패턴과 동일.
+    """
+    pid = getattr(r, "pos_id", None)
+    if pid is None:
+        pid = getattr(getattr(r, "position", None), "pos_id", None)
+    return pid
+
+
 def _build_symmetry_insight(report):
     """Build symmetry & boundary effect payload by comparing mirror-pair peak_g."""
     import math
@@ -18,7 +31,7 @@ def _build_symmetry_insight(report):
     # peak_g per pos_id: average across parts at that position
     pg_by_pos = {}
     for r in results:
-        pid = getattr(r, "pos_id", None)
+        pid = _pos_id(r)
         pg = getattr(r, "peak_g", None)
         if pid is None or pg is None:
             continue
@@ -70,8 +83,8 @@ def _build_symmetry_insight(report):
                     asym = _asym_pct(a, b)
                     if asym is not None:
                         x_pairs.append({
-                            "pos_a": int(key[0]),
-                            "pos_b": int(key[1]),
+                            "pos_a": _pid_cast(key[0]),
+                            "pos_b": _pid_cast(key[1]),
                             "peak_g_a": round(pg_mean[key[0]], 3),
                             "peak_g_b": round(pg_mean[key[1]], 3),
                             "asymmetry_pct": round(asym, 2),
@@ -87,8 +100,8 @@ def _build_symmetry_insight(report):
                     asym = _asym_pct(a, b)
                     if asym is not None:
                         y_pairs.append({
-                            "pos_a": int(key[0]),
-                            "pos_b": int(key[1]),
+                            "pos_a": _pid_cast(key[0]),
+                            "pos_b": _pid_cast(key[1]),
                             "peak_g_a": round(pg_mean[key[0]], 3),
                             "peak_g_b": round(pg_mean[key[1]], 3),
                             "asymmetry_pct": round(asym, 2),
@@ -186,7 +199,7 @@ def _build_damage_index(report):
     by_part = defaultdict(list)  # part_id -> list of (pos_id, peak_g, peak_stress, peak_strain)
     for r in results:
         pid = getattr(r, "part_id", None)
-        pos = getattr(r, "pos_id", None)
+        pos = _pos_id(r)
         if pid is None or pos is None:
             continue
         try:
@@ -494,7 +507,7 @@ def _build_auto_recommend(report):
             g = getattr(r, "peak_g", None)
             if g is None or not np.isfinite(g):
                 continue
-            peaks.append((float(g), getattr(r, "pos_id", None), getattr(r, "part_id", None)))
+            peaks.append((float(g), _pos_id(r), getattr(r, "part_id", None)))
         if peaks:
             peaks.sort(key=lambda t: -t[0])
             worst_g, worst_pos, worst_part = peaks[0]
@@ -521,7 +534,7 @@ def _build_auto_recommend(report):
         peak_by_pos = defaultdict(list)
         for r in results:
             g = getattr(r, "peak_g", None)
-            pid = getattr(r, "pos_id", None)
+            pid = _pos_id(r)
             if g is None or not np.isfinite(g) or pid is None:
                 continue
             peak_by_pos[pid].append(float(g))
@@ -626,7 +639,7 @@ def _build_auto_recommend(report):
         pos_g = defaultdict(list)
         for r in results:
             g = getattr(r, "peak_g", None)
-            pid = getattr(r, "pos_id", None)
+            pid = _pos_id(r)
             if g is None or not np.isfinite(g) or pid is None:
                 continue
             pos_g[pid].append(float(g))

@@ -377,6 +377,14 @@ def _safe_drop_zone_convex_hull(points):
 def _build_safe_drop_zone(report):
     import math
     results = getattr(report, "results", []) or []
+    # C3 fix: 임팩터 행 제외 — 미접촉 위치의 위반 사유가 "임팩터 자신의
+    # 자유낙하 이동거리(peak_disp)" 가 되어 전면 at-risk 라는 무의미한
+    # 지도가 되던 문제.
+    _imp_pid = getattr(getattr(report, "impactor", None), "part_id", None)
+    if _imp_pid is not None:
+        _imp_pid = int(_imp_pid)
+        results = [r for r in results
+                   if int(getattr(r, "part_id", -1)) != _imp_pid]
     if not results:
         return {
             "positions": [],

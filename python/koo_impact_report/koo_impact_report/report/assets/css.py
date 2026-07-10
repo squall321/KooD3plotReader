@@ -267,6 +267,7 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .bbadge.slide { background: #b46eff; color: #fff; }
 .bbadge.embed { background: var(--crit); color: #fff; }
 .bbadge.unknown { background: var(--dim); }
+.bbadge.no-contact { background: #3a4152; color: #9aa5c0; }
 
 .traj-na { color: var(--dim); font-size: 10px; padding: 8px 4px; text-align: center; font-style: italic; }
 

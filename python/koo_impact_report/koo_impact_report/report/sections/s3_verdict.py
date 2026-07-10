@@ -28,7 +28,7 @@ _PAGE3 = """
           <thead>
             <tr>
               <th class="tl">PART</th><th class="tl">FACE</th><th>X</th><th>Y</th>
-              <th class="tl">CLASS</th><th>MAX G</th><th>&sigma;</th><th>&epsilon;</th><th>d</th>
+              <th class="tl">CLASS</th><th>MAX (G)</th><th>&sigma;</th><th>&epsilon;</th><th>d</th>
               <th>CoV</th><th>INFL</th><th class="tl">MODE</th>
             </tr>
           </thead>
@@ -286,7 +286,7 @@ function initTopK() {
       el('td', { class: 'num' }, r.x.toFixed(2)),
       el('td', { class: 'num' }, r.y.toFixed(2)),
       el('td', { class: 'tl' }, r.part_name),
-      el('td', { class: 'num b' }, fmt(r.g, 0)),
+      el('td', { class: 'num b', title: 'raw ' + fmt(r.g, 0) + ' ' + (_u('acc') || '') }, fmt(toG(r.g), 0) + ' G'),
       el('td', { class: 'num' }, fmt(r.s, 1)),
       el('td', { class: 'num dim' }, inf + ' / ' + partRows.length)
     ]));
@@ -399,7 +399,7 @@ function renderVerdict() {
       el('td', { class: 'num' }, r.x.toFixed(1)),
       el('td', { class: 'num' }, r.y.toFixed(1)),
       el('td', { class: 'tl', style: { color: klassColor } }, klass),
-      el('td', { class: 'num b' }, fmt(r.g, 0)),
+      el('td', { class: 'num b', title: 'raw ' + fmt(r.g, 0) + ' ' + (_u('acc') || '') }, fmt(toG(r.g), 0) + ' G'),
       el('td', { class: 'num' }, fmt(r.s, 1)),
       el('td', { class: 'num' }, r.e.toFixed(4)),
       el('td', { class: 'num' }, r.d.toFixed(3)),
@@ -462,7 +462,7 @@ function renderFindings() {
   if (!items.length) {
     const k = DATA.kpi;
     items = [
-      { severity: 'CRITICAL', title: '가장 위험한 셀', detail: k.worst.face + ' (' + k.worst.x.toFixed(1) + ', ' + k.worst.y.toFixed(1) + ') — ' + k.worst.part_name + ' @ ' + fmt(k.worst.g, 0) + ' G', recommendation: '해당 영역에 완충재/보강 구조 검토' },
+      { severity: 'CRITICAL', title: '가장 위험한 셀', detail: k.worst.face + ' (' + k.worst.x.toFixed(1) + ', ' + k.worst.y.toFixed(1) + ') — ' + k.worst.part_name + ' @ ' + fmt(toG(k.worst.g), 0) + ' G', recommendation: '해당 영역에 완충재/보강 구조 검토' },
       { severity: 'WARNING', title: 'Critical pairs', detail: k.n_critical + '개 페어가 임계치 이상으로 응답', recommendation: '다중 페어 영향 부품 우선 보강' },
       (k.diss_pct != null
         ? { severity: 'INFO', title: 'Energy dissipation', detail: '초기 KE의 ' + k.diss_pct.toFixed(1) + '%만 소산', recommendation: '소산 효율이 낮은 페이스에 완충 패드 추가' }
