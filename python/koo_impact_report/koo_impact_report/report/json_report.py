@@ -29,6 +29,8 @@ def save_json(report: ImpactReport, path: str) -> None:
     Includes scalar peaks for every PairResult plus high-level metadata.
     """
     summary = {
+        # report.json 스키마 버전 — 구조 변경 시 범프 (P5-3).
+        "schema_version": 1,
         "project_name": report.project_name,
         "test_dir": report.test_dir,
         "impactor": dataclasses.asdict(report.impactor),
@@ -73,6 +75,10 @@ def save_json(report: ImpactReport, path: str) -> None:
         ],
         "sim_params": report.sim_params,
         "doe_config": report.doe_config,
+        # 신뢰 신호 (P5-3): glstat 기반 per-position 감사 + 구조화 로드 진단.
+        # 파이프라인 소비자(대시보드/CI)가 HTML 파싱 없이 PASS/FAIL 를 읽는다.
+        "solver_quality": dict(getattr(report, "solver_quality", {}) or {}),
+        "load_issues": list(getattr(report, "load_issues", []) or []),
     }
     # 출처 메타 — CLI 가 채운 경우에만 (P2-5).
     prov = getattr(report, "provenance", None)
