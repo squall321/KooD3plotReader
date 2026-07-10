@@ -67,6 +67,10 @@ def main() -> None:
                         help="HTML 출력 모드를 inline 단일 파일로 강제 (tier 자동 결정 무시).")
     parser.add_argument("--chunked", action="store_true",
                         help="HTML 출력 모드를 chunked(report_data/ 청크)로 강제.")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="per-run 증분 캐시(.impact_cache) 읽기/쓰기 모두 끔.")
+    parser.add_argument("--refresh-cache", action="store_true",
+                        help="캐시를 무시하고 전량 재계산 후 캐시 재작성.")
 
     args = parser.parse_args()
 
@@ -154,6 +158,8 @@ def main() -> None:
                 test_dir=test_dir,
                 threads_per_run=threads_per_run,
                 parallel_runs=parallel_runs,
+                use_cache=not args.no_cache,
+                refresh_cache=args.refresh_cache,
             )
         else:
             report = loader.load_impact_report(test_dir)

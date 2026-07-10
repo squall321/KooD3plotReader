@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import math
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1961,6 +1962,76 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
                 setattr(traj, f, _take(getattr(traj, f), idx))
 
 
+# --- per-run 증분 캐시 (P5-2) ------------------------------------------------
+# <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
+# 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
+_CACHE_SCHEMA = 1   # 워커 출력(ImpactReport 구조)이 바뀌면 반드시 범프
+
+
+def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:
+    """run 입력의 stat 기반 지문. 내용 해시가 아니라 size:mtime_ns — ~ms."""
+    import hashlib
+    parts: list[str] = [f"schema={_CACHE_SCHEMA}",
+                        f"caps={motion_cap}:{traj_cap}"]
+
+    def _stat(p: Path, tag: str) -> None:
+        try:
+            st = p.stat()
+            parts.append(f"{tag}={st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            parts.append(f"{tag}=missing")
+
+    d3 = Path(run["d3plot"])
+    _stat(d3, "d3plot")
+    _stat(d3.parent / "glstat", "glstat")
+    _stat(d3.parent / "binout0000", "binout")
+    deep = run.get("deep_dir")
+    if deep:
+        deep = Path(deep)
+        _stat(deep / "analysis_result.json", "analysis")
+        motion_dir = deep / "motion"
+        if motion_dir.is_dir():
+            for csv_p in sorted(motion_dir.glob("*.csv")):
+                _stat(csv_p, f"m:{csv_p.name}")
+    cfg = run.get("config") or {}
+    parts.append("cfg=" + json.dumps(cfg, sort_keys=True, ensure_ascii=False))
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def _cache_paths(test_dir: Path, pos_name: str) -> tuple[Path, Path]:
+    base = Path(test_dir) / ".impact_cache" / f"v{_CACHE_SCHEMA}" / pos_name
+    return base / "fingerprint.txt", base / "sub.pkl"
+
+
+def _cache_load(test_dir: Path, pos_name: str, fp: str) -> "ImpactReport | None":
+    import pickle
+    fp_path, pkl_path = _cache_paths(test_dir, pos_name)
+    try:
+        if fp_path.read_text(encoding="utf-8").strip() != fp:
+            return None
+        with open(pkl_path, "rb") as fh:
+            return pickle.load(fh)
+    except Exception:  # noqa: BLE001 — 캐시는 언제나 miss 로 강등 가능
+        return None
+
+
+def _cache_save(test_dir: Path, pos_name: str, fp: str, sub) -> None:
+    import pickle
+    import tempfile
+    fp_path, pkl_path = _cache_paths(test_dir, pos_name)
+    try:
+        pkl_path.parent.mkdir(parents=True, exist_ok=True)
+        # atomic: tmp 에 쓰고 rename — 동시 실행/중단에도 반파일 없음
+        with tempfile.NamedTemporaryFile(dir=str(pkl_path.parent),
+                                         delete=False, suffix=".tmp") as tf:
+            pickle.dump(sub, tf, protocol=pickle.HIGHEST_PROTOCOL)
+            tmp_name = tf.name
+        os.replace(tmp_name, pkl_path)
+        fp_path.write_text(fp + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
     """Worker: load one Test_Impact_A run as a 1-position ImpactReport.
 
@@ -1990,6 +2061,8 @@ def load_partial_impact_doe_report(
     impactor_part_name: str | None = None,
     threads_per_run: int = 2,
     parallel_runs: int = 4,
+    use_cache: bool = True,
+    refresh_cache: bool = False,
 ) -> ImpactReport:
     """Load a multi-position partial-impact DOE (KooDWITestSetRunner layout).
 
@@ -2064,15 +2137,42 @@ def load_partial_impact_doe_report(
     # 구조화 로드 진단 (P1b): 워커 실패 + sub-report 별 binout 오류 등을
     # 집계해 리포트 load_issues 로 — stdout 소멸 금지.
     doe_load_issues: list[dict] = []
-    if parallel_runs > 1 and len(runs) > 1:
+
+    # per-run 증분 캐시 (P5-2): fingerprint 일치 run 은 pickle 로드로 대체.
+    fingerprints: list[str | None] = [None] * len(runs)
+    todo: list[int] = []
+    n_hit = 0
+    for i, run in enumerate(runs):
+        if not use_cache:
+            todo.append(i)
+            continue
+        fp = _run_fingerprint(run, _motion_cap, _traj_cap)
+        fingerprints[i] = fp
+        if not refresh_cache:
+            cached = _cache_load(test_dir, run["pos_name"], fp)
+            if cached is not None:
+                sub_reports[i] = cached
+                n_hit += 1
+                continue
+        todo.append(i)
+    if use_cache and n_hit:
+        print(f"[doe] cache: {n_hit}/{len(runs)} hit "
+              f"(.impact_cache/v{_CACHE_SCHEMA})")
+
+    def _on_done(i: int, sub: "ImpactReport | None") -> None:
+        sub_reports[i] = sub
+        if use_cache and sub is not None and fingerprints[i]:
+            _cache_save(test_dir, runs[i]["pos_name"], fingerprints[i], sub)
+        print(f"[doe]   {runs[i]['pos_name']:>9s}  ({runs[i]['location_x']:+.1f}, {runs[i]['location_y']:+.1f}) ✓")
+
+    if parallel_runs > 1 and len(todo) > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         with ProcessPoolExecutor(max_workers=parallel_runs) as ex:
-            futs = {ex.submit(_load_one_run_subreport, a): i for i, a in enumerate(job_args)}
+            futs = {ex.submit(_load_one_run_subreport, job_args[i]): i for i in todo}
             for fut in as_completed(futs):
                 idx = futs[fut]
                 try:
-                    sub_reports[idx] = fut.result()
-                    print(f"[doe]   {runs[idx]['pos_name']:>9s}  ({runs[idx]['location_x']:+.1f}, {runs[idx]['location_y']:+.1f}) ✓")
+                    _on_done(idx, fut.result())
                 except Exception as e:
                     print(f"[doe]   {runs[idx]['pos_name']} FAILED: {type(e).__name__}: {e}")
                     doe_load_issues.append({
@@ -2082,10 +2182,9 @@ def load_partial_impact_doe_report(
                         "msg": str(e),
                     })
     else:
-        for i, a in enumerate(job_args):
+        for i in todo:
             try:
-                sub_reports[i] = _load_one_run_subreport(a)
-                print(f"[doe]   {runs[i]['pos_name']:>9s}  ({runs[i]['location_x']:+.1f}, {runs[i]['location_y']:+.1f}) ✓")
+                _on_done(i, _load_one_run_subreport(job_args[i]))
             except Exception as e:
                 print(f"[doe]   {runs[i]['pos_name']} FAILED: {type(e).__name__}: {e}")
                 doe_load_issues.append({
