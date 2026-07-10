@@ -98,6 +98,33 @@
   비유한→None, 모듈본은 →0.0 — 의미가 달라 통합 시 payload 변형.
 - 실데이터 확증: Test_Impact_A payload 분할 전후 deep-equal (provenance 제외).
 
+## P4–P6 완료 (2026-07-10) — 스케일·파이프라인·UX·인사이트
+
+- **P4**: `//600` 버그(992//600=1, 다운샘플 미작동 — payload 12.5MB 주범) ceil+peak-splice
+  로 교체, tiers.py 단일 소스(A/B/C/D), t_ref dedup(위치별 공유 시간축), emit 3모드.
+  15.38 → 5.50MB(-64%), true-peak 600/600 보존. **tier C/D 의 trajectory 를 0 으로
+  비우면 5개 패널이 NaN/TypeError 로 죽는다** (Playwright 실측) → 초저해상(60/24pt)
+  인라인이 정답. in-worker tiering 은 C/D 만 (A/B 풀해상 유지).
+- **P5**: sidecar+--from-json(0.1s, 왕복 바이트 동일), per-run pickle 캐시
+  (fingerprint=stat 기반, cold 4.1s→warm 0.2s, atomic tmp+rename). 캐시 스키마는
+  워커 출력 "의미" 변경에도 범프해야 함 (v2: no-contact behavior).
+- **P6 s9**: 설계 서브에이전트 산출(s9_design.md) 그대로 구현 — payload 갭이 실제로
+  kpi.worst.pos_id 1줄뿐이었음. 내러티브는 슬롯식(S0 신뢰게이트 최우선), FAIL 런
+  '순위 비교 용도' 강등 선언이 물리적으로 안전한 프로즈의 핵심.
+- **인사이트 리뷰(서브에이전트) 12건 반영** — 최대 발견:
+  ① 이 데이터의 진짜 헤드라인은 "유효 접촉 9/25, 그 9개 전부 에너지 게이트 FAIL"
+    — 종전 보고서는 이를 hover 배지로만 숨기고 유일하게 물리가 있던 런들을
+    outlier 로 지목하는 역전 서사였음. findings/hero/권고 Rule0 로 정면 배치.
+  ② 임팩터(part 24)가 부품 집계에 혼입 → 16/25 셀의 "최악 부품"이 임팩터,
+    안전지도는 임팩터 자유낙하 변위로 전면 at-risk. 제외 후 16 safe/9 at-risk.
+  ③ `getattr(r,"pos_id")` 버그로 Symmetry/auto_recommend 가 조용히 사망 —
+    소생 직후 X/Y 미러 페어 10+10·비대칭 98% 가 미접촉 공간 패턴을 자동 검출.
+  ④ 미접촉 런이 '탄성 반사(초록)'로 렌더 → no-contact 클래스 신설(회색).
+  ⑤ 전파속도 190,400 m/s 같은 불가능 수치 → no-contact 제외+12km/s 상한 게이트
+    후 top median 171.7 m/s.
+- 골든 재기록 총 4회 (t_ref/s9/배치1/배치3) — 전부 의도 변경, 재기록 전 Playwright
+  콘솔 에러 0 확인이 게이트.
+
 ## 커밋 로그 (진행하며 기록)
 
 - fdc545c test(impact): 골든 하니스 + generate_sample PYTHONHASHSEED 결정성 fix

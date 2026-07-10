@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>시뮬레이션 과제 종합 카탈로그</title>
+<style>
+  :root {
+    --fg: #111827;
+    --fg-dim: #4b5563;
+    --fg-faint: #9ca3af;
+    --bg: #ffffff;
+    --bg-alt: #f9fafb;
+    --bg-card: #ffffff;
+    --line: #e5e7eb;
+    --line-strong: #d1d5db;
+    --accent: #1e40af;
+    --accent-2: #b91c1c;
+    --warn: #d97706;
+    --good: #047857;
+    --bad: #dc2626;
+    --muted: #6b7280;
+    --tag-bg: #eef2ff;
+    --tag-fg: #3730a3;
+    --tag-lsi-bg: #dbeafe; --tag-lsi-fg: #1e40af;
+    --tag-qc-bg: #fee2e2;  --tag-qc-fg: #b91c1c;
+    --tag-yes-bg: #fef3c7; --tag-yes-fg: #92400e;
+    --tag-no-bg:  #e5e7eb; --tag-no-fg:  #4b5563;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 32px 80px; }
+  /* Header */
+  header {
+    border-bottom: 2px solid var(--fg);
+    padding-bottom: 14px;
+    margin-bottom: 22px;
+  }
+  header h1 {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 0 0 6px;
+    letter-spacing: -0.3px;
+  }
+  header .meta {
+    font-size: 11px;
+    color: var(--fg-dim);
+    letter-spacing: 0.5px;
+  }
+  header .meta b { color: var(--fg); }
+  /* Top nav */
+  nav.top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 14px 0 20px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  nav.top a {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg-dim);
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    background: var(--bg-alt);
+    letter-spacing: 0.2px;
+  }
+  nav.top a:hover { color: var(--accent); border-color: var(--accent); }
+  /* Section */
+  section { margin: 36px 0 0; }
+  section h2 {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 0 0 6px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+    display: inline-block;
+  }
+  section h3 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 22px 0 8px;
+    color: var(--fg);
+    letter-spacing: -0.2px;
+  }
+  section h3 .num {
+    color: var(--fg-faint);
+    font-weight: 600;
+    margin-right: 4px;
+    font-size: 12px;
+  }
+  section p.desc {
+    font-size: 12px;
+    color: var(--fg-dim);
+    margin: 6px 0 12px;
+    line-height: 1.6;
+  }
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 8px 0 18px;
+    background: var(--bg-card);
+  }
+  table th {
+    background: var(--fg);
+    color: #fff;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 600;
+    border: 1px solid var(--fg);
+    letter-spacing: 0.1px;
+    vertical-align: middle;
+    font-size: 11.5px;
+  }
+  table td {
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  table tbody tr:nth-child(even) td { background: var(--bg-alt); }
+  table tbody tr:hover td { background: #fef9c3; }
+  table .num { text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+  table .small { font-size: 10.5px; color: var(--fg-dim); }
+  table .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+  table .center { text-align: center; }
+  /* Tag */
+  .tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    background: var(--tag-bg);
+    color: var(--tag-fg);
+    border: 1px solid color-mix(in srgb, var(--tag-fg) 30%, transparent);
+  }
+  .tag.lsi { background: var(--tag-lsi-bg); color: var(--tag-lsi-fg); border-color: color-mix(in srgb, var(--tag-lsi-fg) 30%, transparent); }
+  .tag.qc  { background: var(--tag-qc-bg);  color: var(--tag-qc-fg);  border-color: color-mix(in srgb, var(--tag-qc-fg) 30%, transparent); }
+  .tag.yes { background: var(--tag-yes-bg); color: var(--tag-yes-fg); border-color: color-mix(in srgb, var(--tag-yes-fg) 30%, transparent); }
+  .tag.no  { background: var(--tag-no-bg);  color: var(--tag-no-fg);  border-color: color-mix(in srgb, var(--tag-no-fg) 30%, transparent); }
+  .tag.warn{ background: #fef3c7; color: #92400e; border-color: #f59e0b; }
+  .tag.crit{ background: #fee2e2; color: #b91c1c; border-color: #dc2626; }
+  .tag.good{ background: #d1fae5; color: #065f46; border-color: #10b981; }
+  /* Star badge */
+  .star {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #fef08a;
+    color: #854d0e;
+    font-weight: 700;
+    font-size: 10.5px;
+    border: 1px solid #fbbf24;
+    margin-right: 4px;
+  }
+  /* Highlight rows */
+  tr.row-star td { background: #fef9c3 !important; }
+  /* Two-column grid */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 12px 0;
+  }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  /* Enum list */
+  ul.enum {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  ul.enum li {
+    background: var(--bg-alt);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: var(--fg-dim);
+  }
+  ul.enum li b { color: var(--fg); }
+  /* Code block (빈칸 framework) */
+  pre {
+    background: var(--bg-alt);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    overflow-x: auto;
+    color: var(--fg);
+  }
+  /* Footer / Citations */
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 11px; color: var(--fg-dim); }
+  footer h3 { color: var(--fg); margin: 8px 0 6px; font-size: 13px; font-weight: 700; }
+  footer ul { margin: 0 0 10px; padding-left: 18px; }
+  footer ul li { margin: 2px 0; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  /* Print */
+  @media print {
+    body { font-size: 10pt; }
+    .wrap { max-width: none; padding: 0; }
+    nav.top { display: none; }
+    section { page-break-inside: avoid; }
+    table { font-size: 9pt; page-break-inside: auto; }
+    table tr { page-break-inside: avoid; }
+    a { color: var(--fg); }
+  }
+  /* Note callout */
+  .note {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #78350f;
+    margin: 12px 0;
+    border-radius: 3px;
+  }
+  .note b { color: #92400e; }
+  /* TL;DR card */
+  .tldr {
+    background: linear-gradient(135deg, #eef2ff, #f0f9ff);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin: 14px 0 20px;
+    font-size: 13px;
+    color: var(--fg);
+    line-height: 1.7;
+  }
+  .tldr b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>시뮬레이션 과제 종합 카탈로그</h1>
+  <div class="meta">
+    작성일 <b>2026-06-05</b> · 용도 <b>갤럭시 모델별 시뮬레이션 계획 수립 reference</b> ·
+    출처 <b>사용자 환경 inventory + PT/PPT/제안서 자료 + deep-research workflow</b>
+  </div>
+</header>
+
+<nav class="top">
+  <a href="#sec-a">A. 진행/완료 과제</a>
+  <a href="#sec-a1">A-1. DOE testset</a>
+  <a href="#sec-b">B. 사례 + 신규 제안</a>
+  <a href="#sec-c">C. 갤럭시 모델 × AP 분배</a>
+  <a href="#sec-d">D. 계획서 빈칸 framework</a>
+  <a href="#sec-sources">출처 / Citations</a>
+</nav>
+
+<div class="tldr">
+  본 문서는 <b>4 표 + 계획서 framework</b> 로 구성. <b>A 표</b> 에서 사용자가 이미 가진 시뮬 자산을 확인,
+  <b>B 표</b> 에서 사례/신규 제안을 선택, <b>C 표</b> 에서 모델별 LSI/QC 양쪽 시뮬 필요 여부를 즉시 판단,
+  <b>D 빈칸</b> 에 회사 내부 자료를 매핑해 PT/계획서로 직행할 수 있도록 정리.
+</div>
+
+<!-- ========================================================== A ========================================================== -->
+<section id="sec-a">
+  <h2>A. 진행/완료 시뮬 과제 — 사용자 환경 inventory</h2>
+  <p class="desc">
+    <code>/data/*_study/</code>, <code>/data/koodyna_reports/</code>, <code>/data/koopark/Test_*</code>,
+    <code>/data/Tests/Test_*</code> 의 실제 디렉토리 inventory 기반.
+    케이스 수 100+ 는 대규모 DOE/parametric, 5~30 은 phase-based 또는 ablation.
+  </p>
+
+  <h3><span class="num">A-1</span>· /data/*_study/ — 15 study (재사용 가능 자산)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px">#</th>
+        <th style="width:90px">카테고리</th>
+        <th>과제 / Study</th>
+        <th>대상 부품 · 현상</th>
+        <th style="width:90px">케이스</th>
+        <th>시뮬 유형 · 메소드</th>
+        <th>환경 위치</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="center mono">1</td><td>낙하 충격</td><td><b>ball_drop_test v1~v7</b></td><td>표준 ball 낙하 — 회기 7세대</td><td class="num">7 ver</td><td>단일 낙하 (반복 개선)</td><td class="mono small">/data/koodyna_reports/ball_drop_test*</td></tr>
+      <tr><td class="center mono">2</td><td>낙하 충격</td><td>dropimpact · drop_test_results</td><td>통합 drop archive</td><td class="num">—</td><td>단일/전각도 mix</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr><td class="center mono">3</td><td>디스플레이</td><td><b>DisplayImpactBallPeridynamics</b> (+Fine)</td><td>디스플레이 ball impact</td><td class="num">2 mesh</td><td><span class="tag">Peridynamics</span> (균열 자동 발생)</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr><td class="center mono">4</td><td>디스플레이</td><td>Display3ptBendingPeridynamics · 3 pt bending test</td><td>3-point bending</td><td class="num">2</td><td>Peridynamics vs FEM 비교</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr><td class="center mono">5</td><td>디스플레이</td><td>DisplayImpactImplicit · DisplayImpactShell</td><td>implicit / shell</td><td class="num">2</td><td>Implicit + Shell vs Solid</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr class="row-star"><td class="center mono">6</td><td><b>배터리</b></td><td><b>battery_study</b></td><td>Stacked / Wound 배터리 셀</td><td class="num"><b>161</b></td><td>단일 충격 + 변형 (phase1~3)</td><td class="mono small">/data/battery_study/</td></tr>
+      <tr><td class="center mono">7</td><td><b>폴더블</b></td><td><b>foldable_hinge_study</b></td><td>Z Flip 0/90/180° 4축</td><td class="num">8 phase</td><td>힌지 피로 phase-a/b</td><td class="mono small">/data/foldable_hinge_study/</td></tr>
+      <tr><td class="center mono">8</td><td>방열</td><td><b>vapor_chamber_study</b></td><td>VC vs 동판</td><td class="num">13 phase</td><td>열-CFD spreading</td><td class="mono small">/data/vapor_chamber_study/</td></tr>
+      <tr><td class="center mono">9</td><td>디스플레이</td><td>warpage_study</td><td>디스플레이 적층 휨</td><td class="num">7</td><td>적층 휨 (lam_sym/asym)</td><td class="mono small">/data/warpage_study/</td></tr>
+      <tr class="row-star"><td class="center mono">10</td><td>진동/충격</td><td><b>floor_wave_study</b></td><td>바닥 진동 매트릭스</td><td class="num"><b>149</b></td><td>matrigid + 높이 (h0.5~2.0)</td><td class="mono small">/data/floor_wave_study/</td></tr>
+      <tr class="row-star"><td class="center mono">11</td><td>구조</td><td><b>shield_can_forming_study</b></td><td>EMI shield can 성형 후 변형</td><td class="num"><b>138</b></td><td>Stamping + baseline + extreme/hole</td><td class="mono small">/data/shield_can_forming_study/</td></tr>
+      <tr><td class="center mono">12</td><td>재료</td><td>tape_study</td><td>배터리/디스플레이 테이프</td><td class="num">42 + 18 phase</td><td>Bending DOE + Elastic sweep</td><td class="mono small">/data/tape_study/</td></tr>
+      <tr><td class="center mono">13</td><td>재료</td><td>realistic_rebound_study</td><td>mat024 sigy sweep</td><td class="num">24</td><td>baseline + sigy ablation</td><td class="mono small">/data/realistic_rebound_study/</td></tr>
+      <tr><td class="center mono">14</td><td>재료</td><td>soft1_stiffness_study</td><td>Soft1 재료</td><td class="num">15</td><td>mesh refinement (uniform → 16x)</td><td class="mono small">/data/soft1_stiffness_study/</td></tr>
+      <tr><td class="center mono">15</td><td>요소</td><td>tet10_elform_study</td><td>hex8/tet10 element form</td><td class="num">12</td><td>elform -2~60 비교</td><td class="mono small">/data/tet10_elform_study/</td></tr>
+      <tr><td class="center mono">16</td><td>요소</td><td>level_study</td><td>tet4/tet10 dt0</td><td class="num">13</td><td>tet 정식화</td><td class="mono small">/data/level_study/</td></tr>
+      <tr><td class="center mono">17</td><td>재료</td><td>rubber_advanced_study</td><td>EFG/locking/inverse</td><td class="num">6 phase</td><td>고무 점탄성</td><td class="mono small">/data/rubber_advanced_study/</td></tr>
+      <tr><td class="center mono">18</td><td>표준</td><td>astm_e8_study</td><td>ASTM E8 인장 시험</td><td class="num">11</td><td>단축 인장 회기 검증</td><td class="mono small">/data/astm_e8_study/</td></tr>
+      <tr><td class="center mono">19</td><td>동역학</td><td>fmbd_study</td><td>FMBD eigenvalue/modal/FRB</td><td class="num">5 phase</td><td>강체 동역학 + 주파수 응답</td><td class="mono small">/data/fmbd_study/</td></tr>
+      <tr><td class="center mono">20</td><td>구조</td><td>cms_study</td><td>DOE L2/L3, p0/p4</td><td class="num">24</td><td>Component Mode Synthesis</td><td class="mono small">/data/cms_study/</td></tr>
+      <tr><td class="center mono">21</td><td>재료</td><td>Composite</td><td>Composite 적층</td><td class="num">—</td><td>적층 복합재</td><td class="mono small">/data/koodyna_reports/Composite/</td></tr>
+      <tr><td class="center mono">22</td><td>솔버</td><td>alt_ale · alt_efg · alt_spg · alt_sph</td><td>ALE/EFG/SPG/SPH</td><td class="num">4 솔버</td><td>솔버 정식화 회기</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr><td class="center mono">23</td><td>요소</td><td>alt_tet_elform15 · 60</td><td>tet elform 15/60</td><td class="num">2</td><td>tet 정식화</td><td class="mono small">/data/koodyna_reports/</td></tr>
+      <tr><td class="center mono">24</td><td>재료</td><td>confined_compression</td><td>봉인 압축</td><td class="num">—</td><td>봉인 압축 시험</td><td class="mono small">/data/koodyna_reports/</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="sec-a1"><span class="num">A-2</span>· DOE / 검증 testset (KooChainRun 자동화)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px">#</th>
+        <th style="width:140px">카테고리</th>
+        <th>과제 (Test_*)</th>
+        <th style="width:140px">케이스 수</th>
+        <th>환경 위치</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="row-star"><td class="center mono">D1</td><td>부분 충격 DOE</td><td><b>Test_Impact_A</b> (5×5 grid × 25 부품 = 625 pair)</td><td class="num"><b>25 위치</b></td><td class="mono small">/data/koopark/Test_Impact_A/</td></tr>
+      <tr><td class="center mono">D2</td><td>전각도 sweep</td><td>Test_001_Full26_1Step · 002_Full26_3Step</td><td class="num">26~78</td><td class="mono small">/data/Tests/Test_001/002</td></tr>
+      <tr><td class="center mono">D3</td><td>6면 cyclic</td><td>Test_003_6Faces_Cyclic</td><td class="num">6 face</td><td class="mono small">/data/Tests/Test_003/</td></tr>
+      <tr><td class="center mono">D4</td><td>Pitching</td><td>Test_004_Pitching_Sweep</td><td class="num">sweep</td><td class="mono small">/data/Tests/Test_004/</td></tr>
+      <tr class="row-star"><td class="center mono">D5</td><td><b>Fibonacci 전각도</b></td><td><b>Test_005_Fibonacci_100</b></td><td class="num"><b>100 각도</b></td><td class="mono small">/data/Tests/Test_005/</td></tr>
+      <tr><td class="center mono">D6</td><td>Fibonacci 6° / 2°</td><td>Test_006 / Test_007</td><td class="num">~600 / ~5,000</td><td class="mono small">/data/Tests/Test_006/007</td></tr>
+      <tr><td class="center mono">D7</td><td>낙하 검증</td><td>Test_DropWeight_Validation · Test_DWI</td><td class="num">다수</td><td class="mono small">/data/koopark/Test_DropWeight_Validation, Test_DWI</td></tr>
+      <tr><td class="center mono">D8</td><td>전각도 + Rigid Wall</td><td>Test_FullAngle_RW</td><td class="num">Fibonacci 100</td><td class="mono small">/data/koopark/Test_FullAngle_RW/</td></tr>
+      <tr><td class="center mono">D9</td><td>IGA 전각도</td><td>Test_IGA_FullAngle</td><td class="num">IGA mesh</td><td class="mono small">/data/koopark/Test_IGA_FullAngle/</td></tr>
+      <tr><td class="center mono">D10</td><td>진동</td><td>Test_VibP1 · VibP2</td><td class="num">Phase 1/2</td><td class="mono small">/data/koopark/Test_VibP1, VibP2</td></tr>
+      <tr><td class="center mono">D11</td><td>Post-process</td><td>Test_Postprocess_v14 · v15_SeparateJob</td><td class="num">—</td><td class="mono small">KooD3plotReader 검증</td></tr>
+      <tr><td class="center mono">D12</td><td>시스템 회기</td><td>Test_chdir_health · Test_semaphore · Test_010_Sequential_Quick</td><td class="num">—</td><td class="mono small">/data/koopark/Test_*</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========================================================== B ========================================================== -->
+<section id="sec-b">
+  <h2>B. 사례 + 신규 제안 — PT/PPT/docx 자료 기반</h2>
+
+  <h3><span class="num">B-1</span>· 성공 사례 (신뢰성시험혁신전략.pptx)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>사례</th>
+        <th style="width:90px">부품</th>
+        <th>기존 시험</th>
+        <th>시장 Gap</th>
+        <th>CAE/시뮬 발견</th>
+        <th>신규 시험법</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="row-star">
+        <td><b>#1 AP Ball Crack</b></td>
+        <td>AP (<span class="tag lsi">LSI</span><span class="tag qc">QC</span>)</td>
+        <td>PBA 열충격 (균일 온도)</td>
+        <td>시장 Correlation <b>0%</b></td>
+        <td>발열 패턴 = AP 국부 발열 (불균일 열응력 집중)</td>
+        <td><b>AP On/Off 시험</b> + DeathMarker 앱</td>
+      </tr>
+      <tr class="row-star">
+        <td><b>#2 FPCB 굴곡 수명</b></td>
+        <td>FPCB</td>
+        <td>빠른 굴곡, <b>20만회 Pass</b></td>
+        <td>시장 <b>7만회 미만</b> (3배 Gap)</td>
+        <td>점탄성 Creep — 굴곡 유지 시간이 결정적</td>
+        <td><b>15s On / 15s Off</b> (Creep 반영)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="num">B-2</span>· 신규 제안 — 디스플레이 굴곡 수명 (신뢰성 PPT slide 12-15)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:160px">신규 과제</th>
+        <th style="width:90px">부품</th>
+        <th>핵심 문제</th>
+        <th>솔루션 / 시뮬</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="row-star">
+        <td><b>디스플레이 굴곡 수명</b></td>
+        <td>Display</td>
+        <td>현행 1.8m 낙하 (HW 파괴) / 1.5m (Glass crack) + 6면 낙하 복불복 → 무상 수리 불량 사전 검출 불가</td>
+        <td>강성의 역설 — <b>Crack Arrest 설계</b> (점탄성 보강), Panel 응력 <b>10% 감소 → 불량 40~60% 개선</b> (Weibull m=6/m=8)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="num">B-3</span>· 디스플레이 면품질 5 Action Items (제안서)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:50px">AI</th>
+        <th>확인 항목</th>
+        <th>시뮬/시험</th>
+        <th>데이터 요구</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="center mono">AI-1</td><td>두께 편차 따른 압착 품질 차이</td><td>그룹 A/B/C 압착 시험</td><td>단품 두께 측정값, 배치 정보</td></tr>
+      <tr><td class="center mono">AI-2</td><td>면품질 패턴별 그룹 압착</td><td>패턴 분류 (중앙 솟음/가장자리 들뜸/웨이브)</td><td>단품 스캔 데이터</td></tr>
+      <tr class="row-star"><td class="center mono">AI-3</td><td><b>단품 ↔ 세트 연관관계</b></td><td>다량 측정 + 이력 추적</td><td>최소 수백 건 + OK/NG 판정</td></tr>
+      <tr><td class="center mono">AI-4</td><td>공정 조건 보상 가능성</td><td>압력/온도/시간/쿠션재 변경</td><td>공정 조건 기록</td></tr>
+      <tr><td class="center mono">AI-5</td><td>압착 지그 위치별 편차</td><td>슬롯 위치 기록</td><td>위치별 면품질</td></tr>
+    </tbody>
+  </table>
+
+  <h3><span class="num">B-4</span>· 시뮬 유형 3종 (디지털트윈 PT)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:160px">유형</th>
+        <th>케이스 수</th>
+        <th>목적</th>
+        <th>인프라</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><b>단일 낙하 (Single)</b></td><td class="num">1</td><td>규격 시험 (Face/Edge/Corner) 상세 분석</td><td>128 core / 1건</td></tr>
+      <tr class="row-star"><td><b>전각도 낙하 (Full-Angle)</b></td><td class="num"><b>2,592</b> (θ=72×φ=36)</td><td>시장 불량 모드 사전 예측</td><td>346 node × 128 core = <b>44,288 core</b> (8 round)</td></tr>
+      <tr><td><b>누적 낙하 (Cumulative)</b></td><td class="num">N (100/200)</td><td>신뢰성 시험 사전 예측 / 사용자 패턴 (일반 50/yr · Heavy 150/yr)</td><td>step-wise dynain chain</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========================================================== C ========================================================== -->
+<section id="sec-c">
+  <h2>C. 갤럭시 모델 × AP 분배 (2020-2025, verified)</h2>
+  <p class="desc">
+    deep-research workflow 결과 — 5 dim 병렬 WebSearch × 19 agents × verifier 13 confirmations.
+    시뮬 분리 <span class="tag yes">필요</span> = LSI/QC 양쪽 별도 모델, <span class="tag no">단일</span> = 1 모델로 글로벌 커버.
+  </p>
+
+  <h3><span class="num">C-1</span>· S 시리즈 (Bar Flagship)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:80px">출시</th>
+        <th>모델</th>
+        <th>LSI 향 (Exynos)</th>
+        <th>QC 향 (Snapdragon)</th>
+        <th style="width:80px">시뮬 분리</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="row-star">
+        <td class="mono">2020-03</td><td><b>S20 · S20+ · S20 Ultra</b></td>
+        <td><span class="tag lsi">990</span> → EU, IN, LATAM, ROW</td>
+        <td><span class="tag qc">865</span> → KR, US, CA, CN, JP</td>
+        <td class="center"><span class="tag yes">YES</span></td>
+      </tr>
+      <tr class="row-star">
+        <td class="mono">2020-10</td><td>S20 FE</td>
+        <td><span class="tag lsi">990</span> → EU(4G), IN, ROW</td>
+        <td><span class="tag qc">865</span> → KR, US, CA, CN, JP, EU(5G)</td>
+        <td class="center"><span class="tag yes">YES</span></td>
+      </tr>
+      <tr class="row-star">
+        <td class="mono">2021-01</td><td><b>S21 · S21+ · S21 Ultra</b></td>
+        <td><span class="tag lsi">2100</span> → KR, EU, IN, LATAM, ROW</td>
+        <td><span class="tag qc">888</span> → US, CA, CN, HK, TW, JP</td>
+        <td class="center"><span class="tag yes">YES</span></td>
+      </tr>
+      <tr class="row-star">
+        <td class="mono">2022-01</td><td>S21 FE</td>
+        <td><span class="tag lsi">2100</span> → KR, IN, LATAM, JP</td>
+        <td><span class="tag qc">888</span> → US, CA, CN, EU</td>
+        <td class="center"><span class="tag yes">YES</span></td>
+      </tr>
+      <tr class="row-star">
+        <td class="mono">2022-02</td><td><b>S22 · S22+ · S22 Ultra</b></td>
+        <td><span class="tag lsi">2200</span> → EU, ROW</td>
+        <td><span class="tag qc">8 Gen 1</span> → KR, US, CN, JP, IN, LATAM, AU</td>
+        <td class="center"><span class="tag yes">YES</span> <span class="small">(마지막 Ultra LSI)</span></td>
+      </tr>
+      <tr>
+        <td class="mono">2023-02</td><td><b>S23 · S23+ · S23 Ultra</b></td>
+        <td class="center small">—</td>
+        <td><span class="star">★</span><span class="tag qc">8 Gen 2 for Galaxy</span> → <b>Global</b></td>
+        <td class="center"><span class="tag no">NO</span> <span class="small">(LSI 제외)</span></td>
+      </tr>
+      <tr class="row-star">
+        <td class="mono">2024-01</td><td><b>S24 · S24+</b></td>
+        <td><span class="star">★</span><span class="tag lsi">2400 for Galaxy</span> → KR, EU, IN, ROW</td>
+        <td><span class="tag qc">8 Gen 3 for Galaxy</span> → US, CN, JP, LATAM</td>
+        <td class="center"><span class="tag yes">YES</span> <span class="small">(LSI 복귀)</span></td>
+      </tr>
+      <tr>
+        <td class="mono">2024-01</td><td>S24 Ultra</td>
+        <td class="center small">—</td>
+        <td><span class="tag qc">8 Gen 3 for Galaxy</span> → Global</td>
+        <td class="center"><span class="tag no">NO</span> <span class="small">(Ultra 만 QC)</span></td>
+      </tr>
+      <tr>
+        <td class="mono">2025-01</td><td><b>S25 · S25+ · S25 Ultra</b></td>
+        <td class="center small">—</td>
+        <td><span class="tag qc">8 Elite for Galaxy</span> → Global</td>
+        <td class="center"><span class="tag no">NO</span> <span class="small">(Exynos 2500 3nm 수율 부진)</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="num">C-2</span>· Z Flip 시리즈</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:80px">출시</th>
+        <th>모델</th>
+        <th>SoC</th>
+        <th style="width:160px">시뮬 분리</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="mono">2020-02</td><td>Z Flip</td><td><span class="tag qc">SD 855+</span></td><td class="center"><span class="tag no">NO</span> Global 단일</td></tr>
+      <tr><td class="mono">2020-08</td><td>Z Flip 5G</td><td><span class="tag qc">SD 865+</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2021-08</td><td>Z Flip3</td><td><span class="tag qc">SD 888</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2022-08</td><td>Z Flip4</td><td><span class="tag qc">SD 8+ Gen 1</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2023-08</td><td>Z Flip5</td><td><span class="tag qc">SD 8 Gen 2 for Galaxy</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2024-07</td><td>Z Flip6</td><td><span class="tag qc">SD 8 Gen 3 for Galaxy</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr class="row-star">
+        <td class="mono">2025-07</td>
+        <td><b>Z Flip7</b></td>
+        <td><span class="star">★★</span><span class="tag lsi">Exynos 2500</span> <span class="small">(Flip 최초 LSI)</span></td>
+        <td class="center"><span class="tag no">NO</span> Global 단일 <span class="small">(LSI)</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><span class="num">C-3</span>· Z Fold 시리즈</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:80px">출시</th>
+        <th>모델</th>
+        <th>SoC</th>
+        <th style="width:160px">시뮬 분리</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="mono">2020-09</td><td>Z Fold2</td><td><span class="tag qc">SD 865+</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2021-08</td><td>Z Fold3</td><td><span class="tag qc">SD 888</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2022-08</td><td>Z Fold4</td><td><span class="tag qc">SD 8+ Gen 1</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2023-08</td><td>Z Fold5</td><td><span class="tag qc">SD 8 Gen 2 for Galaxy</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2024-07</td><td>Z Fold6</td><td><span class="tag qc">SD 8 Gen 3 for Galaxy</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+      <tr><td class="mono">2025-07</td><td><b>Z Fold7</b></td><td><span class="tag qc">SD 8 Elite for Galaxy</span> <span class="small">(Flip7 와 대조)</span></td><td class="center"><span class="tag no">NO</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>핵심 시뮬 분리 판단:</b>
+    <br>• <span class="tag yes">YES (양쪽 시뮬)</span>: S20·20+·20U·20FE, S21·21+·21U·21FE, S22·22+·22U, <b>S24·S24+</b>, <b>Z Flip7</b>
+    <br>• <span class="tag no">NO (단일 시뮬)</span>: S23 전체, S24 Ultra, S25 전체, Flip 1~6, Fold 2~7
+  </div>
+</section>
+
+<!-- ========================================================== D ========================================================== -->
+<section id="sec-d">
+  <h2>D. 시뮬 계획서 작성용 빈칸 framework</h2>
+  <p class="desc">위 A/B/C 를 보고 다음 표 채워서 PT 슬라이드/계획서 만들면 됨. 회사 내부 자료 (CAE 팀 트래킹 / Confluence / SharePoint) 를 매핑.</p>
+
+  <pre>| #  | 모델       | 출시  | AP 향              | 부품/도메인 | 과제명 | 시뮬 유형                | 케이스 수 | 인프라      | 진행 기간 | 담당 | 결과/이슈 |
+| -- | ---------- | ----- | ------------------ | ----------- | ------ | ------------------------ | --------- | ----------- | --------- | ---- | --------- |
+| 1  | S20 Ultra  | 2020  | LSI 990 (EU 향)    | AP          | [채움] | 단일/전각도/누적/On-Off  | [채움]    | 128c × N    | YYYY-MM   | …    | …         |
+| 2  | S20 Ultra  | 2020  | QC 865 (US 향)     | AP          | …      | …                         | …         | …           | …         | …    | …         |
+| 3  | S21 Ultra  | 2021  | LSI 2100           | FPCB        | …      | 굴곡 15s On/Off           | …         | …           | …         | …    | …         |
+| …  | …          | …     | …                  | …           | …      | …                         | …         | …           | …         | …    | …         |</pre>
+
+  <div class="grid-2">
+    <div>
+      <h3><span class="num">D-1</span>· 시뮬 유형 enum</h3>
+      <ul class="enum">
+        <li><b>단일 낙하</b> Face/Edge/Corner</li>
+        <li><b>전각도 낙하</b> 2,592 / Fib 100 / Fib 6° / Fib 2°</li>
+        <li><b>누적 낙하</b> 100회 / 200회 / 150회 Heavy</li>
+        <li><b>AP On/Off</b> 열-기계 연성</li>
+        <li><b>FPCB 굴곡</b> 15s On/Off Creep</li>
+        <li><b>디스플레이 굴곡</b> Crack Arrest</li>
+        <li><b>부분 충격 DOE</b> 5×5 grid</li>
+        <li><b>힌지 피로</b> 0/90/180° 4축</li>
+        <li><b>배터리 압괴</b> stacked/wound</li>
+        <li><b>면품질 압착</b> 5 AI</li>
+        <li><b>방열 (VC)</b> vs 동판</li>
+        <li><b>Warpage</b> 적층 휨</li>
+        <li><b>진동</b> eigenvalue/modal/FRB/floor wave</li>
+        <li><b>Shield Can 성형</b></li>
+        <li><b>테이프 굴곡</b> 점탄성</li>
+        <li><b>고무 재료</b> EFG/locking/inverse</li>
+        <li><b>표준 인장</b> ASTM E8</li>
+      </ul>
+    </div>
+    <div>
+      <h3><span class="num">D-2</span>· 부품/도메인 enum</h3>
+      <ul class="enum">
+        <li><b>AP</b> (LSI/QC)</li>
+        <li><b>PBA</b></li>
+        <li><b>FPCB</b></li>
+        <li><b>Display Panel</b></li>
+        <li><b>Display 적층</b></li>
+        <li><b>Glass / Cover Glass</b></li>
+        <li><b>Battery</b> (cell / pack)</li>
+        <li><b>Hinge</b></li>
+        <li><b>Shield Can</b></li>
+        <li><b>Tape</b> (battery / display)</li>
+        <li><b>Cushion</b></li>
+        <li><b>Rubber 재료</b></li>
+        <li><b>EMI/EMC</b></li>
+        <li><b>VC / 방열</b></li>
+        <li><b>카메라 모듈</b></li>
+        <li><b>Sub-PBA</b></li>
+      </ul>
+      <h3><span class="num">D-3</span>· 인프라 옵션</h3>
+      <ul class="enum">
+        <li>단일: <b>128 core</b> / 1건 (~4시간)</li>
+        <li>병렬: <b>346 node</b> × 128 core = <b>44,288 core</b> (~8 round 로 2,592 case)</li>
+        <li>License: 44,288 core (<b>86배 확대</b>)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== Footer / Sources ========================================================== -->
+<footer id="sec-sources">
+
+  <h3>환경 자료 (직접 inventory)</h3>
+  <ul>
+    <li><code>/data/*_study/</code> — 15 디렉토리 (battery 161, shield_can 138, floor_wave 149, tape 42, realistic_rebound 24, cms 24, soft1 15, vapor_chamber 13, level 13, tet10_elform 12, astm_e8 11, foldable_hinge 8, warpage 7, rubber 6, fmbd 5)</li>
+    <li><code>/data/koodyna_reports/</code> — ball_drop_test v1~v7, peridynamics, alt_ale/efg/spg/sph 등</li>
+    <li><code>/data/koopark/Test_*</code> + <code>/data/Tests/Test_*</code> — DOE/검증 testset</li>
+  </ul>
+
+  <h3>PT/PPT/docx 자료</h3>
+  <ul>
+    <li><code>Downloads/디지털트윈_낙하시뮬레이션_PT자료_상세.docx</code> — 시뮬 유형 3종 + 인프라</li>
+    <li><code>Downloads/신뢰성시험혁신전략.pptx</code> — 사례 #1 AP Ball Crack, #2 FPCB, 신규 디스플레이 굴곡</li>
+    <li><code>STCStrategy/전각도_낙하_시뮬레이션_자동화_소프트웨어_소개_v2.docx</code> — 5개 SW 시스템</li>
+    <li><code>KooDynaAdvanced/디스플레이_면품질_확인과제_제안서.docx</code> — 5 AI</li>
+  </ul>
+
+  <h3>갤럭시 모델 × AP (deep-research workflow, verified)</h3>
+  <ul>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S20" target="_blank">Samsung Galaxy S20 — Wikipedia</a></li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S21" target="_blank">Samsung Galaxy S21 — Wikipedia</a></li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S22" target="_blank">Samsung Galaxy S22 — Wikipedia</a></li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S23" target="_blank">Samsung Galaxy S23 — Wikipedia</a> — S23 SD 단독</li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S24" target="_blank">Samsung Galaxy S24 — Wikipedia</a> — S24/24+ Exynos 2400 복귀, Ultra QC 단독</li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_S25" target="_blank">Samsung Galaxy S25 — Wikipedia</a> — SD 8 Elite Global</li>
+    <li><a href="https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip7" target="_blank">Samsung Galaxy Z Flip7 — Wikipedia</a> — Exynos 2500 단독</li>
+    <li><a href="https://www.phonearena.com/news/Galaxy-S20-Ultra-Exynos-vs-Snapdragon-battery-life_id123572" target="_blank">Exynos 990 vs SD865 — PhoneArena</a> — 배터리 -25~27%</li>
+    <li><a href="https://www.qualcomm.com/news/releases/2023/02/qualcomm-and-samsung-extend-snapdragon-platform-collaboration" target="_blank">Qualcomm — SD 8 Gen 2/3/Elite for Galaxy</a></li>
+    <li><a href="https://www.anandtech.com/show/15446/the-exynos-990-anandtech-deep-dive" target="_blank">AnandTech — Exynos 990 Deep Dive</a></li>
+    <li><a href="https://www.sammobile.com/news/exynos-2500-galaxy-s25-3nm-yield-issues/" target="_blank">SamMobile — Exynos 2500 3nm SF3 yield</a></li>
+    <li><a href="https://www.xda-developers.com/samsung-galaxy-s21-fe-snapdragon-888-vs-exynos-2100/" target="_blank">XDA — S21 FE variants</a></li>
+    <li><a href="https://www.gsmarena.com/samsung-phones-9.php" target="_blank">GSMArena — Samsung phones</a></li>
+  </ul>
+
+  <div style="margin-top:20px; padding-top:14px; border-top:1px dashed var(--line); font-size:11px; color: var(--fg-faint);">
+    참고: 본 문서는 사용자 환경의 진행 과제 + 공개 모델 정보 reference. <b>실제 과제 history (모델별 진행 트래킹)</b> 는
+    회사 내부 자료를 <b>D 표</b> 에 매핑해야 완성. 같은 내용 md: <code>docs/simulation_tasks_catalog.md</code>.
+  </div>
+</footer>
+
+</div>
+</body>
+</html>
