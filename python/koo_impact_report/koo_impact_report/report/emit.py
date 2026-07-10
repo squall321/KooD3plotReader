@@ -24,6 +24,10 @@ from .payload.tiers import tier_for, TierPolicy, CHUNK_MOTION_PTS, CHUNK_TRAJ_PT
 # --chunked 강제 시 인라인 payload 에 적용할 캡 — tier D 와 동일 (모드-캡 일치).
 _CHUNK_FORCED_TIER = TierPolicy("D", 0, 40, 24, 0, 64, 3, "chunked")
 
+# impact_payload.json sidecar 스키마 버전 — payload 구조가 바뀌면 반드시 범프.
+# --from-json 은 불일치 시 hard error (조용한 오렌더 금지, P5-1).
+SCHEMA_VERSION = 1
+
 
 def _resolve_mode(report, mode: str | None) -> str:
     if mode in ("inline", "deferred", "chunked"):
@@ -37,13 +41,44 @@ def _chunk_fname(pos_id: str) -> str:
     return "pos_" + re.sub(r"[^A-Za-z0-9_-]", "_", str(pos_id))
 
 
-def emit_report(report, out_path: str | Path, mode: str | None = None) -> Path:
+def write_payload_sidecar(payload: dict, out_path: Path) -> Path:
+    """impact_payload.json sidecar — --from-json 재렌더(~2s)의 입력."""
+    sidecar = out_path.parent / "impact_payload.json"
+    doc = {"schema_version": SCHEMA_VERSION,
+           "generated_by": "koo_impact_report",
+           "payload": payload}
+    sidecar.write_text(json.dumps(doc, cls=_Encoder, ensure_ascii=False),
+                       encoding="utf-8")
+    return sidecar
+
+
+def render_from_payload(payload: dict, out_path: str | Path,
+                        deferred: bool | None = None) -> Path:
+    """sidecar payload → HTML 재렌더 (loader/analyzer 불요, P5-1).
+
+    chunks 매니페스트가 있으면 deferred 로 렌더 — 청크 파일(report_data/)은
+    원본 위치 기준 상대경로이므로 out_path 를 같은 디렉터리에 써야 동작한다.
+    """
+    out_path = Path(out_path)
+    if deferred is None:
+        deferred = bool(payload.get("chunks"))
+    html = generate_html(None, payload=payload, deferred=deferred)
+    out_path.write_text(html, encoding="utf-8")
+    return out_path
+
+
+def emit_report(report, out_path: str | Path, mode: str | None = None,
+                sidecar: bool = True) -> Path:
     """report 를 out_path 에 방출. 반환값은 실제 쓴 HTML 경로."""
     out_path = Path(out_path)
     mode = _resolve_mode(report, mode)
 
     if mode == "inline":
-        out_path.write_text(generate_html(report), encoding="utf-8")
+        payload = _build_payload(report)
+        out_path.write_text(generate_html(report, payload=payload),
+                            encoding="utf-8")
+        if sidecar:
+            write_payload_sidecar(payload, out_path)
         return out_path
 
     # chunked 는 인라인 payload 캡도 tier D 로 맞춘다 (곡선은 청크가 담당).
@@ -74,4 +109,6 @@ def emit_report(report, out_path: str | Path, mode: str | None = None) -> Path:
     # deferred | chunked: payload 를 JSON 블록으로, DATA 는 boot 시 파싱.
     html = generate_html(report, payload=payload, deferred=True)
     out_path.write_text(html, encoding="utf-8")
+    if sidecar:
+        write_payload_sidecar(payload, out_path)
     return out_path

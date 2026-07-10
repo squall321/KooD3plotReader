@@ -7,22 +7,6 @@ import time
 from pathlib import Path
 
 
-def _parse_severity_weights(spec: str) -> dict[str, float]:
-    """Parse ``g=0.5,s=0.3,e=0.2`` → {'g':0.5,'s':0.3,'e':0.2}."""
-    out: dict[str, float] = {}
-    if not spec:
-        return out
-    for token in spec.split(","):
-        if "=" not in token:
-            continue
-        k, v = token.split("=", 1)
-        try:
-            out[k.strip()] = float(v.strip())
-        except ValueError:
-            continue
-    return out
-
-
 def _parse_face_list(spec: str | None) -> list[str] | None:
     if not spec:
         return None
@@ -43,7 +27,8 @@ def main() -> None:
     input_group.add_argument(
         "--from-json",
         metavar="JSON_FILE",
-        help="Re-generate report from a previously saved report.json",
+        help="impact_payload.json sidecar 에서 HTML 재렌더 (loader/analyzer 생략, ~2s). "
+             "schema_version 불일치 시 에러.",
     )
 
     parser.add_argument("--output", "-o", default=None, help="Output HTML file")
@@ -54,11 +39,6 @@ def main() -> None:
         help="Output formats (default: html terminal)",
     )
 
-    parser.add_argument(
-        "--metric", default="peak_g",
-        choices=["peak_g", "peak_stress", "peak_strain", "peak_disp"],
-        help="Primary metric used in plots & rankings",
-    )
     parser.add_argument("--threshold-critical", type=float, default=None,
                         help="Critical threshold for the primary metric. "
                              "Units match the dataset (no implicit default).")
@@ -71,12 +51,6 @@ def main() -> None:
                              "card via the loader.")
     parser.add_argument("--faces", default=None,
                         help="Comma-separated face subset (e.g. F1,F2,F5). Default: all discovered.")
-    parser.add_argument("--compare-faces", action="store_true",
-                        help="Force the 'ALL faces compare' visualization mode")
-    parser.add_argument("--severity-weight", default=None,
-                        help="Severity weights as 'g=0.5,s=0.3,e=0.2'. "
-                             "When omitted, severity score is not computed "
-                             "(no implicit default ratio).")
     parser.add_argument("--units", default=None,
                         choices=["SI", "ton-mm-s", "ton-mm-ms", "g-mm-ms"],
                         help="Override solver unit system. When omitted the loader "
@@ -117,13 +91,31 @@ def main() -> None:
 
     # ── Load ──────────────────────────────────────────────────────
     if args.from_json:
+        # sidecar → HTML 재렌더 전용 경로 (loader/analyzer 생략, P5-1).
+        import json as _json
         json_in = Path(args.from_json)
         if not json_in.exists():
             print(f"Error: {json_in} does not exist", file=sys.stderr)
             sys.exit(1)
-        # No from_json loader implemented yet — placeholder
-        print(f"[main] --from-json not yet implemented — please rebuild via --test-dir.")
-        sys.exit(2)
+        from .report.emit import render_from_payload, SCHEMA_VERSION
+        t0 = time.time()
+        doc = _json.loads(json_in.read_text(encoding="utf-8"))
+        got_ver = doc.get("schema_version")
+        if got_ver != SCHEMA_VERSION:
+            print(f"[main] ERROR: sidecar schema_version={got_ver!r} ≠ "
+                  f"지원 버전 {SCHEMA_VERSION} — --test-dir 로 재생성하세요.",
+                  file=sys.stderr)
+            sys.exit(2)
+        payload = doc.get("payload") or {}
+        html_path = args.output or str(json_in.parent / "report.html")
+        if payload.get("chunks") and Path(html_path).parent != json_in.parent:
+            print(f"[main] WARN: chunks 매니페스트 존재 — 청크 상대경로가 깨지지 "
+                  f"않도록 출력을 sidecar 와 같은 디렉터리에 두는 것을 권장.")
+        render_from_payload(payload, html_path,
+                            deferred=(None if not args.single_file else False))
+        print(f"[main] --from-json re-render: {html_path} "
+              f"({time.time() - t0:.1f}s)")
+        return
     else:
         test_dir = Path(args.test_dir)
         if not test_dir.exists():
@@ -202,10 +194,6 @@ def main() -> None:
             k: v for k, v in report.positions_by_face.items() if k in face_subset
         }
         print(f"[main] Face filter {face_subset}: {before} → {len(report.results)} pair results")
-
-    # Severity weights are parsed for downstream report layers (HTML/severity)
-    _ = _parse_severity_weights(args.severity_weight) if args.severity_weight else None
-    _ = args.compare_faces  # consumed by html_report
 
     # Yield-stress dispatch:
     #   • Per-part from the *MAT_ cards (already in sim_params) is preferred.
