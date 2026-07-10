@@ -15,6 +15,7 @@ _PAGE1 = """
         <b id="kHeroPos">__N_POSITIONS__</b> 위치 &times; <b id="kHeroParts">__N_PARTS__</b> 부품
         = <b id="kHeroPairs">__N_PAIRS__</b> 페어. 임팩터 운동에너지가 어디로 흘러가는지
         실시간 그래프로 추적합니다.
+        <span id="heroValidRuns" style="display:block;margin-top:4px"></span>
       </div>
     </div>
     <div class="right">
@@ -186,6 +187,29 @@ _JS_S1 = r"""function fillHeroKpi() {
   // s1 -> s9 크로스링크 (P6): worst KPI/히어로 클릭 -> 해당 위치 드릴다운
   const _worstPos = (k.worst && k.worst.pos_id) ||
     ((DATA.doe_analysis && DATA.doe_analysis.worst_position) ? DATA.doe_analysis.worst_position.pos_id : null);
+  // C1: 유효 접촉 런 수를 hover 배지가 아닌 본문으로 승격
+  (function () {
+    const sqSum = (DATA.solver_quality && DATA.solver_quality.summary) || null;
+    const host = document.getElementById('heroValidRuns');
+    if (!host || !sqSum || !sqSum.n) return;
+    const vis = sqSum.impact_visible_count;
+    if (vis != null && vis < sqSum.n) {
+      host.innerHTML = '유효 접촉 런 <b style="color:var(--crit)">' + vis + '/' + sqSum.n +
+        '</b> — 나머지 ' + (sqSum.n - vis) + '런은 glstat 창에서 접촉 미검출 (FINDINGS 참조).';
+    } else if (sqSum.fail > 0) {
+      host.innerHTML = '에너지 균형 FAIL <b style="color:var(--crit)">' + sqSum.fail + '/' + sqSum.n + '</b> 런 — 수치는 잠정치 (FINDINGS 참조).';
+    }
+  })();
+  // C2: worst KPI 가 FAIL 런 유래면 타일 캡션에 각주
+  (function () {
+    const perPos = (DATA.solver_quality && DATA.solver_quality.per_position) || {};
+    const wp = _worstPos && perPos[_worstPos];
+    if (wp && wp.pass_fail === 'FAIL') {
+      const tile = document.getElementById('kWorstG');
+      const capHost = tile && tile.parentElement ? tile.parentElement.querySelector('.cap') : null;
+      if (capHost) capHost.textContent = capHost.textContent + ' · ⚠ 에너지 균형 FAIL 런에서 관측';
+    }
+  })();
   if (_worstPos) {
     ['kWorstG', 'heroWorstPart', 'heroWorstCoord'].forEach(function (eid) {
       const n = document.getElementById(eid);

@@ -500,6 +500,39 @@ def _build_auto_recommend(report):
                                   getattr(pos, "y", float("nan")),
                                   face)
 
+    # ---------- Rule 0 (H7): 데이터 품질 — 어떤 보강 권고보다 우선 ----------
+    _sq_all = getattr(report, "solver_quality", None) or {}
+    _sq_fail_pos: set = set()
+    if _sq_all:
+        _n_sq = len(_sq_all)
+        _no_contact = [str(k) for k, a in _sq_all.items()
+                       if ((a or {}).get("summary") or {}).get("impact_visible") is False]
+        _fails = [str(k) for k, a in _sq_all.items()
+                  if (a or {}).get("pass_fail") == "FAIL"]
+        _sq_fail_pos = set(_fails)
+        if _no_contact:
+            recs.append({
+                "severity": "critical",
+                "title": "접촉 미발생 런 — DOE 배치가 보강 검토에 우선",
+                "body": (f"{len(_no_contact)}/{_n_sq} 런에서 glstat 감사 창에 "
+                         "충격 이벤트가 없습니다 (임팩터 미접촉 추정). 임팩터 "
+                         "조준 좌표(LocationX/Y)·접촉 카드 검토가 아래의 모든 "
+                         "보강 권고보다 우선입니다."),
+                "source_panel": "Solver Quality Audit",
+                "metric": len(_no_contact),
+            })
+        if _fails:
+            recs.append({
+                "severity": "critical",
+                "title": "에너지 균형 FAIL — 응답 수치는 잠정치",
+                "body": (f"{len(_fails)}/{_n_sq} 런이 에너지 게이트(hourglass/"
+                         "TE drift/sliding) 를 초과했습니다. *CONTROL_HOURGLASS "
+                         "(IHQ)·contact 강성 재설정 후 재해석 전까지, 본 보고서의 "
+                         "응답 수치는 순위 비교 용도로만 사용하십시오."),
+                "source_panel": "Solver Quality Audit",
+                "metric": len(_fails),
+            })
+
     # ---------- Rule 1: worst position / part peak_g ----------
     if results:
         peaks = []
@@ -520,10 +553,18 @@ def _build_auto_recommend(report):
                 xy_str = f"(x={xy[0]:.3f}, y={xy[1]:.3f}){_u_len_str}"
             else:
                 xy_str = "(좌표 미정)"
+            # G 환산 병기 (M11) — s1 KPI 와 단위 감각 통일
+            _g_div = 9810.0 if (_u_acc or "mm/s²") == "mm/s²" else 9.81
+            _g_txt = f"{worst_g / _g_div:,.0f} G ({worst_g:,.1f}{_u_acc_str})"
+            _fail_note = (" (에너지 균형 FAIL 런 — 수치 신뢰 낮음)"
+                          if str(worst_pos) in _sq_fail_pos else "")
             recs.append({
                 "severity": severity,
                 "title": "최대 응답 위치 — 보강 우선",
-                "body": f"위치 P{worst_pos} {xy_str} 에서 부품 '{pname}' 의 peak_g = {worst_g:,.1f}{_u_acc_str} 로 최대 응답이 관측되었습니다. 해당 위치/부품 보강을 최우선으로 검토하십시오.",
+                "body": (f"위치 {worst_pos} {xy_str} 에서 부품 '{pname}' 의 "
+                         f"element-local peak {_g_txt} 로 최대 응답이 "
+                         f"관측되었습니다{_fail_note}. 해당 위치/부품 보강을 "
+                         "최우선으로 검토하십시오."),
                 "source_panel": "Peak Response Heatmap",
                 "metric": round(worst_g, 1),
             })

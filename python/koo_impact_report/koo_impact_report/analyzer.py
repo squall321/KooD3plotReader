@@ -281,12 +281,64 @@ def generate_findings(
         recommendation="",
     ))
 
+    # solver_quality 교차 finding (C1) — 데이터 품질이 보고서의 첫 결론이
+    # 되도록 다른 finding 보다 앞에 둔다.
+    findings = _solver_quality_findings(report) + findings
     # 구조화 로드 진단 → 집계 Finding (P1d — stdout 소멸 금지의 마지막 단).
     findings.extend(_findings_from_load_issues(report))
     # CLI 임계값 없이도 동작하는 통계 outlier 게이트 (절대 임계값 발명 금지).
     findings.extend(_statistical_outlier_findings(report))
 
     return findings
+
+
+def _solver_quality_findings(report: ImpactReport) -> list[Finding]:
+    """per-position solver_quality 감사 → 보고서 최상단 신뢰 finding (C1).
+
+    과거에는 '접촉 미발생 16/25' 라는 데이터의 진짜 헤드라인이 s1 hover
+    배지 2개로만 존재했고, findings 는 오히려 유일하게 물리가 있던 FAIL
+    런들을 outlier 로만 지목하는 역전된 서사를 만들었다.
+    """
+    sq = getattr(report, "solver_quality", None) or {}
+    if not sq:
+        return []
+    no_contact: list[str] = []
+    fails: list[str] = []
+    for pos_id, audit in sq.items():
+        summ = (audit or {}).get("summary") or {}
+        if summ.get("impact_visible") is False:
+            no_contact.append(str(pos_id))
+        if (audit or {}).get("pass_fail") == "FAIL":
+            fails.append(str(pos_id))
+    n = len(sq)
+    out: list[Finding] = []
+
+    def _names(lst: list[str], cap: int = 12) -> str:
+        s = ", ".join(lst[:cap])
+        return s + (f" 외 {len(lst) - cap}건" if len(lst) > cap else "")
+
+    if no_contact:
+        out.append(Finding(
+            severity=Severity.CRITICAL,
+            title=f"접촉 미발생 런 {len(no_contact)}/{n} — DOE 배치 검토 필요",
+            detail=(f"glstat 감사 창에서 KE 변화가 없는 런: {_names(no_contact)}. "
+                    "임팩터가 디바이스에 닿지 않았을 가능성이 높습니다. "
+                    "이 위치들의 응답 수치는 노이즈 수준입니다."),
+            recommendation=("DOE 임팩터 조준 좌표(LocationX/Y)와 접촉 정의를 "
+                            "검토 후 재해석하십시오. 히트맵 판독보다 우선입니다."),
+        ))
+    if fails:
+        out.append(Finding(
+            severity=Severity.CRITICAL,
+            title=f"에너지 균형 FAIL 런 {len(fails)}/{n} — 수치는 잠정치",
+            detail=(f"hourglass/TE-drift/sliding-energy 게이트 초과 런: "
+                    f"{_names(fails)}. 접촉이 발생한 런이 모두 여기 속하면 "
+                    "보고서의 응답 수치 전체가 이 런들에서 유래합니다."),
+            recommendation=("hourglass 제어(*CONTROL_HOURGLASS, IHQ)와 contact "
+                            "강성을 재설정해 재해석하기 전까지 절대값 판정을 "
+                            "유보하십시오. 순위 비교 용도로만 사용하십시오."),
+        ))
+    return out
 
 
 # ---------------------------------------------------------------------------

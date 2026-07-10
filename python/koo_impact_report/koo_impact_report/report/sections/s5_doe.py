@@ -1574,13 +1574,19 @@ function _doeRenderIdwPredictor(doe) {
     return;
   }
 
-  // Color scaling: use the fine-grid max (so peaks are visible). Guard zero.
+  // Color scaling (C2-4): P95 클리핑 — FAIL 런의 극단 outlier 하나가
+  // 선형 정규화를 지배해 면 전체가 단색이 되던 문제. 상위 5% 는 포화색.
   let vmin = Infinity, vmax = -Infinity;
+  const _finite = [];
   for (let i = 0; i < arr.length; i++) {
     const v = arr[i];
     if (!isFinite(v)) continue;
+    _finite.push(v);
     if (v < vmin) vmin = v;
-    if (v > vmax) vmax = v;
+  }
+  if (_finite.length) {
+    _finite.sort((a, b) => a - b);
+    vmax = _finite[Math.min(_finite.length - 1, Math.floor(_finite.length * 0.95))];
   }
   if (!isFinite(vmin) || !isFinite(vmax) || vmax <= vmin) {
     vmin = 0; vmax = vmax > 0 ? vmax : 1;
@@ -2270,8 +2276,15 @@ function _doeRenderHeatmap(doe) {
     const short = ({ peak_g: 'g', peak_stress: 's', peak_strain: 'e', peak_disp: 'd', peak_vel: 'v' })[DOE_STATE.metric] || 'g';
     const wpid = pm['worst_part_id_' + short];
     const wnm = wpid != null ? _doePartName(wpid) : '';
-    rect.appendChild(svg('title', null, [document.createTextNode(pos.pos_id + '\nx=' + pos.x.toFixed(1) + ' y=' + pos.y.toFixed(1) + '\nvalue=' + fmt(v, 1) + '\nworst part: ' + wnm)]));
+    const _sqCell = ((DATA.solver_quality || {}).per_position || {})[pos.pos_id];
+    const _sqTag = _sqCell ? ('\nsolver: ' + (_sqCell.pass_fail || '?')) : '';
+    rect.appendChild(svg('title', null, [document.createTextNode(pos.pos_id + '\nx=' + pos.x.toFixed(1) + ' y=' + pos.y.toFixed(1) + '\nvalue=' + fmt(v, 1) + '\nworst part: ' + wnm + _sqTag)]));
     g.appendChild(rect);
+    // C2-3: 에너지 균형 FAIL 런 마킹 (코너 도트) — 오염 데이터의 시각적 격리
+    if (_sqCell && _sqCell.pass_fail === 'FAIL') {
+      g.appendChild(svg('circle', { cx: cx + cellW - 5, cy: cy + 5, r: 2.2,
+        fill: '#ff5e84', stroke: '#0e1320', 'stroke-width': 0.6 }));
+    }
     g.appendChild(svg('text', {
       x: cx + cellW / 2, y: cy + cellH / 2 - 2,
       'text-anchor': 'middle', fill: '#0a0c14', 'font-size': 10, 'font-weight': 700,
