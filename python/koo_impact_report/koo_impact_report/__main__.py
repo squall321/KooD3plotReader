@@ -140,7 +140,8 @@ def main() -> None:
             _n_d3 = sum(1 for r in flat_runs if r["d3plot"].exists())
             _n_reuse = sum(1 for r in flat_runs if r.get("deep_dir"))
             print(
-                f"[main] flat output/Run_* layout detected ({len(flat_runs)} runs; "
+                f"[main] flat DOE / DWI layout detected "
+                f"(output/Run_* or output/results/dwi_*/Run_*; {len(flat_runs)} runs; "
                 f"{_n_d3} with d3plot, {_n_reuse} reusing deep_report output) "
                 f"→ load_partial_impact_doe_report"
             )

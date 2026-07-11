@@ -21,6 +21,7 @@ import csv
 import math
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1851,6 +1852,53 @@ def _parse_step_config_kv(path: Path) -> dict[str, str]:
     return out
 
 
+# DropWeightImpactTestSet.json 의 description 위치 토큰 / stage DOE 인덱스 정규식.
+# 예: description="DWI Case1/2 x=-30.00 y=-60.00", stage="Case0001".
+_DWI_DESC_XY_RE = re.compile(
+    r"x\s*=\s*(-?\d+(?:\.\d+)?)\s+y\s*=\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE
+)
+_DWI_STAGE_RE = re.compile(r"Case\s*0*(\d+)", re.IGNORECASE)
+
+
+def _parse_dwi_testset_json(
+    json_path: Path,
+) -> tuple[int | None, float | None, float | None]:
+    """DropWeightImpactTestSet.json 에서 (doe_index, x, y) 파싱.
+
+    KooChainRun DWI 출력은 step_config.txt 가 없다. 위치/DOE 는 각 Run 의
+    ``DropWeightImpactTestSet.json`` 에 들어있다::
+
+        "stage": "Case0001",
+        "description": "DWI Case1/2 x=-30.00 y=-60.00",
+
+    - description 의 ``x=<f> y=<f>`` → 위치. 없으면 (None, None).
+    - stage ``Case<NNNN>`` → doe_index. 없으면 None (호출자가 dwi 폴더번호로 fallback).
+
+    파싱/읽기 실패는 조용히 None 반환 — 호출자가 discovery-order fallback 처리.
+    """
+    try:
+        d = json.loads(json_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[loader] WARN  DWI testset json unreadable: {json_path}: {exc}")
+        return None, None, None
+    desc = str(d.get("description", "") or "")
+    x = y = None
+    m = _DWI_DESC_XY_RE.search(desc)
+    if m:
+        try:
+            x, y = float(m.group(1)), float(m.group(2))
+        except ValueError:
+            x = y = None
+    doe_idx = None
+    sm = _DWI_STAGE_RE.search(str(d.get("stage", "") or ""))
+    if sm:
+        try:
+            doe_idx = int(sm.group(1))
+        except ValueError:
+            doe_idx = None
+    return doe_idx, x, y
+
+
 def _find_deep_output_dir(run_dir: Path, test_dir: Path) -> Path | None:
     """Locate a reusable koo_deep_report output dir for a flat-DOE run.
 
@@ -1877,19 +1925,26 @@ def _find_deep_output_dir(run_dir: Path, test_dir: Path) -> Path | None:
 
 
 def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
-    """List ``output/Run_*`` directories with their step_config + d3plot path.
+    """List DOE runs with their step_config/json + d3plot path.
 
-    Returns a list of dicts sorted by DOE index (parsed from
-    ``*Description``):
+    Two layouts are scanned:
+
+      1. flat DOE — ``output/Run_<ts>_<hash>/`` with ``step_config.txt``
+         (KooDWITestSetRunner, e.g. Test_Impact_A).
+      2. KooChainRun DWI — ``output/results/dwi_<NNNN>/Run_<ts>_<hash>/`` with
+         **no** step_config.txt; location/DOE come from the Run's
+         ``DropWeightImpactTestSet.json`` (description ``x=/y=``, stage ``Case<NNNN>``).
+
+    Returns a list of dicts sorted by DOE index:
 
         [{"run_dir": Path(...), "d3plot": Path(...), "deep_dir": Path|None,
-          "step_config": Path(...), "config": {...kv...},
+          "step_config": Path(...), "config": {...kv...}|None,
           "doe_index": int, "pos_name": str,
-          "location_x": float, "location_y": float}, ...]
+          "location_x": float, "location_y": float, "_sort_index": int}, ...]
 
-    A run is included when it has step_config AND (d3plot OR a reusable
-    deep_report output). Runs whose d3plot was deleted but whose deep_report
-    output survives are still processed (impact rebuilt from deep outputs).
+    A run is included when it has (step_config.txt OR DropWeightImpactTestSet.json)
+    AND (d3plot OR a reusable deep_report output). Runs whose d3plot was deleted
+    but whose deep_report output survives are still processed.
     """
     output_dir = test_dir / "output"
     if not output_dir.exists():
@@ -1959,6 +2014,87 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
             "location_y":  ly,
             "_sort_index": sort_index,
         })
+
+    # --- KooChainRun DWI 레이아웃 (output/results/dwi_*/Run_*) ---------------
+    # 실제 KooChainRun 출력은 step_config.txt 도 analysis_result.json 도 없다.
+    # 위치/DOE 는 각 Run 의 DropWeightImpactTestSet.json 에서 파싱하고, d3plot 은
+    # 워커가 unified_analyzer 로 직접 처리한다 (deep_dir=None → single-d3plot 경로).
+    results_dir = output_dir / "results"
+    if results_dir.is_dir():
+        for dwi in sorted(results_dir.iterdir()):
+            if not dwi.is_dir() or not dwi.name.startswith("dwi_"):
+                continue
+            # dwi_0001 → 1: json stage 가 없을 때의 doe_index fallback.
+            try:
+                folder_idx = int(dwi.name.split("_")[-1].lstrip("0") or "0")
+            except ValueError:
+                folder_idx = 0
+            for run in sorted(dwi.iterdir()):
+                if not run.is_dir() or not run.name.startswith("Run_"):
+                    continue
+                d3plot = run / "Output" / "d3plot"
+                deep_dir = _find_deep_output_dir(run, test_dir)
+                if not d3plot.exists() and deep_dir is None:
+                    continue
+                cfg_path = run / "step_config.txt"
+                json_path = run / "DropWeightImpactTestSet.json"
+                # step_config.txt 있으면 기존 kv 경로 우선(무회귀), 없으면 json.
+                if cfg_path.exists():
+                    cfg = _parse_step_config_kv(cfg_path)
+                    doe_idx = 0
+                    for tok in cfg.get("*Description", "").split():
+                        if tok.upper().startswith("DOE"):
+                            try:
+                                doe_idx = int(tok[3:].lstrip("0") or "0")
+                            except ValueError:
+                                doe_idx = 0
+                    if doe_idx <= 0:
+                        doe_idx = folder_idx
+                    try:
+                        lx = float(cfg.get("LocationX", "0"))
+                    except ValueError:
+                        lx = 0.0
+                    try:
+                        ly = float(cfg.get("LocationY", "0"))
+                    except ValueError:
+                        ly = 0.0
+                    config = cfg
+                    src_path = cfg_path
+                elif json_path.exists():
+                    j_idx, jx, jy = _parse_dwi_testset_json(json_path)
+                    doe_idx = j_idx if (j_idx and j_idx > 0) else folder_idx
+                    lx = jx if jx is not None else 0.0
+                    ly = jy if jy is not None else 0.0
+                    config = None
+                    src_path = json_path
+                else:
+                    continue
+
+                if doe_idx and doe_idx > 0:
+                    pos_name = f"DOE_{doe_idx:03d}"
+                    sort_index = doe_idx
+                else:
+                    # DOE 인덱스 미해결: 기존 flat 경로와 동일하게 discovery-order
+                    # fallback (synthetic 10000+seq → 정상 DOE 뒤로 정렬).
+                    seq = len(items) + 1
+                    pos_name = f"DOE_{seq:03d}"
+                    sort_index = 10000 + seq
+                    print(f"[loader] WARN  {dwi.name}/{run.name}: could not resolve "
+                          f"DOE index — using fallback pos_name={pos_name}")
+                items.append({
+                    "run_dir":     run,
+                    "d3plot":      d3plot,
+                    "deep_dir":    deep_dir,
+                    "step_config": src_path,
+                    "config":      config,
+                    "doe_index":   doe_idx,
+                    "pos_name":    pos_name,
+                    "raw_pos":     dwi.name,
+                    "location_x":  lx,
+                    "location_y":  ly,
+                    "_sort_index": sort_index,
+                })
+
     items.sort(key=lambda x: x["_sort_index"])
     return items
 
