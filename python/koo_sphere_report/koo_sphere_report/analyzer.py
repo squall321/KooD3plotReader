@@ -119,7 +119,8 @@ def _generate_findings(report: Report) -> list[Finding]:
 def analyze(test_dir: str | Path, yield_stress: float = 0.0) -> Report:
     """Main analysis entry point. Load data and produce Report."""
     test_dir = Path(test_dir)
-    project_name, doe_strategy, sim_params, part_info, results, doe_angles = load_all(test_dir)
+    (project_name, doe_strategy, sim_params, part_info, results,
+     doe_angles, energy_flows) = load_all(test_dir)
 
     # Count output run folders to determine total expected
     output_dir = test_dir / "output"
@@ -147,6 +148,7 @@ def analyze(test_dir: str | Path, yield_stress: float = 0.0) -> Report:
         sphere_coverage=coverage,
         yield_stress=yield_stress,
         test_dir=str(test_dir.resolve()),
+        energy_flows=energy_flows,
     )
 
     report.findings = _generate_findings(report)

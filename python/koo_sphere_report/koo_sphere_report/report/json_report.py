@@ -33,6 +33,9 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         "findings": [dataclasses.asdict(f) for f in report.findings],
         "parts": {},
         "results_summary": [],
+        # 파트간 에너지 흐름(run_folder→중립 flow dict). --from-json 재생성 시
+        # 흐름 탭을 유지하려면 그대로 실어 보낸다.
+        "energy_flows": getattr(report, "energy_flows", {}) or {},
     }
 
     # Enum fix for findings

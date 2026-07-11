@@ -23,6 +23,50 @@ class _Encoder(json.JSONEncoder):
         return super().default(obj)
 
 
+def _compact_energy_flows(energy_flows: dict) -> dict:
+    """중립 flow dict(build_flow_graph 산출) → 브라우저용 압축 dict.
+
+    run_folder 별로 노드/엣지를 최소 필드로 줄인다. 시간축은 노드가 공유하므로
+    flow 수준 ``t`` 하나로 통합(엣지는 force 열만). Sankey/Time-Force 탭이 소비.
+    """
+    out: dict = {}
+    for folder, g in (energy_flows or {}).items():
+        if not g or not g.get("nodes"):
+            continue
+        # 공유 시간축: 첫 비어있지 않은 노드 times
+        t_axis: list = []
+        for n in g["nodes"]:
+            if n.get("times"):
+                t_axis = n["times"]
+                break
+        nodes = [
+            {"id": n["node_id"], "name": n.get("name", n["node_id"]),
+             "is_impactor": bool(n.get("is_impactor"))}
+            for n in g["nodes"]
+        ]
+        edges = [
+            {
+                "src": e["src"], "dst": e["dst"],
+                "name": e.get("name", ""), "cid": e.get("contact_id", -1),
+                "f": e.get("force_mag_ts") or [],
+                "fei": int(e.get("first_engage_idx", 0)),
+                "tw": float(e.get("total_work", 0.0)),
+                "ti": float(e.get("total_impulse", 0.0)),
+                "pf": float(e.get("peak_force", 0.0)),
+            }
+            for e in g["edges"]
+        ]
+        out[folder] = {
+            "t": t_axis,
+            "ke_init": float(g.get("impactor_ke_initial", 0.0)),
+            "ke_final": float(g.get("impactor_ke_final", 0.0)),
+            "dissipated": float(g.get("energy_dissipated", 0.0)),
+            "nodes": nodes,
+            "edges": edges,
+        }
+    return out
+
+
 def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -> dict:
     """Build JSON-serializable data object for embedding in HTML."""
     data = {
@@ -142,6 +186,8 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 
+    data["energy_flows"] = _compact_energy_flows(getattr(report, "energy_flows", {}))
+
     return data
 
 
@@ -249,6 +295,20 @@ svg text { font-family: inherit; }
 .re-qbtn:hover { border-color: var(--cyan); color: var(--cyan); }
 .re-mini-svg { cursor: crosshair; }
 .re-mini-svg circle.sel { stroke: var(--cyan); stroke-width: 2; }
+.ef-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .ef-grid { grid-template-columns: 1fr; } }
+.sankey-row { display: grid; grid-template-columns: minmax(90px,1.3fr) 4fr minmax(90px,1.3fr) minmax(70px,0.9fr); align-items: center; gap: 8px; padding: 3px 0; font-size: 11px; }
+.sankey-row .src { color: var(--fg2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sankey-row .dst { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sankey-row .val { color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+.sankey-bar-track { background: var(--bg); border-radius: 3px; height: 12px; }
+.sankey-bar { height: 12px; border-radius: 3px; background: linear-gradient(90deg, var(--blue), var(--cyan)); min-width: 2px; }
+.tfh-row { display: grid; grid-template-columns: 96px repeat(21, 1fr); align-items: center; gap: 1px; margin-bottom: 1px; }
+.tfh-row .lab { font-size: 10px; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; }
+.tfh-cell { height: 14px; border-radius: 1px; }
+.tfh-head { display: grid; grid-template-columns: 96px repeat(21, 1fr); gap: 1px; font-size: 9px; color: var(--dim); margin-bottom: 4px; }
+.tfh-head .h0 { color: var(--cyan); }
+.tfh-head .ht { text-align: center; }
 """
 
 _JS = r"""
@@ -499,7 +559,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -541,6 +601,7 @@ function renderTab(i) {
     case 9: renderPartDeepDive(); break;
     case 10: renderAdvancedAnalysis(); break;
     case 11: renderRenderExport(); break;
+    case 12: renderEnergyFlow(); break;
   }
 }
 
@@ -4308,6 +4369,146 @@ function renderRenderExport() {
   html += `</div>`;
   container.innerHTML = html;
 }
+
+// ============ Tab 12: Energy Flow (part-to-part contact energy) ============
+// impact s3 의 SANKEY + TIME-FORCE HEATMAP 를 sphere 로 최소 이식.
+// 자유낙하라 임팩터 노드가 없어 root = 최조기 접촉(바닥) — 빌더가 결정.
+let efState = { angle: null };
+
+function efLeaf(name) {
+  return String(name || '').replace(/^.*[\\\/]/, '') || String(name || '');
+}
+function efNodeName(flow, id) {
+  const n = (flow.nodes || []).find(x => x.id === id);
+  return n ? n.name : String(id);
+}
+
+function _efPickDefault(flows) {
+  // 기본 = 접촉 엣지 수가 가장 많은(=접촉이 풍부한) run. 동률이면 첫 키.
+  const keys = Object.keys(flows);
+  if (!keys.length) return null;
+  let best = keys[0], bestN = -1;
+  for (const k of keys) {
+    const n = (flows[k].edges || []).length;
+    if (n > bestN) { bestN = n; best = k; }
+  }
+  return best;
+}
+
+function renderEnergyFlow() {
+  const container = document.getElementById('energyflow-content');
+  if (!container) return;
+  const flows = DATA.energy_flows || {};
+  const keys = Object.keys(flows);
+
+  if (!keys.length) {
+    container.innerHTML = `<div class="panel"><h2>Energy Flow</h2>
+      <div style="padding:10px;color:var(--dim);font-size:12.5px;line-height:1.7">
+        파트간 에너지 흐름 데이터가 없습니다. 각 run 의
+        <span style="color:var(--cyan)">Output/binout0000</span> 와
+        <span style="color:var(--cyan)">*CONTACT</span> 카드(.k), 그리고
+        <span style="color:var(--cyan)">lasso.dyna</span> 파서가 있어야
+        matsum/rcforc 기반 접촉 힘 전달을 조립할 수 있습니다.
+      </div></div>`;
+    return;
+  }
+
+  // 현재 선택 run 결정
+  if (!efState.angle || !flows[efState.angle]) efState.angle = _efPickDefault(flows);
+  const flow = flows[efState.angle];
+
+  // angle 드롭다운 — 흐름이 있는 run 만, angle 이름으로 표기
+  const folderToName = {};
+  for (const r of DATA.results) folderToName[r.folder] = r.angle.name || r.folder;
+  let opts = '';
+  for (const k of keys) {
+    const lab = folderToName[k] || k;
+    const ne = (flows[k].edges || []).length;
+    opts += `<option value="${k}"${k===efState.angle?' selected':''}>${lab} (${ne} edges)</option>`;
+  }
+  const curName = folderToName[efState.angle] || efState.angle;
+
+  const kb = `KE₀ ${flow.ke_init.toFixed(1)} → KE_n ${flow.ke_final.toFixed(1)} · diss ${flow.dissipated.toFixed(1)} (energy units)`;
+
+  let html = `<div class="controls">
+    <label>Drop angle:</label>
+    <select id="ef-angle" onchange="efState.angle=this.value;renderEnergyFlow()">${opts}</select>
+    <span style="color:var(--dim);font-size:11px;margin-left:8px">${kb}</span>
+  </div>`;
+
+  html += `<div class="ef-grid">
+    <div class="panel">
+      <h2>Sankey — Cumulative Contact Flow</h2>
+      <div style="color:var(--dim);font-size:11px;margin-bottom:8px">막대 길이 = 누적 work(부호無시 크기). 위→아래 = first-engage 순서.</div>
+      <div id="ef-sankey">${_efSankeyHTML(flow)}</div>
+    </div>
+    <div class="panel">
+      <h2>Time-Force Heatmap</h2>
+      <div style="color:var(--dim);font-size:11px;margin-bottom:8px">행 = 접촉 엣지 · 열 = 21 시간구간 · 색 = |F|. "몇 μs 후 어디까지 전파?"</div>
+      ${_efHeatHead()}
+      <div id="ef-tfh">${_efHeatHTML(flow)}</div>
+    </div>
+  </div>`;
+
+  container.innerHTML = html;
+}
+
+function _efSankeyHTML(flow) {
+  const edges = (flow.edges || []).slice().sort((a,b) => (a.fei||0) - (b.fei||0));
+  if (!edges.length) return `<div style="color:var(--dim);font-size:12px">활성 접촉 엣지 없음</div>`;
+  const wOf = e => (e.tw && Math.abs(e.tw) > 0) ? Math.abs(e.tw) : (e.ti || 0);
+  const anyW = edges.some(e => Math.abs(e.tw) > 0);
+  const unit = anyW ? '' : ' (imp)';
+  let maxW = 0; for (const e of edges) if (wOf(e) > maxW) maxW = wOf(e);
+  let rows = '';
+  for (const e of edges) {
+    const w = maxW > 0 ? wOf(e) / maxW : 0;
+    const src = efLeaf(efNodeName(flow, e.src));
+    const dst = efLeaf(efNodeName(flow, e.dst));
+    rows += `<div class="sankey-row">
+      <div class="src" title="${efNodeName(flow, e.src)}">${src}</div>
+      <div class="sankey-bar-track"><div class="sankey-bar" style="width:${(4+w*96).toFixed(1)}%"></div></div>
+      <div class="dst" title="${efNodeName(flow, e.dst)}">→ ${dst}</div>
+      <div class="val">${wOf(e).toFixed(1)}${unit}</div>
+    </div>`;
+  }
+  return rows;
+}
+
+function _efHeatHead() {
+  let cells = '<div class="h0">EDGE</div>';
+  const marks = { 0: '0', 5: '¼', 10: '½', 15: '¾', 20: 'T' };
+  for (let b = 0; b < 21; b++) cells += `<div class="ht">${marks[b] || ''}</div>`;
+  return `<div class="tfh-head">${cells}</div>`;
+}
+
+function _efHeatHTML(flow) {
+  const edges = (flow.edges || []).slice().sort((a,b) => (a.fei||0) - (b.fei||0));
+  if (!edges.length) return `<div style="color:var(--dim);font-size:12px">활성 접촉 엣지 없음</div>`;
+  const t = flow.t || [];
+  let mxF = 0;
+  for (const e of edges) for (const v of (e.f||[])) if (v > mxF) mxF = v;
+  if (mxF <= 0) mxF = 1;
+  const NB = 21;
+  let rows = '';
+  for (const e of edges) {
+    const f = e.f || [];
+    const T = f.length;
+    const src = efLeaf(efNodeName(flow, e.src));
+    const dst = efLeaf(efNodeName(flow, e.dst));
+    let cells = `<div class="lab" title="${efNodeName(flow, e.src)} → ${efNodeName(flow, e.dst)}">${src.slice(0,6)}→${dst.slice(0,6)}</div>`;
+    for (let b = 0; b < NB; b++) {
+      const i0 = Math.floor(b * T / NB), i1 = Math.floor((b+1) * T / NB);
+      let m = 0;
+      for (let i = i0; i < i1; i++) if (f[i] > m) m = f[i];
+      const tt = t.length ? (i0 / Math.max(1,T) * (t[t.length-1] || 0) * 1000).toFixed(3) : '';
+      const bg = m > 0 ? valueToColor(m / mxF) : 'rgba(255,255,255,0.04)';
+      cells += `<div class="tfh-cell" style="background:${bg}" title="${tt} ms · |F|=${m.toFixed(0)}"></div>`;
+    }
+    rows += `<div class="tfh-row">${cells}</div>`;
+  }
+  return rows;
+}
 """
 
 
@@ -4361,6 +4562,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <div class="tab" data-tab="9">Part Analysis</div>
   <div class="tab" data-tab="10">Advanced</div>
   <div class="tab" data-tab="11">Render Export</div>
+  <div class="tab" data-tab="12">Energy Flow</div>
 </div>
 
 <div class="content">
@@ -4429,6 +4631,11 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <!-- Tab 11: Render Export -->
   <div class="tab-content hidden" id="tab-11">
     <div id="render-export-content"></div>
+  </div>
+
+  <!-- Tab 12: Energy Flow -->
+  <div class="tab-content hidden" id="tab-12">
+    <div id="energyflow-content"></div>
   </div>
 </div>
 

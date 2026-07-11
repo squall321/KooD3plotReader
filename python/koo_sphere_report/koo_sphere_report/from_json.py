@@ -128,4 +128,5 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> R
         sphere_coverage=d.get("sphere_coverage", 0.0),
         findings=findings,
         yield_stress=yield_stress,
+        energy_flows=d.get("energy_flows", {}) or {},
     )

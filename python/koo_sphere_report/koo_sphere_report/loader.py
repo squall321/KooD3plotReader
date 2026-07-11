@@ -334,13 +334,124 @@ def compute_angular_spacing(angles: list[AngleCondition]) -> float:
     return math.degrees(sum(min_dists) / len(min_dists)) if min_dists else 0.0
 
 
+def _import_energy_flow_deps():
+    """koo_deep_report 의 flow 빌더/컨택맵/바이나웃 리더를 소프트 임포트.
+
+    설치 안 됐거나 sys.path 에 없으면 sibling 패키지 경로(python/koo_deep_report)
+    를 한 번 추가해 재시도. 그래도 실패하면 (None, None, None) — 호출측이 조용히
+    에너지 흐름을 건너뛴다(무음 실패 금지 위해 호출측이 로그를 남김).
+    """
+    try:
+        from koo_deep_report.core.binout_reader import parse_binout
+        from koo_deep_report.core.contact_map import parse_contact_map
+        from koo_deep_report.core.energy_flow_builder import build_flow_graph
+        return parse_binout, parse_contact_map, build_flow_graph
+    except Exception:
+        pass
+    try:
+        import sys
+        # loader.py → koo_sphere_report → python/ → koo_deep_report
+        sibling = Path(__file__).resolve().parents[2] / "koo_deep_report"
+        if sibling.exists() and str(sibling) not in sys.path:
+            sys.path.insert(0, str(sibling))
+        from koo_deep_report.core.binout_reader import parse_binout
+        from koo_deep_report.core.contact_map import parse_contact_map
+        from koo_deep_report.core.energy_flow_builder import build_flow_graph
+        return parse_binout, parse_contact_map, build_flow_graph
+    except Exception:
+        return None, None, None
+
+
+def _find_binout(run_output_dir: Path) -> Path | None:
+    """run 폴더에서 binout 파일 탐색. Output/ 하위 우선."""
+    for base in (run_output_dir / "Output", run_output_dir):
+        for cand in ("binout0000", "binout", "binout00000"):
+            p = base / cand
+            if p.exists():
+                return p
+        bins = sorted(base.glob("binout*")) if base.exists() else []
+        if bins:
+            return bins[0]
+    return None
+
+
+def _find_kfile(run_output_dir: Path) -> Path | None:
+    """run 폴더에서 keyword(.k) 파일 탐색. DropSet.k 우선."""
+    for base in (run_output_dir, run_output_dir / "Output"):
+        p = base / "DropSet.k"
+        if p.exists():
+            return p
+    for base in (run_output_dir, run_output_dir / "Output"):
+        ks = sorted(base.glob("*.k")) if base.exists() else []
+        if ks:
+            return ks[0]
+    return None
+
+
+def load_energy_flow(
+    run_output_dir: Path,
+    part_names: dict[int, str],
+    deps=None,
+) -> dict:
+    """한 run 의 binout + keyword → 중립 에너지 흐름 dict.
+
+    자유낙하(임팩터 파트 없음)라 impactor_pid=None — 빌더가 최조기 접촉
+    엔드포인트를 root 로 승격한다. 조립 불가(파일 부재/lasso 부재/파싱 실패)면
+    빈 dict 를 돌려주고 사유를 stdout 에 남긴다(무음 실패 금지).
+    """
+    if deps is None:
+        deps = _import_energy_flow_deps()
+    parse_binout, parse_contact_map, build_flow_graph = deps
+    if parse_binout is None:
+        return {}
+
+    binout_path = _find_binout(run_output_dir)
+    if binout_path is None:
+        print(f"[sphere] energy-flow skip {run_output_dir.name}: no binout* file")
+        return {}
+    try:
+        binout = parse_binout(binout_path)
+    except Exception as e:
+        print(f"[sphere] energy-flow skip {run_output_dir.name}: binout parse failed ({e})")
+        return {}
+    if binout is None or binout.matsum is None:
+        print(f"[sphere] energy-flow skip {run_output_dir.name}: "
+              f"no matsum (lasso missing or empty binout)")
+        return {}
+
+    # contact_map 은 소프트 — .k 부재/파싱실패면 None(빌더가 pseudo 강등)
+    contact_map = None
+    kfile = _find_kfile(run_output_dir)
+    if kfile is not None:
+        try:
+            contact_map = parse_contact_map(kfile, part_names=part_names)
+        except Exception as e:
+            print(f"[sphere] energy-flow {run_output_dir.name}: contact_map failed ({e}), "
+                  f"demoting to pseudo nodes")
+            contact_map = None
+
+    try:
+        g = build_flow_graph(binout, contact_map, part_names,
+                             impactor_pid=None, max_pts=120)
+    except Exception as e:
+        print(f"[sphere] energy-flow skip {run_output_dir.name}: build failed ({e})")
+        return {}
+    if not g or not g.get("nodes"):
+        print(f"[sphere] energy-flow skip {run_output_dir.name}: builder returned empty")
+        return {}
+    return g
+
+
 def load_all(test_dir: Path) -> tuple[
     str, str, SimulationParams, dict[int, PartInfo],
-    list[SimulationResult], dict[str, AngleCondition],
+    list[SimulationResult], dict[str, AngleCondition], dict,
 ]:
     """Load all data for a test directory.
 
-    Returns: (project_name, doe_strategy, sim_params, part_info, results, doe_angles)
+    Returns: (project_name, doe_strategy, sim_params, part_info, results,
+              doe_angles, energy_flows)
+
+    energy_flows: {run_folder: neutral flow dict} — 파트간 접촉 에너지 전달.
     """
     test_dir = Path(test_dir)
     output_dir = test_dir / "output"
@@ -395,4 +506,20 @@ def load_all(test_dir: Path) -> tuple[
             for ac in doe_angles.values():
                 ac.swap_axes = True
 
-    return project_name, doe_strategy, sim_params, part_info, results, doe_angles
+    # --- 파트간 에너지 흐름: run 별 binout + keyword → 흐름 dict --------------
+    # 결과가 있는 run 만 대상(보고서 탭이 소비). 의존성 부재/파일 부재는
+    # load_energy_flow 가 로그 남기고 빈 dict → 여기서 스킵(무회귀).
+    energy_flows: dict = {}
+    part_names = {pid: pi.part_name for pid, pi in part_info.items()}
+    deps = _import_energy_flow_deps()
+    if deps[0] is not None and results:
+        for sr in results:
+            g = load_energy_flow(output_dir / sr.run_folder, part_names, deps=deps)
+            if g:
+                energy_flows[sr.run_folder] = g
+    elif deps[0] is None and results:
+        print("[sphere] energy-flow: koo_deep_report not importable — "
+              "flow tab will be empty (install koo_deep_report + lasso to enable)")
+
+    return (project_name, doe_strategy, sim_params, part_info, results,
+            doe_angles, energy_flows)

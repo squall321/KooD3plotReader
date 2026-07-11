@@ -217,3 +217,8 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     yield_stress: float = 0.0  # User-defined yield stress for safety factor
     test_dir: str = ""         # Source test directory (for d3plot access)
+    # 파트간 에너지 흐름: {run_folder: neutral flow dict from build_flow_graph}.
+    # binout/keyword/lasso 부재 run 은 조용히 누락(키 없음) — 무음 실패 대신
+    # 로그를 남기되 보고서는 정상 진행. 자유낙하라 impactor 노드 없이 최조기
+    # 접촉(바닥) 을 root 로 쓴다.
+    energy_flows: dict = field(default_factory=dict)
