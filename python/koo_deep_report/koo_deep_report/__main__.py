@@ -867,6 +867,17 @@ def run_single(args: argparse.Namespace) -> None:
     )
     print(f"[koo_deep_report] result.json 저장: {result_json_path}")
 
+    # 5b. 파트간 에너지 흐름 CSV (binout 있을 때만, 무회귀)
+    try:
+        from .core.energy_flow_csv import write_energy_flow_csv
+        _csv = write_energy_flow_csv(output_dir, binout_data,
+                                     getattr(sim_info, "keyword", None),
+                                     d3plot_path=sim_info.d3plot)
+        if _csv is not None:
+            print(f"[koo_deep_report] energy_flow_edges.csv 저장: {_csv}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[koo_deep_report] energy-flow CSV skip: {type(_e).__name__}: {_e}")
+
     # 6. HTML 생성
     html_path = output_dir / "report.html"
     generate_html(result, html_path)
@@ -1040,6 +1051,13 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         json.dumps(result.to_compare_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    try:
+        from .core.energy_flow_csv import write_energy_flow_csv
+        write_energy_flow_csv(output_dir, binout_data,
+                              getattr(sim_info, "keyword", None),
+                              d3plot_path=sim_info.d3plot)
+    except Exception:  # noqa: BLE001 — 배치 무회귀
+        pass
     generate_html(result, output_dir / "report.html")
 
 
