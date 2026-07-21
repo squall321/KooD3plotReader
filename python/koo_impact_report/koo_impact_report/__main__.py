@@ -67,6 +67,12 @@ def main() -> None:
                         help="HTML 출력 모드를 inline 단일 파일로 강제 (tier 자동 결정 무시).")
     parser.add_argument("--chunked", action="store_true",
                         help="HTML 출력 모드를 chunked(report_data/ 청크)로 강제.")
+    parser.add_argument("--g-limit", type=float, default=None, metavar="G",
+                        help="설계 가속도 한계 [G]. 제공 시 CRITICAL 판정이 자기분포 "
+                             "P95 대신 이 절대값 기준이 됨 (NO DESIGN LIMITS 배지 해제).")
+    parser.add_argument("--stress-limit", type=float, default=None, metavar="MPa",
+                        help="설계 응력 한계 (stress 단위, 보통 MPa). 제공 시 s1 KPI/"
+                             "s9 테이블에 한계 초과가 표시됨.")
     parser.add_argument("--no-cache", action="store_true",
                         help="per-run 증분 캐시(.impact_cache) 읽기/쓰기 모두 끔.")
     parser.add_argument("--refresh-cache", action="store_true",
@@ -181,6 +187,17 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(2)
+
+    # 설계 한계 (H5-4): CLI 로 제공될 때만 sim_params 에 주입 — payload 가
+    # CRIT 기준을 자기분포 P95 에서 사용자 절대값으로 전환한다.
+    if args.g_limit is not None or args.stress_limit is not None:
+        _dl = {}
+        if args.g_limit is not None:
+            _dl["g_limit_G"] = float(args.g_limit)
+        if args.stress_limit is not None:
+            _dl["stress_limit"] = float(args.stress_limit)
+        report.sim_params["design_limits"] = _dl
+        print(f"[main] design limits: {_dl}")
 
     # Optional explicit unit-system override (highest priority).
     if args.units:

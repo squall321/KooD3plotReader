@@ -212,7 +212,19 @@ _PAGE3 = """
 """
 
 
-_JS_S3 = r"""function initFaceKpiTable() {
+_JS_S3 = r"""function _updateClassBasisTooltip() {
+  // H5-4: 설계 한계 제공 시 s3 CLASS 헤더의 기준 설명을 정정
+  if (((DATA.kpi || {}).crit_basis) !== 'user') return;
+  document.querySelectorAll('#s3 th[title]').forEach(function (th) {
+    if ((th.getAttribute('title') || '').indexOf('자기분포') >= 0) {
+      th.setAttribute('title', 'CRITICAL = 사용자 제공 설계 한계(' +
+        fmt((DATA.kpi.crit_threshold || 0) / gDivisor(), 0) + ' G) 초과 · WARNING = 자기분포 P75');
+    }
+  });
+}
+
+function initFaceKpiTable() {
+  _updateClassBasisTooltip();
   const tbody = document.querySelector('#face-kpi-tbl tbody');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   let gmax = 0;

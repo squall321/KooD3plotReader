@@ -248,6 +248,17 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     crit_thresh = _pct(g_vals, 0.95) if g_vals else 0.0
     warn_thresh = _pct(g_vals, 0.75) if g_vals else 0.0
     influence_thresh = _pct(g_vals, 0.85) if g_vals else 0.0
+
+    # H5-4: 사용자 제공 설계 한계 — CRIT 기준을 자기분포 P95 에서 절대값으로
+    # 전환. g_limit 는 G 단위 입력이라 acc 단위계에 맞춰 raw 로 환산.
+    # (WARN 은 임계값 발명 금지 원칙에 따라 P75 유지 — basis 라벨로 구분.)
+    _dl = (report.sim_params or {}).get("design_limits") or {}
+    _crit_basis = "p95"
+    if _dl.get("g_limit_G"):
+        _acc_lbl = ((report.sim_params or {}).get("unit_labels") or {}).get("acc", "")
+        _g_div_lim = 9.81 if _acc_lbl in ("m/s²", "mm/ms²") else 9810.0
+        crit_thresh = float(_dl["g_limit_G"]) * _g_div_lim
+        _crit_basis = "user"
     n_crit = sum(1 for v in g_vals if v >= crit_thresh)
     pos_max: dict[tuple[str, str], float] = {}
     for r in results:
@@ -297,6 +308,10 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "crit_threshold": round(crit_thresh, 1),
         "warn_threshold": round(warn_thresh, 1),
         "influence_threshold": round(influence_thresh, 1),
+        # H5-4: 판정 기준 출처 — "p95"(자기분포) | "user"(설계 한계 제공됨).
+        "crit_basis": _crit_basis,
+        "stress_limit": (float(_dl["stress_limit"])
+                         if _dl.get("stress_limit") else None),
     }
 
     # --- findings -----------------------------------------------------------

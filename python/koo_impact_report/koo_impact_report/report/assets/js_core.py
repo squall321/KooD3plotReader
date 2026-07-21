@@ -489,9 +489,12 @@ _JS_TAIL = r"""function _renderDataQualityBadges() {
   // (이전: solver_quality 가 '존재만' 해도 배지를 숨겨 energy_flows={} 전량
   //  빈 값이 무음 통과 — 2026-06 산출물 실증. 존재가 아니라 impact_visible
   //  기준으로 판정한다.)
-  // H5-2: 설계 한계 미제공 배지 — P95/P75 는 자기분포 기준임을 명시
+  // H5-2: 설계 한계 미제공 배지 — P95/P75 는 자기분포 기준임을 명시.
+  // H5-4: --g-limit/--stress-limit/yield 중 하나라도 제공되면 미표시.
   const _yieldMap = ((DATA.meta || {}).sim_params || {}).yield_stress_by_part || {};
-  if (!DATA.risk_score && Object.keys(_yieldMap).length === 0) {
+  const _hasUserLimit = ((DATA.kpi || {}).crit_basis === 'user') ||
+                        ((DATA.kpi || {}).stress_limit != null);
+  if (!DATA.risk_score && !_hasUserLimit && Object.keys(_yieldMap).length === 0) {
     badges.push({
       cls: 'warn',
       label: 'NO DESIGN LIMITS PROVIDED',

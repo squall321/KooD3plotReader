@@ -383,10 +383,11 @@ function initBounceVectorMap() {
     grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable — run with --enable-trajectory'));
     return;
   }
-  const targets = [
-    { code: 'F2', name: 'FRONT · F2' },
-    { code: 'F1', name: 'BACK · F1'  }
-  ];
+  // 실제 존재하는 face 만 대상으로 (종전 F2/F1 하드코딩 → F5 단독 DOE 에서
+  // 지도 셀이 하나도 안 그려지던 버그). 최대 4면.
+  const targets = (FACES || []).slice(0, 4).map(function (f) {
+    return { code: f.code, name: (f.name || f.code).toUpperCase() + ' · ' + f.code };
+  });
   const totals = { bounce: 0, rebound: 0, slide: 0, embed: 0, 'no-contact': 0, unknown: 0 };
   for (const k in TRAJ) totals[TRAJ[k].behavior] = (totals[TRAJ[k].behavior] || 0) + 1;
   for (const t of targets) {
@@ -477,10 +478,11 @@ function initTrajectoryClustering() {
     grid.appendChild(el('div', { class: 'traj-na' }, 'Trajectory data unavailable.'));
     return;
   }
-  const targets = [
-    { code: 'F2', name: 'FRONT · F2' },
-    { code: 'F1', name: 'BACK · F1'  }
-  ];
+  // 실제 존재하는 face 만 대상으로 (종전 F2/F1 하드코딩 → F5 단독 DOE 에서
+  // 지도 셀이 하나도 안 그려지던 버그). 최대 4면.
+  const targets = (FACES || []).slice(0, 4).map(function (f) {
+    return { code: f.code, name: (f.name || f.code).toUpperCase() + ' · ' + f.code };
+  });
   for (const t of targets) {
     if (!FACE_BY_CODE[t.code]) continue;
     const cell = el('div', { class: 'bvm-cell' });
@@ -2158,7 +2160,7 @@ function _doeBuildKpiStrip(doe) {
 
   host.appendChild(mkCell('TOTAL POSITIONS', String(n_pos) + '<span class="u">pos</span>'));
   {
-    const _gDivExec = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+    const _gDivExec = gDivisor();   // M11: 공용 헬퍼 단일 소스
     host.appendChild(mkCell('MAX PEAK G', fmt((worst_g || 0) / _gDivExec, 0) + '<span class="u">G</span>'));
   }
   host.appendChild(mkCell('MAX STRESS', fmt(worst_s, 1) + '<span class="u">' + _u('stress') + '</span>'));
@@ -2337,7 +2339,11 @@ function _doeRenderRanking(doe) {
     const bcell = el('td', { class: 'tl' });
     bcell.appendChild(el('span', { class: 'bbadge ' + beh }, beh));
     tr.appendChild(bcell);
-    tr.appendChild(el('td', { class: 'num' }, fmt(v, 1)));
+    // M11 잔여: peak_g metric 은 G 환산 표기 (raw 는 title 병기)
+    const _vCell = (DOE_STATE.metric === 'peak_g')
+      ? el('td', { class: 'num', title: 'raw ' + fmt(v, 1) + ' ' + (_u('acc') || '') }, fmt(toG(v), 0) + ' G')
+      : el('td', { class: 'num' }, fmt(v, 1));
+    tr.appendChild(_vCell);
     tr.appendChild(el('td', { class: 'tl dim' }, wnm));
     tr.appendChild(el('td', { class: 'num' }, ke_ret != null ? (ke_ret * 100).toFixed(1) + '%' : '-'));
     tr.appendChild(el('td', { class: 'num' }, pen != null ? fmt(pen, 2) : '-'));

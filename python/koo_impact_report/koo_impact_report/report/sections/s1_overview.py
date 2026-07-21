@@ -201,6 +201,22 @@ _JS_S1 = r"""function fillHeroKpi() {
       host.innerHTML = '에너지 균형 FAIL <b style="color:var(--crit)">' + sqSum.fail + '/' + sqSum.n + '</b> 런 — 수치는 잠정치 (FINDINGS 참조).';
     }
   })();
+  // H5-4: 설계 한계 제공 시 — WORST G 기준 출처 + WORST STRESS 한계 초과 표시
+  (function () {
+    const k2 = DATA.kpi || {};
+    if (k2.crit_basis === 'user') {
+      const tile = document.getElementById('kWorstG');
+      const capHost = tile && tile.parentElement ? tile.parentElement.querySelector('.cap') : null;
+      if (capHost) capHost.textContent = capHost.textContent.replace('element-local peak',
+        'element-local peak · 기준: 설계 한계 ' + fmt(k2.crit_threshold / gDivisor(), 0) + ' G');
+    }
+    if (k2.stress_limit != null) {
+      const sv = document.getElementById('kWorstS');
+      const sCap = sv && sv.parentElement ? sv.parentElement.querySelector('.cap') : null;
+      if (sCap) sCap.textContent = sCap.textContent + ' · 한계 ' + fmt(k2.stress_limit, 0) + ' ' + (_u('stress') || 'MPa');
+      if (sv && (k2.worst_s || 0) > k2.stress_limit) sv.style.color = 'var(--crit)';
+    }
+  })();
   // C2 (QA): ENERGY DISSIPATED 가 FAIL 런들의 median 이면 각주
   (function () {
     const sqSum = (DATA.solver_quality && DATA.solver_quality.summary) || null;
@@ -240,7 +256,7 @@ _JS_S1 = r"""function fillHeroKpi() {
   }
   // Acceleration→g divisor: matches the solver unit declared by the loader.
   // mm/s² → /9810, m/s² → /9.81 (= mm/ms²).
-  const _gDiv = (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
+  const _gDiv = gDivisor();   // M11: 공용 헬퍼 단일 소스
   const _worstG_in_G = (k.worst_g || 0) / _gDiv;
   document.getElementById('kPositions').innerHTML = k.n_positions + '<span class="u">pos</span>';
   document.getElementById('kFaces').textContent = k.n_faces;

@@ -69,9 +69,7 @@ _PAGE9 = """
 _JS_S9 = r"""// --- Section 09: POSITION DRILL-DOWN (P6) ----------------------------------
 const S9_STATE = { pos: null, sort: 'severity', _loading: null, _inited: false };
 
-function _s9gDiv() {
-  return (DATA.part_motion && (DATA.part_motion.g_divisor || DATA.part_motion.g_mm_s2)) || 9810.0;
-}
+function _s9gDiv() { return gDivisor(); }   // M11: 공용 헬퍼 단일 소스
 function _s9doe() { return DATA.doe_analysis || null; }
 function _s9posList() {
   const doe = _s9doe();
@@ -284,7 +282,13 @@ function renderS9Static(posId) {
     }));
     tr.appendChild(barTd);
     tr.appendChild(el('td', { class: 'num' }, (100 * (r.g || 0) / worstG).toFixed(0) + '%'));
-    tr.appendChild(el('td', { class: 'num' }, fmt(r.s || 0, 1)));
+    const sTd = el('td', { class: 'num' }, fmt(r.s || 0, 1));
+    const _sLim = (DATA.kpi || {}).stress_limit;
+    if (_sLim != null && (r.s || 0) > _sLim) {
+      sTd.style.color = 'var(--crit, #ff5e84)';
+      sTd.title = '설계 응력 한계 ' + _sLim + ' 초과';
+    }
+    tr.appendChild(sTd);
     const eTd = el('td', { class: 'num' }, r.e ? r.e.toExponential(1) : '—');
     if (!r.e) eTd.style.opacity = 0.4;
     tr.appendChild(eTd);
