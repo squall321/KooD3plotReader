@@ -442,6 +442,61 @@ def load_energy_flow(
     return g
 
 
+# --- per-run 흐름 캐시 --------------------------------------------------------
+# <test_dir>/.sphere_flow_cache/v<N>/<run_folder>.json — 흐름이 순수 dict 라
+# JSON 왕복이 무손실. best-effort: 읽기/쓰기 실패는 조용히 miss/skip
+# (읽기전용 NFS 안전). 지문은 내용 해시가 아닌 stat(size:mtime_ns) — ~ms.
+_FLOW_CACHE_SCHEMA = 1
+
+
+def _flow_fingerprint(run_output_dir: Path) -> str:
+    """binout + 사용 .k 의 size:mtime_ns 지문. 파일 부재도 지문에 반영."""
+    parts = [f"schema={_FLOW_CACHE_SCHEMA}"]
+    for tag, p in (("binout", _find_binout(run_output_dir)),
+                   ("kfile", _find_kfile(run_output_dir))):
+        if p is None:
+            parts.append(f"{tag}=none")
+            continue
+        try:
+            st = p.stat()
+            parts.append(f"{tag}={st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            parts.append(f"{tag}=missing")
+    return "|".join(parts)
+
+
+def _flow_cache_path(test_dir: Path, run_folder: str) -> Path:
+    return test_dir / ".sphere_flow_cache" / f"v{_FLOW_CACHE_SCHEMA}" / f"{run_folder}.json"
+
+
+def _flow_cache_load(test_dir: Path, run_folder: str, fp: str) -> dict | None:
+    """지문 일치 시 캐시된 흐름 dict, 아니면 None(=miss)."""
+    try:
+        with open(_flow_cache_path(test_dir, run_folder), encoding="utf-8") as f:
+            obj = json.load(f)
+        if obj.get("fp") != fp:
+            return None
+        flow = obj.get("flow")
+        return flow if isinstance(flow, dict) and flow.get("nodes") else None
+    except Exception:  # noqa: BLE001 — 캐시는 언제나 miss 로 강등
+        return None
+
+
+def _flow_cache_save(test_dir: Path, run_folder: str, fp: str, flow: dict) -> None:
+    """tmp 에 쓰고 rename(atomic) — 동시 실행/중단에도 반파일 없음. 실패는 skip."""
+    import tempfile
+    path = _flow_cache_path(test_dir, run_folder)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", dir=str(path.parent), delete=False,
+                                         suffix=".tmp", encoding="utf-8") as tf:
+            json.dump({"fp": fp, "flow": flow}, tf, ensure_ascii=False)
+            tmp_name = tf.name
+        Path(tmp_name).replace(path)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def load_all(test_dir: Path) -> tuple[
     str, str, SimulationParams, dict[int, PartInfo],
     list[SimulationResult], dict[str, AngleCondition], dict,
@@ -509,14 +564,25 @@ def load_all(test_dir: Path) -> tuple[
     # --- 파트간 에너지 흐름: run 별 binout + keyword → 흐름 dict --------------
     # 결과가 있는 run 만 대상(보고서 탭이 소비). 의존성 부재/파일 부재는
     # load_energy_flow 가 로그 남기고 빈 dict → 여기서 스킵(무회귀).
+    # per-run JSON 캐시: 지문(hit) 이면 파싱 생략, 빈 흐름은 캐시하지 않음.
     energy_flows: dict = {}
     part_names = {pid: pi.part_name for pid, pi in part_info.items()}
     deps = _import_energy_flow_deps()
     if deps[0] is not None and results:
+        n_hit = 0
         for sr in results:
-            g = load_energy_flow(output_dir / sr.run_folder, part_names, deps=deps)
+            run_dir = output_dir / sr.run_folder
+            fp = _flow_fingerprint(run_dir)
+            g = _flow_cache_load(test_dir, sr.run_folder, fp)
+            if g is not None:
+                n_hit += 1
+            else:
+                g = load_energy_flow(run_dir, part_names, deps=deps)
+                if g:
+                    _flow_cache_save(test_dir, sr.run_folder, fp, g)
             if g:
                 energy_flows[sr.run_folder] = g
+        print(f"[sphere] flow cache: {n_hit}/{len(results)} hit")
     elif deps[0] is None and results:
         print("[sphere] energy-flow: koo_deep_report not importable — "
               "flow tab will be empty (install koo_deep_report + lasso to enable)")

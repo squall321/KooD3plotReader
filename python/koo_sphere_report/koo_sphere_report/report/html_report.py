@@ -27,7 +27,8 @@ def _compact_energy_flows(energy_flows: dict) -> dict:
     """중립 flow dict(build_flow_graph 산출) → 브라우저용 압축 dict.
 
     run_folder 별로 노드/엣지를 최소 필드로 줄인다. 시간축은 노드가 공유하므로
-    flow 수준 ``t`` 하나로 통합(엣지는 force 열만). Sankey/Time-Force 탭이 소비.
+    flow 수준 ``t`` 하나로 통합(엣지는 force 열만). 노드 ``ke``/``ie`` 는
+    RESIDENCE 타임라인용. Sankey/Time-Force/Residence 패널이 소비.
     """
     out: dict = {}
     for folder, g in (energy_flows or {}).items():
@@ -41,7 +42,9 @@ def _compact_energy_flows(energy_flows: dict) -> dict:
                 break
         nodes = [
             {"id": n["node_id"], "name": n.get("name", n["node_id"]),
-             "is_impactor": bool(n.get("is_impactor"))}
+             "is_impactor": bool(n.get("is_impactor")),
+             "ke": n.get("kinetic_ts") or [],
+             "ie": n.get("internal_ts") or []}
             for n in g["nodes"]
         ]
         edges = [
@@ -4450,6 +4453,12 @@ function renderEnergyFlow() {
     </div>
   </div>`;
 
+  html += `<div class="panel" style="margin-top:16px">
+    <h2>Energy Residence Timeline</h2>
+    <div style="color:var(--dim);font-size:11px;margin-bottom:8px">면 = 파트별 IE 누적(최종 IE 상위 8) · 선 = 전 파트 ΣKE 공유 시간축. "시간에 따라 에너지가 지금 어느 파트에 있는가."</div>
+    <div id="ef-residence">${_efResidenceHTML(flow)}</div>
+  </div>`;
+
   container.innerHTML = html;
 }
 
@@ -4508,6 +4517,83 @@ function _efHeatHTML(flow) {
     rows += `<div class="tfh-row">${cells}</div>`;
   }
   return rows;
+}
+
+// ENERGY RESIDENCE TIMELINE — impact s3 initEnergyResidence 를 sphere idiom
+// (innerHTML/SVG 문자열)으로 이식. 파트별 IE stacked area(최종 IE 상위 8) +
+// ΣKE 라인. sphere 는 자유낙하(임팩터 없음) → KE 라인은 전 파트 합.
+const _EF_RES_PAL = ['#7dcfff', '#e0af68', '#9ece6a', '#f7768e', '#bb9af7', '#7ce0e0', '#e0c97c', '#7aa2f7'];
+
+function _efResidenceHTML(flow) {
+  const nodes = flow.nodes || [];
+  const t = flow.t || [];
+  const nT = t.length;
+  if (nT < 2) return `<div style="color:var(--dim);font-size:12px">시계열 길이 부족</div>`;
+
+  // IE 시계열 보유 노드 중 최종 IE 상위 8 (유령 노드는 빈 배열이라 자연 제외)
+  const parts = nodes
+    .filter(n => n.ie && n.ie.length)
+    .map(n => ({ n: n, ieF: n.ie[n.ie.length - 1] || 0 }))
+    .filter(p => p.ieF > 0)
+    .sort((a, b) => b.ieF - a.ieF)
+    .slice(0, 8)
+    .map(p => p.n);
+
+  // ΣKE — 전 파트 합
+  const keSum = new Array(nT).fill(0);
+  let anyKe = false;
+  for (const n of nodes) {
+    if (!n.ke || !n.ke.length) continue;
+    anyKe = true;
+    const m = Math.min(nT, n.ke.length);
+    for (let i = 0; i < m; i++) keSum[i] += Math.max(0, n.ke[i] || 0);
+  }
+  if (!parts.length && !anyKe)
+    return `<div style="color:var(--dim);font-size:12px">노드 KE/IE 시계열 없음</div>`;
+
+  const W = 1100, H = 280, padL = 64, padR = 12, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  let stackMax = 0;
+  for (let i = 0; i < nT; i++) {
+    let s = 0;
+    for (const n of parts) s += Math.max(0, n.ie[i] || 0);
+    if (s > stackMax) stackMax = s;
+  }
+  let keMax = 0;
+  for (const v of keSum) if (v > keMax) keMax = v;
+  const yMax = Math.max(stackMax, keMax) || 1;
+  const tMin = t[0], tMax = t[nT - 1] || 1;
+  const px = tv => padL + (tv - tMin) / (tMax - tMin || 1) * plotW;
+  const py = v => padT + (1 - v / yMax) * plotH;
+
+  let sv = '';
+  let legend = '';
+  // stacked area: 아래에서 위로 누적
+  const cum = new Array(nT).fill(0);
+  parts.forEach((n, si) => {
+    const color = _EF_RES_PAL[si % _EF_RES_PAL.length];
+    const top = [], bot = [];
+    for (let i = 0; i < nT; i++) {
+      const lo = cum[i];
+      const hi = lo + Math.max(0, n.ie[i] || 0);
+      cum[i] = hi;
+      top.push(px(t[i]).toFixed(1) + ',' + py(hi).toFixed(1));
+      bot.push(px(t[i]).toFixed(1) + ',' + py(lo).toFixed(1));
+    }
+    const pts = top.concat(bot.reverse()).join(' ');
+    sv += `<polygon points="${pts}" fill="${color}" fill-opacity="0.55" stroke="${color}" stroke-width="0.5"/>`;
+    legend += `<span style="color:${color}" title="${n.name || n.id}">${efLeaf(n.name || n.id)} · ${(n.ie[n.ie.length - 1] || 0).toFixed(1)}</span>`;
+  });
+  // ΣKE 라인
+  if (anyKe) {
+    const pts = [];
+    for (let i = 0; i < nT; i++) pts.push(px(t[i]).toFixed(1) + ',' + py(keSum[i]).toFixed(1));
+    sv += `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--cyan)" stroke-width="2.2" opacity="0.95"/>`;
+    legend += `<span style="color:var(--cyan);font-weight:700">ΣKE 전 파트 (선)</span>`;
+  }
+  sv += `<text x="6" y="${padT + 10}" fill="var(--dim)" font-size="10">E (energy units)</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${sv}</svg>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px">${legend}</div>`;
 }
 """
 
