@@ -162,3 +162,18 @@ s3 7패널 JS 는 이미 완성돼 있었다. 서브에이전트 병렬 구현 +
   기준이 물리적으로 옳다(미접촉≤0.5%, 접촉≥100%).
 - 최종 종합 검증(2026-07-10): 전 9섹션 Playwright 렌더 콘솔 에러 0, from-json
   왕복 바이트 동일, report.json sq 25/PASS16/FAIL9, impact/deep 스위트 22+17 passed.
+
+## 후속 개선 사이클 (2026-07-21) — "중요한 부분들은 다 만들어"
+
+- **설계 한계 배선 (630c43b, H5-4)**: --g-limit[G]/--stress-limit. CRIT 기준이
+  자기분포 P95 → 사용자 절대값(kpi.crit_basis), WARN 은 P75 유지(발명 금지).
+  NO DESIGN LIMITS 배지 해제 + s1/s3/s9 연동. 실측 3000G → crit 정합, n_crit 30→180.
+- **표기 통일 + BVM fix (630c43b)**: gDiv 4중 → gDivisor() 단일, s5 랭킹 G 환산.
+  **BVM face F2/F1 하드코딩이 F5 단독 DOE 에서 지도 셀 0 이던 실버그** → DATA.faces
+  동적화로 TOP·F5 렌더.
+- **tier C/D 골든 (c14ebc2)**: --grid 합성(121→C, 324→D) payload SHA 골든 +
+  불변식(topk40/traj≤62·26pt/stress None/배열 비우기 금지) + chunked 324청크 E2E.
+  2.4s 로 가벼워 상시 게이트 가능. 27 passed.
+- part 23 motion 부재는 요소 2개짜리 미세 파트 — unified_analyzer 특성, 결함 아님.
+- 남긴 것(의도적): JS 재그룹(코스메틱, 위험>가치), deck 접촉 분해(*CONTACT_FORCE_
+  TRANSDUCER — 해석 셋업 측), file:// 수동 확인 권장.
