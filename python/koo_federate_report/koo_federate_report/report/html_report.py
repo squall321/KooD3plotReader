@@ -92,7 +92,13 @@ a { color: inherit; }
 .kpi-strip .k .v { font-size: 17px; font-weight: 700; color: var(--fg); font-family: 'JetBrains Mono', monospace; }
 .kpi-strip .k .v .u { color: var(--dim); font-size: 11px; font-weight: 500; margin-left: 4px; font-family: 'Inter', system-ui; }
 .kpi-strip .k .l { font-size: 9px; color: var(--dim); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
-table.dt { width: 100%; border-collapse: collapse; font-size: 11px; }
+/* 리비전이 늘면 열이 늘어 표가 뷰포트를 넘는다 (N=5 에서 페이지가 가로로
+   970px 넘쳤다). 표 자신이 스크롤하게 해 페이지 본문은 절대 가로 스크롤하지
+   않는다. display:block 이면 table 이 스크롤 컨테이너가 되고 내부는 익명
+   테이블 박스로 그대로 배치된다. */
+table.dt { width: 100%; border-collapse: collapse; font-size: 11px;
+           display: block; overflow-x: auto; max-width: 100%; }
+table.dt thead, table.dt tbody { display: table; width: 100%; }
 table.dt th { color: var(--dim); font-weight: 600; text-align: right; padding: 6px; border-bottom: 1px solid var(--line2);
   font-size: 10px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
 table.dt th.tl { text-align: left; }

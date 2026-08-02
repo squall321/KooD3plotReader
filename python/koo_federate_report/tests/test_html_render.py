@@ -163,3 +163,16 @@ def test_missing_values_not_faked(sample):
     h = generate_html(sample)
     assert "&mdash;" in h
     assert ">0<" not in h.split('id="fed-data"')[0].split("WORST STRESS")[1][:400]
+
+
+def test_wide_tables_scroll_themselves_not_the_page(sample):
+    """리비전이 늘면 표가 넓어진다 — 페이지 본문이 가로로 밀리면 안 된다.
+
+    실측: 5리비전에서 파트 표가 13열이 되어 body 가 970px 넘쳤다. 표 자신이
+    스크롤 컨테이너가 되도록 CSS 로 격리한다.
+    """
+    h = generate_html(sample)
+    css = h[:h.index("</style>")] if "</style>" in h else h
+    assert "table.dt" in css
+    assert "overflow-x: auto" in css, "표에 가로 스크롤 격리가 없다"
+    assert "max-width: 100%" in css
