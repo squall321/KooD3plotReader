@@ -117,3 +117,57 @@
 - Playwright 는 `file://` 이 차단돼 `python3 -m http.server` 로 띄워 확인한다.
 - 경계 입력 스윕(기준값 0/음수/전부 None/5·10 리비전/셀 0개/중복 라벨)은
   크래시 없음. 음수 지표는 peak 크기값 규약 위반이라 ERROR 경고로 처리.
+
+---
+
+## 2026-08-02 (2차) — sphere 파트 지표 확장 + 접촉력 계측·검증
+
+federate 와 별개로 sphere/deep/impact 본체에 들어간 것들. 다음 세션이 같은 함정을
+다시 밟지 않도록 **실측으로 확인한 사실만** 적는다.
+
+### 파이프라인 — 어느 오케스트레이터인지 먼저 확인할 것
+운영은 **KooChainRun** 이다. 거기서는 unified_analyzer 가 koo_deep_report **안에서**
+돌고(`__main__.py:776` run_analysis), sphere_report.sh 가 `Run_*/Output/report/` 를
+`analysis_results/<Run_*>` 로 symlink 해서 읽는다. 즉 **deep 이 선행**이다.
+리포 안의 `scripts/post_analyze.sh` 는 별개 오케스트레이터로 순서가 반대
+(unified → sphere → deep). 헤더 주석이 옛 순서로 남아 있어 오해를 부르던 것을
+0f6290a 에서 교정했다. **어느 쪽을 쓰는지 먼저 묻고 답할 것.**
+
+### skip 판정 — 산출물이 늘면 자동으로 따라오게
+양쪽 오케스트레이터 모두 "result.json / analysis_result.json 이 있으면 스킵" 이라
+분석기가 새 산출물을 내도 기존 run 이 영원히 옛 산출물로 남았다.
+`UA_OUTPUT_SCHEMA`(현재 2) + `.ua_schema` 마커로 바꿨다 — 마커가 없거나 값이 다른
+run 만 다시 돈다. **분석기가 산출물을 늘릴 때마다 이 상수를 올릴 것**
+(koo_deep_report/__main__.py, scripts/post_analyze.sh 두 곳).
+
+### 파트 지표 — 데이터는 있었고 안 싣고 있었다
+- IE/KE: binout matsum 에 201스텝 × 23파트가 있었고 energy_flow_builder 가 이미
+  읽고 있었지만 최상위 energy_flows 에만 갇혀 있었다 → 파트 단위로 승격.
+- σ1: unified_analyzer 가 von Mises 와 **항상 함께** 계산해 CSV 로 내는데
+  (SinglePassAnalyzer.cpp:385 "always alongside von_mises") sphere loader 가
+  그 파일을 안 열고 있었다. Test_006 산출물은 2026-02-11 구버전(1.0.0)이라
+  CSV 자체가 없다 — 재분석해야 채워진다.
+- 요약 스칼라는 **다운샘플 이전 원해상도**에서 뽑는다(프로젝트 공통 규칙).
+
+### 접촉력 계측 — 실측으로 잡은 함정 두 개
+1. **큰 쪽 side 로 재야 한다.** SSTYP=5(slave='ALL') 정의는 한쪽이 거의 0 으로만
+   기록된다. Test_006 CID 172 는 slave 0.2 / master 36251.5 — slave 를 먼저
+   고르면 모델 최대 접촉을 0 으로 측정한다(실제로 그렇게 나왔다).
+2. **한쪽만 기록된 접촉은 뉴턴 3법칙 위반이 아니다.** 섞으면 max_rel 이 0.9999992
+   가 되어 정상 모델도 늘 실패로 보인다. 빼고 나니 max 1.56e-07 / median 5.4e-08.
+
+**충격량↔운동량 검증은 일부러 넣지 않았다.** rcforc 가 master/slave 를 같은 부호로
+기록해 내부 접촉쌍이 상쇄되지 않고 ∫|F|dt 는 방향을 버린다. 실측에서 내부 TIED
+25개 합이 Δp 의 280배라 늘 '불일치' 로 나왔다. 늘 실패처럼 보이는 지표는 사람을
+검증에서 멀어지게 한다 — 다시 넣고 싶으면 부호 규약부터 확정할 것.
+
+### contact_map 은 덱에 따라 결과가 갈린다
+Test_006 구면 덱(TIED_SURFACE_TO_SURFACE 25 + AUTO_S2S 1 + SINGLE_SURFACE 1)에서는
+27개 중 25개가 (part,part) 신뢰도 1.00 으로 해결된다. 세그먼트셋(SSTYP=0)도
+절점→요소→파트 투표로 잘 풀린다. **"contact_map 이 깨진다" 는 다른 덱 얘기이므로
+덱마다 실제로 돌려보고 판단할 것.**
+
+### 규모
+1144각도 보고서는 흐름 시계열까지 담으면 100MB 를 넘는다. 상위 60각도만 담는
+tier 를 걸되 무엇이 빠졌는지 화면에 적는다. 각도 비교용 스칼라 프로파일
+(contact_profile)은 전 각도를 담으므로 비교 자체는 영향 없다.
