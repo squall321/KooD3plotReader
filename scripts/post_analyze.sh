@@ -53,6 +53,7 @@ DEEP_ONLY=false
 SPHERE_ONLY=false
 IMPACT_ONLY=false
 FORCE=false
+SCHEMA_CHECK=true    # false 면 산출물 존재만 보고 스킵(옛 동작)
 THREADS=4
 YIELD_STRESS=""
 
@@ -82,6 +83,8 @@ usage() {
     --sphere-only           sphere report 만 (DROP 전각도 강제)
     --impact-only           impact report 만 (IMPACT 부분충격 DOE 강제)
     --force                 기존 결과 무시하고 전체 재계산
+    --no-schema-check       산출물이 낡아도 재분석하지 않음 (존재하면 스킵).
+                            새 산출물(주응력 등)은 보고서에서 빈 칸으로 남음
 
     (scenario.json 의 cumulative.mode_sequence 로 자동 감지:
        ['DROP', ...]   → sphere_report
@@ -142,6 +145,7 @@ while [[ $# -gt 0 ]]; do
         --sphere-only)   SPHERE_ONLY=true; shift ;;
         --impact-only)   IMPACT_ONLY=true; shift ;;
         --force)         FORCE=true; shift ;;
+        --no-schema-check) SCHEMA_CHECK=false; shift ;;
 
         # unified_analyzer / deep_report 공통 YAML 분리
         --config)        CONFIG_FILE="$2"; shift 2 ;;
@@ -338,8 +342,28 @@ echo "============================================================"
 # ============================================================
 # Step 1: unified_analyzer --recursive
 #  - sphere_report 가 analysis_results/ 를 필요로 함
-#  - 이미 있으면 스킵 (--force 로 강제)
+#  - 산출물이 최신 스키마면 스킵 (--force 로 전체 강제, --no-schema-check 로
+#    스키마 무시하고 존재 여부만 봄)
 # ============================================================
+
+# unified_analyzer 산출물 스키마 버전.
+# **분석기가 새로 내보내는 산출물이 생기면 이 값을 올린다.**
+# 예전에는 analysis_result.json 존재만 보고 스킵했는데, 그러면 분석기가
+# 산출물을 늘려도(σ1 주응력 CSV 등) 기존 run 이 영원히 옛 산출물로 남는다.
+# 마커가 없거나 값이 다르면 그 run 만 다시 분석한다.
+#   v2: max/min principal stress CSV (SinglePassAnalyzer — von Mises 와 항상 동반)
+UA_OUTPUT_SCHEMA=2
+UA_SCHEMA_MARKER=".ua_schema"
+
+# 이 result_dir 이 최신 산출물을 갖고 있는가?
+ua_result_is_current() {
+    local rd="$1"
+    [ -f "${rd}/analysis_result.json" ] || return 1
+    ${SCHEMA_CHECK} || return 0          # --no-schema-check: 존재하면 최신 취급
+    [ -f "${rd}/${UA_SCHEMA_MARKER}" ] || return 1
+    [ "$(cat "${rd}/${UA_SCHEMA_MARKER}" 2>/dev/null)" = "${UA_OUTPUT_SCHEMA}" ]
+}
+
 run_step_unified() {
     echo ""
     echo "=== [Step 1] unified_analyzer (Run 별 개별 분석) ==="
@@ -412,6 +436,7 @@ run_step_unified() {
     _done=0
     _skip=0
     _fail=0
+    _stale=0
     _idx=0
 
     for entry in "${D3PLOT_ENTRIES[@]}"; do
@@ -429,10 +454,14 @@ run_step_unified() {
             result_dir="${ANALYSIS_DIR}/${sub_path}/${run_name}"
         fi
 
-        # skip-existing 체크
-        if [ -f "${result_dir}/analysis_result.json" ] && ! ${FORCE}; then
+        # skip 판정 — '있으면 스킵' 이 아니라 '최신이면 스킵'
+        if ! ${FORCE} && ua_result_is_current "${result_dir}"; then
             _skip=$(( _skip + 1 ))
             continue
+        fi
+        # 산출물은 있는데 스키마가 낡아서 다시 도는 경우를 따로 센다
+        if ! ${FORCE} && [ -f "${result_dir}/analysis_result.json" ]; then
+            _stale=$(( _stale + 1 ))
         fi
 
         mkdir -p "${result_dir}"
@@ -457,6 +486,7 @@ run_step_unified() {
 
         if unified_analyzer --config "${tmp_yaml}" 2>&1 | tail -5; then
             echo "OK"
+            echo "${UA_OUTPUT_SCHEMA}" > "${result_dir}/${UA_SCHEMA_MARKER}"
             _done=$(( _done + 1 ))
         else
             echo "FAIL"
@@ -468,6 +498,11 @@ run_step_unified() {
 
     echo ""
     echo "  완료: ${_done} / 스킵: ${_skip} / 실패: ${_fail} / 전체: ${_total}"
+    if [ "${_stale}" -gt 0 ]; then
+        echo "  ※ 이 중 ${_stale}개는 산출물이 낡아(스키마 < ${UA_OUTPUT_SCHEMA}) 다시 분석했습니다."
+        echo "     분석기가 새 산출물(주응력 CSV 등)을 내게 되어 기존 결과에는 없던 것입니다."
+        echo "     재분석을 원치 않으면 --no-schema-check 를 주십시오(그 항목은 빈 채로 보고됩니다)."
+    fi
 
     # 그룹 목록을 전역으로 저장 (sphere_report 에서 사용)
     ANALYSIS_GROUPS=()
