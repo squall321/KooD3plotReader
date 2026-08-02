@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 import re
 from statistics import median, pstdev
 
@@ -71,6 +72,43 @@ def _pct(new, base):
 UNCATEGORIZED = "(미지정)"
 
 
+def _geometry_archetypes() -> list:
+    """직육면체 낙하의 26개 기준 방향 — 면 6 / 모서리 12 / 꼭짓점 8.
+
+    성분이 0 이 아닌 개수가 곧 분류다 (1=면, 2=모서리, 3=꼭짓점).
+    """
+    out = []
+    for sx in (-1, 0, 1):
+        for sy in (-1, 0, 1):
+            for sz in (-1, 0, 1):
+                nz = sum(1 for s in (sx, sy, sz) if s)
+                if nz == 0:
+                    continue
+                n = math.sqrt(float(nz))
+                out.append(((sx / n, sy / n, sz / n),
+                            {1: "면(face)", 2: "모서리(edge)", 3: "꼭짓점(corner)"}[nz]))
+    return out
+
+
+_ARCHETYPES = _geometry_archetypes()
+
+
+def _geometry_category(roll, pitch) -> str:
+    """낙하 방향을 면/모서리/꼭짓점으로 분류 — 최근접 기준방향(Voronoi).
+
+    resample._unit_vec 과 같은 규약(lat=roll, lon=pitch)을 쓴다.
+    """
+    lat = math.radians(roll or 0.0)
+    lon = math.radians(pitch or 0.0)
+    v = (math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat))
+    best, best_dot = None, -2.0
+    for av, name in _ARCHETYPES:
+        dot = v[0] * av[0] + v[1] * av[1] + v[2] * av[2]
+        if dot > best_dot:
+            best, best_dot = name, dot
+    return best or UNCATEGORIZED
+
+
 def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
     """카테고리별 소계 — sphere 의 face/edge/corner, impact 의 face code.
 
@@ -86,11 +124,29 @@ def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
     """
     buckets: dict = {}
     n_excluded = 0
+    live = []
     for c in cells:
         if c["gated"]:
             n_excluded += 1
             continue
+        live.append(c)
         buckets.setdefault(c["category"] or UNCATEGORIZED, []).append(c)
+
+    # 보고서가 준 카테고리가 1종뿐이면(구면 DOE 는 전부 "fibonacci" — 격자
+    # 생성 방식이지 기하 분류가 아니다) 낙하 방향에서 face/edge/corner 를
+    # 파생한다. 임계값은 발명하지 않는다 — 26개 기준 방향(면6·모서리12·
+    # 꼭짓점8) 중 각거리 최근접으로 배정할 뿐이라 경계는 Voronoi 로 정해진다.
+    category_source = "report"
+    if len(buckets) <= 1 and any(
+        c.get("roll") is not None and c.get("pitch") is not None for c in live
+    ):
+        derived: dict = {}
+        for c in live:
+            derived.setdefault(_geometry_category(c.get("roll"), c.get("pitch")), []).append(c)
+        if len(derived) > 1:
+            buckets = derived
+            category_source = "derived_geometry"
+
     if len(buckets) <= 1:
         return {}
 
@@ -142,6 +198,7 @@ def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
         "baseline_idx": baseline_idx,
         "n_categories": len(cats),
         "n_excluded_gated": n_excluded,
+        "category_source": category_source,
         "categories": cats,
     }
 
@@ -256,6 +313,21 @@ def _guard_input_sanity(bundles, warnings) -> None:
                 "message": ("YAML 의 리비전 순서가 생성 시각 순서와 다릅니다 — "
                             "추이(TREND)는 YAML 순서를 시간 축으로 간주하므로 "
                             "의도한 순서인지 확인하십시오."),
+            })
+
+    # ③ 음수 지표 — g/s/e/d 는 전부 peak 크기값이라 음수가 될 수 없다.
+    #    음수가 오면 상류 부호 처리 버그이고, Δ% 부호가 뒤집혀 읽힌다
+    #    (-10 → -5 는 크기가 절반인데 "+50% 악화" 로 표시된다).
+    for b in bundles:
+        bad = {mk for c in b.cells for mk, v in (c.metrics or {}).items()
+               if isinstance(v, (int, float)) and v < 0}
+        if bad:
+            warnings.append({
+                "code": "negative_metric",
+                "severity": "ERROR",
+                "message": (f"{b.label}: {'/'.join(sorted(bad))} 에 음수 값이 있습니다 "
+                            "— peak 지표는 크기값이라 음수가 될 수 없습니다. "
+                            "Δ% 의 부호가 뒤집혀 읽히므로 상류 보고서를 확인하십시오."),
             })
 
 

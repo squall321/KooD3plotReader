@@ -779,6 +779,13 @@ def _build_s10(cmp_: dict) -> str:
             else ((cmp_.get("unit_labels") or {}).get(axis) or ""))
     div = (gdiv or 1.0) if metric == "g" else 1.0
 
+    derived = cs.get("category_source") == "derived_geometry"
+    derived_note = (
+        " 원본 보고서의 카테고리가 1종뿐이라(구면 DOE 는 격자 생성 방식만 기록한다) "
+        "낙하 방향에서 면/모서리/꼭짓점을 파생했다. 26개 기준 방향(면6·모서리12·"
+        "꼭짓점8) 중 각거리 최근접으로 배정한 것이며 임의의 각도 임계값은 쓰지 않았다."
+    ) if derived else ""
+
     def shown(v):
         return _num(v / div, 0) if isinstance(v, (int, float)) else _EMDASH
 
@@ -894,7 +901,8 @@ def _build_s10(cmp_: dict) -> str:
         '  <div class="page-head r"><span class="num">10</span>'
         '<span class="tagline">CATEGORY &middot; BREAKDOWN</span>'
         f'<span class="ttl">카테고리 소계 &mdash; {_esc(cs.get("metric_label") or "")} 의 구조적 회귀</span>'
-        f'<span class="sub">{_esc(cs.get("n_categories", len(cats)))} CATEGORIES</span></div>\n'
+        f'<span class="sub">{_esc(cs.get("n_categories", len(cats)))} CATEGORIES'
+        f'{" &middot; 기하 파생" if derived else ""}</span></div>\n'
         '  <div class="panel r"><div class="ph">'
         '<span class="pt">카테고리별 worst</span>'
         f'<span class="pd">막대 위 숫자 = baseline({_esc(labels[base] if base < len(labels) else "")}) 대비 &Delta;%</span></div>'
@@ -902,7 +910,7 @@ def _build_s10(cmp_: dict) -> str:
         f'<div class="fed-legend" style="margin-top:8px">{legend}</div>'
         '<div class="pcap">"코너 낙하만 나빠졌다" 같은 구조적 회귀를 잡는 뷰다. '
         'Δ% 는 baseline 대비 상대 변화이고 절대 임계값은 쓰지 않는다.'
-        f'{_esc(excl_txt)}</div></div>\n'
+        f'{derived_note}{_esc(excl_txt)}</div></div>\n'
         '  <div class="panel r" style="margin-top:14px"><div class="ph">'
         '<span class="pt">소계 표</span><span class="pd">worst / median / mean</span></div>'
         f'{table}'

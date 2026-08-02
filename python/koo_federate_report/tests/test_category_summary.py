@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import pytest
 
-from koo_federate_report.compare import UNCATEGORIZED, build_comparison
+from koo_federate_report.compare import (UNCATEGORIZED, _geometry_category,
+                                         build_comparison)
 from koo_federate_report.config import Options
 from koo_federate_report.matching import build_matching
 from koo_federate_report.resample import align
 
-from .helpers import make_impact_bundle
+from .helpers import make_impact_bundle, make_sphere_bundle
 
 PARTS = {1: "PartA"}
 #           key    x     y     category
@@ -125,3 +126,58 @@ def test_trust_gate_off_includes_all_cells():
     assert (r1["worst"], r1["mean"]) == (50.0, 30.0)     # (50+10)/2
     assert (r2["worst"], r2["mean"]) == (60.0, 40.0)     # (60+20)/2
     assert r2["mean_delta_pct"] == pytest.approx(100.0 / 3.0)
+
+
+# --------------------------------------------------------------------------
+# 기하 파생 분류 — 구면 보고서의 category 는 "fibonacci"(격자 생성 방식) 한 종류라
+# 소계 뷰가 실데이터에서 영영 뜨지 않았다. 방향에서 면/모서리/꼭짓점을 파생한다.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("roll,pitch,expect", [
+    (0.0, 0.0, "면(face)"),        # +X
+    (0.0, 90.0, "면(face)"),       # +Y
+    (90.0, 0.0, "면(face)"),       # +Z
+    (-90.0, 0.0, "면(face)"),      # -Z
+    (0.0, 45.0, "모서리(edge)"),    # +X+Y
+    (45.0, 0.0, "모서리(edge)"),    # +X+Z
+    (35.264, 45.0, "꼭짓점(corner)"),  # (1,1,1)/√3
+    (-35.264, -135.0, "꼭짓점(corner)"),  # (-1,-1,-1)/√3
+])
+def test_geometry_category_archetypes(roll, pitch, expect):
+    """26개 기준 방향 자체는 자기 분류로 떨어져야 한다."""
+    assert _geometry_category(roll, pitch) == expect
+
+
+def test_derived_category_fires_when_report_category_is_degenerate():
+    """category 가 1종("fibonacci")뿐이면 방향에서 파생해 소계를 살린다."""
+    angles = [
+        ("A_face", 0.0, 0.0, "fibonacci", 100.0),
+        ("A_face2", 0.0, 180.0, "fibonacci", 110.0),
+        ("B_edge", 0.0, 45.0, "fibonacci", 200.0),
+        ("C_corner", 35.264, 45.0, "fibonacci", 300.0),
+    ]
+    bundles = [make_sphere_bundle(f"R{i}", angles, {1: "P"}) for i in range(2)]
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "sphere", options.resample)
+    cs = build_comparison(bundles, 0, "sphere", match, aligned, options)["category_summary"]
+    assert cs.get("category_source") == "derived_geometry"
+    assert {c["name"] for c in cs["categories"]} == {"면(face)", "모서리(edge)", "꼭짓점(corner)"}
+    # 파생은 원본 카테고리를 대체하는 것이지 셀을 잃지 않는다
+    assert sum(c["n_cells"] for c in cs["categories"]) == 4
+
+
+def test_report_category_wins_when_meaningful():
+    """보고서가 진짜 분류를 주면 파생하지 않는다 (명시 > 암묵)."""
+    angles = [
+        ("A", 0.0, 0.0, "face", 100.0),
+        ("B", 0.0, 45.0, "corner", 200.0),
+    ]
+    bundles = [make_sphere_bundle(f"R{i}", angles, {1: "P"}) for i in range(2)]
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "sphere", options.resample)
+    cs = build_comparison(bundles, 0, "sphere", match, aligned, options)["category_summary"]
+    assert cs.get("category_source") == "report"
+    assert {c["name"] for c in cs["categories"]} == {"face", "corner"}
