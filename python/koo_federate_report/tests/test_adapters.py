@@ -170,3 +170,21 @@ def test_load_bundles_ok(tmp_path):
     assert fset.baseline_idx == 1
     assert fset.labels() == ["A", "B"]
     assert fset.baseline.label == "B"
+
+
+def test_sphere_acc_unit_is_G_not_MG():
+    """peak_g 는 G 로 저장된다 — MG 라벨은 1e6 배 과대 표기를 만든다.
+
+    구면 보고서 화면의 "MG" 는 표시할 때 v/1e6 을 한 결과지 저장 단위가 아니다.
+    라벨을 MG 로 달면 나누지 않은 값(1.45e6)에 MG 가 붙어 1.45e12 G 로 읽힌다.
+    """
+    b = sphere_bundle(minimal_sphere_sidecar(), path="/x/report.json", label="RevA")
+    assert b.unit_labels["acc"] == "G"
+
+
+def test_sphere_report_units_win_over_defaults():
+    """보고서가 단위를 실어오면 그것이 이긴다 (기본값은 부재 시 보완일 뿐)."""
+    raw = minimal_sphere_sidecar()
+    raw["unit_labels"] = {"acc": "mm/s²", "stress": "Pa"}
+    b = sphere_bundle(raw, path="/x/report.json", label="RevA")
+    assert b.unit_labels["acc"] == "mm/s²" and b.unit_labels["stress"] == "Pa"

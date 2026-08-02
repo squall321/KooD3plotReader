@@ -124,6 +124,14 @@ def test_compare_invariants(n_rev):
     for p in cmp_["parts"]:
         assert len(p["worst"]) == n_rev
 
+    # 참피크는 리샘플 이전 실측 최대값 — 격자 worst 가 이걸 넘으면 보간이
+    # 없는 값을 만들어낸 것이다 (IDW 는 이웃 가중평균이라 구조상 불가능)
+    kpi = cmp_["kpi"]
+    for gw, tp in zip(kpi["worst_per_rev"], kpi["true_peak_per_rev"]):
+        assert tp is not None, "참피크가 비었다 — 실측 원본에서 뽑지 못했다"
+        assert gw <= tp + 1e-9, f"격자 worst({gw}) 가 참피크({tp}) 를 넘었다"
+    assert kpi["true_peak_delta_pct"][cmp_["baseline_idx"]] in (0.0, None)
+
     # findings diff 가 실제로 데이터를 태우고 있어야 한다 (골든이 빈 채로
     # 통과하면 diff 코드는 잠기지 않는다 — 실측 공백이었다)
     fds = [f for f in cmp_["findings_diff"] if not f["is_baseline"]]

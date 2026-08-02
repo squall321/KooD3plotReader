@@ -370,11 +370,18 @@ def _build_kpi_table(cmp_: dict) -> str:
     if not labels:
         return ""
 
+    acc_unit = "G" if gdiv else (ul.get("acc") or "")
     rows_def = [
-        ("WORST ACC", _kpi_series(cmp_, "worst_g"), ("G" if gdiv else (ul.get("acc") or "")), gdiv or 1.0, 0),
+        ("WORST ACC", _kpi_series(cmp_, "worst_g"), acc_unit, gdiv or 1.0, 0),
         ("WORST STRESS", _kpi_series(cmp_, "worst_s"), ul.get("stress") or "", 1.0, 0),
         ("DISSIPATION", _kpi_series(cmp_, "diss_pct"), "%", 1.0, 1),
     ]
+    # 공통 격자를 IDW 보간으로 만든 경우, 격자 worst 는 이웃 가중평균이라 실측
+    # 피크를 넘지 못한다(실데이터 -40~-46%). 원본에서 뽑은 참피크를 함께 건다.
+    tp = (cmp_.get("kpi") or {}).get("true_peak_per_rev") or []
+    if any(isinstance(v, (int, float)) for v in tp):
+        rows_def.insert(0, ("참피크 (실측)", list(tp), acc_unit, gdiv or 1.0, 0))
+        rows_def[1] = ("WORST ACC (격자)",) + rows_def[1][1:]
     head = '<th class="tl">METRIC</th>' + "".join(
         f'<th>{_esc(l)}</th><th>&Delta; vs BASE</th>' for l in labels
     )
@@ -388,9 +395,25 @@ def _build_kpi_table(cmp_: dict) -> str:
             dtxt, dcls = (("BASE", "na") if i == base else _delta_cell(v, base_v))
             tds.append(f'<td class="num">{shown}</td><td class="dpct {dcls}">{dtxt}</td>')
         body.append("<tr>" + "".join(tds) + "</tr>")
+
+    note = ""
+    if any(isinstance(v, (int, float)) for v in tp):
+        kp = cmp_.get("kpi") or {}
+        damp = [d for d in (kp.get("peak_damping_pct") or []) if isinstance(d, (int, float))]
+        meas = [m for m in (kp.get("measured_pct") or []) if isinstance(m, (int, float))]
+        cellnames = [c for c in (kp.get("true_peak_cell") or []) if c]
+        note = (
+            '<div class="pcap">참피크는 리샘플 이전 <b>실측 원본</b>의 최대값이고, '
+            "격자 worst 는 공통 격자로 IDW 보간한 뒤의 최대값이다. 보간은 이웃값의 "
+            "가중평균이라 피크를 넘지 못하므로 격자 worst 는 항상 참피크 이하다"
+            + (f" (이 데이터에서 최대 {abs(min(damp)):.1f}% 낮다)" if damp and min(damp) < 0 else "")
+            + (f". 격자 셀 중 실측 비율은 {min(meas):.0f}%다" if meas else "")
+            + (f". baseline 참피크 발생 위치는 {_esc(cellnames[0])}" if cellnames else "")
+            + ".</div>"
+        )
     return (
         '<table class="dt"><thead><tr>' + head + "</tr></thead><tbody>"
-        + "".join(body) + "</tbody></table>"
+        + "".join(body) + "</tbody></table>" + note
     )
 
 

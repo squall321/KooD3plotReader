@@ -23,7 +23,11 @@ _METRIC_SRC = {"g": "peak_g", "s": "peak_stress", "e": "peak_strain", "d": "peak
 # sphere 본 보고서(koo_sphere_report)의 표기 규약. sidecar 에 unit_labels 가
 # 없을 때만 쓰는 기본값이다 — 단위를 지어내는 게 아니라 원 보고서와 맞춘다.
 _SPHERE_DEFAULT_UNITS = {
-    "acc": "MG",         # peak_g 는 sphere 보고서에서 MG(mega-G) 로 표기
+    # peak_g 는 **G 단위로 저장**된다 (loader: abs_acc / G_FACTOR).
+    # 구면 보고서 화면이 "MG" 로 보이는 것은 표시할 때 1e6 으로 나누기 때문이며
+    # (html_report.js: v/1e6 + ' MG'), 저장값의 단위가 아니다. 여기서 "MG" 로
+    # 라벨을 달면 나누지 않은 값에 MG 를 붙여 1e6 배 과대 표기가 된다.
+    "acc": "G",
     "stress": "MPa",
     "disp": "mm",
     "vel": "mm/s",

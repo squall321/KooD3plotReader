@@ -325,8 +325,10 @@ def test_worst_cell_move_data_embedded():
 def test_sphere_units_defaulted_when_sidecar_lacks_them():
     """sphere sidecar 는 unit_labels 를 싣지 않는다 — 단위 없는 수를 내보내지 않는다.
 
-    회귀 배경: 787,830 이 무슨 단위인지 알 수 없게 나갔다. sphere 본 보고서의
-    표기 규약(peak_g=MG)을 기본값으로 채운다(지어내는 게 아니라 원본과 맞춤).
+    회귀 배경: 787,830 이 무슨 단위인지 알 수 없게 나갔다. 저장 단위인 G 를
+    기본값으로 채운다. 처음에는 본 보고서 **화면**의 "MG" 를 그대로 베꼈는데,
+    그 MG 는 표시할 때 v/1e6 을 한 결과지 저장 단위가 아니라서 나누지 않은
+    값에 MG 가 붙어 1e6 배 과대 표기가 됐다.
     """
     from koo_federate_report.adapters.sphere import to_bundle
     raw = {
@@ -344,7 +346,7 @@ def test_sphere_units_defaulted_when_sidecar_lacks_them():
     }
     b = to_bundle(raw, path="/x/report.json", label="Rev")
     assert b.unit_labels.get("acc"), "sphere 단위 라벨이 비어 있다"
-    assert b.unit_labels["acc"] == "MG"
+    assert b.unit_labels["acc"] == "G"
 
 
 def test_interpolated_cells_visually_demoted():

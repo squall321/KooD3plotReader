@@ -26,7 +26,8 @@ class CompareError(Exception):
 
 #: 알려진 단위 → SI 환산 계수 (unit_policy: convert 에서만 사용)
 _TO_SI = {
-    "acc": {"m/s²": 1.0, "m/s^2": 1.0, "mm/s²": 1e-3, "mm/s^2": 1e-3, "g": 9.80665},
+    "acc": {"m/s²": 1.0, "m/s^2": 1.0, "mm/s²": 1e-3, "mm/s^2": 1e-3,
+            "g": 9.80665, "G": 9.80665, "MG": 9.80665e6},
     "stress": {"Pa": 1.0, "kPa": 1e3, "MPa": 1e6, "GPa": 1e9},
     "disp": {"m": 1.0, "mm": 1e-3, "cm": 1e-2},
     "vel": {"m/s": 1.0, "mm/s": 1e-3},
@@ -679,6 +680,22 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             }
         )
 
+    # ---- 참피크 (리샘플 이전 실측 원본) ---------------------------------
+    # 공통 격자는 IDW 평균이라 이웃값의 가중평균을 넘지 못한다 → 격자 worst 는
+    # 항상 실측 피크 이하다(실데이터 -40~-46%). 헤드라인이 '한 번도 계산된 적
+    # 없는, 게다가 절반 가까이 낮은' 값이 되지 않도록 원본에서 따로 뽑는다.
+    true_peaks = []
+    for i, b in enumerate(bundles):
+        best_v, best_k = None, None
+        for c in b.cells:
+            v = c.metrics.get(metric)
+            if v is None:
+                continue
+            v = v * factors[i][metric]
+            if best_v is None or v > best_v:
+                best_v, best_k = v, c.label or c.key
+        true_peaks.append({"value": best_v, "cell": best_k})
+
     # ---- KPI -----------------------------------------------------------
     n_cells = len(cells)
     matched_parts = sum(1 for p in parts if sum(1 for x in p["present"] if x) >= 2)
@@ -699,6 +716,26 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             max((c["per_rev"][i]["value"] for c in cells if c["per_rev"][i]["value"] is not None),
                 default=None)
             for i in range(n_rev)
+        ],
+        # 격자(리샘플) worst 는 IDW 평균이라 피크가 깎인다. 실측 원본에서 뽑은
+        # 참피크를 함께 싣는다 — 시계열의 '다운샘플 전 참피크' 규칙과 같은 원칙.
+        "true_peak_per_rev": [tp["value"] for tp in true_peaks],
+        "true_peak_cell": [tp["cell"] for tp in true_peaks],
+        "true_peak_delta_pct": [
+            _pct(tp["value"], true_peaks[baseline_idx]["value"]) for tp in true_peaks
+        ],
+        "peak_damping_pct": [
+            None if (tp["value"] in (None, 0) or gw is None) else (gw - tp["value"]) / tp["value"] * 100.0
+            for tp, gw in zip(
+                true_peaks,
+                [max((c["per_rev"][i]["value"] for c in cells
+                      if c["per_rev"][i]["value"] is not None), default=None)
+                 for i in range(n_rev)],
+            )
+        ],
+        "measured_pct": [
+            (row or {}).get("measured_pct")
+            for row in ((aligned.coverage or {}).get("per_rev") or [])
         ],
         "sidecar_kpi": [dict(b.kpi) for b in bundles],
         "energy": {

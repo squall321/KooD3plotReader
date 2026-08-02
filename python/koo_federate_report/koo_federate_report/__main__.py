@@ -91,7 +91,15 @@ def print_summary(cmp_dict: dict, out=sys.stdout) -> None:
         f"파트: canonical {kpi['n_parts_canonical']}개 (2개 이상 리비전 매칭 "
         f"{kpi['n_parts_matched']}개), 리비전별 미매칭 {kpi['n_parts_unmatched']}\n"
     )
-    w("리비전별 worst: " + ", ".join(_fmt(v) for v in kpi["worst_per_rev"]) + "\n")
+    w("리비전별 worst (공통 격자): " + ", ".join(_fmt(v) for v in kpi["worst_per_rev"]) + "\n")
+    tp = kpi.get("true_peak_per_rev") or []
+    if any(v is not None for v in tp):
+        w("리비전별 참피크 (실측 원본): " + ", ".join(_fmt(v) for v in tp) + "\n")
+        damp = [d for d in (kpi.get("peak_damping_pct") or []) if d is not None]
+        meas = [m for m in (kpi.get("measured_pct") or []) if m is not None]
+        if damp and min(damp) < -0.05:
+            w(f"  ※ 격자 worst 는 보간 평균이라 참피크보다 최대 {abs(min(damp)):.1f}% 낮습니다"
+              + (f" (격자 셀 실측률 {min(meas):.0f}%)" if meas else "") + "\n")
 
     bt = cmp_dict.get("behavior_transitions")
     if bt:
