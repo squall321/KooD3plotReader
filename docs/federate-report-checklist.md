@@ -32,7 +32,8 @@
 
 ## F5 — HTML 보고서
 
-- [ ] s1 KPI Δ 스트립 + 요약 내러티브 / s2 합성 지도 4종 + linked probe
+- [ ] s2 UNROLLED PROFILE (주력) — baseline 심각도 정렬/카테고리 밴드/절대·Δ·log 토글
+- [ ] s1 KPI Δ 스트립 + 요약 내러티브 / s3 합성 지도 4종 + linked probe(프로파일과 공유)
 - [ ] s3 파트 추이(스파크라인) / s4 findings diff / s5 provenance 부록
 - [ ] N=2 뷰 자동 강등 (TREND 숨김), 소지도 썸네일=probe 링크
 - [ ] Playwright 콘솔 에러 0
