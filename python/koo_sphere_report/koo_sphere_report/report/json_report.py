@@ -78,6 +78,16 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 "time_of_peak_g": pr.motion.peak_g_time if pr.motion else 0.0,
             }
 
+            # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
+            # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.
+            if pr.energy is not None:
+                e = pr.energy
+                pd["energy"] = {
+                    "peak_ie": e.peak_ie, "peak_ie_time": e.peak_ie_time,
+                    "peak_ke": e.peak_ke, "peak_ke_time": e.peak_ke_time,
+                    "final_ie": e.final_ie, "final_ke": e.final_ke,
+                }
+
             if include_timeseries:
                 if pr.stress and pr.stress.times:
                     step = max(1, len(pr.stress.times) // ts_pts)

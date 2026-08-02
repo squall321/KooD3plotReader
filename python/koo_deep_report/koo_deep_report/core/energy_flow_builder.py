@@ -56,6 +56,24 @@ def _rt(t: float) -> float:
     return round(tf, 9)
 
 
+def _peak_at(series, t_full) -> tuple[float | None, float | None]:
+    """원해상도 시계열의 최대값과 그 시각. 값이 없으면 (None, None).
+
+    다운샘플된 배열에서 max() 를 하면 참피크를 놓치므로, 요약 스칼라는 반드시
+    이 함수로 원본에서 뽑는다. 빈 배열을 0.0 으로 채우지 않는 것도 규칙이다
+    ('측정 안 됨' 과 '0 이었음' 은 다르다).
+    """
+    if not series:
+        return None, None
+    mi = 0
+    mx = series[0]
+    for a in range(1, len(series)):
+        if series[a] > mx:
+            mx, mi = series[a], a
+    tt = t_full[mi] if mi < len(t_full) else None
+    return _r4(mx), (_rt(tt) if tt is not None else None)
+
+
 def _downsample_indices(n: int, max_pts: int, peak_idx: int | None = None) -> list[int]:
     """[0,n) 을 max_pts 이하로 다운샘플한 인덱스 집합.
 
@@ -248,6 +266,11 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
         if is_imp and not part_names.get(pid):
             name = "Impactor"
         nid = str(pid)
+        # 스칼라는 **다운샘플 이전 원해상도**에서 뽑는다. kinetic_ts/internal_ts 는
+        # max_pts 로 솎은 것이라 그 위에서 max() 를 하면 참피크를 놓친다
+        # (프로젝트 공통 규칙 — 시계열 요약은 항상 원해상도 선계산).
+        ke_pk, ke_pt = _peak_at(ke_s, t_full)
+        ie_pk, ie_pt = _peak_at(ie_s, t_full)
         nodes.append({
             "node_id": nid,
             "name": name,
@@ -255,6 +278,15 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
             "times": list(ref_t),
             "kinetic_ts": [_r4(ke_s[i]) for i in idx],
             "internal_ts": ([_r4(ie_s[i]) for i in idx] if ie_s else []),
+            # 파트별 에너지 요약 (원해상도). 값이 없으면 0 으로 채우지 않고 None.
+            "peak_ke": ke_pk,
+            "peak_ke_time": ke_pt,
+            "peak_ie": ie_pk,
+            "peak_ie_time": ie_pt,
+            # 최종 내부에너지 = 그 파트가 끝까지 흡수하고 남은 양 (탄성 복원분 제외).
+            # 피크와 다르므로 둘 다 싣는다 — 피크만 보면 되튐을 흡수로 오독한다.
+            "final_ie": (_r4(ie_s[-1]) if ie_s else None),
+            "final_ke": (_r4(ke_s[-1]) if ke_s else None),
         })
         node_ke0[nid] = float(ke_s[0]) if ke_s else 0.0
         node_ids_real.add(nid)

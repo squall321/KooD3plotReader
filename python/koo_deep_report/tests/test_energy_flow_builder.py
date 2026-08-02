@@ -211,3 +211,76 @@ def test_nan_inf_sanitized():
     for e in g["edges"]:
         for v in e["force_mag_ts"] + e["impulse_cum_ts"]:
             assert math.isfinite(v)
+
+
+# --- 파트별 에너지 요약 스칼라 (원해상도 참피크) --------------------------
+
+def test_node_energy_scalars_hand_calc():
+    """peak/final IE·KE 손계산.
+
+    픽스처(파트2): KE=[0,20,30], IE=[0,10,20], t=[0,1,2]
+      peak_ke=30 @t=2 / peak_ie=20 @t=2 / final_ke=30 / final_ie=20
+    파트1(임팩터): KE=[100,60,40] → peak_ke=100 @t=0, final_ke=40
+    """
+    g = build_flow_graph(_make_binout(), _make_contact_map(), PART_NAMES,
+                         impactor_pid=1, max_pts=120)
+    by = {n["node_id"]: n for n in g["nodes"]}
+
+    n2 = by["2"]
+    assert n2["peak_ke"] == pytest.approx(30.0)
+    assert n2["peak_ke_time"] == pytest.approx(2.0)
+    assert n2["peak_ie"] == pytest.approx(20.0)
+    assert n2["peak_ie_time"] == pytest.approx(2.0)
+    assert n2["final_ke"] == pytest.approx(30.0)
+    assert n2["final_ie"] == pytest.approx(20.0)
+
+    n1 = by["1"]
+    assert n1["peak_ke"] == pytest.approx(100.0)
+    assert n1["peak_ke_time"] == pytest.approx(0.0)
+    assert n1["final_ke"] == pytest.approx(40.0)
+
+
+def test_peak_scalars_survive_downsampling():
+    """다운샘플 후에도 스칼라는 원해상도 참피크여야 한다.
+
+    회귀 방지: 요약을 kinetic_ts/internal_ts 위에서 max() 로 뽑으면 솎인
+    구간의 피크를 통째로 놓친다. 여기서는 max_pts 를 극단으로 줄여
+    (스파이크가 반드시 솎이도록) 스칼라가 여전히 참값인지 확인한다.
+    """
+    b = _make_binout()
+    n = 41
+    b.matsum.t = [i * 0.1 for i in range(n)]
+    spike_at = 17
+    b.matsum.kinetic_energy = [
+        [1.0, 999.0 if i == spike_at else 1.0, 1.0] for i in range(n)
+    ]
+    b.matsum.internal_energy = [[0.0, 0.0, 0.0] for _ in range(n)]
+    b.matsum.hourglass_energy = [[0.0, 0.0, 0.0] for _ in range(n)]
+    b.matsum.x_rbvelocity = [[0.0, 0.0, 0.0] for _ in range(n)]
+    b.matsum.y_rbvelocity = [[0.0, 0.0, 0.0] for _ in range(n)]
+    b.matsum.z_rbvelocity = [[0.0, 0.0, 0.0] for _ in range(n)]
+    for r in b.rcforc:
+        r.t = list(b.matsum.t)
+        r.fx = [0.0] * n
+        r.fy = [0.0] * n
+        r.fz = [0.0] * n
+
+    g = build_flow_graph(b, _make_contact_map(), PART_NAMES,
+                         impactor_pid=1, max_pts=5)
+    n2 = next(x for x in g["nodes"] if x["node_id"] == "2")
+    assert len(n2["kinetic_ts"]) <= 7, "다운샘플이 걸리지 않아 회귀를 못 잡는다"
+    assert n2["peak_ke"] == pytest.approx(999.0), "참피크를 놓쳤다"
+    assert n2["peak_ke_time"] == pytest.approx(spike_at * 0.1)
+
+
+def test_missing_energy_is_none_not_zero():
+    """IE 가 아예 없으면 None — 0.0 으로 채우면 '흡수 0' 으로 오독된다."""
+    b = _make_binout()
+    b.matsum.internal_energy = None
+    g = build_flow_graph(b, _make_contact_map(), PART_NAMES,
+                         impactor_pid=1, max_pts=120)
+    for n in g["nodes"]:
+        if not str(n["node_id"]).isdigit():
+            continue
+        assert n["peak_ie"] is None and n["final_ie"] is None
+        assert n["peak_ke"] is not None      # KE 는 여전히 있어야 한다

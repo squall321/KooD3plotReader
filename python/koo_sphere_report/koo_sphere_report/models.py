@@ -154,12 +154,30 @@ class MotionData:
 
 
 @dataclass
+class PartEnergy:
+    """파트별 에너지 요약 (binout matsum 경유, 원해상도 참피크).
+
+    값이 없으면 0.0 이 아니라 None 이다 — '계측 안 됨' 과 '0 이었음' 은 다르다.
+    peak 와 final 을 함께 두는 이유: 피크만 보면 되튐(탄성 복원)을 흡수로
+    오독한다. 끝까지 남은 final_ie 가 실제로 그 파트가 먹은 에너지다.
+    """
+    peak_ie: float | None = None
+    peak_ie_time: float | None = None
+    peak_ke: float | None = None
+    peak_ke_time: float | None = None
+    final_ie: float | None = None
+    final_ke: float | None = None
+
+
+@dataclass
 class PartResult:
     """Analysis result for one part in one simulation run."""
     part: PartInfo
     stress: TimeSeriesData | None = None
     strain: TimeSeriesData | None = None
     motion: MotionData | None = None
+    #: binout matsum 이 있을 때만 채워진다. 없으면 None (0 으로 위장 금지).
+    energy: PartEnergy | None = None
 
     @property
     def peak_stress(self) -> float:

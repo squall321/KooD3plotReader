@@ -2136,7 +2136,7 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
 # --- per-run 증분 캐시 (P5-2) ------------------------------------------------
 # <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
 # 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
-_CACHE_SCHEMA = 4   # v4: 워커 pickle 에 energy_flows(파트간 에너지 흐름) 추가
+_CACHE_SCHEMA = 5   # v5: 흐름 노드에 파트별 peak/final IE·KE 스칼라 추가
 
 
 def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:

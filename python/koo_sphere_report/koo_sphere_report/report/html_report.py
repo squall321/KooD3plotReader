@@ -141,6 +141,15 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 "peak_g": round(pr.peak_g, 1),
                 "peak_disp": round(pr.peak_disp, s_prec),
             }
+            # 파트별 에너지 (binout matsum). 미계측 파트는 키를 넣지 않는다 —
+            # 0 으로 채우면 화면에서 '흡수 없음' 으로 오독된다.
+            if pr.energy is not None:
+                e = pr.energy
+                pd["energy"] = {
+                    "peak_ie": e.peak_ie, "peak_ie_time": e.peak_ie_time,
+                    "peak_ke": e.peak_ke, "peak_ke_time": e.peak_ke_time,
+                    "final_ie": e.final_ie, "final_ke": e.final_ke,
+                }
             if pr.stress and pr.stress.times:
                 step = max(1, len(pr.stress.times) // ts_pts)
                 pd["stress_ts"] = {
@@ -2105,6 +2114,9 @@ function renderPartRisk() {
   for (const pid of pids) {
     const p = DATA.parts[String(pid)];
     let ws=0,wa='',wg=0,wga='',wst=0,wsta='',wd=0,wda='';
+    // 에너지는 matsum 이 있을 때만 채워진다 — 없으면 null 을 유지해 '—' 로
+    // 그린다. 0 으로 초기화하면 계측 안 된 파트가 '흡수 0' 으로 둔갑한다.
+    let wie=null,wiea='',wke=null,wfie=null;
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
       if (!pd) continue;
@@ -2112,13 +2124,23 @@ function renderPartRisk() {
       if (pd.peak_g > wg) { wg = pd.peak_g; wga = r.angle.name; }
       if (pd.peak_strain > wst) { wst = pd.peak_strain; wsta = r.angle.name; }
       if (pd.peak_disp > wd) { wd = pd.peak_disp; wda = r.angle.name; }
+      const e = pd.energy;
+      if (e) {
+        if (e.peak_ie != null && (wie == null || e.peak_ie > wie)) { wie = e.peak_ie; wiea = r.angle.name; }
+        if (e.peak_ke != null && (wke == null || e.peak_ke > wke)) { wke = e.peak_ke; }
+        if (e.final_ie != null && (wfie == null || e.final_ie > wfie)) { wfie = e.final_ie; }
+      }
     }
     if (ws === 0 && wg === 0) continue;
+    const eN = (v, d) => (v == null ? '<span style="color:var(--fg2)">&mdash;</span>' : v.toFixed(d));
     rows += `<tr>
       <td style="color:var(--cyan)">Part ${pid}</td><td>${p.name}</td><td>${p.group}</td>
       <td style="text-align:right">${ws.toFixed(1)}</td><td style="color:var(--yellow)">${wa}</td>
       <td style="text-align:right">${(wg/1e6).toFixed(2)}</td><td style="color:var(--yellow)">${wga}</td>
       <td style="text-align:right">${wst.toFixed(4)}</td><td style="color:var(--yellow)">${wsta}</td>
+      <td style="text-align:right">${eN(wie,2)}</td><td style="color:var(--yellow)">${wiea}</td>
+      <td style="text-align:right">${eN(wfie,2)}</td>
+      <td style="text-align:right">${eN(wke,2)}</td>
     </tr>`;
   }
 
@@ -2163,7 +2185,10 @@ function renderPartRisk() {
     <div class="panel"><h2>Worst-Case Per Part (All Angles)</h2>
       <div class="table-wrap" style="max-height:500px;overflow-y:auto;">
       <table>
-        <tr><th>Part</th><th>Name</th><th>Group</th><th>Stress (MPa)</th><th>Angle</th><th>MG</th><th>Angle</th><th>Strain</th><th>Angle</th></tr>
+        <tr><th>Part</th><th>Name</th><th>Group</th><th>Stress (MPa)</th><th>Angle</th><th>MG</th><th>Angle</th><th>Strain</th><th>Angle</th>
+            <th title="내부에너지 피크 (binout matsum, 원해상도)">Peak IE</th><th>Angle</th>
+            <th title="해석 종료 시점 내부에너지 — 되튐분을 뺀 실제 흡수량">Final IE</th>
+            <th title="운동에너지 피크">Peak KE</th></tr>
         ${rows}
       </table></div>
     </div>`;

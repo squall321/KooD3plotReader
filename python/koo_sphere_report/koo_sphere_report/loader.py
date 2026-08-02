@@ -388,6 +388,30 @@ def _find_kfile(run_output_dir: Path) -> Path | None:
     return None
 
 
+def _attach_part_energy(sr, flow: dict) -> None:
+    """흐름 그래프의 파트 노드 → SimulationResult.parts[pid].energy.
+
+    흐름 탭(최상위 energy_flows)에만 있던 파트별 IE/KE 를 파트 단위로도
+    쓸 수 있게 승격한다. 노드가 없거나 값이 없는 파트는 건드리지 않는다
+    (None 유지 — 0 으로 채우면 '계측 안 됨' 이 '0 이었음' 으로 둔갑한다).
+    """
+    from .models import PartEnergy
+
+    for node in (flow.get("nodes") or []):
+        nid = str(node.get("node_id") or "")
+        if not nid.isdigit():          # iface:/set: 유령 노드는 파트가 아니다
+            continue
+        pr = sr.parts.get(int(nid))
+        if pr is None:
+            continue
+        vals = {k: node.get(k) for k in
+                ("peak_ie", "peak_ie_time", "peak_ke", "peak_ke_time",
+                 "final_ie", "final_ke")}
+        if all(v is None for v in vals.values()):
+            continue
+        pr.energy = PartEnergy(**vals)
+
+
 def load_energy_flow(
     run_output_dir: Path,
     part_names: dict[int, str],
@@ -446,7 +470,7 @@ def load_energy_flow(
 # <test_dir>/.sphere_flow_cache/v<N>/<run_folder>.json — 흐름이 순수 dict 라
 # JSON 왕복이 무손실. best-effort: 읽기/쓰기 실패는 조용히 miss/skip
 # (읽기전용 NFS 안전). 지문은 내용 해시가 아닌 stat(size:mtime_ns) — ~ms.
-_FLOW_CACHE_SCHEMA = 1
+_FLOW_CACHE_SCHEMA = 2   # v2: 흐름 노드에 파트별 peak/final IE·KE 스칼라 추가
 
 
 def _flow_fingerprint(run_output_dir: Path) -> str:
@@ -582,7 +606,11 @@ def load_all(test_dir: Path) -> tuple[
                     _flow_cache_save(test_dir, sr.run_folder, fp, g)
             if g:
                 energy_flows[sr.run_folder] = g
+                _attach_part_energy(sr, g)
         print(f"[sphere] flow cache: {n_hit}/{len(results)} hit")
+        n_e = sum(1 for sr in results for pr in sr.parts.values() if pr.energy)
+        if n_e:
+            print(f"[sphere] 파트별 에너지(IE/KE) 부착: {n_e}건")
     elif deps[0] is None and results:
         print("[sphere] energy-flow: koo_deep_report not importable — "
               "flow tab will be empty (install koo_deep_report + lasso to enable)")
