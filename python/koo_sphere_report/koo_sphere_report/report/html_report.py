@@ -141,6 +141,11 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 "peak_g": round(pr.peak_g, 1),
                 "peak_disp": round(pr.peak_disp, s_prec),
             }
+            # 최대 주응력 σ1 (있을 때만). von Mises 와 다른 물리량이라 별 칸.
+            if pr.principal is not None:
+                pd["peak_principal_stress"] = round(pr.peak_principal, s_prec)
+                pd["time_of_peak_principal"] = round(pr.principal.peak_time, t_prec)
+
             # 파트별 에너지 (binout matsum). 미계측 파트는 키를 넣지 않는다 —
             # 0 으로 채우면 화면에서 '흡수 없음' 으로 오독된다.
             if pr.energy is not None:
@@ -2117,10 +2122,14 @@ function renderPartRisk() {
     // 에너지는 matsum 이 있을 때만 채워진다 — 없으면 null 을 유지해 '—' 로
     // 그린다. 0 으로 초기화하면 계측 안 된 파트가 '흡수 0' 으로 둔갑한다.
     let wie=null,wiea='',wke=null,wfie=null;
+    let wps=null,wpsa='';       // 최대 주응력 σ1 (미계측이면 null 유지)
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
       if (!pd) continue;
       if (pd.peak_stress > ws) { ws = pd.peak_stress; wa = r.angle.name; }
+      if (pd.peak_principal_stress != null && (wps == null || pd.peak_principal_stress > wps)) {
+        wps = pd.peak_principal_stress; wpsa = r.angle.name;
+      }
       if (pd.peak_g > wg) { wg = pd.peak_g; wga = r.angle.name; }
       if (pd.peak_strain > wst) { wst = pd.peak_strain; wsta = r.angle.name; }
       if (pd.peak_disp > wd) { wd = pd.peak_disp; wda = r.angle.name; }
@@ -2136,6 +2145,7 @@ function renderPartRisk() {
     rows += `<tr>
       <td style="color:var(--cyan)">Part ${pid}</td><td>${p.name}</td><td>${p.group}</td>
       <td style="text-align:right">${ws.toFixed(1)}</td><td style="color:var(--yellow)">${wa}</td>
+      <td style="text-align:right">${eN(wps,1)}</td><td style="color:var(--yellow)">${wpsa}</td>
       <td style="text-align:right">${(wg/1e6).toFixed(2)}</td><td style="color:var(--yellow)">${wga}</td>
       <td style="text-align:right">${wst.toFixed(4)}</td><td style="color:var(--yellow)">${wsta}</td>
       <td style="text-align:right">${eN(wie,2)}</td><td style="color:var(--yellow)">${wiea}</td>
@@ -2185,7 +2195,9 @@ function renderPartRisk() {
     <div class="panel"><h2>Worst-Case Per Part (All Angles)</h2>
       <div class="table-wrap" style="max-height:500px;overflow-y:auto;">
       <table>
-        <tr><th>Part</th><th>Name</th><th>Group</th><th>Stress (MPa)</th><th>Angle</th><th>MG</th><th>Angle</th><th>Strain</th><th>Angle</th>
+        <tr><th>Part</th><th>Name</th><th>Group</th><th title="von Mises 등가응력">Stress (MPa)</th><th>Angle</th>
+            <th title="최대 주응력 σ1 — von Mises 와 다른 물리량이다. 구버전 산출물에는 없어 '—' 로 나온다">&sigma;1 (MPa)</th><th>Angle</th>
+            <th>MG</th><th>Angle</th><th>Strain</th><th>Angle</th>
             <th title="내부에너지 피크 (binout matsum, 원해상도)">Peak IE</th><th>Angle</th>
             <th title="해석 종료 시점 내부에너지 — 되튐분을 뺀 실제 흡수량">Final IE</th>
             <th title="운동에너지 피크">Peak KE</th></tr>

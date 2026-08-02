@@ -78,6 +78,12 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 "time_of_peak_g": pr.motion.peak_g_time if pr.motion else 0.0,
             }
 
+            # 최대 주응력 σ1 — 구버전 산출물엔 CSV 가 없어 키 자체를 넣지 않는다.
+            # von Mises 로 대체하면 전혀 다른 물리량을 같은 칸에 넣는 셈이다.
+            if pr.principal is not None:
+                pd["peak_principal_stress"] = round(pr.peak_principal, 2)
+                pd["time_of_peak_principal"] = pr.principal.peak_time
+
             # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
             # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.
             if pr.energy is not None:

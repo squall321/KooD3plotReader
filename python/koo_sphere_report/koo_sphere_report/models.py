@@ -178,10 +178,18 @@ class PartResult:
     motion: MotionData | None = None
     #: binout matsum 이 있을 때만 채워진다. 없으면 None (0 으로 위장 금지).
     energy: PartEnergy | None = None
+    #: 최대 주응력 σ1. unified_analyzer 가 von Mises 와 **항상 함께** 내지만
+    #: 구버전으로 돌린 산출물에는 CSV 가 없다 → 그때는 None (0 아님).
+    principal: TimeSeriesData | None = None
 
     @property
     def peak_stress(self) -> float:
         return self.stress.peak if self.stress else 0.0
+
+    @property
+    def peak_principal(self) -> float | None:
+        """최대 주응력 피크. 미계측이면 None — von Mises 로 대체하지 않는다."""
+        return self.principal.peak if self.principal else None
 
     @property
     def peak_strain(self) -> float:
