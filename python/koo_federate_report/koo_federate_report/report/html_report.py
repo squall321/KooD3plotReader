@@ -190,6 +190,9 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2
 .spark { display: block; }
 .mtx-wrap { background: var(--bg3); border-radius: 6px; padding: 8px; overflow-x: auto; }
 .mtx-wrap svg { display: block; min-width: 100%; }
+.warn-badge.error { border-color: rgba(255,94,132,.55); color: #ff5e84;
+  background: rgba(255,94,132,.12); }
+.warn-badge.info { opacity: .85; }
 .miss-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
   font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#ffc15e;
   background:rgba(255,193,94,.13); border:1px solid rgba(255,193,94,.45); }
@@ -258,9 +261,18 @@ def _build_warnings(cmp_: dict) -> str:
     ws = cmp_.get("warnings") or []
     if not ws:
         return ""
+    # 엔진 계약: {code, message, severity}. 구 샘플({kind,msg})도 함께 수용한다.
+    # (code/message 를 못 읽어 경고 문구가 빈 칸으로 나가던 결함 수정)
+    def _wk(w):
+        return str((w or {}).get("code") or (w or {}).get("kind") or "WARN").upper()
+
+    def _wm(w):
+        return str((w or {}).get("message") or (w or {}).get("msg") or "")
+
     items = "".join(
-        '<div class="warn-badge"><span class="wk">{}</span><span>{}</span></div>'.format(
-            _esc((w or {}).get("kind", "WARN")).upper(), _esc((w or {}).get("msg", ""))
+        '<div class="warn-badge {sev}"><span class="wk">{k}</span><span>{m}</span></div>'.format(
+            sev=_esc(str((w or {}).get("severity", "")).lower()),
+            k=_esc(_wk(w)), m=_esc(_wm(w)),
         )
         for w in ws
     )
@@ -667,6 +679,164 @@ def _build_s9(cmp_: dict) -> str:
     )
 
 
+#: 지표 → unit_labels 축 이름 (models.METRIC_UNIT_AXIS 와 같은 표, 렌더 전용 사본)
+_METRIC_AXIS = {"g": "acc", "s": "stress", "e": "strain", "d": "disp"}
+
+
+def _build_s10(cmp_: dict) -> str:
+    """카테고리 소계 비교 — 엔진 계약: category_summary{categories[{name,n_cells,per_rev}]}.
+
+    "코너 낙하만 나빠졌다" 같은 구조적 회귀를 한 화면에서 잡는 뷰다.
+    막대는 카테고리별 worst, 막대 위 라벨은 baseline 대비 Δ% 이며,
+    표에는 worst/median/mean 을 리비전별로 모두 적는다.
+    카테고리가 1종 이하이면 엔진이 빈 dict 를 주므로 이 섹션은 생성되지 않는다.
+    """
+    cs = cmp_.get("category_summary") or {}
+    cats = cs.get("categories") or []
+    if not cats:
+        return ""
+    labels = _rev_labels(cmp_.get("revisions"))
+    n_rev = len(labels)
+    base = int(cs.get("baseline_idx", cmp_.get("baseline_idx") or 0))
+    gdiv = cmp_.get("g_divisor") or 0
+    metric = cs.get("metric") or "g"
+    axis = _METRIC_AXIS.get(metric, "acc")
+    unit = ("G" if (gdiv and metric == "g")
+            else ((cmp_.get("unit_labels") or {}).get(axis) or ""))
+    div = (gdiv or 1.0) if metric == "g" else 1.0
+
+    def shown(v):
+        return _num(v / div, 0) if isinstance(v, (int, float)) else _EMDASH
+
+    # ---- 그룹 막대 (worst) ----
+    W, H = 1240, 330
+    ml, mr, mt, mb = 78, 20, 30, 62
+    iw, ih = W - ml - mr, H - mt - mb
+    vals = [
+        (r or {}).get("worst")
+        for ct in cats for r in (ct.get("per_rev") or [])
+        if isinstance((r or {}).get("worst"), (int, float))
+    ]
+    vmax = max([v / div for v in vals], default=0.0) or 1.0
+    gw = iw / max(len(cats), 1)
+    bw = min(46.0, max((gw - 20.0) / max(n_rev, 1), 3.0))
+
+    def ypx(v):
+        return mt + ih - max(0.0, min(1.0, v / vmax)) * ih
+
+    sg = []
+    for t in range(5):
+        tv = vmax * t / 4.0
+        y = ypx(tv)
+        sg.append(
+            f'<line x1="{ml}" y1="{y:.1f}" x2="{W - mr}" y2="{y:.1f}" '
+            f'stroke="rgba(255,255,255,0.05)"/>'
+            f'<text x="{ml - 8}" y="{y + 3.5:.1f}" fill="#5c6383" font-size="10" '
+            f'text-anchor="end" font-family="JetBrains Mono, monospace">{_num(tv, 0)}</text>'
+        )
+    sg.append(
+        f'<text x="16" y="{mt + ih / 2:.1f}" fill="#aab2cf" font-size="10.5" text-anchor="middle" '
+        f'transform="rotate(-90 16 {mt + ih / 2:.1f})">worst {_esc(unit)}</text>'
+    )
+    for j, ct in enumerate(cats):
+        gx = ml + j * gw
+        x0 = gx + (gw - bw * n_rev) / 2.0
+        for i in range(n_rev):
+            row = (ct.get("per_rev") or [{}] * n_rev)[i] if i < len(ct.get("per_rev") or []) else {}
+            v = (row or {}).get("worst")
+            x = x0 + i * bw
+            if not isinstance(v, (int, float)):
+                sg.append(
+                    f'<text x="{x + bw / 2:.1f}" y="{mt + ih - 6:.1f}" fill="#5c6383" '
+                    f'font-size="9" text-anchor="middle">&mdash;</text>'
+                )
+                continue
+            y = ypx(v / div)
+            sg.append(
+                f'<rect x="{x + 1:.1f}" y="{y:.1f}" width="{max(bw - 2, 1):.1f}" '
+                f'height="{max(mt + ih - y, 1):.1f}" fill="{_PALETTE[i % len(_PALETTE)]}" '
+                f'fill-opacity="{0.95 if i == base else 0.8}" rx="2">'
+                f'<title>{_esc(ct.get("name"))} · {_esc(labels[i])} · worst {shown(v)} {_esc(unit)}</title></rect>'
+            )
+            dpct = (row or {}).get("worst_delta_pct")
+            if i != base and isinstance(dpct, (int, float)):
+                col = "#ff3854" if dpct > 0 else ("#4adfa1" if dpct < 0 else "#5c6383")
+                sg.append(
+                    f'<text x="{x + bw / 2:.1f}" y="{y - 4:.1f}" fill="{col}" font-size="9.5" '
+                    f'text-anchor="middle" font-family="JetBrains Mono, monospace">{_pct(dpct)}</text>'
+                )
+        sg.append(
+            f'<text x="{gx + gw / 2:.1f}" y="{mt + ih + 18:.1f}" fill="#e6ebff" font-size="11" '
+            f'text-anchor="middle">{_esc(ct.get("name"))}</text>'
+            f'<text x="{gx + gw / 2:.1f}" y="{mt + ih + 32:.1f}" fill="#5c6383" font-size="9.5" '
+            f'text-anchor="middle" font-family="JetBrains Mono, monospace">'
+            f'{_esc(ct.get("n_cells", 0))} cells</text>'
+        )
+    sg.append(
+        f'<line x1="{ml}" y1="{mt + ih}" x2="{W - mr}" y2="{mt + ih}" stroke="rgba(255,255,255,0.15)"/>'
+    )
+    svg = f'<svg viewBox="0 0 {W} {H}" style="width:100%;display:block">' + "".join(sg) + "</svg>"
+
+    legend = "".join(
+        f'<span class="lg"><span class="sw" style="background:{_PALETTE[i % len(_PALETTE)]}"></span>'
+        f'<span>{_esc(l)}{" *" if i == base else ""}</span></span>'
+        for i, l in enumerate(labels)
+    )
+
+    # ---- 표 (worst / median / mean) ----
+    head = ('<th class="tl">카테고리</th><th class="tl">통계</th><th>N</th>'
+            + "".join(f'<th>{_esc(l)}</th><th>&Delta; vs BASE</th>' for l in labels))
+    body = []
+    for ct in cats:
+        per_rev = ct.get("per_rev") or []
+        for si, (stat, stat_lbl) in enumerate((("worst", "WORST"), ("median", "MEDIAN"), ("mean", "MEAN"))):
+            tds = []
+            if si == 0:
+                tds.append(f'<td class="tl b" rowspan="3">{_esc(ct.get("name"))}</td>')
+            tds.append(f'<td class="tl dim">{stat_lbl}</td>')
+            if si == 0:
+                tds.append(f'<td class="num" rowspan="3">{_esc(ct.get("n_cells", 0))}</td>')
+            for i in range(n_rev):
+                row = per_rev[i] if i < len(per_rev) else {}
+                v = (row or {}).get(stat)
+                dpct = (row or {}).get(f"{stat}_delta_pct")
+                if i == base:
+                    dtxt, dcls = "BASE", "na"
+                elif isinstance(dpct, (int, float)):
+                    dtxt, dcls = _pct(dpct), ("up" if dpct > 0 else ("dn" if dpct < 0 else "na"))
+                else:
+                    dtxt, dcls = _EMDASH, "na"
+                tds.append(f'<td class="num">{shown(v)}</td><td class="dpct {dcls}">{dtxt}</td>')
+            body.append("<tr>" + "".join(tds) + "</tr>")
+    table = ('<table class="dt"><thead><tr>' + head + "</tr></thead><tbody>"
+             + "".join(body) + "</tbody></table>")
+
+    n_excl = cs.get("n_excluded_gated") or 0
+    excl_txt = (f" 미판정 셀 {n_excl}개는 모든 카테고리에서 똑같이 제외했다 — "
+                "리비전마다 다른 셀 집합으로 집계하면 소계 Δ 가 오염된다."
+                if n_excl else "")
+    return (
+        '<section class="page" id="s10">\n'
+        '  <div class="page-head r"><span class="num">10</span>'
+        '<span class="tagline">CATEGORY &middot; BREAKDOWN</span>'
+        f'<span class="ttl">카테고리 소계 &mdash; {_esc(cs.get("metric_label") or "")} 의 구조적 회귀</span>'
+        f'<span class="sub">{_esc(cs.get("n_categories", len(cats)))} CATEGORIES</span></div>\n'
+        '  <div class="panel r"><div class="ph">'
+        '<span class="pt">카테고리별 worst</span>'
+        f'<span class="pd">막대 위 숫자 = baseline({_esc(labels[base] if base < len(labels) else "")}) 대비 &Delta;%</span></div>'
+        f'{svg}'
+        f'<div class="fed-legend" style="margin-top:8px">{legend}</div>'
+        '<div class="pcap">"코너 낙하만 나빠졌다" 같은 구조적 회귀를 잡는 뷰다. '
+        'Δ% 는 baseline 대비 상대 변화이고 절대 임계값은 쓰지 않는다.'
+        f'{_esc(excl_txt)}</div></div>\n'
+        '  <div class="panel r" style="margin-top:14px"><div class="ph">'
+        '<span class="pt">소계 표</span><span class="pd">worst / median / mean</span></div>'
+        f'{table}'
+        '<div class="pcap">N 은 그 카테고리에서 Δ 판정이 가능한 셀 수이며 모든 리비전에 공통이다.</div></div>\n'
+        "</section>\n"
+    )
+
+
 # --------------------------------------------------------------------------
 # 정적 HTML 템플릿 (JS 가 채우는 컨테이너)
 # --------------------------------------------------------------------------
@@ -939,6 +1109,31 @@ function niceTicks(lo, hi, n) {
   for (; v <= hi + step * 0.001 && out.length < 20; v += step) out.push(v);
   return out;
 }
+/* ---- tier 축소 (engine: tiers.py) ----
+   DATA.profile_cells 가 있으면 프로파일은 그 부분집합만 그리고, 나머지는
+   DATA.profile_aggregate 의 min/median/max 밴드로 배경에 깐다. cells[] 자체는
+   축소되지 않으므로 지도·probe 는 전량을 그대로 쓴다. */
+var PKEYS = (DATA.profile_cells && DATA.profile_cells.length) ? DATA.profile_cells : null;
+var PSET = null;
+if (PKEYS) { PSET = {}; PKEYS.forEach(function (k) { PSET[String(k)] = 1; }); }
+var PAGG = DATA.profile_aggregate || null;
+function bandY(v) {
+  /* 집계 밴드 원본값 → 현재 모드의 y 좌표계 값 (profVal 과 같은 변환) */
+  if (!isN(v)) return null;
+  if (ST.mode === 'delta') return v;
+  var g = gv(v);
+  if (ST.mode === 'log') return (g > 0) ? Math.log10(g) : null;
+  return g;
+}
+function profBand(r) {
+  /* 리비전 r 의 집계 밴드 [lo, mid, hi] — 없으면 null */
+  if (!PAGG) return null;
+  var src = (ST.mode === 'delta') ? PAGG.delta_pct : PAGG.value;
+  if (!src) return null;
+  var lo = bandY((src.min || [])[r]), hi = bandY((src.max || [])[r]), mid = bandY((src.median || [])[r]);
+  if (!isN(lo) || !isN(hi)) return null;
+  return [Math.min(lo, hi), mid, Math.max(lo, hi)];
+}
 var PROF = { cells: [], x: null, y: null };
 function renderProfile() {
   var s = document.getElementById('fed-prof');
@@ -946,12 +1141,18 @@ function renderProfile() {
   clr(s);
   s.setAttribute('viewBox', '0 0 ' + PW + ' ' + PH);
   var cells = orderedCells();
+  if (PSET) cells = cells.filter(function (c) { return PSET[String(c.key)]; });
   PROF.cells = cells;
   var n = cells.length;
   var lo = Infinity, hi = -Infinity;
   cells.forEach(function (c) {
     for (var r = 0; r < NREV; r++) { var v = profVal(c, r); if (isN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
   });
+  // 밴드가 축 밖으로 잘리지 않도록 도메인에 포함한다.
+  for (var rb = 0; rb < NREV; rb++) {
+    var bd = profBand(rb);
+    if (bd) { lo = Math.min(lo, bd[0]); hi = Math.max(hi, bd[2]); }
+  }
   if (!isFinite(lo)) { lo = 0; hi = 1; }
   if (ST.mode === 'delta') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
   if (ST.mode === 'abs') lo = Math.min(lo, 0);
@@ -999,14 +1200,39 @@ function renderProfile() {
   s.appendChild(tx(yl, yLabel()));
   s.appendChild(sv('line', { x1: PM.l, y1: PM.t + ih, x2: PW - PM.r, y2: PM.t + ih, stroke: 'rgba(255,255,255,0.15)' }));
 
+  // 집계 밴드 (tier 축소로 개별 표시하지 않는 셀들의 리비전별 min~max + median)
+  if (PAGG && PAGG.n) {
+    for (var rg = 0; rg < NREV; rg++) {
+      var bnd = profBand(rg);
+      if (!bnd) continue;
+      var y0 = Y(bnd[2]), y1 = Y(bnd[0]);
+      s.appendChild(sv('rect', { x: PM.l, y: Math.min(y0, y1), width: iw,
+        height: Math.max(Math.abs(y1 - y0), 1), fill: rc(rg), 'fill-opacity': 0.055 }));
+      if (isN(bnd[1])) {
+        s.appendChild(sv('line', { x1: PM.l, y1: Y(bnd[1]), x2: PW - PM.r, y2: Y(bnd[1]),
+          stroke: rc(rg), 'stroke-width': 1, 'stroke-opacity': 0.4, 'stroke-dasharray': '6,5' }));
+      }
+    }
+    var agl = sv('text', { x: PW - PM.r - 2, y: PM.t + 11, fill: '#8894b8', 'font-size': 9.5,
+      'text-anchor': 'end' });
+    s.appendChild(tx(agl, '반투명 밴드 = 미표시 ' + PAGG.n + '셀의 리비전별 min~max (점선 = median)'));
+  }
+
   // 미판정 밴드
   cells.forEach(function (c, i) {
     if (c.trust_ok) return;
     s.appendChild(sv('rect', { x: PM.l + i * step, y: PM.t + ih + 2, width: step, height: 10,
       fill: 'url(#prof-hatch)', opacity: 0.85 }));
   });
+  var TIER = DATA.tier || {};
+  var capTxt = '빗금 = 신뢰 게이트 미통과(미판정) · 셀 ' + n + '개';
+  if (PSET && CELLS.length > n) {
+    capTxt = '빗금 = 신뢰 게이트 미통과(미판정) · ' + CELLS.length + '개 중 ' + n +
+      '개 표시 (나머지 ' + (CELLS.length - n) + '개는 집계 밴드)' +
+      (TIER.name ? ' · tier ' + TIER.name : '');
+  }
   var bl = sv('text', { x: PM.l, y: PM.t + ih + 30, fill: '#5c6383', 'font-size': 9.5 });
-  s.appendChild(tx(bl, '빗금 = 신뢰 게이트 미통과(미판정) · 셀 ' + n + '개'));
+  s.appendChild(tx(bl, capTxt));
 
   // x 라벨 (과밀 방지)
   var everyN = Math.max(1, Math.ceil(n / 22));
@@ -1054,7 +1280,9 @@ function renderProfile() {
   hit.addEventListener('mouseleave', onProfLeave);
   hit.addEventListener('click', onProfClick);
   document.getElementById('fed-prof-sub').textContent =
-    '셀 ' + n + '개 · ' + NREV + '개 리비전 · ' + yLabel();
+    (PSET && CELLS.length > n ? ('셀 ' + CELLS.length + '개 중 ' + n + '개 표시')
+                              : ('셀 ' + n + '개')) +
+    ' · ' + NREV + '개 리비전 · ' + yLabel();
 }
 function profIndexFromEvent(ev) {
   var s = document.getElementById('fed-prof');
@@ -1626,6 +1854,9 @@ def generate_html(comparison: dict) -> str:
         nav.append(("s7", "MATRIX"))
     if has_fd:
         nav.append(("s8", "FINDINGS"))
+    has_cat = bool((cmp_.get("category_summary") or {}).get("categories"))
+    if has_cat:
+        nav.append(("s10", "CATEGORY"))
     _um = [x for x in (cmp_.get("unmatched") or []) if (x or {}).get("parts")]
     _partial = [p for p in (parts or [])
                 if isinstance(p.get("present"), list) and not all(p["present"])]
@@ -1654,6 +1885,8 @@ def generate_html(comparison: dict) -> str:
         body.append(_S7)
     if has_fd:
         body.append(_build_s8(cmp_))
+    if has_cat:
+        body.append(_build_s10(cmp_))
     if has_um:
         body.append(_build_s11(cmp_))
     body.append(_build_s9(cmp_))

@@ -72,6 +72,21 @@ def print_summary(cmp_dict: dict, out=sys.stdout) -> None:
         f"({kpi['comparable_pct']}%), 미판정 {kpi['n_gated']} "
         f"[trust_gate={kpi['trust_gate']}]\n"
     )
+    tier = cmp_dict.get("tier") or {}
+    if tier:
+        w(f"tier: {tier.get('rule')}\n")
+        if tier.get("reduced"):
+            w(
+                f"  - 프로파일 표시 {tier['n_shown']}셀 / 집계 밴드 {tier['n_aggregated']}셀 "
+                f"(선정 {tier.get('selection')})\n"
+            )
+    cs = cmp_dict.get("category_summary") or {}
+    if cs:
+        w(
+            f"카테고리 소계: {cs['n_categories']}종 — "
+            + ", ".join(f"{c['name']}({c['n_cells']})" for c in cs["categories"])
+            + "\n"
+        )
     w(
         f"파트: canonical {kpi['n_parts_canonical']}개 (2개 이상 리비전 매칭 "
         f"{kpi['n_parts_matched']}개), 리비전별 미매칭 {kpi['n_parts_unmatched']}\n"

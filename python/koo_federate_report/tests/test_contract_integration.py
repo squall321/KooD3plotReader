@@ -160,3 +160,21 @@ def test_no_unmatched_section_when_all_matched():
     """전부 매칭이면 미매칭 섹션을 만들지 않는다 (빈 섹션 금지)."""
     h = generate_html(_engine_shaped())
     assert 'id="s11"' not in h
+
+
+def test_warning_text_rendered_from_engine_keys():
+    """엔진 경고 계약 {code,message,severity} 를 화면에 실제로 출력한다.
+
+    회귀 배경: HTML 이 {kind,msg} 를 읽어 경고 문구가 빈 칸으로 나갔다.
+    """
+    d = _engine_shaped()
+    d["warnings"] = [
+        {"code": "no_comparable_cells", "severity": "ERROR",
+         "message": "모든 리비전에서 유효한 셀이 0개입니다"},
+        {"code": "resample_interpolated", "severity": "INFO",
+         "message": "IDW 보간된 셀은 실측이 아닙니다"},
+    ]
+    h = generate_html(d)
+    assert "모든 리비전에서 유효한 셀이 0개입니다" in h, "경고 문구가 렌더되지 않음"
+    assert "IDW 보간된 셀은 실측이 아닙니다" in h
+    assert "NO_COMPARABLE_CELLS" in h

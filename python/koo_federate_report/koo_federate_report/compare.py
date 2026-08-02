@@ -12,9 +12,10 @@
 """
 from __future__ import annotations
 
-from statistics import pstdev
+from statistics import median, pstdev
 
 from .models import METRIC_KEYS, METRIC_UNIT_AXIS, METRIC_LABELS
+from .tiers import build_tier_plan
 
 
 class CompareError(Exception):
@@ -63,6 +64,85 @@ def _pct(new, base):
     if base in (None, 0) or new is None:
         return None
     return (new - base) / abs(base) * 100.0
+
+
+#: cell.category 가 비어 있는 셀의 표시 이름 (버리지 않고 정직하게 한 칸으로 모은다)
+UNCATEGORIZED = "(미지정)"
+
+
+def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
+    """카테고리별 소계 — sphere 의 face/edge/corner, impact 의 face code.
+
+    "코너 낙하만 나빠졌다" 같은 구조적 회귀를 한 눈에 잡는 뷰다.
+    카테고리마다 리비전별 {n, worst, median, mean} 과 baseline 대비 Δ% 를 낸다.
+
+    규칙
+      - **미판정(gated) 셀은 제외**한다. 리비전마다 다른 셀 집합으로 집계하면
+        소계 Δ 가 오염되기 때문이다 (파트 추이와 같은 규칙).
+      - 카테고리가 1종 이하이면 빈 dict — 비교할 것이 없는 막대를 그리지 않는다
+        (예: DOE 전체가 fibonacci 한 종류인 경우).
+      - 절대 임계값은 쓰지 않는다. Δ% 의 부호와 크기만 보고한다.
+    """
+    buckets: dict = {}
+    n_excluded = 0
+    for c in cells:
+        if c["gated"]:
+            n_excluded += 1
+            continue
+        buckets.setdefault(c["category"] or UNCATEGORIZED, []).append(c)
+    if len(buckets) <= 1:
+        return {}
+
+    cats = []
+    for name, group in buckets.items():
+        per_rev = []
+        for i in range(n_rev):
+            vals = [
+                c["per_rev"][i]["value"]
+                for c in group
+                if c["per_rev"][i]["value"] is not None
+            ]
+            per_rev.append(
+                {
+                    "n": len(vals),
+                    "worst": max(vals) if vals else None,
+                    "median": float(median(vals)) if vals else None,
+                    "mean": (sum(vals) / len(vals)) if vals else None,
+                }
+            )
+        base_row = per_rev[baseline_idx] if baseline_idx < len(per_rev) else {}
+        for row in per_rev:
+            for stat in ("worst", "median", "mean"):
+                row[f"{stat}_delta_pct"] = _pct(row[stat], base_row.get(stat))
+        cats.append(
+            {
+                "name": name,
+                "n_cells": len(group),
+                "cells": [c["key"] for c in group],
+                "per_rev": per_rev,
+            }
+        )
+
+    # baseline worst 내림차순 (값 없으면 뒤로), 동점은 이름순 — 결정적 정렬
+    cats.sort(
+        key=lambda ct: (
+            -(
+                ct["per_rev"][baseline_idx]["worst"]
+                if baseline_idx < len(ct["per_rev"])
+                and ct["per_rev"][baseline_idx]["worst"] is not None
+                else float("-inf")
+            ),
+            ct["name"],
+        )
+    )
+    return {
+        "metric": metric,
+        "metric_label": METRIC_LABELS[metric],
+        "baseline_idx": baseline_idx,
+        "n_categories": len(cats),
+        "n_excluded_gated": n_excluded,
+        "categories": cats,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -253,6 +333,11 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                 ),
             }
         )
+
+    # ---- tier (프로파일 표시 힌트) / 카테고리 소계 ----------------------
+    # tier 는 cells[] 를 줄이지 않는다 — 프로파일이 무엇을 그릴지의 힌트만 준다.
+    plan = build_tier_plan(cells, baseline_idx, n_rev)
+    category_summary = _category_summary(cells, baseline_idx, n_rev, metric)
 
     # ---- 파트 추이 / rank bump -----------------------------------------
     parts = []
@@ -511,6 +596,10 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         "unit_labels": dict(bundles[baseline_idx].unit_labels),
         "revisions": revisions,
         "cells": cells,
+        "tier": plan["tier"],
+        "profile_cells": plan["profile_cells"],
+        "profile_aggregate": plan["profile_aggregate"],
+        "category_summary": category_summary,
         "parts": parts,
         "part_matrix": part_matrix,
         "behavior_transitions": behavior_transitions,
