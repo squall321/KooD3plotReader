@@ -201,11 +201,12 @@ fi
 cp -r "${PROJECT_ROOT}/python/koo_deep_report" "${PREFIX}/python/"
 cp -r "${PROJECT_ROOT}/python/koo_sphere_report" "${PREFIX}/python/"
 cp -r "${PROJECT_ROOT}/python/koo_impact_report" "${PREFIX}/python/"
+cp -r "${PROJECT_ROOT}/python/koo_federate_report" "${PREFIX}/python/"
 ok "Python packages → python/"
 
 # 공통 PYTHONPATH: 모든 wrapper 가 동일하게 import. impact 가 deep 의 d3plot_reader 를
 # 의존하므로 deep 가 함께 있어야 한다.
-_KOOPY="\${MODULE_DIR}/python/koo_deep_report:\${MODULE_DIR}/python/koo_sphere_report:\${MODULE_DIR}/python/koo_impact_report"
+_KOOPY="\${MODULE_DIR}/python/koo_deep_report:\${MODULE_DIR}/python/koo_sphere_report:\${MODULE_DIR}/python/koo_impact_report:\${MODULE_DIR}/python/koo_federate_report"
 
 # CLI wrapper: koo_deep_report
 cat > "${PREFIX}/bin/koo_deep_report" << WRAPPER
@@ -242,6 +243,18 @@ exec python3 -m koo_impact_report "\$@"
 WRAPPER
 chmod +x "${PREFIX}/bin/koo_impact_report"
 ok "koo_impact_report wrapper → bin/"
+
+# CLI wrapper: koo_federate_report (리비전 연합 비교 — sidecar N개 → 비교 보고서)
+cat > "${PREFIX}/bin/koo_federate_report" << WRAPPER
+#!/bin/bash
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="\$(cd "\${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${_KOOPY}:\${PYTHONPATH:-}"
+export PATH="\${MODULE_DIR}/bin:\${PATH}"
+exec python3 -m koo_federate_report "\$@"
+WRAPPER
+chmod +x "${PREFIX}/bin/koo_federate_report"
+ok "koo_federate_report wrapper → bin/"
 
 # post_analyze orchestration script
 cp "${PROJECT_ROOT}/scripts/post_analyze.sh" "${PREFIX}/bin/post_analyze"

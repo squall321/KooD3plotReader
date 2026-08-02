@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koo_federate_report"
+version = "0.1.0"
+description = "N-revision federated comparison report from sphere/impact sidecars"
+requires-python = ">=3.10"
+authors = [{ name = "KooD3plotReader" }]
+license = { text = "MIT" }
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+koo_federate_report = "koo_federate_report.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["koo_federate_report*"]
+exclude = ["tests*", "examples*"]

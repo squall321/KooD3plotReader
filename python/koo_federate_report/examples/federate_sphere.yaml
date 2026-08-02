@@ -1,0 +1,20 @@
+# 전각도 낙하(sphere) 리비전 연합 비교 예제
+kind: auto
+baseline: 1
+output: federate_sphere.html
+
+reports:
+  - path: /data/proj/revA/report.json
+    label: "RevA"
+  - path: /data/proj/revB/report.json
+    label: "RevB"
+
+options:
+  auto_match_identical: true
+  name_normalize: true
+  unmatched: show
+  resample: idw                 # 각도 DOE 가 리비전마다 다를 때 공통 격자 리샘플
+  trust_gate: true
+  unit_policy: error
+
+parts: {}                       # 전부 동일 이름이면 매칭표 생략 가능

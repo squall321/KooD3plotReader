@@ -1,0 +1,25 @@
+# 전위치 부분충격(impact) 리비전 연합 비교 예제
+# 사용: python -m koo_federate_report --config examples/federate_impact.yaml
+kind: auto                      # auto | sphere | impact (혼합 입력은 에러)
+baseline: 1                     # 기준 리비전 (reports 의 1-based 순번)
+output: federate_impact.html
+
+reports:                        # 순서가 곧 리비전 축
+  - path: ./revA/impact_payload.json
+    label: "RevA (기준)"
+  - path: ./revB/impact_payload.json
+    label: "RevB (파트명 변경)"
+  - path: ./revC/impact_payload.json
+    label: "RevC (응력 개선)"
+
+options:
+  auto_match_identical: true    # 이름이 완전히 같은 파트는 자동 매칭
+  name_normalize: true          # 대소문자/공백/구분자 정규화 후 비교
+  unmatched: show               # show | hide | error
+  resample: nearest             # idw | nearest | off
+  trust_gate: true              # 미접촉/FAIL 셀의 Δ 는 '미판정'
+  unit_policy: error            # error | convert
+
+parts:                          # 매칭표 — 값은 reports 순서대로 콤마 구분, ~ = 부재
+  Display: "Display\\Display, DISP_MAIN, Display\\Display"
+  PCB:     "PCB\\PCB, MainPCB, PCB\\PCB"

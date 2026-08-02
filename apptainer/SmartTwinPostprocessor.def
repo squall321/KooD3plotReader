@@ -14,7 +14,10 @@ From: ubuntu:22.04
       koo_deep_report      — Python single-sim report (HTML)
       koo_sphere_report    — Python all-angle sphere report (DROP cumulative)
       koo_impact_report    — Python multi-position partial-impact DOE report (IMPACT cumulative)
+      koo_federate_report  — Python revision federate comparison (N sidecars → 1 report)
       post_analyze         — Bash orchestrator (unified → sphere|impact → deep, auto-detect by scenario.json)
+      koo_dyna_diag        — LS-DYNA d3hsp/glstat/... 오류·성능 진단, HTML/JSON 리포트 (KooDynaDiag)
+                             (상류 호환 심볼릭: koodyna → koo_dyna_diag)
 
     Usage:
       apptainer exec SmartTwinPostprocessor.sif unified_analyzer --help
@@ -51,10 +54,11 @@ From: ubuntu:22.04
     # 빌드 필수 패키지 (하나라도 빠지면 빌드 실패해야 하는 것들)
     apt-get install -y --no-install-recommends \
         build-essential cmake g++ git ca-certificates pkg-config wget \
-        libomp-dev python3 python3-pip python3-venv \
+        libomp-dev python3 python3-pip python3-venv libpython3.10 \
         ffmpeg libpng-dev xvfb \
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
         libxinerama1 libxkbcommon0
+    # libpython3.10: PyInstaller onefile 빌드 시 필요 (koo_dyna_diag)
 
     # --- GPU 렌더(VirtualGL) — best-effort, 실패해도 빌드 안 죽음 ---
     # GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속하는 경로(KOOD3PLOT_GPU_RENDER=1
@@ -107,13 +111,42 @@ From: ubuntu:22.04
     # docs/impact-sota-context-notes.md). 이제 1급 의존성으로 하드 설치.
     pip install --no-cache-dir rich pyyaml lasso-python
 
+    # --- KooDynaDiag (koo_dyna_diag) 통합 ---
+    # LS-DYNA 결과 진단/리포트 도구 (원 리포지토리: KooDynaErrorAnalyzer,
+    # 프로젝트명 KooDynaDiag). 다른 Post 모듈처럼 소스 clone → 컨테이너
+    # 안에서 PyInstaller onefile 빌드 → /opt/kood3plot/bin 에 배치.
+    # 명명: Post 모듈 컨벤션(koo_X_Y)에 맞춰 `koo_dyna_diag`. 상류 호환을
+    # 위해 `koodyna` 심볼릭 링크도 함께 배치.
+    cd /opt
+    git clone --depth 1 https://github.com/squall321/KooDynaErrorAnalyzer.git
+    cd KooDynaErrorAnalyzer
+
+    # BUILD_DATE 갱신 (build_linux.sh 관례)
+    sed -i "s/^BUILD_DATE = .*/BUILD_DATE = \"$(date +%Y-%m-%d)\"/" \
+        src/koodyna/__init__.py 2>/dev/null || true
+
+    pip install --no-cache-dir pyinstaller
+    export PYTHONPATH="/opt/KooDynaErrorAnalyzer/src"
+    pyinstaller --onefile --name koo_dyna_diag \
+        --collect-all koodyna \
+        --paths src \
+        src/koodyna/__main__.py
+
+    install -m 755 dist/koo_dyna_diag /opt/kood3plot/bin/koo_dyna_diag
+    # 상류 이름(koodyna) 호환용 심볼릭
+    ln -sf koo_dyna_diag /opt/kood3plot/bin/koodyna
+
+    # 소스/빌드 잔재 제거
+    cd /opt
+    rm -rf /opt/KooDynaErrorAnalyzer
+
     apt-get clean
     rm -rf /var/lib/apt/lists/*
 
 %environment
     export KOOD3PLOT_HOME=/opt/kood3plot
     export PATH=/opt/kood3plot/bin:$PATH
-    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
     # VirtualGL EGL 백엔드 기본 GPU 디바이스(헤드리스). KOOD3PLOT_GPU_RENDER=1
@@ -125,7 +158,7 @@ From: ubuntu:22.04
         cat /opt/kood3plot/VERSION
         echo ""
         echo "Usage: apptainer exec SmartTwinPostprocessor.sif <command> [args]"
-        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, koo_impact_report, post_analyze"
+        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, koo_impact_report, post_analyze, koo_dyna_diag"
         exit 0
     fi
     exec "$@"
@@ -135,4 +168,8 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/koo_deep_report --help >/dev/null
     /opt/kood3plot/bin/koo_sphere_report --help >/dev/null
     /opt/kood3plot/bin/koo_impact_report --help >/dev/null
+    /opt/kood3plot/bin/koo_federate_report --help >/dev/null
+    /opt/kood3plot/bin/koo_dyna_diag --help >/dev/null
+    # 상류 호환 심볼릭 검증
+    /opt/kood3plot/bin/koodyna --help >/dev/null
     echo "All tools available"
