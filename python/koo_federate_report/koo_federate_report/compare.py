@@ -390,13 +390,15 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         names = match.per_rev.get(canonical, [None] * n_rev)
         worst = []
         used = []
+        worst_cell = []       # 그 worst 가 어느 셀에서 나왔는지 (드릴다운 진입점)
         for i in range(n_rev):
             name = names[i]
             if name is None:
                 worst.append(None)
                 used.append(0)
+                worst_cell.append(None)
                 continue
-            best_v, n_used = None, 0
+            best_v, n_used, best_cell = None, 0, None
             for node, cell in zip(aligned.nodes, cells):
                 # 미판정 셀은 모든 리비전에서 똑같이 뺀다 — 리비전마다 다른 셀 집합으로
                 # 집계하면 파트 Δ 가 오염된다.
@@ -412,8 +414,10 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                 v = raw * factors[i][metric]
                 if best_v is None or v > best_v:
                     best_v = v
+                    best_cell = cell["key"]
             worst.append(best_v)
             used.append(n_used)
+            worst_cell.append(best_cell)
         parts.append(
             {
                 "canonical": canonical,
@@ -422,6 +426,9 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                 "present": [nm is not None for nm in names],
                 "worst": worst,
                 "n_cells_used": used,
+                # "Display 가 나빠졌다" 에서 "어느 위치에서" 까지 답하게 하는 키.
+                # 리비전마다 worst 셀이 다르면 그 자체가 신호다(취약점 이동).
+                "worst_cell": worst_cell,
             }
         )
 

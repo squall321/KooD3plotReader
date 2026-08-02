@@ -193,6 +193,10 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2
 .warn-badge.error { border-color: rgba(255,94,132,.55); color: #ff5e84;
   background: rgba(255,94,132,.12); }
 .warn-badge.info { opacity: .85; }
+.wcell:hover { text-decoration: underline; color: #4dd6ff; }
+.move-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
+  font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#b28cff;
+  background:rgba(178,140,255,.13); border:1px solid rgba(178,140,255,.45); }
 .miss-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
   font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#ffc15e;
   background:rgba(255,193,94,.13); border:1px solid rgba(255,193,94,.45); }
@@ -1664,6 +1668,10 @@ function renderParts() {
   rows.forEach(function (p) {
     var tr = document.createElement('tr');
     var nm = elx('td', 'tl b', p.canonical);
+    // worst 셀이 리비전마다 다르면 취약점이 이동한 것 — 사용 전에 계산한다.
+    var wcAll = p.worst_cell || [];
+    var wcSet = wcAll.filter(function (x) { return !!x; });
+    var wcMoved = wcSet.length > 1 && wcSet.some(function (x) { return x !== wcSet[0]; });
     var names = p.names || [];
     if (names.length && !names.every(function (n) { return n === names[0]; })) {
       nm.title = names.map(function (n, i) { return RLBL[i] + ': ' + (n || '없음'); }).join('\n');
@@ -1674,6 +1682,11 @@ function renderParts() {
     var pres = p.present || names.map(function (n) { return !!n; });
     var missIdx = [];
     for (var mi = 0; mi < NREV; mi++) if (pres[mi] === false) missIdx.push(mi);
+    if (wcMoved) {
+      var mv = elx('span', 'move-badge', '최악 셀 이동');
+      mv.title = wcAll.map(function (c, i) { return RLBL[i] + ': ' + (c || '—'); }).join('\n');
+      nm.appendChild(mv);
+    }
     if (missIdx.length) {
       var mb = elx('span', 'miss-badge', missIdx.map(function (i) { return RLBL[i]; }).join(',') + ' 없음');
       mb.title = '이 파트는 해당 리비전 산출물에 없습니다 (매칭 실패 또는 설계 변경). '
@@ -1682,7 +1695,21 @@ function renderParts() {
     }
     tr.appendChild(nm);
     var w = p.worst || [];
-    for (var i = 0; i < NREV; i++) tr.appendChild(elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—'));
+    // worst 값에 '어느 셀에서 나왔는지' 를 붙인다 — 클릭하면 그 셀로 probe 이동.
+    // 리비전마다 worst 셀이 다르면 취약점이 이동한 것이므로 그 자체가 신호다.
+    var wc = p.worst_cell || [];
+    for (var i = 0; i < NREV; i++) {
+      var td = elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—');
+      if (isN(w[i]) && wc[i]) {
+        td.title = '최악 셀: ' + wc[i] + ' (클릭하면 이동)';
+        td.style.cursor = 'pointer';
+        td.classList.add('wcell');
+        (function (ck) {
+          td.addEventListener('click', function () { selectCell(ck); });
+        })(wc[i]);
+      }
+      tr.appendChild(td);
+    }
     // 스파크라인
     var sc = document.createElement('td');
     sc.appendChild(sparkline(w));

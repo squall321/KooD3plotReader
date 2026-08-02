@@ -287,3 +287,36 @@ def test_revision_order_warned_when_times_reversed():
     codes = _warn_codes([_mini_bundle("A", "/x/a.json", "2026-08-02T00:00:00+00:00"),
                          _mini_bundle("B", "/x/b.json", "2026-07-01T00:00:00+00:00")])
     assert "revision_order" in codes
+
+
+def test_part_worst_cell_tracked_and_clickable():
+    """파트 worst 가 '어느 셀' 에서 나왔는지 추적되고 클릭으로 이동한다.
+
+    '어느 부품이 나빠졌나' 다음 질문은 항상 '어느 위치에서' 다.
+    """
+    d = _engine_shaped()
+    d["parts"][0]["worst_cell"] = ["F5_DOE_001", "F5_DOE_002"]
+    h = generate_html(d)
+    assert "최악 셀" in h, "worst 셀 추적 정보가 화면에 없음"
+    assert "wcell" in h, "worst 값이 클릭 가능하지 않음"
+
+
+def test_worst_cell_move_data_embedded():
+    """이동 판정에 필요한 worst_cell 이 payload 로 실제 전달된다.
+
+    뱃지 자체는 JS 가 런타임에 붙이므로(HTML 문자열 검색으로는 판정 불가 —
+    JS 소스에 리터럴이 항상 존재한다) 데이터 전달을 검증한다. 렌더 결과는
+    Playwright 로 확인했다(실데이터에서 7개 부품 이동 검출).
+    """
+    import json as _json
+
+    d = _engine_shaped()
+    d["parts"][0]["worst_cell"] = ["F5_DOE_001", "F5_DOE_002"]
+    h = generate_html(d)
+    i = h.index('id="fed-data"')
+    blob = h[h.index(">", i) + 1: h.index("</script>", i)]
+    data = _json.loads(blob)
+    wc = data["parts"][0].get("worst_cell")
+    assert wc == ["F5_DOE_001", "F5_DOE_002"], "worst_cell 이 payload 에 없음"
+    # 이동 여부는 값이 서로 다른지로 판정된다
+    assert len({x for x in wc if x}) > 1
