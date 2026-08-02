@@ -190,6 +190,14 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2
 .spark { display: block; }
 .mtx-wrap { background: var(--bg3); border-radius: 6px; padding: 8px; overflow-x: auto; }
 .mtx-wrap svg { display: block; min-width: 100%; }
+.miss-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
+  font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#ffc15e;
+  background:rgba(255,193,94,.13); border:1px solid rgba(255,193,94,.45); }
+.um-wrap { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+.um-col { background:#10182a; border:1px solid #273252; border-radius:6px; padding:10px 12px; }
+.um-h { font-size:11px; letter-spacing:.06em; color:#c9d2e6; margin-bottom:6px;
+  display:flex; justify-content:space-between; }
+.um-item { font-size:11.5px; color:#ffc15e; padding:2px 0; }
 .fdrev { margin: 0 0 14px 0; }
 .fdrev-h { font-size: 12px; letter-spacing: .06em; color: #c9d2e6; margin: 10px 2px 6px; }
 .fdiff { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -553,6 +561,62 @@ def _build_s8(cmp_: dict) -> str:
         '<span class="ttl">발견 사항 차분 &mdash; baseline 대비</span>'
         '<span class="sub">NEW / RESOLVED / KEPT</span></div>\n'
         + "".join(blocks) + "\n</section>\n"
+    )
+
+
+def _build_s11(cmp_: dict) -> str:
+    """미매칭 파트 — 어느 리비전에서 짝을 못 찾았는지 정직하게 나열한다.
+
+    YAML `unmatched: show` 의 실제 구현. 이게 없으면 파트 표에서 값이 빈 칸이
+    '개선'으로 오독된다(부재와 0 은 다르다).
+    """
+    um = cmp_.get("unmatched") or []
+    rows = [x for x in um if (x or {}).get("parts")]
+    parts = cmp_.get("parts") or []
+    partial = [p for p in parts
+               if isinstance(p.get("present"), list) and not all(p["present"])]
+    if not rows and not partial:
+        return ""
+
+    labels = _rev_labels(cmp_.get("revisions"))
+    cols = "".join(
+        '<div class="um-col"><div class="um-h"><span>{}</span><span>{}</span></div>{}</div>'.format(
+            _esc((x or {}).get("label") or f"REV{i + 1}"),
+            len((x or {}).get("parts") or []),
+            "".join(f'<div class="um-item">{_esc(nm)}</div>'
+                    for nm in ((x or {}).get("parts") or []))
+            or '<div class="empty">없음.</div>',
+        )
+        for i, x in enumerate(rows)
+    ) or '<div class="empty">리비전별 미매칭 파트가 없습니다.</div>'
+
+    prows = "".join(
+        "<tr><td class=\"tl b\">{}</td><td class=\"tl\">{}</td><td class=\"tl dim\">{}</td></tr>".format(
+            _esc(p.get("canonical", _EMDASH)),
+            _esc(", ".join(labels[i] for i, ok in enumerate(p.get("present") or [])
+                           if not ok) or _EMDASH),
+            _esc(" / ".join((n or "없음") for n in (p.get("names") or []))),
+        )
+        for p in partial
+    )
+    ptable = (
+        '<div class="panel r"><div class="ph"><span class="pt">부분 존재 파트</span>'
+        f'<span class="pd">{len(partial)} part(s)</span></div>'
+        '<table class="dt"><thead><tr><th class="tl">CANONICAL</th>'
+        '<th class="tl">없는 리비전</th><th class="tl">리비전별 원본명</th></tr></thead>'
+        f"<tbody>{prows}</tbody></table>"
+        '<div class="pcap">값이 비어 있는 칸은 0 이 아니라 <b>부재</b>다. '
+        '이름이 바뀐 것이라면 YAML <code>parts:</code> 매칭표에 추가하면 이어진다.</div></div>'
+    ) if partial else ""
+
+    return (
+        '<section class="page" id="s11">\n'
+        '  <div class="page-head r"><span class="num">11</span>'
+        '<span class="tagline">UNMATCHED &middot; PARTS</span>'
+        '<span class="ttl">미매칭 파트 &mdash; 짝을 못 찾은 항목</span>'
+        '<span class="sub">NAME MISMATCH / DESIGN CHANGE</span></div>\n'
+        f'  <div class="um-wrap r">{cols}</div>\n'
+        f"  {ptable}\n</section>\n"
     )
 
 
@@ -1323,6 +1387,17 @@ function renderParts() {
       nm.title = names.map(function (n, i) { return RLBL[i] + ': ' + (n || '없음'); }).join('\n');
       nm.appendChild(elx('span', 'dim', ' ✱'));
     }
+    // 부분 존재(일부 리비전에 없음)는 반드시 시각화 — 값 없는 칸이 '개선'으로
+    // 오독되면 안 된다. present[] 가 없으면 names/worst 로 추론.
+    var pres = p.present || names.map(function (n) { return !!n; });
+    var missIdx = [];
+    for (var mi = 0; mi < NREV; mi++) if (pres[mi] === false) missIdx.push(mi);
+    if (missIdx.length) {
+      var mb = elx('span', 'miss-badge', missIdx.map(function (i) { return RLBL[i]; }).join(',') + ' 없음');
+      mb.title = '이 파트는 해당 리비전 산출물에 없습니다 (매칭 실패 또는 설계 변경). '
+               + '값이 비어 있는 것은 0 이 아니라 부재입니다.';
+      nm.appendChild(mb);
+    }
     tr.appendChild(nm);
     var w = p.worst || [];
     for (var i = 0; i < NREV; i++) tr.appendChild(elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—'));
@@ -1551,6 +1626,12 @@ def generate_html(comparison: dict) -> str:
         nav.append(("s7", "MATRIX"))
     if has_fd:
         nav.append(("s8", "FINDINGS"))
+    _um = [x for x in (cmp_.get("unmatched") or []) if (x or {}).get("parts")]
+    _partial = [p for p in (parts or [])
+                if isinstance(p.get("present"), list) and not all(p["present"])]
+    has_um = bool(_um or _partial)
+    if has_um:
+        nav.append(("s11", "UNMATCHED"))
     nav.append(("s9", "PROVENANCE"))
 
     body = [_build_topbar(cmp_, nav), _build_s1(cmp_)]
@@ -1573,6 +1654,8 @@ def generate_html(comparison: dict) -> str:
         body.append(_S7)
     if has_fd:
         body.append(_build_s8(cmp_))
+    if has_um:
+        body.append(_build_s11(cmp_))
     body.append(_build_s9(cmp_))
     body.append(
         '<div class="foot">KOO FEDERATE REPORT &middot; 리비전 연합 비교 &middot; '

@@ -116,3 +116,47 @@ def test_spread_dict_and_matrix_rows_consumed():
     h = generate_html(_engine_shaped())
     assert "normalizeContract" in h          # 정규화 훅 존재
     assert "fed-mtx" in h                     # 매트릭스 섹션 렌더
+
+
+def _with_unmatched() -> dict:
+    """일부 리비전에만 있는 파트 + 리비전별 미매칭 목록이 있는 계약."""
+    d = _engine_shaped()
+    d["parts"].append({
+        "canonical": "Battery",
+        "names": ["BAT\\Cell", None],          # RevB 에 없음
+        "worst": [800.0, None],
+        "delta_pct": [0.0, None],
+        "rank": [1, None],
+        "present": [True, False],
+    })
+    d["unmatched"] = [
+        {"label": "RevA", "parts": []},
+        {"label": "RevB", "parts": ["RENAMED_BAT_Cell"]},
+    ]
+    return d
+
+
+def test_unmatched_section_rendered():
+    """YAML unmatched:show 의 실구현 — 미매칭이 화면에 보여야 한다.
+
+    회귀 배경: payload 에는 미매칭 정보가 있는데 HTML 이 소비하지 않아
+    파트 표의 빈 칸이 '개선' 으로 오독될 수 있었다.
+    """
+    h = generate_html(_with_unmatched())
+    assert 'id="s11"' in h, "미매칭 섹션 누락"
+    assert "RENAMED_BAT_Cell" in h, "미매칭 파트명이 화면에 없음"
+    assert "부분 존재 파트" in h
+
+
+def test_partial_part_badged_in_table():
+    """present=[True,False] 파트는 행에 '없음' 뱃지가 붙는다."""
+    h = generate_html(_with_unmatched())
+    assert "miss-badge" in h
+    # 부재를 0 으로 위장하지 않는다는 안내
+    assert "0 이 아니라" in h
+
+
+def test_no_unmatched_section_when_all_matched():
+    """전부 매칭이면 미매칭 섹션을 만들지 않는다 (빈 섹션 금지)."""
+    h = generate_html(_engine_shaped())
+    assert 'id="s11"' not in h
