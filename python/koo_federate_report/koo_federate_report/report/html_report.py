@@ -1752,11 +1752,14 @@ function renderParts() {
     // '파트는 있는데 이 지표가 한 셀에도 기록되지 않음' 은 부재와 다른 사실이다.
     // 둘 다 '—' 로 나가면 데이터 유실로 오독된다 (실측: 23개 중 6개).
     var ds = p.data_status || [];
-    if (ds.length && ds.every(function (s) { return s !== 'ok'; })
-        && ds.some(function (s) { return s === 'no_metric'; })) {
-      var nb = elx('span', 'miss-badge', '지표 없음');
-      nb.title = '이 파트는 산출물에 존재하지만 현재 지표의 측정값이 어느 셀에도 '
-               + '기록되지 않았습니다. 부재(0)가 아니라 미기록입니다.';
+    if (ds.length && ds.every(function (s) { return s !== 'ok'; })) {
+      var gatedAll = ds.some(function (s) { return s === 'gated'; });
+      var nb = elx('span', 'miss-badge', gatedAll ? '전부 미판정' : '지표 없음');
+      nb.title = gatedAll
+        ? '이 파트는 존재하지만 비교 가능한 셀이 하나도 없습니다 (전 셀 미판정). '
+          + '값이 없는 것은 0 이 아니라 판정 불가입니다.'
+        : '이 파트는 산출물에 존재하지만 현재 지표의 측정값이 어느 셀에도 '
+          + '기록되지 않았습니다. 부재(0)가 아니라 미기록입니다.';
       nm.appendChild(nb);
     }
     tr.appendChild(nm);
@@ -1768,6 +1771,7 @@ function renderParts() {
       var td = elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—');
       if (!isN(w[i])) {
         td.title = (ds[i] === 'absent') ? '이 리비전에 파트가 없습니다 (부재 ≠ 0)'
+                 : (ds[i] === 'gated') ? '비교 가능한 셀이 없습니다 (전 셀 미판정)'
                  : (ds[i] === 'no_metric') ? '파트는 있으나 이 지표가 기록되지 않았습니다'
                  : '값 없음';
       }

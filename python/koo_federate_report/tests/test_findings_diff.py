@@ -126,3 +126,25 @@ def test_part_without_metric_is_distinguished_from_absent():
     assert by_name["NOMETRIC"]["present"] == [True, True]
     assert cmp_["kpi"]["n_parts_no_metric"] == 1
     assert any(w.get("code") == "parts_without_metric" for w in cmp_["warnings"])
+
+
+def test_all_gated_is_not_reported_as_missing_metric():
+    """전 셀 미판정이면 gated — '지표 미기록' 으로 오표기하면 안 된다.
+
+    실측 impact 데이터(25위치)는 접촉 미발생/에너지 FAIL 로 전 셀이 미판정이라
+    모든 파트가 빈 칸이 된다. 이때 이유는 '지표가 없어서' 가 아니라
+    '판정할 수 있는 셀이 없어서' 다.
+    """
+    specs = [("P1", 0.0, 0.0, "F1", 100.0, False, "no-contact")]   # trust_ok=False
+    parts = {1: "COVER"}
+    pv = {("P1", "COVER"): {"g": 100.0, "s": None, "e": None, "d": None}}
+    bundles = [make_impact_bundle(f"R{i}", specs, parts, part_values=pv) for i in range(2)]
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "impact", options.resample)
+    cmp_ = build_comparison(bundles, 0, "impact", match, aligned, options)
+
+    assert cmp_["kpi"]["n_comparable"] == 0
+    assert cmp_["parts"][0]["data_status"] == ["gated", "gated"]
+    assert cmp_["kpi"]["n_parts_no_metric"] == 0
+    assert not any(w.get("code") == "parts_without_metric" for w in cmp_["warnings"])

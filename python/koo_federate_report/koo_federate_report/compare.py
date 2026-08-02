@@ -492,11 +492,14 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             worst.append(best_v)
             used.append(n_used)
             worst_cell.append(best_cell)
-        # 빈 칸의 이유를 구분한다. '파트가 없다' 와 '파트는 있는데 이 지표의
-        # 측정값이 한 셀에도 없다' 는 전혀 다른 사실인데, 둘 다 "—" 로 나가면
-        # 데이터 유실로 오독된다 (실측: 23개 중 6개가 후자였다).
+        # 빈 칸의 이유를 구분한다. 셋 다 "—" 로 나가면 데이터 유실로 오독된다.
+        #   absent    — 이 리비전 산출물에 파트가 없다
+        #   gated     — 파트는 있으나 비교 가능한(미판정이 아닌) 셀이 하나도 없다
+        #   no_metric — 판정 가능한 셀은 있는데 이 지표가 한 번도 기록되지 않았다
+        # 실측: 구면 23개 중 6개가 no_metric, impact 25위치 전량 미판정 시 gated.
         data_status = [
-            "absent" if names[i] is None else ("no_metric" if used[i] == 0 else "ok")
+            "absent" if names[i] is None
+            else ("ok" if used[i] else ("gated" if n_comparable == 0 else "no_metric"))
             for i in range(n_rev)
         ]
         parts.append(
@@ -534,7 +537,8 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         })
 
     _no_metric = [p["canonical"] for p in parts
-                  if all(s != "ok" for s in p["data_status"])]
+                  if any(s == "no_metric" for s in p["data_status"])
+                  and all(s != "ok" for s in p["data_status"])]
     if _no_metric:
         warnings.append({
             "code": "parts_without_metric",
@@ -754,7 +758,8 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         "n_parts_matched": matched_parts,
         "n_parts_unmatched": [len(u) for u in match.unmatched],
         "n_parts_no_metric": sum(
-            1 for p in parts if all(s != "ok" for s in p["data_status"])
+            1 for p in parts if any(s == "no_metric" for s in p["data_status"])
+            and all(s != "ok" for s in p["data_status"])
         ),
         "worst_per_rev": [
             max((c["per_rev"][i]["value"] for c in cells if c["per_rev"][i]["value"] is not None),

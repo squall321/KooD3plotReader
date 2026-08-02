@@ -158,7 +158,7 @@ From: ubuntu:22.04
         cat /opt/kood3plot/VERSION
         echo ""
         echo "Usage: apptainer exec SmartTwinPostprocessor.sif <command> [args]"
-        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, koo_impact_report, post_analyze, koo_dyna_diag"
+        echo "Commands: unified_analyzer, koo_deep_report, koo_sphere_report, koo_impact_report, koo_federate_report, post_analyze, koo_dyna_diag"
         exit 0
     fi
     exec "$@"
