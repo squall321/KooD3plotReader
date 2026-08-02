@@ -284,3 +284,41 @@ def test_missing_energy_is_none_not_zero():
             continue
         assert n["peak_ie"] is None and n["final_ie"] is None
         assert n["peak_ke"] is not None      # KE 는 여전히 있어야 한다
+
+
+# --- 산출물 스키마 마커 (--skip-existing 이 낡은 결과를 붙잡지 않도록) -----
+
+def test_outputs_are_current_matrix(tmp_path):
+    """result.json 존재만으로 '최신' 이라 판정하면 안 된다.
+
+    실측 배경: 분석기가 σ1 주응력 CSV 를 내게 됐는데도 --skip-existing 이
+    result.json 만 보고 스킵해서, 기존 case 가 영원히 옛 산출물로 남았다.
+    """
+    from koo_deep_report.__main__ import (
+        UA_OUTPUT_SCHEMA, UA_SCHEMA_MARKER, _outputs_are_current, _write_ua_schema,
+    )
+
+    none_ = tmp_path / "none"; none_.mkdir()
+    old = tmp_path / "old"; old.mkdir()
+    (old / "result.json").write_text("{}")
+    stale = tmp_path / "stale"; stale.mkdir()
+    (stale / "result.json").write_text("{}")
+    (stale / UA_SCHEMA_MARKER).write_text(str(UA_OUTPUT_SCHEMA - 1))
+    cur = tmp_path / "cur"; cur.mkdir()
+    (cur / "result.json").write_text("{}")
+    (cur / UA_SCHEMA_MARKER).write_text(str(UA_OUTPUT_SCHEMA))
+
+    assert _outputs_are_current(none_) is False    # 분석 자체가 없음
+    assert _outputs_are_current(old) is False      # 마커 없음 = 구버전 산출물
+    assert _outputs_are_current(stale) is False    # 마커가 낡음
+    assert _outputs_are_current(cur) is True
+
+    # 마커 기록 후에는 최신으로 판정된다
+    _write_ua_schema(old)
+    assert _outputs_are_current(old) is True
+
+
+def test_write_ua_schema_survives_readonly(tmp_path):
+    """마커를 못 써도 본작업이 죽으면 안 된다 (읽기전용 NFS 등)."""
+    from koo_deep_report.__main__ import _write_ua_schema
+    _write_ua_schema(tmp_path / "does_not_exist")   # 예외가 새면 실패

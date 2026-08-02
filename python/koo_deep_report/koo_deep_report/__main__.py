@@ -866,6 +866,7 @@ def run_single(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
     print(f"[koo_deep_report] result.json 저장: {result_json_path}")
+    _write_ua_schema(output_dir)
 
     # 5b. 파트간 에너지 흐름 CSV (binout 있을 때만, 무회귀)
     try:
@@ -893,6 +894,36 @@ def run_single(args: argparse.Namespace) -> None:
         pass
 
 
+#: unified_analyzer 산출물 스키마. **분석기가 새로 내보내는 산출물이 생기면 올린다.**
+#: 예전에는 result.json 존재만 보고 스킵해서, 분석기가 산출물을 늘려도
+#: (σ1 주응력 CSV 등) 기존 case 가 영원히 옛 산출물로 남았다.
+#:   v2: max/min principal stress CSV (von Mises 와 항상 동반 생성)
+UA_OUTPUT_SCHEMA = 2
+UA_SCHEMA_MARKER = ".ua_schema"
+
+
+def _write_ua_schema(output_dir: Path) -> None:
+    """분석 성공 후 산출물 스키마 마커 기록 (실패해도 본작업에 영향 없음)."""
+    try:
+        (output_dir / UA_SCHEMA_MARKER).write_text(f"{UA_OUTPUT_SCHEMA}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _outputs_are_current(case_out: Path) -> bool:
+    """이 case 가 최신 스키마 산출물을 갖고 있는가.
+
+    result.json 만 보면 '분석은 돌았다' 는 알 수 있어도 '지금 분석기가 내는
+    산출물을 다 갖고 있다' 는 알 수 없다. 마커가 없거나 값이 다르면 낡은 것이다.
+    """
+    if not (case_out / "result.json").exists():
+        return False
+    try:
+        return (case_out / UA_SCHEMA_MARKER).read_text(encoding="utf-8").strip() == str(UA_OUTPUT_SCHEMA)
+    except OSError:
+        return False
+
+
 def run_batch(args: argparse.Namespace) -> None:
     import concurrent.futures
     import threading
@@ -912,14 +943,19 @@ def run_batch(args: argparse.Namespace) -> None:
 
     failed: list[str] = []
     skipped_existing: list[str] = []
+    stale_existing: list[str] = []
     lock = threading.Lock()
 
     def run_one_safe(sim_info):
         case_out = output_root / sim_info.path.name
-        if args.skip_existing and (case_out / "result.json").exists():
+        if args.skip_existing and _outputs_are_current(case_out):
             with lock:
                 skipped_existing.append(sim_info.path.name)
             return "skip", sim_info.path.name
+        # 산출물은 있는데 스키마가 낡아 다시 도는 경우를 따로 센다
+        if args.skip_existing and (case_out / "result.json").exists():
+            with lock:
+                stale_existing.append(sim_info.path.name)
 
         try:
             _run_one(sim_info, case_out, args)
@@ -951,6 +987,11 @@ def run_batch(args: argparse.Namespace) -> None:
                 print(f"[batch] [{i}/{n}] {name} → {tag}")
 
     # failed_cases.txt
+    if stale_existing:
+        print(f"\n[batch] ※ {len(stale_existing)}개는 산출물이 낡아(스키마 < {UA_OUTPUT_SCHEMA}) "
+              f"--skip-existing 에도 불구하고 다시 분석했습니다.")
+        print("        분석기가 새 산출물(주응력 CSV 등)을 내게 되어 기존 결과에는 없던 것입니다.")
+
     all_skipped = skipped_existing + skipped_t0
     if failed:
         fail_path = output_root / "failed_cases.txt"
