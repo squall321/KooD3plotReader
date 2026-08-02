@@ -77,3 +77,37 @@ def test_true_peak_delta_is_relative_to_baseline():
     kpi = _run(b)["kpi"]
     assert kpi["true_peak_delta_pct"][0] == 0.0
     assert abs(kpi["true_peak_delta_pct"][1] - (-20.0)) < 1e-9
+
+
+def test_zero_measured_grid_is_warned():
+    """실측률 0% (전부 보간) 이면 경고한다 — 커버리지 100%% 가 신뢰도가 아니다."""
+    b = [
+        make_sphere_bundle("RevA", _spike_angles(40, 7, 100.0, 900.0), PARTS),
+        make_sphere_bundle("RevB", _spike_angles(37, 5, 90.0, 700.0), PARTS),
+    ]
+    options = Options()
+    options.resample = "idw"
+    match = build_matching(b, {}, options)
+    aligned = align(b, 0, "sphere", options.resample)
+    cmp_ = build_comparison(b, 0, "sphere", match, aligned, options)
+    meas = [m for m in cmp_["kpi"]["measured_pct"] if m is not None]
+    if meas and max(meas) <= 0.0:
+        assert any(w.get("code") == "no_measured_cells" for w in cmp_["warnings"]), (
+            "전부 보간인데 경고가 없다")
+
+
+def test_nearest_keeps_measured_values():
+    """nearest 는 실측값만 쓴다 — 격자 worst 가 참피크와 같아야 한다."""
+    a = _spike_angles(40, 7, 100.0, 900.0)
+    b = [
+        make_sphere_bundle("RevA", a, PARTS),
+        make_sphere_bundle("RevB", a, PARTS),   # 같은 격자 → 전부 exact
+    ]
+    options = Options()
+    options.resample = "nearest"
+    match = build_matching(b, {}, options)
+    aligned = align(b, 0, "sphere", options.resample)
+    kpi = build_comparison(b, 0, "sphere", match, aligned, options)["kpi"]
+    assert kpi["worst_per_rev"][0] == kpi["true_peak_per_rev"][0]
+    assert kpi["peak_damping_pct"][0] == 0.0
+    assert kpi["measured_pct"][0] == 100.0

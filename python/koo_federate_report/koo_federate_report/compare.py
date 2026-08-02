@@ -514,6 +514,25 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             }
         )
 
+    # 실측률 0% — 격자의 모든 셀이 보간이라 지도/Δ 가 전부 합성값이다.
+    # resample: idw 를 쓰면 커버리지 100% 라는 숫자가 나오지만 그 100% 는
+    # '실측' 이 아니다. 설정 실수가 조용히 넘어가지 않게 못을 박는다.
+    _meas = [(row or {}).get("measured_pct")
+             for row in ((aligned.coverage or {}).get("per_rev") or [])]
+    _meas_known = [m for m in _meas if isinstance(m, (int, float))]
+    if _meas_known and max(_meas_known) <= 0.0:
+        warnings.append({
+            "code": "no_measured_cells",
+            "severity": "WARN",
+            "message": (
+                "격자 셀의 실측 비율이 0% 입니다 — 모든 값이 보간(IDW)이라 "
+                "지도와 Δ 는 합성값입니다. 보간은 피크를 깎으므로 격자 worst 를 "
+                "헤드라인으로 읽지 마십시오(참피크 행 참조). "
+                "resample: nearest 로 바꾸면 실측값만 쓰고 짝 없는 셀은 "
+                "미판정으로 남습니다."
+            ),
+        })
+
     _no_metric = [p["canonical"] for p in parts
                   if all(s != "ok" for s in p["data_status"])]
     if _no_metric:
