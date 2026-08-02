@@ -70,13 +70,29 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
     sq_per_pos = (payload.get("solver_quality") or {}).get("per_position") or {}
     meta = payload.get("meta") or {}
 
+    # 임팩터(가해자)는 '부품' 이 아니다 — 본 impact 보고서가 이미 집계에서
+    # 제외하는 규칙을 연합에서도 지킨다. 안 그러면 부품 추이/rank 표에
+    # 임팩터가 섞여 순위 경쟁을 한다(실측: 24,272 G 로 15위).
+    _imp_pid = (payload.get("part_motion") or {}).get("impactor_part_id")
+    _imp_name = None
+    if _imp_pid is not None:
+        for _p in payload.get("parts") or []:
+            if _p.get("id") == _imp_pid:
+                _imp_name = _p.get("name")
+                break
+
     # (cell_key, part_name) → metrics, 그리고 position_metrics fallback 용 인덱스
     part_cells = {}
     results_by_pos = {}
+    excluded_impactor = 0
     for rec in results:
         pos_id = rec.get("pos_id")
         name = rec.get("part_name")
         if pos_id is None or not name:
+            continue
+        if (_imp_pid is not None and rec.get("part_id") == _imp_pid) or \
+           (_imp_name and name == _imp_name):
+            excluded_impactor += 1
             continue
         results_by_pos.setdefault(pos_id, []).append(rec)
         metrics = {k: _num(rec.get(k)) for k in ("g", "s", "e", "d")}
@@ -145,6 +161,8 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
         name = p.get("name")
         if pid is None or not name:
             continue
+        if _imp_pid is not None and pid == _imp_pid:
+            continue                      # 임팩터는 부품 목록에서 제외
         parts[int(pid)] = str(name)
 
     unit_labels = payload.get("unit_labels") or (meta.get("sim_params") or {}).get("unit_labels") or {}

@@ -448,18 +448,30 @@ def _summary_prose(cmp_: dict) -> str:
         if i == base:
             continue
         imp = wor = 0
+        vals = []
         for c in cells:
             d = ((c or {}).get("delta_pct") or [])
             v = d[i] if i < len(d) else None
             if not isinstance(v, (int, float)):
                 continue
+            vals.append(v)
             if v < 0:
                 imp += 1
             elif v > 0:
                 wor += 1
+        # 개수만 말하면 '개선 25셀' 이 -1.9% 인지 -29.9% 인지 알 수 없다 —
+        # 중앙값과 최대 폭을 함께 적어 크기 감각을 준다.
+        mag = ""
+        if vals:
+            sv = sorted(vals)
+            med = sv[len(sv) // 2]
+            best, worst_d = sv[0], sv[-1]
+            mag = (f' (중앙값 <span class="{"dn" if med < 0 else "up"}">{med:+.1f}%</span>'
+                   f', 최대 개선 {best:+.1f}%'
+                   + (f', 최대 악화 {worst_d:+.1f}%' if worst_d > 0 else "") + ")")
         frags.append(
             f'<b>{_esc(labels[i])}</b> 는 개선 <span class="dn">{imp}</span>셀 &middot; '
-            f'악화 <span class="up">{wor}</span>셀'
+            f'악화 <span class="up">{wor}</span>셀{mag}'
         )
     if frags:
         out.append("baseline 대비 " + ", ".join(frags) + " 이다.")

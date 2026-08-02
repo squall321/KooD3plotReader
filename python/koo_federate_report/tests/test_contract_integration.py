@@ -202,3 +202,40 @@ def test_no_double_escaped_entities():
     """em-dash 를 이중 이스케이프하지 않는다 (&amp;mdash; 로 깨지던 결함)."""
     h = generate_html(_engine_shaped())
     assert "&amp;mdash;" not in h
+
+
+def test_impactor_excluded_from_parts():
+    """임팩터(가해자)는 부품 추이/rank 비교에서 제외한다.
+
+    회귀 배경: 본 impact 보고서는 이미 제외하는데 연합 어댑터가 되살려
+    임팩터가 24,272 G 로 부품 순위 15위를 차지하며 경쟁했다.
+    """
+    from koo_federate_report.adapters.impact import to_bundle
+
+    doc = {
+        "schema_version": 1,
+        "payload": {
+            "positions": [{"pos_id": "P1", "face": "F5", "x": 0.0, "y": 0.0}],
+            "results": [
+                {"pos_id": "P1", "part_id": 1, "part_name": "Display", "g": 100.0,
+                 "s": 10.0, "e": None, "d": None},
+                {"pos_id": "P1", "part_id": 24, "part_name": "Impactor", "g": 9999.0,
+                 "s": 1.0, "e": None, "d": None},
+            ],
+            "parts": [{"id": 1, "name": "Display"}, {"id": 24, "name": "Impactor"}],
+            "part_motion": {"impactor_part_id": 24},
+            "unit_labels": {"acc": "mm/s²"},
+            "kpi": {}, "meta": {}, "doe_analysis": {}, "solver_quality": {},
+            "findings": [],
+        },
+    }
+    b = to_bundle(doc, path="/synthetic/rev.json", label="Rev")
+    assert "Impactor" not in set(b.parts.values()), "임팩터가 부품 목록에 남아 있다"
+    assert all(pn != "Impactor" for (_c, pn) in b.part_cells), "임팩터 셀이 남아 있다"
+
+
+def test_prose_reports_delta_magnitude():
+    """'개선 N셀' 만이 아니라 중앙값·최대 폭을 함께 말한다."""
+    d = _engine_shaped()
+    h = generate_html(d)
+    assert "중앙값" in h, "개선 폭 분포가 요약에 없음 — 개수만으로는 크기를 알 수 없다"
