@@ -73,3 +73,71 @@ def test_true_peak_survives_downsampling():
     ts.true_peak = 999.0
     ts.max_values = [1.0, 2.0]             # 피크가 솎인 상황을 모사
     assert ts.peak == 999.0
+
+
+# --------------------------------------------------------------------------
+# 파트쌍 접촉력 프로파일 (Contact Profile 탭 데이터)
+# --------------------------------------------------------------------------
+from koo_sphere_report.report.html_report import (  # noqa: E402
+    _contact_profile, _flow_detail_folders, _FLOW_DETAIL_LIMIT,
+)
+
+
+def _flow(edges):
+    return {"nodes": [{"node_id": "1", "times": [0.0, 1.0],
+                       "kinetic_ts": [1.0, 0.0], "internal_ts": [0.0, 1.0]}],
+            "edges": edges}
+
+
+def _edge(src, dst, cid, pf, ti=1.0, tw=2.0, name=""):
+    return {"src": src, "dst": dst, "contact_id": cid, "name": name,
+            "peak_force": pf, "total_impulse": ti, "total_work": tw}
+
+
+def test_contact_profile_missing_angle_is_none_not_zero():
+    """어떤 각도에 그 접촉이 없으면 None — 0 이면 '힘 0' 으로 오독된다."""
+    results = [{"folder": "A"}, {"folder": "B"}, {"folder": "C"}]
+    flows = {
+        "A": _flow([_edge("1", "2", 10, 100.0)]),
+        "C": _flow([_edge("1", "2", 10, 300.0)]),   # B 에는 접촉 없음
+    }
+    cp = _contact_profile(flows, results)
+    assert len(cp["pairs"]) == 1
+    assert cp["pf"][0] == [100.0, None, 300.0]
+
+
+def test_contact_profile_marks_unresolved_pairs():
+    """파트로 분해 안 된 접촉은 resolved=False — 파트쌍인 척하지 않는다."""
+    results = [{"folder": "A"}]
+    flows = {"A": _flow([
+        _edge("1", "2", 10, 100.0),
+        _edge("23", "iface:172", 172, 900.0),
+    ])}
+    cp = _contact_profile(flows, results)
+    by = {p["key"]: p for p in cp["pairs"]}
+    assert by["1>2"]["resolved"] is True
+    assert by["23>iface:172"]["resolved"] is False
+    # 정렬: 해결된 쌍이 먼저 (힘이 더 작아도)
+    assert cp["pairs"][0]["key"] == "1>2"
+
+
+def test_contact_profile_empty_when_no_flows():
+    assert _contact_profile({}, [{"folder": "A"}])["pairs"] == []
+    assert _contact_profile({"A": _flow([])}, [])["pairs"] == []
+
+
+def test_flow_detail_tier_keeps_worst_and_reports_truncation():
+    """각도가 많으면 시계열은 상위만 담되 **무엇이 빠졌는지 알린다**."""
+    n = _FLOW_DETAIL_LIMIT + 10
+    flows = {f"R{i:03d}": _flow([_edge("1", "2", 10, float(i))]) for i in range(n)}
+    keep, note = _flow_detail_folders(flows)
+    assert len(keep) == _FLOW_DETAIL_LIMIT
+    assert f"R{n-1:03d}" in keep, "접촉력 최대 각도가 빠졌다"
+    assert f"R000" not in keep
+    assert note and str(n) in note, "절삭 사실이 사용자에게 안 알려진다"
+
+
+def test_flow_detail_no_truncation_when_small():
+    flows = {f"R{i}": _flow([_edge("1", "2", 10, 1.0)]) for i in range(3)}
+    keep, note = _flow_detail_folders(flows)
+    assert len(keep) == 3 and note == ""

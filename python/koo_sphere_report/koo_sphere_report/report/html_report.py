@@ -23,7 +23,7 @@ class _Encoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def _compact_energy_flows(energy_flows: dict) -> dict:
+def _compact_energy_flows(energy_flows: dict, detail_folders=None) -> dict:
     """중립 flow dict(build_flow_graph 산출) → 브라우저용 압축 dict.
 
     run_folder 별로 노드/엣지를 최소 필드로 줄인다. 시간축은 노드가 공유하므로
@@ -33,6 +33,9 @@ def _compact_energy_flows(energy_flows: dict) -> dict:
     out: dict = {}
     for folder, g in (energy_flows or {}).items():
         if not g or not g.get("nodes"):
+            continue
+        # tier: 상위 각도만 시계열을 담는다 (전 각도면 payload 가 수백 MB)
+        if detail_folders is not None and folder not in detail_folders:
             continue
         # 공유 시간축: 첫 비어있지 않은 노드 times
         t_axis: list = []
@@ -203,9 +206,98 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 
-    data["energy_flows"] = _compact_energy_flows(getattr(report, "energy_flows", {}))
+    flows = getattr(report, "energy_flows", {}) or {}
+    # 각도 X축 전개용 파트쌍 접촉력 프로파일 — **전 각도**를 담되 스칼라만.
+    # (시계열까지 담으면 1144각도 × 26쌍 × 120점 으로 payload 가 터진다)
+    data["contact_profile"] = _contact_profile(flows, data["results"])
+    # 흐름 상세(시계열)는 tier 로 제한. 전 각도에 시계열을 실으면 100MB 를 넘는다.
+    detail, note = _flow_detail_folders(flows)
+    data["energy_flows"] = _compact_energy_flows(flows, detail)
+    data["energy_flows_note"] = note
 
     return data
+
+
+#: 흐름 시계열을 담을 최대 run 수. 넘으면 접촉력이 큰 순으로 상위만 담는다.
+_FLOW_DETAIL_LIMIT = 60
+
+
+def _flow_detail_folders(flows: dict) -> tuple[set, str]:
+    """시계열까지 담을 run_folder 집합 + 사용자에게 보일 사유.
+
+    전 각도의 흐름 시계열을 담으면 payload 가 수백 MB 가 된다. 상위만 담되
+    **무엇이 빠졌는지 반드시 알린다** (조용한 절삭 금지). 스칼라 프로파일은
+    전 각도를 담으므로 '어느 각도가 최악인가' 는 여전히 전수로 답할 수 있다.
+    """
+    folders = list(flows or {})
+    if len(folders) <= _FLOW_DETAIL_LIMIT:
+        return set(folders), ""
+
+    def _worst(f):
+        g = flows.get(f) or {}
+        return max((float(e.get("peak_force") or 0.0) for e in (g.get("edges") or [])),
+                   default=0.0)
+
+    ranked = sorted(folders, key=_worst, reverse=True)
+    keep = set(ranked[:_FLOW_DETAIL_LIMIT])
+    return keep, (
+        f"흐름 시계열은 접촉력 상위 {_FLOW_DETAIL_LIMIT}개 각도만 담았습니다 "
+        f"(전체 {len(folders)}개). 파트쌍 접촉력 프로파일 탭은 전 각도를 "
+        f"스칼라로 담고 있어 각도 비교에는 영향이 없습니다."
+    )
+
+
+def _contact_profile(flows: dict, results: list) -> dict:
+    """파트쌍 × 각도 스칼라 행렬 — 각도를 X축에 전개하는 탭의 데이터.
+
+    구조
+      pairs[]  : {key, src, dst, cid, name, resolved}
+                 resolved=False 는 접촉 정의가 파트로 분해되지 않은 것
+                 (single-surface 등). 파트쌍인 척하지 않고 그대로 표기한다.
+      pf/ti/tw : pairs × angles 행렬. 그 각도에 그 접촉이 없으면 None
+                 (0 이 아니다 — '접촉 안 함' 과 '힘 0' 은 다르다).
+
+    각도 축은 results 순서와 1:1 이라 JS 가 인덱스로 조인한다.
+    """
+    idx_of = {r.get("folder"): i for i, r in enumerate(results) if r.get("folder")}
+    n_ang = len(results)
+    if not flows or not n_ang:
+        return {"pairs": [], "pf": [], "ti": [], "tw": []}
+
+    pairs: dict[str, dict] = {}
+    cells: dict[str, list] = {}
+    for folder, g in flows.items():
+        ai = idx_of.get(folder)
+        if ai is None:
+            continue
+        for e in (g.get("edges") or []):
+            src, dst = str(e.get("src")), str(e.get("dst"))
+            key = f"{src}>{dst}"
+            if key not in pairs:
+                pairs[key] = {
+                    "key": key, "src": src, "dst": dst,
+                    "cid": e.get("contact_id", -1), "name": e.get("name", ""),
+                    "resolved": src.isdigit() and dst.isdigit(),
+                }
+                cells[key] = [None] * n_ang
+            cells[key][ai] = (
+                float(e.get("peak_force") or 0.0),
+                float(e.get("total_impulse") or 0.0),
+                float(e.get("total_work") or 0.0),
+            )
+
+    # 해결된 파트쌍 먼저, 그 안에서 최대 접촉력 내림차순 — 결정적 정렬
+    def _rank(k):
+        vals = [c[0] for c in cells[k] if c is not None]
+        return (0 if pairs[k]["resolved"] else 1, -(max(vals) if vals else 0.0), k)
+
+    order = sorted(pairs, key=_rank)
+    return {
+        "pairs": [pairs[k] for k in order],
+        "pf": [[(cells[k][a][0] if cells[k][a] else None) for a in range(n_ang)] for k in order],
+        "ti": [[(cells[k][a][1] if cells[k][a] else None) for a in range(n_ang)] for k in order],
+        "tw": [[(cells[k][a][2] if cells[k][a] else None) for a in range(n_ang)] for k in order],
+    }
 
 
 _CSS = """
@@ -576,7 +668,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content','contactprofile-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -619,6 +711,7 @@ function renderTab(i) {
     case 10: renderAdvancedAnalysis(); break;
     case 11: renderRenderExport(); break;
     case 12: renderEnergyFlow(); break;
+    case 13: renderContactProfile(); break;
   }
 }
 
@@ -4632,6 +4725,235 @@ function _efResidenceHTML(flow) {
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${sv}</svg>
     <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px">${legend}</div>`;
 }
+
+// ============ Tab 13: Contact Profile (각도 X축 전개 + 파트쌍 선택) ============
+// 각도를 Mollweide 로 겹쳐 보면 5개 이상 비교가 불가능하다. 여기서는 각도를
+// X축에 1차원으로 펼쳐두고, 파트쌍을 골라 그 쌍으로 전달된 접촉력이 각도에
+// 따라 어떻게 변하는지를 선으로 본다.
+//   - 접촉이 없는 각도는 0 이 아니라 '끊긴 선' 으로 그린다 (미접촉 ≠ 힘 0)
+//   - 파트로 분해되지 않은 접촉(single-surface 등)은 파트쌍인 척하지 않고
+//     'iface:171' 그대로 두고 목록에서도 따로 표시한다
+let cpState = { metric: 'pf', sel: [], sort: 'severity', logY: false };
+
+const CP_METRICS = [
+  { key: 'pf', label: '최대 접촉력', labelEn: 'Peak contact force', unit: 'N' },
+  { key: 'ti', label: '충격량 ∫|F|dt', labelEn: 'Impulse', unit: 'N·s' },
+  { key: 'tw', label: '접촉 일 ∫F·v dt', labelEn: 'Contact work', unit: 'E' },
+];
+
+function cpData() {
+  const cp = DATA.contact_profile || { pairs: [], pf: [], ti: [], tw: [] };
+  return cp;
+}
+
+function cpPairLabel(p) {
+  if (!p.resolved) return p.src + ' → ' + p.dst;
+  const nm = id => (DATA.parts[id] && DATA.parts[id].name) || ('Part ' + id);
+  return nm(p.src) + ' → ' + nm(p.dst);
+}
+
+function cpAngleOrder() {
+  // X축 정렬: severity=선택 쌍의 최대값 내림차순, index=런 순서, name=이름순
+  const cp = cpData();
+  const n = (DATA.results || []).length;
+  const idx = [];
+  for (let i = 0; i < n; i++) idx.push(i);
+  if (cpState.sort === 'index') return idx;
+  if (cpState.sort === 'name') {
+    return idx.sort((a, b) => String(DATA.results[a].angle.name).localeCompare(String(DATA.results[b].angle.name)));
+  }
+  const M = cp[cpState.metric] || [];
+  const sel = cpSelected();
+  const score = i => {
+    let m = -Infinity;
+    for (const r of sel) { const v = (M[r] || [])[i]; if (v != null && v > m) m = v; }
+    return m === -Infinity ? -1 : m;
+  };
+  return idx.sort((a, b) => score(b) - score(a));
+}
+
+function cpSelected() {
+  const cp = cpData();
+  if (cpState.sel.length) return cpState.sel.filter(i => i < cp.pairs.length);
+  // 기본값: 해결된 파트쌍 중 상위 3개 (정렬이 이미 severity 순이다)
+  const out = [];
+  for (let i = 0; i < cp.pairs.length && out.length < 3; i++) {
+    if (cp.pairs[i].resolved) out.push(i);
+  }
+  return out.length ? out : (cp.pairs.length ? [0] : []);
+}
+
+function cpToggle(i) {
+  const cur = cpSelected().slice();
+  const at = cur.indexOf(i);
+  if (at >= 0) cur.splice(at, 1); else cur.push(i);
+  cpState.sel = cur;
+  renderContactProfile();
+}
+
+function renderContactProfile() {
+  const container = document.getElementById('contactprofile-content');
+  if (!container) return;
+  const ko = reportLang === 'ko';
+  const cp = cpData();
+
+  if (!cp.pairs.length) {
+    container.innerHTML = `<div class="panel"><h2>Contact Profile</h2>
+      <p style="color:var(--dim)">${ko
+        ? '접촉력 데이터가 없습니다. binout 의 rcforc 와 덱의 *CONTACT 정의가 모두 있어야 파트쌍 접촉력을 만들 수 있습니다.'
+        : 'No contact force data. Both binout rcforc and *CONTACT cards are required.'}</p></div>`;
+    container.dataset.done = '1';
+    return;
+  }
+
+  const mi = CP_METRICS.find(m => m.key === cpState.metric) || CP_METRICS[0];
+  const sel = cpSelected();
+  const order = cpAngleOrder();
+  const M = cp[cpState.metric] || [];
+
+  // --- 컨트롤 ---
+  let ctrl = `<div class="controls" style="flex-wrap:wrap;gap:10px">
+    <label>${ko ? '지표' : 'Metric'}:</label>
+    <select onchange="cpState.metric=this.value;renderContactProfile()">`;
+  for (const m of CP_METRICS) {
+    ctrl += `<option value="${m.key}"${m.key === cpState.metric ? ' selected' : ''}>${ko ? m.label : m.labelEn} (${m.unit})</option>`;
+  }
+  ctrl += `</select>
+    <label style="margin-left:8px">${ko ? '각도 정렬' : 'Angle order'}:</label>
+    <select onchange="cpState.sort=this.value;renderContactProfile()">
+      <option value="severity"${cpState.sort === 'severity' ? ' selected' : ''}>${ko ? '심각도순' : 'By severity'}</option>
+      <option value="index"${cpState.sort === 'index' ? ' selected' : ''}>${ko ? '런 순서' : 'Run order'}</option>
+      <option value="name"${cpState.sort === 'name' ? ' selected' : ''}>${ko ? '이름순' : 'By name'}</option>
+    </select>
+    <label style="margin-left:8px"><input type="checkbox"${cpState.logY ? ' checked' : ''}
+      onchange="cpState.logY=this.checked;renderContactProfile()"> log Y</label>
+  </div>`;
+
+  // --- 파트쌍 선택 칩 ---
+  const PAL = ['#7aa2f7', '#f7768e', '#9ece6a', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64', '#41a6b5'];
+  let chips = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px">`;
+  cp.pairs.forEach((p, i) => {
+    const on = sel.indexOf(i) >= 0;
+    const c = PAL[sel.indexOf(i) % PAL.length];
+    const warn = p.resolved ? '' : ' ⚠';
+    chips += `<span onclick="cpToggle(${i})" title="${p.resolved
+        ? 'CID ' + p.cid + ' · ' + (p.name || '')
+        : (ko ? '이 접촉은 파트로 분해되지 않습니다 (single-surface 등) — 파트쌍이 아니라 인터페이스 단위입니다'
+              : 'Not decomposable into parts (e.g. single-surface) — interface level only')}"
+      style="cursor:pointer;padding:3px 9px;border-radius:11px;font-size:11px;user-select:none;
+             background:${on ? (c + '33') : 'var(--bg3)'};color:${on ? c : 'var(--dim)'};
+             border:1px solid ${on ? c : 'transparent'}">${cpPairLabel(p)}${warn}</span>`;
+  });
+  chips += `</div>`;
+
+  // --- 프로파일 차트 ---
+  const W = 1240, H = 380, padL = 74, padR = 18, padT = 18, padB = 74;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  let vmax = 0, vmin = Infinity;
+  for (const r of sel) for (const v of (M[r] || [])) {
+    if (v == null) continue;
+    if (v > vmax) vmax = v;
+    if (v > 0 && v < vmin) vmin = v;
+  }
+  if (!isFinite(vmin) || vmin <= 0) vmin = vmax > 0 ? vmax / 1e4 : 1;
+  const useLog = cpState.logY && vmax > 0;
+  const px = i => padL + (order.length <= 1 ? iw / 2 : (i * iw) / (order.length - 1));
+  const py = v => {
+    if (v == null) return null;
+    if (useLog) {
+      const lo = Math.log10(vmin), hi = Math.log10(Math.max(vmax, vmin * 10));
+      const c = Math.log10(Math.max(v, vmin));
+      return padT + ih - ((c - lo) / (hi - lo)) * ih;
+    }
+    return padT + ih - (vmax > 0 ? (v / vmax) * ih : 0) ;
+  };
+
+  let sv = `<rect x="${padL}" y="${padT}" width="${iw}" height="${ih}" fill="var(--bg3)" opacity="0.35"/>`;
+  for (let k = 0; k <= 4; k++) {
+    const y = padT + (ih * k) / 4;
+    const val = useLog
+      ? Math.pow(10, Math.log10(Math.max(vmax, vmin * 10)) - (Math.log10(Math.max(vmax, vmin * 10)) - Math.log10(vmin)) * k / 4)
+      : vmax * (1 - k / 4);
+    sv += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + iw}" y2="${y.toFixed(1)}" stroke="var(--bg2)" stroke-width="1"/>`;
+    sv += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--dim)" font-size="10">${val >= 1000 ? val.toExponential(1) : val.toFixed(1)}</text>`;
+  }
+
+  let nGap = 0;
+  sel.forEach((r, si) => {
+    const c = PAL[si % PAL.length];
+    const row = M[r] || [];
+    // 결측(미접촉)은 선을 끊는다 — 0 으로 이어 그리면 '힘이 0 이었다' 로 읽힌다
+    let seg = [];
+    const flush = () => {
+      if (seg.length > 1) sv += `<polyline points="${seg.join(' ')}" fill="none" stroke="${c}" stroke-width="1.8" opacity="0.95"/>`;
+      else if (seg.length === 1) { const [x, y] = seg[0].split(','); sv += `<circle cx="${x}" cy="${y}" r="2" fill="${c}"/>`; }
+      seg = [];
+    };
+    order.forEach((ai, i) => {
+      const v = row[ai];
+      if (v == null) { nGap++; flush(); return; }
+      seg.push(px(i).toFixed(1) + ',' + py(v).toFixed(1));
+    });
+    flush();
+  });
+
+  // X축 눈금 — 각도 이름 (촘촘하면 솎는다)
+  const step = Math.max(1, Math.ceil(order.length / 26));
+  order.forEach((ai, i) => {
+    if (i % step) return;
+    const nm = (DATA.results[ai] && DATA.results[ai].angle.name) || String(ai);
+    sv += `<text x="${px(i).toFixed(1)}" y="${padT + ih + 14}" text-anchor="end" fill="var(--dim)"
+      font-size="9" transform="rotate(-55 ${px(i).toFixed(1)} ${padT + ih + 14})">${nm}</text>`;
+  });
+  sv += `<text x="6" y="${padT + 10}" fill="var(--dim)" font-size="10">${mi.unit}</text>`;
+
+  let legend = '';
+  sel.forEach((r, si) => {
+    legend += `<span style="color:${PAL[si % PAL.length]};font-weight:700">${cpPairLabel(cp.pairs[r])}</span>`;
+  });
+
+  // --- 선택 쌍 요약 표 ---
+  let trows = '';
+  for (const r of sel) {
+    const row = M[r] || [];
+    let best = null, bi = -1, nHit = 0;
+    row.forEach((v, ai) => { if (v == null) return; nHit++; if (best == null || v > best) { best = v; bi = ai; } });
+    const nm = bi >= 0 && DATA.results[bi] ? DATA.results[bi].angle.name : '—';
+    const p = cp.pairs[r];
+    trows += `<tr><td style="color:var(--cyan)">${cpPairLabel(p)}</td>
+      <td>${p.resolved ? 'CID ' + p.cid : (ko ? '파트 분해 불가' : 'not decomposable')}</td>
+      <td style="text-align:right">${best == null ? '—' : (best >= 1000 ? best.toExponential(2) : best.toFixed(2))}</td>
+      <td style="color:var(--yellow)">${nm}</td>
+      <td style="text-align:right">${nHit} / ${order.length}</td></tr>`;
+  }
+
+  const nUnres = cp.pairs.filter(p => !p.resolved).length;
+  const note = DATA.energy_flows_note || '';
+
+  container.innerHTML = `
+    <div class="panel">
+      <h2>${ko ? '파트쌍 접촉력 — 전 각도 전개' : 'Part-pair contact force across all angles'}</h2>
+      ${ctrl}
+      ${chips}
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${sv}</svg>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px">${legend}</div>
+      <p style="color:var(--dim);font-size:11px;margin-top:10px">
+        ${ko ? `X축은 각도 ${order.length}개를 1차원으로 펼친 것이다. 선이 끊긴 구간은 그 각도에서 해당 접촉이 발생하지 않은 것이며 0 이 아니다(끊김 ${nGap}칸).`
+             : `X axis unrolls ${order.length} angles. Gaps mean no contact at that angle — not zero (${nGap} gaps).`}
+        ${nUnres ? (ko ? ` 파트로 분해되지 않는 접촉 ${nUnres}건은 ⚠ 로 표시했다 — 인터페이스 단위 합력이라 파트쌍으로 읽으면 안 된다.`
+                        : ` ${nUnres} contact(s) marked ⚠ are interface-level only.`) : ''}
+        ${note ? ' ' + note : ''}
+      </p>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2>${ko ? '선택 쌍 요약' : 'Selected pairs'}</h2>
+      <table><tr><th>${ko ? '파트쌍' : 'Pair'}</th><th>${ko ? '접촉 정의' : 'Contact'}</th>
+        <th>${ko ? '최대' : 'Max'} (${mi.unit})</th><th>${ko ? '발생 각도' : 'At angle'}</th>
+        <th>${ko ? '접촉한 각도' : 'Angles engaged'}</th></tr>${trows}</table>
+    </div>`;
+  container.dataset.done = '1';
+}
+
 """
 
 
@@ -4686,6 +5008,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <div class="tab" data-tab="10">Advanced</div>
   <div class="tab" data-tab="11">Render Export</div>
   <div class="tab" data-tab="12">Energy Flow</div>
+  <div class="tab" data-tab="13">Contact Profile</div>
 </div>
 
 <div class="content">
@@ -4759,6 +5082,11 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <!-- Tab 12: Energy Flow -->
   <div class="tab-content hidden" id="tab-12">
     <div id="energyflow-content"></div>
+  </div>
+
+  <!-- Tab 13: Contact Profile (각도 X축 전개 + 파트쌍 선택) -->
+  <div class="tab-content hidden" id="tab-13">
+    <div id="contactprofile-content"></div>
   </div>
 </div>
 
