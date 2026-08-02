@@ -214,11 +214,56 @@ def _unit_factors(bundles, baseline_idx, policy, warnings) -> list:
 # --------------------------------------------------------------------------
 # 본체
 # --------------------------------------------------------------------------
+def _guard_input_sanity(bundles, warnings) -> None:
+    """입력 실수 방어 — 조용히 무의미한 보고서를 내지 않는다.
+
+    ① 같은 sidecar 를 두 번 넣으면 Δ 가 전부 0 인 보고서가 나오는데, 경고가
+       없으면 사용자는 실수를 모른다(경로/입력 digest 기준).
+    ② YAML 순서(=리비전 축)와 생성 시각 순서가 어긋나면 추이(trend) 해석이
+       뒤집힌다. 순서를 강제하지는 않고 사실만 알린다.
+    """
+    # ① 중복 입력 — 경로가 1순위 기준이다. digest 는 서로 다른 파일이 같은
+    #    값을 가질 수 있어(원본을 복사·변형한 리비전) 경로가 다르면 중복으로
+    #    보지 않는다. 경로까지 같을 때만 확실한 실수로 판정한다.
+    seen = {}
+    for i, b in enumerate(bundles):
+        key = (getattr(b, "path", None) or "").strip() or None
+        if not key:
+            continue
+        if key in seen:
+            warnings.append({
+                "code": "duplicate_input",
+                "severity": "ERROR",
+                "message": (f"{bundles[seen[key]].label} 과 {b.label} 이 같은 입력입니다 "
+                            f"— Δ 가 0 으로 나오는 것은 개선이 아니라 중복 입력 때문입니다."),
+            })
+        else:
+            seen[key] = i
+
+    # ② 생성 시각 역순
+    times = []
+    for b in bundles:
+        gu = (getattr(b, "provenance", None) or {}).get("generated_utc")
+        times.append(str(gu) if gu else None)
+    known = [(i, t) for i, t in enumerate(times) if t]
+    if len(known) >= 2:
+        ordered = all(known[k][1] <= known[k + 1][1] for k in range(len(known) - 1))
+        if not ordered:
+            warnings.append({
+                "code": "revision_order",
+                "severity": "INFO",
+                "message": ("YAML 의 리비전 순서가 생성 시각 순서와 다릅니다 — "
+                            "추이(TREND)는 YAML 순서를 시간 축으로 간주하므로 "
+                            "의도한 순서인지 확인하십시오."),
+            })
+
+
 def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metric="g") -> dict:
     if metric not in METRIC_KEYS:
         raise CompareError(f"metric 은 {list(METRIC_KEYS)} 중 하나여야 합니다 — 현재 {metric!r}")
 
     warnings = list(match.warnings) + list(aligned.warnings)
+    _guard_input_sanity(bundles, warnings)
     schema_version = _guard_schema(bundles)
     factors = _unit_factors(bundles, baseline_idx, options.unit_policy, warnings)
     n_rev = len(bundles)

@@ -239,3 +239,51 @@ def test_prose_reports_delta_magnitude():
     d = _engine_shaped()
     h = generate_html(d)
     assert "중앙값" in h, "개선 폭 분포가 요약에 없음 — 개수만으로는 크기를 알 수 없다"
+
+
+def _mini_bundle(label, path, gen_utc=None, value=100.0):
+    from tests.helpers import make_impact_bundle
+    b = make_impact_bundle(
+        label,
+        [("C1", 0.0, 0.0, "F5", value, True, "bounce")],
+        {1: "Display"},
+        part_values={("C1", "Display"): {"g": value, "s": None, "e": None, "d": None}},
+    )
+    b.path = path
+    if gen_utc:
+        b.provenance = dict(b.provenance or {})
+        b.provenance["generated_utc"] = gen_utc
+    return b
+
+
+def _warn_codes(bundles):
+    from koo_federate_report.compare import build_comparison
+    from koo_federate_report.config import Options
+    from koo_federate_report.matching import build_matching
+    from koo_federate_report.resample import align
+    o = Options()
+    m = build_matching(bundles, {}, o)
+    a = align(bundles, 0, "impact", o.resample)
+    c = build_comparison(bundles, 0, "impact", m, a, o, metric="g")
+    return {w.get("code") for w in c.get("warnings") or []}
+
+
+def test_duplicate_input_warned():
+    """같은 sidecar 를 두 번 넣으면 Δ=0 이 '개선' 으로 오독된다 — 경고해야 한다."""
+    codes = _warn_codes([_mini_bundle("A", "/x/same.json"),
+                         _mini_bundle("B", "/x/same.json")])
+    assert "duplicate_input" in codes
+
+
+def test_distinct_paths_not_flagged_duplicate():
+    """경로가 다르면 중복이 아니다 (원본 복사·변형 리비전의 거짓 양성 방지)."""
+    codes = _warn_codes([_mini_bundle("A", "/x/a.json", value=100.0),
+                         _mini_bundle("B", "/x/b.json", value=80.0)])
+    assert "duplicate_input" not in codes
+
+
+def test_revision_order_warned_when_times_reversed():
+    """YAML 순서와 생성 시각 순서가 어긋나면 추이 해석이 뒤집힌다 — 알린다."""
+    codes = _warn_codes([_mini_bundle("A", "/x/a.json", "2026-08-02T00:00:00+00:00"),
+                         _mini_bundle("B", "/x/b.json", "2026-07-01T00:00:00+00:00")])
+    assert "revision_order" in codes

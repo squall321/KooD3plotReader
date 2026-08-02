@@ -357,7 +357,6 @@ def _kpi_series(cmp_: dict, name: str) -> list:
 
 
 def _build_kpi_table(cmp_: dict) -> str:
-    kpi = cmp_.get("kpi") or {}
     labels = _rev_labels(cmp_.get("revisions"))
     base = int(cmp_.get("baseline_idx") or 0)
     gdiv = cmp_.get("g_divisor") or 0
