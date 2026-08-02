@@ -1749,6 +1749,16 @@ function renderParts() {
                + '값이 비어 있는 것은 0 이 아니라 부재입니다.';
       nm.appendChild(mb);
     }
+    // '파트는 있는데 이 지표가 한 셀에도 기록되지 않음' 은 부재와 다른 사실이다.
+    // 둘 다 '—' 로 나가면 데이터 유실로 오독된다 (실측: 23개 중 6개).
+    var ds = p.data_status || [];
+    if (ds.length && ds.every(function (s) { return s !== 'ok'; })
+        && ds.some(function (s) { return s === 'no_metric'; })) {
+      var nb = elx('span', 'miss-badge', '지표 없음');
+      nb.title = '이 파트는 산출물에 존재하지만 현재 지표의 측정값이 어느 셀에도 '
+               + '기록되지 않았습니다. 부재(0)가 아니라 미기록입니다.';
+      nm.appendChild(nb);
+    }
     tr.appendChild(nm);
     var w = p.worst || [];
     // worst 값에 '어느 셀에서 나왔는지' 를 붙인다 — 클릭하면 그 셀로 probe 이동.
@@ -1756,6 +1766,11 @@ function renderParts() {
     var wc = p.worst_cell || [];
     for (var i = 0; i < NREV; i++) {
       var td = elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—');
+      if (!isN(w[i])) {
+        td.title = (ds[i] === 'absent') ? '이 리비전에 파트가 없습니다 (부재 ≠ 0)'
+                 : (ds[i] === 'no_metric') ? '파트는 있으나 이 지표가 기록되지 않았습니다'
+                 : '값 없음';
+      }
       if (isN(w[i]) && wc[i]) {
         td.title = '최악 셀: ' + wc[i] + ' (클릭하면 이동)';
         td.style.cursor = 'pointer';

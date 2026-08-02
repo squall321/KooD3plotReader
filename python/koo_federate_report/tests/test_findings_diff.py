@@ -81,3 +81,48 @@ def test_key_collision_is_warned_not_silent():
     warns = [w for w in cmp_["warnings"] if w.get("code") == "findings_key_collision"]
     assert warns, "충돌로 1건이 사라졌는데 경고가 없다"
     assert "RevB" in warns[0]["message"]
+
+
+# --------------------------------------------------------------------------
+# 파트 데이터 상태 — '부재' 와 '지표 미기록' 을 구분한다
+# --------------------------------------------------------------------------
+def test_part_without_metric_is_distinguished_from_absent():
+    """파트는 있는데 지표가 한 셀에도 없으면 no_metric — 부재(absent)와 다르다.
+
+    실측: 구면 23개 파트 중 6개(Display/PCB/Bond …)가 여기 해당했는데 화면에는
+    똑같은 "—" 로만 나가 데이터 유실로 오독됐다.
+    """
+    from koo_federate_report.models import Cell, RevisionBundle, Trust
+
+    def _bundle(label, with_value):
+        cell = Cell(key="P1", label="P1", category="F1", x=0.0, y=0.0,
+                    metrics={"g": 100.0, "s": None, "e": None, "d": None},
+                    trust=Trust(True, "ok"), behavior="bounce",
+                    energy={"ke_retention": 1.0, "diss_pct": None,
+                            "max_penetration_depth": None})
+        pc = {("P1", "HASDATA"): {"g": 50.0, "s": None, "e": None, "d": None}}
+        if with_value:
+            pc[("P1", "NOMETRIC")] = {"g": None, "s": 7.0, "e": None, "d": None}
+        return RevisionBundle(
+            label=label, kind="impact", path=f"/syn/{label}.json", schema_version=1,
+            meta={}, unit_labels={"acc": "mm/s²", "stress": "MPa", "disp": "mm"},
+            parts={1: "HASDATA", 2: "NOMETRIC"},
+            positions=[{"pos_id": "P1", "face": "F1", "x": 0.0, "y": 0.0}],
+            cells=[cell], part_cells=pc, kpi={},
+            trust={"n_cells": 1, "n_gated": 0}, findings=[],
+            provenance={"tool": "synthetic", "tool_version": "0"},
+        )
+
+    bundles = [_bundle("RevA", True), _bundle("RevB", True)]
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "impact", options.resample)
+    cmp_ = build_comparison(bundles, 0, "impact", match, aligned, options)
+
+    by_name = {p["canonical"]: p for p in cmp_["parts"]}
+    assert by_name["HASDATA"]["data_status"] == ["ok", "ok"]
+    # 파트는 양쪽에 존재하지만 g 값이 없다 → absent 가 아니라 no_metric
+    assert by_name["NOMETRIC"]["data_status"] == ["no_metric", "no_metric"]
+    assert by_name["NOMETRIC"]["present"] == [True, True]
+    assert cmp_["kpi"]["n_parts_no_metric"] == 1
+    assert any(w.get("code") == "parts_without_metric" for w in cmp_["warnings"])

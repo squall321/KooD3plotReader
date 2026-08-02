@@ -492,6 +492,13 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             worst.append(best_v)
             used.append(n_used)
             worst_cell.append(best_cell)
+        # 빈 칸의 이유를 구분한다. '파트가 없다' 와 '파트는 있는데 이 지표의
+        # 측정값이 한 셀에도 없다' 는 전혀 다른 사실인데, 둘 다 "—" 로 나가면
+        # 데이터 유실로 오독된다 (실측: 23개 중 6개가 후자였다).
+        data_status = [
+            "absent" if names[i] is None else ("no_metric" if used[i] == 0 else "ok")
+            for i in range(n_rev)
+        ]
         parts.append(
             {
                 "canonical": canonical,
@@ -500,11 +507,26 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                 "present": [nm is not None for nm in names],
                 "worst": worst,
                 "n_cells_used": used,
+                "data_status": data_status,
                 # "Display 가 나빠졌다" 에서 "어느 위치에서" 까지 답하게 하는 키.
                 # 리비전마다 worst 셀이 다르면 그 자체가 신호다(취약점 이동).
                 "worst_cell": worst_cell,
             }
         )
+
+    _no_metric = [p["canonical"] for p in parts
+                  if all(s != "ok" for s in p["data_status"])]
+    if _no_metric:
+        warnings.append({
+            "code": "parts_without_metric",
+            "severity": "INFO",
+            "message": (
+                f"파트 {len(_no_metric)}/{len(parts)} 개는 {METRIC_LABELS[metric]} 의 "
+                "측정값이 어느 셀에도 없어 추이가 빈 칸입니다 — 데이터 유실이 아니라 "
+                "해당 지표가 기록되지 않은 것입니다: "
+                + ", ".join(_no_metric[:6]) + (" 외" if len(_no_metric) > 6 else "")
+            ),
+        })
 
     # rank (1 = 가장 나쁨) — 리비전별로 worst 내림차순
     for i in range(n_rev):
@@ -712,6 +734,9 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         "n_parts_canonical": len(parts),
         "n_parts_matched": matched_parts,
         "n_parts_unmatched": [len(u) for u in match.unmatched],
+        "n_parts_no_metric": sum(
+            1 for p in parts if all(s != "ok" for s in p["data_status"])
+        ),
         "worst_per_rev": [
             max((c["per_rev"][i]["value"] for c in cells if c["per_rev"][i]["value"] is not None),
                 default=None)
