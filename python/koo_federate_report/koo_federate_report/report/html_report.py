@@ -753,25 +753,88 @@ def _build_s9(cmp_: dict) -> str:
         if rows
         else '<div class="empty">provenance 정보 없음. 무엇과 무엇을 비교했는지 기록이 없다.</div>'
     )
+    # 커버리지는 엔진 계약상 dict 리스트다
+    # ({label, n_grid, exact, nearest, idw, missing, measured_pct, coverage_pct}).
+    # 이전에는 _esc(dict) 로 찍혀 파이썬 dict 가 화면에 날것으로 새어 나왔다.
     per_rev = cov.get("per_rev") or []
-    cov_rows = "".join(
-        f'<div class="bt-chip">{_esc(labels[i] if i < len(labels) else i)} <b>{_esc(v)}</b></div>'
-        for i, v in enumerate(per_rev)
-    ) or '<div class="empty">커버리지 정보 없음.</div>'
+    if per_rev and not all(isinstance(r, dict) for r in per_rev):
+        # 구 샘플은 스칼라 리스트다 — 표로 만들 수 없으니 칩으로 그대로 보인다.
+        cov_body = "".join(
+            f'<div class="bt-chip">{_esc(labels[i] if i < len(labels) else i)} '
+            f'<b>{_esc(r)}</b></div>' for i, r in enumerate(per_rev)
+        )
+        per_rev = []
+    elif per_rev:
+        crows = "".join(
+            '<tr><td class="tl b">{}</td><td class="num">{}</td><td class="num">{}</td>'
+            '<td class="num">{}</td><td class="num">{}</td><td class="num">{}</td>'
+            '<td class="num">{}</td></tr>'.format(
+                _esc((r or {}).get("label") or (labels[i] if i < len(labels) else i)),
+                _esc((r or {}).get("n_grid", _EMDASH)),
+                _esc((r or {}).get("exact", _EMDASH)),
+                _esc((r or {}).get("nearest", _EMDASH)),
+                _esc((r or {}).get("idw", _EMDASH)),
+                _esc((r or {}).get("missing", _EMDASH)),
+                (_num((r or {}).get("measured_pct"), 1) + "%"
+                 if isinstance((r or {}).get("measured_pct"), (int, float)) else _EMDASH),
+            )
+            for i, r in enumerate(per_rev)
+        )
+        cov_body = (
+            '<table class="dt"><thead><tr><th class="tl">리비전</th><th>격자</th>'
+            '<th>실측 일치</th><th>최근접</th><th>보간</th><th>없음</th>'
+            '<th>실측률</th></tr></thead><tbody>' + crows + "</tbody></table>"
+        )
+    elif not cov.get("per_rev"):
+        cov_body = '<div class="empty">커버리지 정보 없음.</div>'
+
+    # 이 숫자들이 어떤 설정에서 나왔는지 — 없으면 재현이 불가능하다.
+    kpi = cmp_.get("kpi") or {}
+    base_i = int(cmp_.get("baseline_idx") or 0)
+    ul = cmp_.get("unit_labels") or {}
+    metric = cmp_.get("metric") or "g"
+    axis = _METRIC_AXIS.get(metric, "acc")
+    tier = cmp_.get("tier")
+    tier = tier if isinstance(tier, dict) else ({"name": tier} if tier else {})
+    setup = [
+        ("baseline", labels[base_i] if base_i < len(labels) else _EMDASH),
+        # metric_label 은 엔진이 kpi 안에 둔다 (최상위에는 metric 키만 있다)
+        ("지표", "{} ({})".format(
+            kpi.get("metric_label") or cmp_.get("metric_label") or metric,
+            ul.get(axis) or _EMDASH)),
+        ("리샘플", "{} → {} · 격자 {}".format(
+            cov.get("mode") or _EMDASH, cov.get("mode_effective") or _EMDASH,
+            cov.get("grid_source") or _EMDASH)),
+        ("trust gate", "ON" if kpi.get("trust_gate") else "OFF"),
+        ("판정 가능", "{} / {}".format(
+            kpi.get("n_comparable", _EMDASH), kpi.get("n_cells", _EMDASH))),
+        ("tier", "{} · 프로파일 {}".format(
+            tier.get("name") or _EMDASH, tier.get("profile_topk") or _EMDASH)),
+        ("schema", cmp_.get("schema_version") if cmp_.get("schema_version") is not None else _EMDASH),
+    ]
+    setup_rows = "".join(
+        f'<tr><td class="tl dim">{_esc(k)}</td><td class="tl">{_esc(v)}</td></tr>'
+        for k, v in setup
+    )
     return (
         '<section class="page" id="s9">\n'
         '  <div class="page-head r"><span class="num">09</span>'
         '<span class="tagline">PROVENANCE &middot; APPENDIX</span>'
-        '<span class="ttl">출처 부록 &mdash; 무엇과 무엇을 비교했는가</span>'
+        '<span class="ttl">출처 부록 &mdash; 무엇을 어떤 설정으로 비교했는가</span>'
         '<span class="sub">TRACEABILITY</span></div>\n'
         '  <div class="grid g-12">\n'
         '    <div class="panel col-8 r"><div class="ph"><span class="pt">리비전 출처</span>'
         '<span class="pd">tool version / generated / digest</span></div>' + table + "</div>\n"
-        '    <div class="panel col-4 r"><div class="ph"><span class="pt">커버리지</span>'
-        f'<span class="pd">intersection {_esc(cov.get("intersection", _EMDASH))} '
-        f'&middot; resampled {_esc(cov.get("resampled", _EMDASH))}</span></div>'
-        f'<div class="bt-sum">{cov_rows}</div>'
-        f'<div class="pcap">{_esc(cov.get("note") or "리샘플 메모 없음.")}</div></div>\n'
+        '    <div class="panel col-4 r"><div class="ph"><span class="pt">비교 설정</span>'
+        '<span class="pd">재현에 필요한 값</span></div>'
+        '<table class="dt"><tbody>' + setup_rows + '</tbody></table></div>\n'
+        '    <div class="panel col-12 r" style="margin-top:14px"><div class="ph">'
+        '<span class="pt">셀 커버리지</span>'
+        '<span class="pd">실측 일치 / 최근접 / 보간 / 없음</span></div>'
+        + cov_body +
+        '<div class="pcap">실측률은 그 좌표에서 실제로 계산된 값의 비율이다. '
+        '커버리지 100%%가 곧 신뢰도는 아니다 &mdash; 보간으로 채운 셀도 커버리지에는 '
+        '포함되지만 실측이 아니며 피크가 깎인다.</div></div>\n'
         "  </div>\n</section>\n"
     )
 

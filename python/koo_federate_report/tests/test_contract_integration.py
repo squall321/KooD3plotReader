@@ -358,3 +358,39 @@ def test_interpolated_cells_visually_demoted():
     h = generate_html(d)
     assert "interp" in h, "보간 강등 클래스가 없음"
     assert "보간(IDW)" in h, "probe 에 보간 표기가 없음"
+
+
+def test_s9_renders_coverage_table_not_raw_dict():
+    """coverage.per_rev 는 dict 리스트다 — str(dict) 가 화면에 새면 안 된다.
+
+    회귀: `_esc(v)` 로 찍어 "{'label': 'RevA', 'n_grid': 915, …}" 가 그대로
+    보고서에 나왔다. 엔진↔리포트 계약 불일치의 여섯 번째 사례.
+    """
+    d = _engine_shaped()
+    d["coverage"] = {
+        "mode": "nearest", "mode_effective": "nearest", "n_grid": 3,
+        "grid_source": "baseline(RevA)",
+        "per_rev": [
+            {"label": "RevA", "n_grid": 3, "exact": 3, "nearest": 0, "idw": 0,
+             "missing": 0, "measured_pct": 100.0, "coverage_pct": 100.0},
+            {"label": "RevB", "n_grid": 3, "exact": 2, "nearest": 0, "idw": 0,
+             "missing": 1, "measured_pct": 66.7, "coverage_pct": 66.7},
+        ],
+    }
+    h = generate_html(d)
+    # 검사 범위는 s9 섹션 마크업만 — 문서에는 payload JSON 이 정상적으로 박혀 있다
+    s9 = h[h.index('id="s9"'):]
+    s9 = s9[:s9.index("</section>")]
+    assert "{'label'" not in s9, "파이썬 dict 가 화면에 샜다"
+    assert "실측률" in s9 and "100.0%" in s9 and "66.7%" in s9
+    # 재현에 필요한 설정이 부록에 있어야 한다
+    for token in ("baseline", "리샘플", "nearest", "trust gate", "판정 가능"):
+        assert token in s9, f"s9 에 {token} 이 없다"
+
+
+def test_s9_tolerates_legacy_scalar_coverage():
+    """구 샘플의 스칼라 per_rev 도 크래시 없이 표시한다."""
+    d = _engine_shaped()
+    d["coverage"] = {"per_rev": [100, 66]}
+    h = generate_html(d)
+    assert "<html" in h.lower()
