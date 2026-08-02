@@ -468,6 +468,14 @@ def load_energy_flow(
     if not g or not g.get("nodes"):
         print(f"[sphere] energy-flow skip {run_output_dir.name}: builder returned empty")
         return {}
+
+    # 접촉력 계측·검증 — binout/contact_map 을 이미 만들었으니 여기서 함께 낸다.
+    # 흐름 dict 안에 넣어 두면 per-run 캐시가 그대로 살린다.
+    try:
+        from koo_deep_report.core.contact_metrics import build_contact_metrics
+        g["contact_metrics"] = build_contact_metrics(binout, contact_map, part_names)
+    except Exception as e:      # noqa: BLE001
+        print(f"[sphere] contact-metrics skip {run_output_dir.name}: {e}")
     return g
 
 
@@ -475,7 +483,7 @@ def load_energy_flow(
 # <test_dir>/.sphere_flow_cache/v<N>/<run_folder>.json — 흐름이 순수 dict 라
 # JSON 왕복이 무손실. best-effort: 읽기/쓰기 실패는 조용히 miss/skip
 # (읽기전용 NFS 안전). 지문은 내용 해시가 아닌 stat(size:mtime_ns) — ~ms.
-_FLOW_CACHE_SCHEMA = 2   # v2: 흐름 노드에 파트별 peak/final IE·KE 스칼라 추가
+_FLOW_CACHE_SCHEMA = 3   # v3: 흐름 dict 에 contact_metrics(rcforc 계측·검증) 추가
 
 
 def _flow_fingerprint(run_output_dir: Path) -> str:

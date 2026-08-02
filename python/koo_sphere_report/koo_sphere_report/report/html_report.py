@@ -210,12 +210,53 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     # 각도 X축 전개용 파트쌍 접촉력 프로파일 — **전 각도**를 담되 스칼라만.
     # (시계열까지 담으면 1144각도 × 26쌍 × 120점 으로 payload 가 터진다)
     data["contact_profile"] = _contact_profile(flows, data["results"])
+    data["contact_trust"] = _contact_trust(flows)
     # 흐름 상세(시계열)는 tier 로 제한. 전 각도에 시계열을 실으면 100MB 를 넘는다.
     detail, note = _flow_detail_folders(flows)
     data["energy_flows"] = _compact_energy_flows(flows, detail)
     data["energy_flows_note"] = note
 
     return data
+
+
+def _contact_trust(flows: dict) -> dict:
+    """전 각도 접촉력 계측의 신뢰 요약 (per-run contact_metrics 집계).
+
+    각 run 이 자기 rcforc 로 뉴턴 3법칙을 검증한다. 여기서는 그 결과를 전 각도에
+    걸쳐 모아 "이 DOE 의 접촉력을 믿어도 되는가" 한 줄로 답한다.
+    절대 기준은 두지 않는다 — 최악값과 분포만 보고한다.
+    """
+    n_run = n_avail = 0
+    worst = None
+    worst_run = ""
+    n_one_sided = 0
+    n_iface = 0
+    reasons: dict = {}
+    for folder, g in (flows or {}).items():
+        cm = (g or {}).get("contact_metrics")
+        if not cm:
+            continue
+        n_run += 1
+        if not cm.get("available"):
+            r = str(cm.get("reason") or "")[:80]
+            reasons[r] = reasons.get(r, 0) + 1
+            continue
+        n_avail += 1
+        n_iface = max(n_iface, int(cm.get("n_interfaces") or 0))
+        n3 = (cm.get("checks") or {}).get("newton3") or {}
+        n_one_sided = max(n_one_sided, int(n3.get("n_one_sided") or 0))
+        mx = n3.get("max_rel")
+        if isinstance(mx, (int, float)) and (worst is None or mx > worst):
+            worst, worst_run = mx, folder
+    if not n_run:
+        return {}
+    return {
+        "n_runs": n_run, "n_available": n_avail,
+        "n_interfaces": n_iface,
+        "newton3_worst_rel": worst, "newton3_worst_run": worst_run,
+        "n_one_sided": n_one_sided,
+        "unavailable_reasons": [{"reason": k, "n": v} for k, v in sorted(reasons.items())],
+    }
 
 
 #: 흐름 시계열을 담을 최대 run 수. 넘으면 접촉력이 큰 순으로 상위만 담는다.
@@ -4930,6 +4971,35 @@ function renderContactProfile() {
   const nUnres = cp.pairs.filter(p => !p.resolved).length;
   const note = DATA.energy_flows_note || '';
 
+  // 계측 신뢰 — rcforc 를 믿어도 되는지. 절대 기준 없이 값만 보고한다.
+  const tr = DATA.contact_trust || {};
+  let trustHtml = '';
+  if (tr.n_runs) {
+    const w = tr.newton3_worst_rel;
+    const wtxt = (w == null) ? '—' : (w < 1e-4 ? w.toExponential(1) : w.toFixed(4));
+    trustHtml = `<div class="panel" style="margin-top:14px">
+      <h2>${ko ? '접촉력 계측 신뢰' : 'Contact measurement trust'}</h2>
+      <table>
+        <tr><th>${ko ? '항목' : 'Item'}</th><th>${ko ? '값' : 'Value'}</th><th>${ko ? '의미' : 'Meaning'}</th></tr>
+        <tr><td>${ko ? 'rcforc 계측된 각도' : 'Angles measured'}</td>
+            <td style="text-align:right">${tr.n_available} / ${tr.n_runs}</td>
+            <td style="color:var(--dim)">${ko ? '나머지는 계측 안 된 것이며 힘이 0 이었다는 뜻이 아니다' : 'rest = not measured, not zero'}</td></tr>
+        <tr><td>${ko ? '인터페이스 수' : 'Interfaces'}</td>
+            <td style="text-align:right">${tr.n_interfaces}</td><td></td></tr>
+        <tr><td>${ko ? '뉴턴 3법칙 최악 상대차' : 'Newton 3rd worst rel.'}</td>
+            <td style="text-align:right">${wtxt}</td>
+            <td style="color:var(--dim)">${ko ? 'master 힘과 slave 힘의 충격량 차이. 0 에 가까울수록 접촉 정의가 건전하다' : 'master vs slave impulse'}</td></tr>
+        <tr><td>${ko ? '한쪽만 기록된 접촉' : 'One-sided records'}</td>
+            <td style="text-align:right">${tr.n_one_sided}</td>
+            <td style="color:var(--dim)">${ko ? "반대편이 'ALL' 인 정의 — 법칙 위반이 아니라 검증 대상이 아니다" : "opposite side is 'ALL' — not a violation"}</td></tr>
+      </table>
+      <p style="color:var(--dim);font-size:11px;margin-top:8px">
+        ${ko ? '절대 합격 기준은 두지 않는다. 값을 보고 판단하는 것은 사람이다.'
+             : 'No pass/fail thresholds — values only.'}
+        ${tr.newton3_worst_run ? (ko ? ' 최악 각도: ' : ' Worst run: ') + tr.newton3_worst_run : ''}
+      </p></div>`;
+  }
+
   container.innerHTML = `
     <div class="panel">
       <h2>${ko ? '파트쌍 접촉력 — 전 각도 전개' : 'Part-pair contact force across all angles'}</h2>
@@ -4945,6 +5015,7 @@ function renderContactProfile() {
         ${note ? ' ' + note : ''}
       </p>
     </div>
+    ${trustHtml}
     <div class="panel" style="margin-top:14px">
       <h2>${ko ? '선택 쌍 요약' : 'Selected pairs'}</h2>
       <table><tr><th>${ko ? '파트쌍' : 'Pair'}</th><th>${ko ? '접촉 정의' : 'Contact'}</th>

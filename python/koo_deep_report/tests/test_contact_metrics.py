@@ -129,3 +129,13 @@ def test_no_impulse_momentum_check():
     m = build_contact_metrics(_binout([_iface(1, 0, [0.0, 10.0, 0.0, 0.0])]))
     assert "impulse_momentum" not in m["checks"]
     assert set(m["checks"]) == {"newton3", "timing", "sliding_energy"}
+
+
+def test_blank_part_name_falls_back():
+    """키워드에 이름이 비어 있어도 화면에서 파트가 사라지면 안 된다."""
+    b = _binout([_iface(10, 0, [0.0, 10.0, 0.0, 0.0])])
+    cm = _CMap({10: _Endpoint(_PartRef("part", "1"), _PartRef("part", "23"))})
+    m = build_contact_metrics(b, cm, {1: "A", 23: "   "})
+    it = m["interfaces"][0]
+    assert it["src_name"] == "A"
+    assert it["dst_name"] == "Part_23"

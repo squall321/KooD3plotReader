@@ -879,6 +879,25 @@ def run_single(args: argparse.Namespace) -> None:
     except Exception as _e:  # noqa: BLE001
         print(f"[koo_deep_report] energy-flow CSV skip: {type(_e).__name__}: {_e}")
 
+    # 5c. 접촉력 계측·검증 (rcforc 있을 때만). 없으면 사유를 담아 그대로 저장 —
+    #     '계측 안 함' 을 파일 부재로 표현하면 소비자가 0 과 구분하지 못한다.
+    try:
+        from .core.contact_metrics import build_for_sim
+        cmet = build_for_sim(binout_data,
+                             keyword_path=getattr(sim_info, "keyword", None),
+                             d3plot_path=sim_info.d3plot)
+        (output_dir / "contact_metrics.json").write_text(
+            json.dumps(cmet, ensure_ascii=False, indent=2), encoding="utf-8")
+        if cmet.get("available"):
+            n3 = (cmet.get("checks") or {}).get("newton3") or {}
+            print(f"[koo_deep_report] 접촉력 계측: 인터페이스 {cmet['n_interfaces']}개 "
+                  f"(파트쌍 {cmet.get('n_resolved', 0)}개) | 뉴턴3법칙 "
+                  f"max {n3.get('max_rel')} / 한쪽만 {n3.get('n_one_sided')}")
+        else:
+            print(f"[koo_deep_report] 접촉력 미계측: {cmet.get('reason', '')[:60]}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[koo_deep_report] contact-metrics skip: {type(_e).__name__}: {_e}")
+
     # 6. HTML 생성
     html_path = output_dir / "report.html"
     generate_html(result, html_path)

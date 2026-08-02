@@ -355,6 +355,9 @@ class EnergyFlow:
     frames: list[EnergyGraphFrame] = field(default_factory=list)
     propagation_order: list[tuple[str, float]] = field(default_factory=list)
     depth_map: dict[str, int] = field(default_factory=dict)
+    #: rcforc 접촉력 계측·검증 (koo_deep_report.core.contact_metrics 계약).
+    #: 계측 안 됐으면 available=False 와 사유가 들어온다 — 빈 dict 가 아니다.
+    contact_metrics: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

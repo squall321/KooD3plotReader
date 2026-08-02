@@ -70,6 +70,14 @@ def build_energy_flow_from_binout(
     if not g or not g.get("nodes"):
         return None
 
+    # 접촉력 계측·검증 — binout/contact_map 을 이미 준비했으니 여기서 함께.
+    cmet: dict = {}
+    try:
+        from koo_deep_report.core.contact_metrics import build_contact_metrics
+        cmet = build_contact_metrics(binout_obj, contact_map, part_names)
+    except Exception:      # noqa: BLE001
+        cmet = {}
+
     nodes = [
         EnergyNode(
             node_id=n["node_id"],
@@ -117,6 +125,7 @@ def build_energy_flow_from_binout(
         edges=edges,
         propagation_order=prop_order,
         depth_map=_depth,
+        contact_metrics=cmet,
     )
 
 

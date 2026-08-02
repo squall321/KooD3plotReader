@@ -188,9 +188,13 @@ def build_contact_metrics(binout, contact_map=None, part_names=None) -> dict:
         mets.append(m)
 
     def _nm(nid):
+        """파트 이름. 키워드에 이름이 비어 있으면 Part_<id> 로 채운다 —
+        빈 문자열을 그대로 내보내면 화면에서 '이름 없는 파트' 가 사라진다."""
         if nid is None:
             return None
-        return part_names.get(int(nid), f"Part_{nid}") if str(nid).isdigit() else str(nid)
+        if not str(nid).isdigit():
+            return str(nid)
+        return (part_names.get(int(nid)) or "").strip() or f"Part_{nid}"
 
     interfaces = [{
         "cid": m.cid, "name": m.name,
@@ -285,3 +289,36 @@ def build_contact_metrics(binout, contact_map=None, part_names=None) -> dict:
         "checks": checks,
         "note": note,
     }
+
+
+def build_for_sim(binout_data, keyword_path=None, d3plot_path=None) -> dict:
+    """한 해석의 binout + keyword → 접촉력 계측·검증 dict.
+
+    part_names / contact_map 해석은 energy_flow_csv 와 같은 규칙이다. 세 보고서가
+    각자 이 준비를 하면 규칙이 어긋나므로 여기 한 곳에 둔다.
+    의존성이나 파일이 없으면 available=False 와 사유를 담아 돌려준다.
+    """
+    from pathlib import Path
+
+    if binout_data is None:
+        return build_contact_metrics(None)
+
+    part_names: dict[int, str] = {}
+    if keyword_path is not None or d3plot_path is not None:
+        try:
+            from .keyword_parser import find_and_parse_keyword
+            kw = find_and_parse_keyword(keyword_path or d3plot_path)
+            if kw and getattr(kw, "parts", None):
+                part_names = {int(pid): p.name for pid, p in kw.parts.items()}
+        except Exception:
+            part_names = {}
+
+    contact_map = None
+    if keyword_path is not None:
+        try:
+            from .contact_map import parse_contact_map
+            contact_map = parse_contact_map(Path(keyword_path), part_names=part_names)
+        except Exception:
+            contact_map = None
+
+    return build_contact_metrics(binout_data, contact_map, part_names)

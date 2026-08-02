@@ -68,6 +68,13 @@ def _energy_flow_dict(flow: EnergyFlow) -> dict:
         "propagation_order": [
             [k, _safe(v)] for k, v in flow.propagation_order
         ],
+        # rcforc 계측·검증. 계측 안 됐으면 available=False 와 사유가 들어온다.
+        # 검증 요약만 싣는다 — 인터페이스 상세는 위 edges 가 이미 담고 있다.
+        "contact_checks": ((flow.contact_metrics or {}).get("checks") or {}),
+        "contact_available": bool((flow.contact_metrics or {}).get("available")),
+        "contact_reason": str((flow.contact_metrics or {}).get("reason") or ""),
+        "contact_n_iface": int((flow.contact_metrics or {}).get("n_interfaces") or 0),
+        "contact_n_resolved": int((flow.contact_metrics or {}).get("n_resolved") or 0),
     }
 
 
