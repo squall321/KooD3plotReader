@@ -58,3 +58,15 @@
 - [x] trust gate 양쪽 케이스 (전부 미판정 / 전부 판정) 정직 렌더
 - [x] build_module.sh + SIF .def wrapper·PYTHONPATH·%post 테스트 배선
 - [x] 결정성 2회 연속 동일, 91 passed, pyflakes 0
+
+## 실데이터 결함 라운드 (2026-08-02)
+
+- [x] findings 차분 안정 키 (이중 계상 / 과잉 병합 양쪽 방어) + 충돌 경고
+- [x] WORST-REV 라벨 정정 (winner = 최악 인덱스)
+- [x] 기하 파생 카테고리 (면/모서리/꼭짓점) — 구면 소계 소생
+- [x] 참피크(리샘플 이전) 헤드라인 + 감쇠·실측률 노출 + 불변식
+- [x] sphere acc 단위 G 정정 (기존 테스트가 버그를 잠그고 있었음)
+- [x] 파트 빈 칸 이유 3분류 (absent / gated / no_metric)
+- [x] 예제 resample idw → nearest + 실측률 0% 경고
+- [x] 음수 지표 ERROR 경고 / 경계 입력 스윕 무크래시
+- [x] 162 passed, pyflakes 0, Playwright 콘솔 에러 0 (impact·sphere 양쪽)
