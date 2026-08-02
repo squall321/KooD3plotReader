@@ -588,7 +588,13 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         for b in bundles
     ]
 
+    # acc 단위계 → G 환산 계수. 본 보고서(impact/sphere)와 동일 규칙으로,
+    # 리포트가 1.49e9 mm/s² 같은 못 읽는 수를 151,762 G 로 보여줄 수 있게 한다.
+    _acc = (bundles[baseline_idx].unit_labels or {}).get("acc", "")
+    g_divisor = 9.81 if _acc in ("m/s²", "mm/ms²") else (9810.0 if _acc == "mm/s²" else None)
+
     return {
+        "g_divisor": g_divisor,
         "kind": kind,
         "baseline_idx": baseline_idx,
         "schema_version": schema_version,

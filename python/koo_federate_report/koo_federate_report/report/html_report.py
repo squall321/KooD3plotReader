@@ -13,7 +13,7 @@ _PALETTE = [
     "#5b8cff", "#ff9f4d", "#57e3d0", "#ffd166", "#8ce99a",
 ]
 
-_EMDASH = "&mdash;"
+_EMDASH = "\u2014"   # 실제 em-dash 문자. 엔티티로 두면 _esc 통과 시 &amp;mdash; 로 깨진다
 
 
 def _esc(v) -> str:
@@ -313,6 +313,49 @@ def _delta_cell(v, base_v):
     return _pct(d), ("up" if d > 0 else ("dn" if d < 0 else "na"))
 
 
+def _kpi_series(cmp_: dict, name: str) -> list:
+    """리비전별 KPI 시계열 추출 — 엔진/구샘플 계약을 모두 수용한다.
+
+    엔진(compare.py)은 주 지표를 `kpi.worst_per_rev` 로, 나머지는 어댑터가
+    실어온 `kpi.sidecar_kpi[i]` 안에 원본 키(worst_g/worst_s/diss_pct)로 둔다.
+    구 샘플은 `kpi.worst_g` 처럼 평면 리스트다. 어느 쪽도 못 찾으면 cells 에서
+    직접 집계한다 — KPI 스트립이 통째로 비는 것(실제 결함이었다)을 막는다.
+    """
+    kpi = cmp_.get("kpi") or {}
+    n = len(cmp_.get("revisions") or [])
+
+    flat = kpi.get(name)
+    if isinstance(flat, list) and any(isinstance(v, (int, float)) for v in flat):
+        return list(flat)
+
+    # 주 지표(metric)의 worst 는 엔진이 worst_per_rev 로 낸다
+    if name == "worst_g":
+        wpr = kpi.get("worst_per_rev")
+        if isinstance(wpr, list) and any(isinstance(v, (int, float)) for v in wpr):
+            return list(wpr)
+
+    sk = kpi.get("sidecar_kpi")
+    if isinstance(sk, list) and sk:
+        got = [(x or {}).get(name) if isinstance(x, dict) else None for x in sk]
+        if any(isinstance(v, (int, float)) for v in got):
+            return got
+
+    # 최후 수단: cells 에서 리비전별 최대값 (worst 계열만 의미 있다)
+    if name == "worst_g" and n:
+        out = []
+        for i in range(n):
+            vals = [
+                (c.get("per_rev") or [{}] * n)[i].get("value")
+                for c in (cmp_.get("cells") or [])
+                if i < len(c.get("per_rev") or [])
+            ]
+            vals = [v for v in vals if isinstance(v, (int, float))]
+            out.append(max(vals) if vals else None)
+        if any(v is not None for v in out):
+            return out
+    return []
+
+
 def _build_kpi_table(cmp_: dict) -> str:
     kpi = cmp_.get("kpi") or {}
     labels = _rev_labels(cmp_.get("revisions"))
@@ -323,9 +366,9 @@ def _build_kpi_table(cmp_: dict) -> str:
         return ""
 
     rows_def = [
-        ("WORST ACC", kpi.get("worst_g") or [], ("G" if gdiv else (ul.get("acc") or "")), gdiv or 1.0, 0),
-        ("WORST STRESS", kpi.get("worst_s") or [], ul.get("stress") or "", 1.0, 0),
-        ("DISSIPATION", kpi.get("diss_pct") or [], "%", 1.0, 1),
+        ("WORST ACC", _kpi_series(cmp_, "worst_g"), ("G" if gdiv else (ul.get("acc") or "")), gdiv or 1.0, 0),
+        ("WORST STRESS", _kpi_series(cmp_, "worst_s"), ul.get("stress") or "", 1.0, 0),
+        ("DISSIPATION", _kpi_series(cmp_, "diss_pct"), "%", 1.0, 1),
     ]
     head = '<th class="tl">METRIC</th>' + "".join(
         f'<th>{_esc(l)}</th><th>&Delta; vs BASE</th>' for l in labels
@@ -358,7 +401,7 @@ def _build_kpi_strip(cmp_: dict) -> str:
         (_EMDASH if n_cmp is None else str(n_cmp), f"/ {n_cells}", "판정 가능"),
         (str(kpi.get("n_revisions", len(cmp_.get("revisions") or []))), "", "REVISIONS"),
         (str(n_unjudged), "", "미판정 셀"),
-        (str(cov.get("intersection", _EMDASH)), "", "공통 교집합"),
+        (str(cov.get("intersection") if cov.get("intersection") is not None else _EMDASH), "", "공통 교집합"),
     ]
     ks = "".join(
         f'<div class="k"><div class="v">{_esc(v)}<span class="u">{_esc(u)}</span></div>'
@@ -384,7 +427,7 @@ def _summary_prose(cmp_: dict) -> str:
         f"<b>{len(cells)}</b>개 셀에서 비교했다."
     ]
 
-    wg = kpi.get("worst_g") or []
+    wg = _kpi_series(cmp_, "worst_g")
     pairs = [(i, v) for i, v in enumerate(wg) if isinstance(v, (int, float))]
     if len(pairs) >= 2:
         bi, bv = min(pairs, key=lambda t: t[1])

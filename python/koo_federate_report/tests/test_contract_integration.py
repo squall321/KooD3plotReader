@@ -178,3 +178,27 @@ def test_warning_text_rendered_from_engine_keys():
     assert "모든 리비전에서 유효한 셀이 0개입니다" in h, "경고 문구가 렌더되지 않음"
     assert "IDW 보간된 셀은 실측이 아닙니다" in h
     assert "NO_COMPARABLE_CELLS" in h
+
+
+def test_kpi_strip_filled_from_engine_shape():
+    """KPI Δ 스트립이 엔진 계약에서도 채워진다.
+
+    회귀 배경: 엔진은 worst 를 kpi.worst_per_rev / kpi.sidecar_kpi[] 로 내는데
+    HTML 이 kpi.worst_g 만 봐서 보고서 최상단 KPI 표가 통째로 '—' 였다.
+    """
+    d = _engine_shaped()
+    d["kpi"] = {
+        "n_cells": 2, "n_comparable": 1, "n_revisions": 2,
+        "worst_per_rev": [1.4888e9, 1.4606e9],   # 실제 규모 (mm/s² → G 환산됨)
+        "sidecar_kpi": [{"worst_s": 2000.0, "diss_pct": 40.0},
+                        {"worst_s": 1800.0, "diss_pct": 35.0}],
+    }
+    h = generate_html(d)
+    assert "151,764" in h, "worst 값(G 환산)이 KPI 표에 없음"
+    assert "2,000" in h, "sidecar_kpi 의 worst_s 가 반영되지 않음"
+
+
+def test_no_double_escaped_entities():
+    """em-dash 를 이중 이스케이프하지 않는다 (&amp;mdash; 로 깨지던 결함)."""
+    h = generate_html(_engine_shaped())
+    assert "&amp;mdash;" not in h
