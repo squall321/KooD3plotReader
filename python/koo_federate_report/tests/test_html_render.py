@@ -176,3 +176,21 @@ def test_wide_tables_scroll_themselves_not_the_page(sample):
     assert "table.dt" in css
     assert "overflow-x: auto" in css, "표에 가로 스크롤 격리가 없다"
     assert "max-width: 100%" in css
+
+
+def test_kpi_strip_has_no_dead_slot(sample):
+    """헤드라인 KPI 다섯 칸 중 항상 "—" 인 칸이 있으면 안 된다.
+
+    회귀: coverage.intersection 은 엔진 계약에 없는 키라 "공통 교집합" 칸이
+    영원히 "—" 였다 — 데이터 유실처럼 보이는 죽은 칸이었다.
+    """
+    sample["coverage"] = {
+        "mode": "nearest", "mode_effective": "nearest", "n_grid": 2,
+        "per_rev": [{"label": "R1", "measured_pct": 100.0},
+                    {"label": "R2", "measured_pct": 80.0}],
+    }
+    h = generate_html(sample)
+    s1 = h[h.index('id="s1"'):]
+    s1 = s1[:s1.index("</section>")]
+    assert "공통 교집합" not in s1
+    assert "실측률" in s1 and "80" in s1

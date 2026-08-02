@@ -430,12 +430,20 @@ def _build_kpi_strip(cmp_: dict) -> str:
     n_cells = kpi.get("n_cells", len(cells))
     n_cmp = kpi.get("n_comparable")
     n_unjudged = sum(1 for c in cells if not (c or {}).get("trust_ok"))
+    _meas = [m for m in ((kpi.get("measured_pct") or [])
+                         + [(r or {}).get("measured_pct") for r in (cov.get("per_rev") or [])
+                            if isinstance(r, dict)])
+             if isinstance(m, (int, float))]
     items = [
         (str(n_cells), "", "CELLS"),
         (_EMDASH if n_cmp is None else str(n_cmp), f"/ {n_cells}", "판정 가능"),
         (str(kpi.get("n_revisions", len(cmp_.get("revisions") or []))), "", "REVISIONS"),
         (str(n_unjudged), "", "미판정 셀"),
-        (str(cov.get("intersection") if cov.get("intersection") is not None else _EMDASH), "", "공통 교집합"),
+        # 엔진 coverage 에는 intersection 키가 없어 이 칸이 항상 "—" 였다(죽은 KPI).
+        # 실측률(그 좌표에서 실제로 계산된 값의 비율)이 훨씬 중요한 헤드라인이다.
+        (_num(min(_meas), 0) + "%" if _meas else _EMDASH,
+         "" if not _meas or min(_meas) == max(_meas) else f"~{_num(max(_meas), 0)}%",
+         "실측률(최저)"),
     ]
     ks = "".join(
         f'<div class="k"><div class="v">{_esc(v)}<span class="u">{_esc(u)}</span></div>'
@@ -815,7 +823,8 @@ def _build_s9(cmp_: dict) -> str:
         ("판정 가능", "{} / {}".format(
             kpi.get("n_comparable", _EMDASH), kpi.get("n_cells", _EMDASH))),
         ("tier", "{} · 프로파일 {}".format(
-            tier.get("name") or _EMDASH, tier.get("profile_topk") or _EMDASH)),
+            tier.get("name") or _EMDASH,
+            tier.get("top_k") or tier.get("profile_topk") or "전체")),
         ("schema", cmp_.get("schema_version") if cmp_.get("schema_version") is not None else _EMDASH),
     ]
     setup_rows = "".join(
