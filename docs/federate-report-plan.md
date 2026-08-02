@@ -87,13 +87,40 @@ TREND 를 숨기고 Δ 를 전면에 (N 에 따른 뷰 자동 강등).
 - 카테고리(face/edge/corner/arbitrary)별 소계 비교 막대 — "코너 낙하만 나빠졌다"
   같은 구조적 회귀를 즉답.
 
-### impact 특화
-- XY 격자 동일 로직 (winner/trend/Δ/spread — 2D 히트맵이라 더 단순).
-- 위치 매칭: 좌표 완전 일치 → 그대로, 불일치 → `resample` 정책 (nearest 는
-  허용 반경 = 격자 간격의 40%, 초과 시 미매칭 처리).
-- **trust_gate**: impact 는 per-position solver_quality 가 있으므로, 한쪽이라도
-  no-contact/FAIL 인 셀의 Δ 는 수치 대신 빗금 '미판정' — FAIL 런 Δ 를 개선/악화로
-  오독하는 것을 구조적으로 차단 (기존 보고서의 신뢰 서사 원칙 계승).
+### impact(전위치 부분충격) 특화 — sphere 보다 데이터가 풍부해 비교 축이 더 많다
+
+impact_payload.json 은 위치별 worst 만이 아니라 (위치×파트) 쌍 응답 매트릭스,
+per-position solver_quality, behavior 분류, 에너지 흐름, part_motion 시계열까지
+담고 있다. v1 범위와 후속을 명시해 구체화한다.
+
+**v1 (필수)**
+- XY 합성 지도 4종 (winner/trend/Δ/spread) — 2D 히트맵이라 sphere 보다 단순.
+- 위치 매칭: 좌표 완전 일치 → 그대로, 불일치 → `resample` 정책 (nearest 허용
+  반경 = 격자 간격의 40%, 초과 시 미매칭). **face 불일치**(revA=F5, revB=F1)는
+  face 별 그룹 비교 — 같은 face 끼리만 짝짓고, 한쪽에만 있는 face 는 '비교 불가'
+  섹션에 명시 (에러가 아니라 정직한 부분 비교).
+- **behavior 전이 매트릭스** — impact 최우선 발견. 리비전 간 no-contact↔bounce↔
+  rebound 전이를 위치별로 표시. 예: revA 미접촉 16/25 가 revB 에서 전부 접촉이
+  됐다면(DOE 조준 수정) 그것이 Δ 지도보다 앞서는 **헤드라인**이고, 이 경우 Δ 는
+  "비교 기준 자체가 달라짐" 경고와 함께 표시.
+- **유효 비교 교집합 KPI** — trust_gate 의 확장. "Δ 판정 가능 위치 9/25"
+  (양쪽 모두 유효 접촉 + PASS 인 교집합) 를 s1 KPI 로 정면 노출. 교집합이 0 이면
+  지도 대신 behavior 전이 매트릭스만 출력.
+- **(위치×파트) 매트릭스 Δ** — 히트맵 행=매칭 파트, 열=위치, 셀=Δ%. "위치
+  (20,40)에서 Display 만 나빠졌다" 수준의 국소 회귀 검출. sphere 의 파트 추이
+  테이블보다 한 단계 정밀한 impact 전용 뷰.
+- **trust_gate**: 한쪽이라도 no-contact/FAIL 인 셀의 Δ 는 수치 대신 빗금
+  '미판정' — FAIL 런 Δ 를 개선/악화로 오독하는 것을 구조적으로 차단.
+- **energy Δ 스칼라**: 위치별 diss% Δ + ke_retention Δ (trajectory_summary 재사용)
+  — 접촉 강도의 리비전 변화를 스칼라로.
+- DWI 레이아웃 산출물도 동일 sidecar 스키마 → 자동 지원 (별도 코드 없음).
+
+**후속 (v1 제외, 계획만)**
+- **시계열 겹침 드릴다운** — 위치 클릭 → 매칭 파트의 acc(t) 곡선을 리비전 N개
+  겹침 (part_motion 시계열이 sidecar 에 있어 가능). tier C/D 는 청크 의존이라
+  "sidecar 만 입력" 원칙과 충돌 — 청크 디렉터리 동반 입력 규칙 정의 후 v2.
+- **에너지 흐름 그래프 비교** — SANKEY/RESIDENCE 의 리비전 겹침. v1 은 스칼라만.
+- **TOA 전파 순서 변화** — first-arrival 파트가 바뀐 위치 표시.
 
 ---
 

@@ -22,7 +22,11 @@
 - [ ] Δ vs baseline / WINNER / TREND(회귀 기울기) / SPREAD 필드 계산
 - [ ] 파트 추이 테이블 + rank bump + findings diff
 - [ ] trust_gate — no-contact/FAIL 셀 Δ '미판정'
-- [ ] 손계산 픽스처 pytest (3리비전 × 4셀 전 수치)
+- [ ] (impact) behavior 전이 매트릭스 — no-contact↔접촉 전이가 헤드라인 승격
+- [ ] (impact) 유효 비교 교집합 KPI ("Δ 판정 가능 9/25"), 교집합 0 처리
+- [ ] (impact) (위치×파트) 매트릭스 Δ 히트맵 + energy Δ 스칼라(diss%/ke_retention)
+- [ ] (impact) face 불일치 = face 별 그룹 비교 + '비교 불가' 섹션
+- [ ] 손계산 픽스처 pytest (3리비전 × 4셀 전 수치 + behavior 전이 케이스)
 
 ## F4 — 리샘플
 
