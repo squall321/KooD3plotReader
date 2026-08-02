@@ -19,6 +19,16 @@ from ..models import RevisionBundle, Cell, Trust
 _METRIC_SRC = {"g": "peak_g", "s": "peak_stress", "e": "peak_strain", "d": "peak_disp"}
 
 
+
+# sphere 본 보고서(koo_sphere_report)의 표기 규약. sidecar 에 unit_labels 가
+# 없을 때만 쓰는 기본값이다 — 단위를 지어내는 게 아니라 원 보고서와 맞춘다.
+_SPHERE_DEFAULT_UNITS = {
+    "acc": "MG",         # peak_g 는 sphere 보고서에서 MG(mega-G) 로 표기
+    "stress": "MPa",
+    "disp": "mm",
+    "vel": "mm/s",
+}
+
 def _num(v):
     if isinstance(v, bool) or v is None:
         return None
@@ -110,7 +120,11 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
             "sphere_coverage": raw.get("sphere_coverage"),
             "n_angles": len(cells),
         },
-        unit_labels=dict(raw.get("unit_labels") or {}),
+        # sphere sidecar 에는 unit_labels 가 없다(2026-08 실사) — 값이 단위 없이
+        # 787,830 처럼 나가면 무슨 수인지 알 수 없다. sphere 본 보고서의 표기
+        # 규약(peak_g=MG, stress=MPa, disp=mm)을 기본값으로 채워 준다.
+        # sidecar 가 언젠가 unit_labels 를 싣기 시작하면 그것이 우선한다.
+        unit_labels=dict(raw.get("unit_labels") or _SPHERE_DEFAULT_UNITS),
         parts=parts,
         positions=[],
         angles=angles,

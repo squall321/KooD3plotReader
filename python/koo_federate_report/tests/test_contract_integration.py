@@ -320,3 +320,39 @@ def test_worst_cell_move_data_embedded():
     assert wc == ["F5_DOE_001", "F5_DOE_002"], "worst_cell 이 payload 에 없음"
     # 이동 여부는 값이 서로 다른지로 판정된다
     assert len({x for x in wc if x}) > 1
+
+
+def test_sphere_units_defaulted_when_sidecar_lacks_them():
+    """sphere sidecar 는 unit_labels 를 싣지 않는다 — 단위 없는 수를 내보내지 않는다.
+
+    회귀 배경: 787,830 이 무슨 단위인지 알 수 없게 나갔다. sphere 본 보고서의
+    표기 규약(peak_g=MG)을 기본값으로 채운다(지어내는 게 아니라 원본과 맞춤).
+    """
+    from koo_federate_report.adapters.sphere import to_bundle
+    raw = {
+        "project_name": "P",
+        "parts": {"1": {"part_name": "Display", "group": "D"}},
+        "results_summary": [
+            {"run_folder": "R1",
+             "angle": {"name": "A1", "roll": 0.0, "pitch": 0.0, "yaw": 0.0,
+                       "category": "face"},
+             "parts": {"1": {"peak_g": 100.0, "peak_stress": 10.0,
+                             "peak_strain": 0.0, "peak_disp": 0.0}}},
+        ],
+        "findings": [],
+        "simulation_params": {},
+    }
+    b = to_bundle(raw, path="/x/report.json", label="Rev")
+    assert b.unit_labels.get("acc"), "sphere 단위 라벨이 비어 있다"
+    assert b.unit_labels["acc"] == "MG"
+
+
+def test_interpolated_cells_visually_demoted():
+    """보간 셀을 실측처럼 보이게 하지 않는다 (계획서 §sphere 정직성 규칙)."""
+    d = _engine_shaped()
+    for c in d["cells"]:
+        for s in c["per_rev"]:
+            s["measured"] = False
+    h = generate_html(d)
+    assert "interp" in h, "보간 강등 클래스가 없음"
+    assert "보간(IDW)" in h, "probe 에 보간 표기가 없음"

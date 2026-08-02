@@ -193,6 +193,7 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2
 .warn-badge.error { border-color: rgba(255,94,132,.55); color: #ff5e84;
   background: rgba(255,94,132,.12); }
 .warn-badge.info { opacity: .85; }
+.map-cell.interp { }   /* 보간 셀 — fill-opacity 로 강등, 테두리 없음 */
 .wcell:hover { text-decoration: underline; color: #4dd6ff; }
 .move-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
   font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#b28cff;
@@ -1482,8 +1483,15 @@ function renderMap(id, mode) {
   LAYOUT.items.forEach(function (it) {
     var col = mapColor(mode, it.c);
     var bad = !it.c.trust_ok;
-    var at = { fill: col.fill, class: 'map-cell' + (it.c.key === ST.probe ? ' sel' : ''),
-      stroke: 'rgba(0,0,0,0.35)', 'stroke-width': 0.5 };
+    // 정직성 규칙(계획서 §sphere): 보간 셀을 실측처럼 보이게 하지 않는다.
+    // 어느 리비전에서든 measured=false 면 채도를 낮추고 테두리를 지운다.
+    var meas = (it.c.per_rev || []).every(function (s) {
+      return !s || s.measured !== false;
+    });
+    var at = { fill: col.fill, class: 'map-cell' + (it.c.key === ST.probe ? ' sel' : '')
+        + (meas ? '' : ' interp'),
+      stroke: meas ? 'rgba(0,0,0,0.35)' : 'none', 'stroke-width': 0.5,
+      'fill-opacity': meas ? 1 : 0.55 };
     var node, node2 = null;
     if (it.shape === 'circle') {
       at.cx = it.cx; at.cy = it.cy; at.r = it.rr;
@@ -1561,7 +1569,9 @@ function renderProbe() {
   if (!c) { kEl.textContent = '—'; host.appendChild(elx('div', 'empty', '선택된 셀이 없다.')); return; }
   kEl.textContent = String(c.label || c.key);
   sEl.textContent = (isN(c.x) && isN(c.y) ? ('x=' + c.x + ' · y=' + c.y) : '') +
-    (c.category ? ' · ' + c.category : '') + (c.trust_ok ? '' : ' · 미판정');
+    (c.category ? ' · ' + c.category : '') + (c.trust_ok ? '' : ' · 미판정')
+    + (((c.per_rev || []).some(function (s) { return s && s.measured === false; }))
+       ? ' · 보간(IDW)' : '');
 
   // 바 차트
   var BW = 520, BH = 42 + NREV * 34;
