@@ -21,6 +21,11 @@ class MatSumData:
     x_rbvelocity: list[list[float]] = field(default_factory=list)
     y_rbvelocity: list[list[float]] = field(default_factory=list)
     z_rbvelocity: list[list[float]] = field(default_factory=list)
+    # 파트별 병진 운동량 [tonne·mm/s]. 접촉 충격량 ∫F dt 와 대조해
+    # "접촉력이 운동량 변화를 설명하는가" 를 검증하는 데 쓴다.
+    x_momentum: list[list[float]] = field(default_factory=list)
+    y_momentum: list[list[float]] = field(default_factory=list)
+    z_momentum: list[list[float]] = field(default_factory=list)
 
     def peak_internal_energy(self, part_idx: int) -> float:
         if not self.internal_energy:
@@ -161,6 +166,9 @@ def _parse_matsum(b) -> MatSumData | None:
             x_rbvelocity=_opt2d("x_rbvelocity"),
             y_rbvelocity=_opt2d("y_rbvelocity"),
             z_rbvelocity=_opt2d("z_rbvelocity"),
+            x_momentum=_opt2d("x_momentum"),
+            y_momentum=_opt2d("y_momentum"),
+            z_momentum=_opt2d("z_momentum"),
         )
         return md
     except Exception:
