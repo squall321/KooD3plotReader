@@ -29,6 +29,22 @@ COORDS = [("P1", -10.0, 0.0), ("P2", 10.0, 0.0), ("P3", 0.0, 20.0)]
 PARTS = {1: "Display", 2: "PCB"}
 
 
+def _findings(i: int) -> list:
+    """리비전별 findings — 차분의 4가지 경로를 전부 태운다.
+
+    ① 수치만 변동(유지+변동) ② 완전 동일(유지) ③ 리비전마다 신규 ④ 해소.
+    골든이 findings 를 비워두면 diff 코드가 통째로 잠기지 않는다(실측 공백).
+    """
+    out = [
+        {"severity": "WARNING", "title": f"접촉 미발생 런 {6 - 2 * i}/{len(COORDS)} — 배치 검토"},
+        {"severity": "INFO", "title": "단위계 자동 검출 — mm/ms/kg"},
+        {"severity": "WARNING", "title": f"P{i + 1}: statistical outlier for peak_g (|z|={4.1 + i})"},
+    ]
+    if i == 0:
+        out.append({"severity": "CRITICAL", "title": "Display 파트 소성변형 한계 초과"})
+    return out
+
+
 def _bundles(n_rev: int):
     """리비전 n개 — 리비전 순번에 대해 단조 개선(결정적)."""
     out = []
@@ -41,7 +57,7 @@ def _bundles(n_rev: int):
             pv[(key, "Display")] = {"g": g, "s": g / 10.0, "e": None, "d": None}
             pv[(key, "PCB")] = {"g": g * 0.8, "s": g / 12.0, "e": None, "d": None}
         out.append(make_impact_bundle(f"Rev{chr(65 + i)}", specs, PARTS,
-                                      part_values=pv))
+                                      part_values=pv, findings=_findings(i)))
     return out
 
 
@@ -101,11 +117,27 @@ def test_compare_invariants(n_rev):
         # 미판정이면 판정값이 전부 None (0 으로 위장 금지)
         if not c.get("trust_ok", True):
             assert c["winner"] is None and c["trend"] is None
-    # 단조 개선 데이터이므로 baseline(RevA)이 항상 최악
-    assert all(c["winner"] == 0 for c in cells), "단조 개선이면 winner=baseline"
+    # winner = 값이 가장 큰(= 가장 나쁜) 리비전의 인덱스. 단조 개선 데이터라
+    # baseline(RevA)이 항상 최악이어야 한다 — '최고'로 뒤집혀 읽히면 실패한다.
+    assert all(c["winner"] == 0 for c in cells), "winner 는 최악 리비전 인덱스여야 한다"
     # 파트 추이도 리비전 수와 일치
     for p in cmp_["parts"]:
         assert len(p["worst"]) == n_rev
+
+    # findings diff 가 실제로 데이터를 태우고 있어야 한다 (골든이 빈 채로
+    # 통과하면 diff 코드는 잠기지 않는다 — 실측 공백이었다)
+    fds = [f for f in cmp_["findings_diff"] if not f["is_baseline"]]
+    assert len(fds) == n_rev - 1
+    for fd in fds:
+        assert fd["n_total"] > 0, "골든 픽스처에 findings 가 비어 있다"
+        # 정체 키 충돌이 없으면 신규+유지 = 전체 (조용한 소실 금지)
+        assert len(fd["new"]) + len(fd["kept"]) == fd["n_total"]
+        # 수치만 바뀐 '접촉 미발생 런 n/3' 은 신규/해소가 아니라 변동으로 잡혀야 한다
+        assert any("접촉 미발생" in c["after"]["title"] for c in fd["changed"]), (
+            "수치만 변한 이슈가 변동으로 잡히지 않았다 (이중 계상 회귀)")
+        assert not any("접촉 미발생" in f["title"] for f in fd["new"])
+        # baseline 에만 있던 CRITICAL 은 해소로 잡힌다
+        assert any(f["severity"] == "CRITICAL" for f in fd["resolved"])
 
 
 @pytest.mark.parametrize("n_rev", [2, 3])

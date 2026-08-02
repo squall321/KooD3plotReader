@@ -216,6 +216,7 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line2
 .fcol.new .fh { color: var(--crit); } .fcol.res .fh { color: var(--good); } .fcol.kept .fh { color: var(--dim); }
 .fitem { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
 .fitem:last-child { border-bottom: none; }
+.fchg { display: block; color: var(--dim); font-size: 10px; margin-top: 2px; }
 .fsev { font-size: 8.5px; letter-spacing: 1px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
   font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
 .fsev.CRITICAL { background: var(--crit); color: #fff; }
@@ -418,7 +419,6 @@ def _build_kpi_strip(cmp_: dict) -> str:
 def _summary_prose(cmp_: dict) -> str:
     revs = cmp_.get("revisions") or []
     cells = cmp_.get("cells") or []
-    kpi = cmp_.get("kpi") or {}
     base = int(cmp_.get("baseline_idx") or 0)
     if not revs:
         return "비교할 리비전이 없다. 입력에 revisions 가 비어 있어 요약을 만들 수 없다."
@@ -604,16 +604,31 @@ def _build_s8(cmp_: dict) -> str:
     for fd in fds:
         if fd.get("is_baseline"):
             continue
+        # 같은 이슈인데 수치만 달라진 것 — '유지' 안에서 before→after 를 보여준다.
+        chg = {}
+        for c in (fd.get("changed") or []):
+            after = (c or {}).get("after") or {}
+            before = (c or {}).get("before") or {}
+            if after.get("title"):
+                chg[str(after["title"])] = str(before.get("title") or "")
         html = []
         for key, title, cls in cols:
             items = fd.get(key) or []
             body = "".join(
-                '<div class="fitem"><span class="fsev {sev}">{sev}</span><span>{t}</span></div>'.format(
+                '<div class="fitem"><span class="fsev {sev}">{sev}</span>'
+                '<span>{t}{d}</span></div>'.format(
                     sev=_esc((f or {}).get("severity", "INFO")),
                     t=_esc((f or {}).get("title", _EMDASH)),
+                    d=(
+                        '<span class="fchg">변동 &larr; {}</span>'.format(
+                            _esc(chg[str((f or {}).get("title"))]))
+                        if key == "kept" and str((f or {}).get("title")) in chg else ""
+                    ),
                 )
                 for f in items
             ) or '<div class="empty">해당 항목 없음.</div>'
+            if key == "kept" and chg:
+                title = f"{title} · 변동 {len(chg)}"
             html.append(
                 f'<div class="fcol {cls}"><div class="fh"><span>{_esc(title)}</span>'
                 f'<span>{len(items)}</span></div>{body}</div>'
@@ -931,12 +946,12 @@ _S3_HEAD = """
   <div class="page-head r"><span class="num">03</span>
     <span class="tagline">COMPOSITE &middot; MAPS</span>
     <span class="ttl">합성 지도 &mdash; 어디에 몰렸나</span>
-    <span class="sub">WINNER / TREND / DELTA / SPREAD</span></div>
+    <span class="sub">WORST-REV / TREND / DELTA / SPREAD</span></div>
   <div class="map-grid">
 """
 
 _S3_WINNER = """
-    <div class="panel r"><div class="ph"><span class="pt">WINNER MAP</span>
+    <div class="panel r"><div class="ph"><span class="pt">WORST-REV MAP</span>
         <span class="pd">색 = 최악 리비전 &middot; 명도 = 값</span></div>
       <svg id="fed-map-winner"></svg>
       <div class="fed-legend" id="fed-map-winner-lg" style="margin-top:8px"></div>

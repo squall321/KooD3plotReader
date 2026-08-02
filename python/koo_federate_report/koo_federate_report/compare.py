@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import re
 from statistics import median, pstdev
 
 from .models import METRIC_KEYS, METRIC_UNIT_AXIS, METRIC_LABELS
@@ -552,14 +553,47 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
 
     # ---- findings diff -------------------------------------------------
     def _fkey(f):
-        return str(f.get("title") or "").strip()
+        """finding 동일성 키 — 수치를 지운 '이슈 정체' 로 비교한다.
+
+        title 전문을 키로 쓰면 '접촉 미발생 런 16/25' → '14/25' 처럼 수치만
+        변한 같은 이슈가 신규+해소로 이중 계상된다(실측: 4건이 신규4/해소4).
+        숫자·소수점·백분율을 자리표시자로 치환해 정체만 남긴다.
+        """
+        s = str(f.get("title") or "").strip()
+        # 측정값만 지우고 식별자는 남긴다. 숫자를 전부 지우면 위치가 다른
+        # outlier 9건(F5_DOE_024 / F5_DOE_019 …)이 한 이슈로 과잉 병합된다.
+        s = re.sub(r"\d+\s*/\s*\d+", "#/#", s)              # 16/25 → #/#
+        s = re.sub(r"(\|z\|\s*=\s*)\d+(?:\.\d+)?", r"\1#", s)  # |z|=64.1 → |z|=#
+        s = re.sub(r"(?<![A-Za-z_])\d+\.\d+", "#", s)        # 소수(측정값)만
+        s = re.sub(r"\s+", " ", s)
+        sev = str(f.get("severity") or "").strip()
+        return f"{sev}|{s}"
 
     base_findings = {_fkey(f): f for f in bundles[baseline_idx].findings}
     findings_diff = []
     for i, b in enumerate(bundles):
         cur = {_fkey(f): f for f in b.findings}
+        if len(cur) < len(b.findings):
+            # 서로 다른 finding 이 같은 정체 키로 뭉쳐 조용히 사라지는 경우.
+            # 침묵하면 '해소'로 오독되므로 개수를 드러낸다.
+            warnings.append({
+                "code": "findings_key_collision",
+                "severity": "warning",
+                "message": (
+                    f"{b.label}: findings {len(b.findings)}건 중 "
+                    f"{len(b.findings) - len(cur)}건이 동일 정체 키로 병합되어 "
+                    "차분에서 1건으로 계상됩니다."
+                ),
+            })
         new = [cur[k] for k in cur if k not in base_findings]
         resolved = [base_findings[k] for k in base_findings if k not in cur]
+        # 유지 항목 중 문구(수치)가 달라진 것은 '변동' 으로 표시해 정보를 잃지 않는다
+        changed = [
+            {"before": base_findings[k], "after": cur[k]}
+            for k in cur
+            if k in base_findings
+            and str(cur[k].get("title") or "") != str(base_findings[k].get("title") or "")
+        ]
         kept = [cur[k] for k in cur if k in base_findings]
         findings_diff.append(
             {
@@ -568,6 +602,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                 "new": new,
                 "resolved": resolved,
                 "kept": kept,
+                "changed": changed,
                 "n_total": len(b.findings),
             }
         )

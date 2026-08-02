@@ -106,9 +106,12 @@ def print_summary(cmp_dict: dict, out=sys.stdout) -> None:
     for fd in cmp_dict.get("findings_diff") or []:
         if fd["is_baseline"]:
             continue
+        n_chg = len(fd.get("changed") or [])
         w(
             f"findings diff [{fd['label']}]: 신규 {len(fd['new'])} / 해소 "
-            f"{len(fd['resolved'])} / 유지 {len(fd['kept'])}\n"
+            f"{len(fd['resolved'])} / 유지 {len(fd['kept'])}"
+            + (f" (수치 변동 {n_chg})" if n_chg else "")
+            + "\n"
         )
 
     warns = cmp_dict.get("warnings") or []
