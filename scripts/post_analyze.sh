@@ -2,10 +2,15 @@
 # ============================================================
 # post_analyze.sh — SmartTwinPostprocessor 통합 후처리 오케스트레이션
 # ============================================================
-# test_dir 을 주면 unified_analyzer → deep_report batch → sphere_report
-# 순서로 실행하여 모든 후처리 결과를 생성합니다.
+# test_dir 을 주면 unified_analyzer → sphere_report → deep_report batch
+# 순서로 실행하여 모든 후처리 결과를 생성합니다 (실제 호출은 아래 메인 분기 참조).
+# sphere 가 먼저인 이유: 집계만 해서 빠르다. deep 은 렌더를 포함해 느리므로 뒤.
 #
-# 각 단계는 기존 결과가 있으면 스킵합니다 (--force 로 강제 재계산).
+# **주의** — 파트별 응력/주응력 CSV 는 Step 1(unified_analyzer) 에서만 나온다.
+# deep_report 는 binout(matsum/rcforc) 만 읽으므로 deep 만 다시 돌려도
+# 응력 계열 산출물은 갱신되지 않는다.
+#
+# 각 단계는 기존 결과가 최신이면 스킵합니다 (--force 로 강제 재계산).
 #
 # 필수 바이너리 (PATH 에서 찾음):
 #   unified_analyzer, koo_deep_report, koo_sphere_report
