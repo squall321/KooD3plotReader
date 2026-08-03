@@ -146,6 +146,18 @@ _PAGE3 = """
       <div class="pcap">각 색 띠 두께 = 그 시각 해당 부품이 보유한 내부에너지(IE). 파란 굵은 선 = 임팩터 잔여 KE. 임팩터 KE가 줄며 부품 IE 띠가 두꺼워지는 것이 에너지 전달입니다.</div>
     </div>
 
+    <div class="panel col-12 r" id="cp-panel" style="display:none">
+      <div class="ph">
+        <span class="pt">PART-PAIR CONTACT FORCE &middot; ALL POSITIONS</span>
+        <span class="pd">위치를 X축에 전개 &middot; 파트쌍을 골라 하중 경로가 위치에 따라 어떻게 변하는지</span>
+      </div>
+      <div id="cp-controls" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:4px 0"></div>
+      <div id="cp-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px"></div>
+      <svg id="cp-svg" preserveAspectRatio="none" style="width:100%;height:320px"></svg>
+      <div id="cp-legend" style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;padding:4px"></div>
+      <div class="pcap" id="cp-note"></div>
+    </div>
+
     <div class="panel col-12 r" id="efd-trust-panel" style="display:none">
       <div class="ph">
         <span class="pt">CONTACT MEASUREMENT TRUST</span>
@@ -536,6 +548,152 @@ function renderFindings() {
     ]);
     ul.appendChild(li);
   }
+}
+
+// 파트쌍 접촉력 × 전 위치 — 위치를 X축에 펼치고 파트쌍을 골라 비교한다.
+// 데이터(DATA.contact_profile)가 없으면 패널을 숨긴다 — 에러가 아니라 누락.
+var cpS = { metric: 'pf', sel: [], sort: 'severity' };
+var CP_MET = [
+  { k: 'pf', l: '최대 접촉력', u: 'N' },
+  { k: 'ti', l: '충격량', u: 'N·s' },
+  { k: 'tw', l: '접촉 일', u: 'E' },
+];
+var CP_PAL = ['#7aa2f7', '#f7768e', '#9ece6a', '#e0af68', '#bb9af7', '#7dcfff'];
+
+function cpPairName(p) {
+  if (!p.resolved) return p.src + ' \u2192 ' + p.dst;
+  var nm = function (id) {
+    var q = (DATA.parts || []).filter(function (x) { return String(x.id) === String(id); })[0];
+    return q ? (q.name || ('Part ' + id)) : ('Part ' + id);
+  };
+  return nm(p.src) + ' \u2192 ' + nm(p.dst);
+}
+
+function cpSel(cp) {
+  if (cpS.sel.length) return cpS.sel.filter(function (i) { return i < cp.pairs.length; });
+  var out = [];
+  for (var i = 0; i < cp.pairs.length && out.length < 3; i++) {
+    if (cp.pairs[i].resolved) out.push(i);
+  }
+  return out.length ? out : (cp.pairs.length ? [0] : []);
+}
+
+function cpToggle(i) {
+  var cp = DATA.contact_profile || { pairs: [] };
+  var cur = cpSel(cp).slice();
+  var at = cur.indexOf(i);
+  if (at >= 0) cur.splice(at, 1); else cur.push(i);
+  cpS.sel = cur;
+  renderContactProfile();
+}
+
+function renderContactProfile() {
+  var panel = document.getElementById('cp-panel');
+  if (!panel) return;
+  var cp = DATA.contact_profile;
+  if (!cp || !(cp.pairs || []).length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  var pos = DATA.positions || [];
+  var M = cp[cpS.metric] || [];
+  var sel = cpSel(cp);
+  var mi = CP_MET.filter(function (m) { return m.k === cpS.metric; })[0] || CP_MET[0];
+
+  // 컨트롤
+  var ctl = document.getElementById('cp-controls');
+  ctl.innerHTML = '<label>지표</label><select id="cp-metric">' +
+    CP_MET.map(function (m) {
+      return '<option value="' + m.k + '"' + (m.k === cpS.metric ? ' selected' : '') +
+             '>' + m.l + ' (' + m.u + ')</option>';
+    }).join('') + '</select>' +
+    '<label style="margin-left:8px">위치 정렬</label><select id="cp-sort">' +
+    ['severity:심각도순', 'index:DOE 순서'].map(function (s) {
+      var kv = s.split(':');
+      return '<option value="' + kv[0] + '"' + (kv[0] === cpS.sort ? ' selected' : '') +
+             '>' + kv[1] + '</option>';
+    }).join('') + '</select>';
+  ctl.querySelector('#cp-metric').onchange = function () { cpS.metric = this.value; renderContactProfile(); };
+  ctl.querySelector('#cp-sort').onchange = function () { cpS.sort = this.value; renderContactProfile(); };
+
+  // 칩
+  var chips = document.getElementById('cp-chips');
+  chips.innerHTML = cp.pairs.map(function (p, i) {
+    var on = sel.indexOf(i) >= 0;
+    var c = CP_PAL[sel.indexOf(i) % CP_PAL.length];
+    var warn = p.resolved ? '' : ' \u26a0';
+    return '<span onclick="cpToggle(' + i + ')" title="' +
+      (p.resolved ? ('CID ' + p.cid) : '파트로 분해되지 않는 접촉 — 인터페이스 단위 합력') +
+      '" style="cursor:pointer;padding:3px 9px;border-radius:11px;font-size:11px;' +
+      'background:' + (on ? c + '33' : 'var(--bg3)') + ';color:' + (on ? c : 'var(--dim)') +
+      ';border:1px solid ' + (on ? c : 'transparent') + '">' + cpPairName(p) + warn + '</span>';
+  }).join('');
+
+  // 위치 순서
+  var order = [];
+  for (var i = 0; i < pos.length; i++) order.push(i);
+  if (cpS.sort === 'severity') {
+    order.sort(function (a, b) {
+      var sa = -1, sb = -1;
+      sel.forEach(function (r) {
+        var va = (M[r] || [])[a], vb = (M[r] || [])[b];
+        if (va != null && va > sa) sa = va;
+        if (vb != null && vb > sb) sb = vb;
+      });
+      return sb - sa;
+    });
+  }
+
+  // 차트
+  var W = 1240, H = 320, pl = 74, pr = 18, pt = 14, pb = 66;
+  var iw = W - pl - pr, ih = H - pt - pb;
+  var vmax = 0;
+  sel.forEach(function (r) {
+    (M[r] || []).forEach(function (v) { if (v != null && v > vmax) vmax = v; });
+  });
+  var px = function (i) { return pl + (order.length <= 1 ? iw / 2 : i * iw / (order.length - 1)); };
+  var py = function (v) { return pt + ih - (vmax > 0 ? v / vmax * ih : 0); };
+  var sv = '<rect x="' + pl + '" y="' + pt + '" width="' + iw + '" height="' + ih +
+           '" fill="var(--bg3)" opacity="0.35"/>';
+  for (var k = 0; k <= 4; k++) {
+    var y = pt + ih * k / 4, val = vmax * (1 - k / 4);
+    sv += '<line x1="' + pl + '" y1="' + y + '" x2="' + (pl + iw) + '" y2="' + y +
+          '" stroke="var(--bg2)"/><text x="' + (pl - 6) + '" y="' + (y + 3) +
+          '" text-anchor="end" fill="var(--dim)" font-size="10">' +
+          (val >= 1000 ? val.toExponential(1) : val.toFixed(1)) + '</text>';
+  }
+  var gaps = 0;
+  sel.forEach(function (r, si) {
+    var c = CP_PAL[si % CP_PAL.length], row = M[r] || [], seg = [];
+    var flush = function () {
+      if (seg.length > 1) sv += '<polyline points="' + seg.join(' ') +
+        '" fill="none" stroke="' + c + '" stroke-width="1.8"/>';
+      seg = [];
+    };
+    order.forEach(function (ai, i) {
+      var v = row[ai];
+      if (v == null) { gaps++; flush(); return; }   // 미접촉은 선을 끊는다
+      seg.push(px(i).toFixed(1) + ',' + py(v).toFixed(1));
+    });
+    flush();
+  });
+  var step = Math.max(1, Math.ceil(order.length / 24));
+  order.forEach(function (ai, i) {
+    if (i % step) return;
+    var nm = (pos[ai] && (pos[ai].pos_id || pos[ai].name)) || String(ai);
+    sv += '<text x="' + px(i).toFixed(1) + '" y="' + (pt + ih + 13) +
+          '" text-anchor="end" fill="var(--dim)" font-size="9" transform="rotate(-55 ' +
+          px(i).toFixed(1) + ' ' + (pt + ih + 13) + ')">' + nm + '</text>';
+  });
+  document.getElementById('cp-svg').innerHTML = sv;
+  document.getElementById('cp-legend').innerHTML = sel.map(function (r, si) {
+    return '<span style="color:' + CP_PAL[si % CP_PAL.length] + ';font-weight:700">' +
+           cpPairName(cp.pairs[r]) + '</span>';
+  }).join('');
+  var nUn = cp.pairs.filter(function (p) { return !p.resolved; }).length;
+  document.getElementById('cp-note').textContent =
+    'X축은 위치 ' + order.length + '개를 1차원으로 펼친 것이다. 선이 끊긴 구간은 그 위치에서 ' +
+    '해당 접촉이 발생하지 않은 것이며 0 이 아니다(끊김 ' + gaps + '칸).' +
+    (nUn ? ' 파트로 분해되지 않는 접촉 ' + nUn + '건은 \u26a0 로 표시했다.' : '');
 }
 
 // 접촉력 계측 신뢰 — 선택 위치의 contact_checks 를 표로. 없으면 패널을 숨긴다

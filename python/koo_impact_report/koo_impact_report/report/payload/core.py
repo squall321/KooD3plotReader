@@ -78,6 +78,61 @@ def _energy_flow_dict(flow: EnergyFlow) -> dict:
     }
 
 
+def build_contact_profile(energy_flows: dict, positions: list) -> dict:
+    """파트쌍 × 위치 스칼라 행렬 — 위치를 X축에 전개하는 뷰의 데이터.
+
+    sphere 의 contact_profile 과 같은 계약(pairs/pf/ti/tw)이라 렌더러를 공유한다.
+    energy_flows 는 **tier 로 자르기 전 전체**를 넘겨야 한다 — 프로파일은 전
+    위치를 담아야 "어느 위치가 최악인가" 에 답할 수 있다. 시계열은 담지 않으므로
+    위치가 수백 개여도 용량이 문제되지 않는다.
+
+    그 위치에 그 접촉이 없으면 None (0 이 아니다 — '접촉 안 함' ≠ '힘 0').
+    """
+    idx_of = {}
+    for i, p in enumerate(positions or []):
+        pid = (p or {}).get("pos_id")
+        if pid is not None:
+            idx_of[str(pid)] = i
+    n = len(positions or [])
+    if not energy_flows or not n:
+        return {"pairs": [], "pf": [], "ti": [], "tw": []}
+
+    pairs: dict = {}
+    cells: dict = {}
+    for pos_id, flow in (energy_flows or {}).items():
+        ai = idx_of.get(str(pos_id))
+        if ai is None:
+            continue
+        for e in (getattr(flow, "edges", None) or []):
+            src, dst = str(getattr(e, "src", "")), str(getattr(e, "dst", ""))
+            key = f"{src}>{dst}"
+            if key not in pairs:
+                pairs[key] = {
+                    "key": key, "src": src, "dst": dst,
+                    "cid": getattr(e, "contact_id", -1),
+                    "name": getattr(e, "name", "") or "",
+                    "resolved": src.isdigit() and dst.isdigit(),
+                }
+                cells[key] = [None] * n
+            cells[key][ai] = (
+                float(getattr(e, "peak_force", 0.0) or 0.0),
+                float(getattr(e, "total_impulse", 0.0) or 0.0),
+                float(getattr(e, "total_work", 0.0) or 0.0),
+            )
+
+    def _rank(k):
+        vals = [c[0] for c in cells[k] if c is not None]
+        return (0 if pairs[k]["resolved"] else 1, -(max(vals) if vals else 0.0), k)
+
+    order = sorted(pairs, key=_rank)
+    return {
+        "pairs": [pairs[k] for k in order],
+        "pf": [[(cells[k][a][0] if cells[k][a] else None) for a in range(n)] for k in order],
+        "ti": [[(cells[k][a][1] if cells[k][a] else None) for a in range(n)] for k in order],
+        "tw": [[(cells[k][a][2] if cells[k][a] else None) for a in range(n)] for k in order],
+    }
+
+
 def _build_mock_energy_flow() -> dict:
     """Hand-crafted energy flow for visual testing when no real flow is loaded.
 

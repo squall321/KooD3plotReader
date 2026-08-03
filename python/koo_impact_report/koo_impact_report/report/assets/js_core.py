@@ -619,6 +619,7 @@ function boot() {
     if (typeof renderContactTrust === 'function') {
       renderContactTrust(typeof _EF_POS !== 'undefined' ? _EF_POS : null);
     }
+    if (typeof renderContactProfile === 'function') renderContactProfile();
   });
 
   // Section 04 — PER-PART G

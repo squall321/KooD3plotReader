@@ -17,6 +17,7 @@ from .common import (  # noqa: F401 — re-export (분할 과도기)
 from .tiers import tier_for
 from .core import (
     _impactor_dict, _energy_flow_dict, _build_mock_energy_flow, _build_device_geometry,
+    build_contact_profile,
 )
 from .doe import _build_mock_doe, _build_doe_payload
 from .analytics import _build_deep_payload
@@ -235,6 +236,14 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
             energy_flows[pos_id] = _energy_flow_dict(flow)
     if not energy_flows and _os.environ.get("KOO_IMPACT_USE_MOCK") == "1":
         energy_flows["__mock__"] = _build_mock_energy_flow()
+
+    # 파트쌍 접촉력 프로파일 — **tier 로 자르기 전 전체 위치**로 만든다.
+    # 스칼라만 담으므로 위치가 수백 개여도 용량 문제가 없고, "어느 위치가
+    # 최악인가" 는 전 위치를 봐야 답할 수 있다. 실패해도 보고서는 계속 간다.
+    try:
+        contact_profile = build_contact_profile(report.energy_flows or {}, positions)
+    except Exception:      # noqa: BLE001
+        contact_profile = {"pairs": [], "pf": [], "ti": [], "tw": []}
 
     # --- aggregates ---------------------------------------------------------
     g_vals = [r["g"] for r in results if r["g"] > 0]
@@ -737,6 +746,7 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "faces": faces,
         "parts": parts,
         "positions": positions,
+        "contact_profile": contact_profile,
         "results": results,
         "energy_flows": energy_flows,
         "findings": findings,
