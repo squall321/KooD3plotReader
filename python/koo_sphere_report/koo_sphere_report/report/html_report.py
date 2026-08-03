@@ -211,6 +211,11 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     # (시계열까지 담으면 1144각도 × 26쌍 × 120점 으로 payload 가 터진다)
     data["contact_profile"] = _contact_profile(flows, data["results"])
     data["contact_trust"] = _contact_trust(flows)
+    # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
+    data["unit_system"] = {
+        "id": MotionData.UNIT_SYSTEM,
+        "g_factor": MotionData.G_FACTOR,
+    }
     # 흐름 상세(시계열)는 tier 로 제한. 전 각도에 시계열을 실으면 100MB 를 넘는다.
     detail, note = _flow_detail_folders(flows)
     data["energy_flows"] = _compact_energy_flows(flows, detail)

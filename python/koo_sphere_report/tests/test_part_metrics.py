@@ -14,6 +14,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from koo_sphere_report.models import (  # noqa: E402
@@ -165,3 +167,60 @@ def test_from_json_reads_part_name_key(tmp_path):
     assert rep.part_info[1].part_name == "Front\\Metal"
     assert rep.part_info[1].group == "Front"
     assert rep.part_info[2].part_name == "Legacy\\Old"
+
+
+# --------------------------------------------------------------------------
+# 단위계 자동검출 — 조용히 1000배 틀리던 것
+# --------------------------------------------------------------------------
+from koo_sphere_report.loader import _deck_density, _apply_unit_system  # noqa: E402
+from koo_sphere_report.models import MotionData  # noqa: E402
+
+
+def _deck(tmp_path, densities):
+    d = tmp_path / "t"; (d / "output").mkdir(parents=True)
+    lines = []
+    for i, ro in enumerate(densities, 1):
+        lines += [f"*MAT_ELASTIC_TITLE", f"Elastic{i}",
+                  f"{i:10d}{ro:>10} 1.660e+05 3.300e-01"]
+    (d / "m.k").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return d / "output"
+
+
+def test_deck_density_read_from_mat_cards(tmp_path):
+    """밀도는 덱의 *MAT 에서 읽는다 (runner_config 값은 템플릿이라 못 믿는다)."""
+    out = _deck(tmp_path, ["2.330e-09", "2.800e-09", "7.850e-09"])
+    assert _deck_density(out) == pytest.approx(2.8e-09)
+
+
+def test_deck_density_missing_returns_none(tmp_path):
+    """덱이 없으면 None — 예외를 올리지 않는다."""
+    out = tmp_path / "empty" / "output"; out.mkdir(parents=True)
+    assert _deck_density(out) is None
+
+
+def test_unit_detection_keeps_default_when_deck_missing(tmp_path):
+    """판정 불가면 기본값 유지 — 틀린 단위로 자신 있게 환산하지 않는다."""
+    before_id, before_gf = MotionData.UNIT_SYSTEM, MotionData.G_FACTOR
+    try:
+        out = tmp_path / "e" / "output"; out.mkdir(parents=True)
+        _apply_unit_system(object(), out)
+        assert MotionData.UNIT_SYSTEM == before_id
+        assert MotionData.G_FACTOR == before_gf
+    finally:
+        MotionData.set_unit_system(before_id, before_gf)
+
+
+def test_ton_mm_s_deck_is_not_flipped_to_si(tmp_path):
+    """ton-mm-s 덱(ρ~1e-9)을 SI 로 뒤집으면 peak-G 가 1000배 커진다.
+
+    실측 회귀: runner_config 의 density=7850(SI 풍) 으로 판정하면 실제로
+    그렇게 뒤집혔다. 판정 근거를 덱으로 바꾼 이유다.
+    """
+    before_id, before_gf = MotionData.UNIT_SYSTEM, MotionData.G_FACTOR
+    try:
+        out = _deck(tmp_path, ["2.330e-09"])
+        _apply_unit_system(object(), out)
+        assert MotionData.UNIT_SYSTEM == "ton-mm-s"
+        assert MotionData.G_FACTOR == pytest.approx(9806.65)
+    finally:
+        MotionData.set_unit_system(before_id, before_gf)

@@ -81,6 +81,108 @@ def load_runner_config(test_dir: Path) -> tuple[str, str, SimulationParams, dict
     return project_name, doe_strategy, sim_params, doe_angles
 
 
+#: 단위계별 G 환산 계수 (가속도 1G 를 그 단위계로 표현한 값).
+#: 9.80665 m/s² = 9806.65 mm/s² = 9.80665e-3 mm/ms².
+_G_FACTOR_BY_UNIT = {
+    "SI": 9.80665,
+    "ton-mm-s": 9806.65,
+    "ton-mm-ms": 9.80665e-3,
+    "g-mm-ms": 9.80665e-3,
+}
+
+
+def _deck_density(output_dir: Path) -> float | None:
+    """덱의 *MAT 카드에서 밀도 대푯값(중앙값). 못 읽으면 None.
+
+    **runner_config.simulation_params.density 는 쓰면 안 된다.** 그것은 시나리오
+    템플릿 값이라 덱과 어긋난다 — Test_006 은 config 7850(SI 풍) / 덱 2.33e-9
+    (ton-mm-s) 였다. 그 값으로 판정하면 정상 보고서를 SI 로 뒤집어 peak-G 가
+    1000배 커진다(실측으로 확인).
+    """
+    # 덱은 test_dir 루트나 첫 run 폴더에 있다. _find_kfile 은 run 폴더 전용이라
+    # 여기서 둘 다 훑는다 (없으면 None → 호출자가 기본값 유지).
+    kf = None
+    for cand in [output_dir.parent, output_dir]:
+        if not cand or not cand.exists():
+            continue
+        ks = sorted(cand.glob("*.k")) + sorted(cand.glob("*.key"))
+        if ks:
+            kf = ks[0]
+            break
+    if kf is None and output_dir.exists():
+        for run in sorted(output_dir.iterdir())[:3]:
+            if run.is_dir():
+                kf = _find_kfile(run)
+                if kf is not None:
+                    break
+    if kf is None:
+        return None
+    dens: list[float] = []
+    try:
+        lines = kf.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return None
+    want = False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("*"):
+            want = s.upper().startswith("*MAT_")
+            continue
+        if not want or not s or s.startswith("$"):
+            continue
+        # *MAT 첫 데이터 줄: MID RO ... (제목 줄은 숫자가 아니라 걸러진다)
+        f = s.replace(",", " ").split()
+        if len(f) >= 2:
+            try:
+                ro = float(f[1])
+            except ValueError:
+                continue        # _TITLE 의 제목 줄 → 다음 줄이 데이터
+            if ro > 0:
+                dens.append(ro)
+            want = False
+    if not dens:
+        return None
+    dens.sort()
+    return dens[len(dens) // 2]
+
+
+def _apply_unit_system(sim_params, output_dir: Path) -> None:
+    """덱 단위계를 추정해 MotionData 에 주입.
+
+    impact 쪽 검출기(koo_impact_report.loader._detect_unit_system)를 재사용한다.
+    없으면(패키지 부재) 조용히 기본값을 유지한다 — 세 패키지가 항상 함께
+    설치되는 것은 아니므로 import 실패로 보고서를 죽이지 않는다.
+
+    판정 근거는 **덱의 *MAT 밀도**다. 애매하면 기본값을 유지하고 사유를 남긴다
+    — 틀린 단위로 자신 있게 환산하는 것보다 낫다.
+    """
+    density = _deck_density(output_dir)
+    if density is None:
+        print(f"[sphere] 덱 밀도를 못 읽어 단위계 판정 생략 — "
+              f"기본 {MotionData.UNIT_SYSTEM} 유지")
+        return
+    try:
+        from koo_impact_report.loader import _detect_unit_system
+    except Exception:
+        print("[sphere] 단위계 검출기 없음(koo_impact_report 미설치) — "
+              f"기본 {MotionData.UNIT_SYSTEM} 유지")
+        return
+
+    preset = _detect_unit_system(density)
+    uid = str((preset or {}).get("id") or "")
+    gf = _G_FACTOR_BY_UNIT.get(uid)
+    if not uid or gf is None:
+        print(f"[sphere] 단위계 판정 불가 (덱 밀도={density:g}) — "
+              f"기본 {MotionData.UNIT_SYSTEM} 유지. peak-G 해석에 주의.")
+        return
+    if uid != MotionData.UNIT_SYSTEM:
+        print(f"[sphere] 단위계 검출: {uid} (덱 밀도={density:g}) — "
+              f"G 환산 {MotionData.G_FACTOR:g} → {gf:g}")
+    else:
+        print(f"[sphere] 단위계 확인: {uid} (덱 밀도={density:g})")
+    MotionData.set_unit_system(uid, gf)
+
+
 def load_dropset(run_dir: Path) -> AngleCondition | None:
     """Load DropSet.json from a run folder."""
     ds_path = run_dir / "DropSet.json"
@@ -551,6 +653,14 @@ def load_all(test_dir: Path) -> tuple[
 
     # Load config
     project_name, doe_strategy, sim_params, doe_angles = load_runner_config(test_dir)
+
+    # 단위계 검출 — 실패해도 계속 진행한다(기본 ton-mm-s 유지 + 사유 출력).
+    # 여기서 예외가 새면 보고서 전체가 죽으므로 절대 올리지 않는다.
+    try:
+        _apply_unit_system(sim_params, output_dir)
+    except Exception as _e:      # noqa: BLE001
+        print(f"[sphere] 단위계 검출 skip ({type(_e).__name__}: {_e}) — "
+              f"기본 {MotionData.UNIT_SYSTEM} 유지")
 
     # Load part names
     part_info = load_part_names(output_dir)

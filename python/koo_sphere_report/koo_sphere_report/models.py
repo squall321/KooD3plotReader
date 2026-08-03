@@ -117,12 +117,24 @@ class MotionData:
     true_peak_g_time: float | None = None
     true_peak_disp: float | None = None
 
-    # mm/s² per G — single source of truth for the [ton, mm, s] unit system.
-    # WARNING: koo_sphere_report assumes ton-mm-s decks (no unit auto-detection
-    # yet — unlike koo_impact_report). An SI deck (m/s² acceleration) would be
-    # divided by 9810 instead of 9.81 → peak-G reported ~1000× too small with
-    # no warning. Unit auto-detection backport is tracked in ROADMAP.md (3-1).
+    # 가속도 → G 환산 계수. 기본은 ton-mm-s(mm/s²) 이지만 **덱 단위계에 따라
+    # 런타임에 바뀐다** (loader 가 검출해 set_unit_system 으로 주입).
+    # 예전에는 9810 하드코딩이라 SI 덱(m/s²) 을 넣으면 peak-G 가 1000배 작게
+    # 나오고 경고도 없었다 — 조용히 틀리는 종류라 가장 위험했다.
     G_FACTOR = 9810.0
+    #: 검출된 단위계 id ("ton-mm-s" / "SI" / "" =미검출). 화면 표기용.
+    UNIT_SYSTEM = "ton-mm-s"
+
+    @classmethod
+    def set_unit_system(cls, unit_id: str, g_factor: float) -> None:
+        """검출된 단위계를 적용. 알 수 없으면 호출하지 않아 기본값이 유지된다."""
+        cls.UNIT_SYSTEM = str(unit_id or "")
+        try:
+            gf = float(g_factor)
+        except (TypeError, ValueError):
+            return
+        if gf > 0:
+            cls.G_FACTOR = gf
 
     @property
     def peak_g(self) -> float:
