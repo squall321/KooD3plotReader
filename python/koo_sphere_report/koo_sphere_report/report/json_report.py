@@ -83,6 +83,9 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
             if pr.principal is not None:
                 pd["peak_principal_stress"] = round(pr.peak_principal, 2)
                 pd["time_of_peak_principal"] = pr.principal.peak_time
+            if pr.principal_min is not None and pr.min_principal is not None:
+                # σ3 은 압축측이라 최소값이 의미 있다 (부호 유지).
+                pd["min_principal_stress"] = round(pr.min_principal, 2)
 
             # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
             # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.

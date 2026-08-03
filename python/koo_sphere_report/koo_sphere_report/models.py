@@ -193,6 +193,8 @@ class PartResult:
     #: 최대 주응력 σ1. unified_analyzer 가 von Mises 와 **항상 함께** 내지만
     #: 구버전으로 돌린 산출물에는 CSV 가 없다 → 그때는 None (0 아님).
     principal: TimeSeriesData | None = None
+    #: 최소 주응력 σ3 (압축측). 취성 파단·박리는 σ1 만으로 안 보인다.
+    principal_min: TimeSeriesData | None = None
 
     @property
     def peak_stress(self) -> float:
@@ -202,6 +204,15 @@ class PartResult:
     def peak_principal(self) -> float | None:
         """최대 주응력 피크. 미계측이면 None — von Mises 로 대체하지 않는다."""
         return self.principal.peak if self.principal else None
+
+    @property
+    def min_principal(self) -> float | None:
+        """σ3 의 **최소값**(가장 큰 압축). peak 속성이 max 를 주므로 직접 뽑는다."""
+        ts = self.principal_min
+        if ts is None:
+            return None
+        vals = list(ts.min_values or []) or list(ts.max_values or [])
+        return min(vals) if vals else None
 
     @property
     def peak_strain(self) -> float:

@@ -224,3 +224,20 @@ def test_ton_mm_s_deck_is_not_flipped_to_si(tmp_path):
         assert MotionData.G_FACTOR == pytest.approx(9806.65)
     finally:
         MotionData.set_unit_system(before_id, before_gf)
+
+
+def test_sigma3_uses_minimum_not_peak():
+    """σ3 는 압축측 — max 가 아니라 **최소값**이 최악이다."""
+    pr = _part()
+    ts = _ts([0.0, -100.0, -500.0, -50.0])
+    ts.min_values = [0.0, -100.0, -500.0, -50.0]
+    pr.principal_min = ts
+    assert pr.min_principal == -500.0
+
+
+def test_sigma3_absent_is_none():
+    """σ3 CSV 가 없으면 None — σ1 이나 von Mises 로 대체하지 않는다."""
+    pr = _part()
+    pr.stress = _ts([10.0, 500.0])
+    pr.principal = _ts([0.0, 300.0])
+    assert pr.min_principal is None

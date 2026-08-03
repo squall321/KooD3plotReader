@@ -392,10 +392,14 @@ def load_simulation_result(
         if stress_csv.exists():
             pr.stress = _load_stress_strain_csv(stress_csv, target_points)
 
-        # 최대 주응력 CSV (있을 때만 — 구버전 산출물엔 없다)
+        # 주응력 CSV (있을 때만 — 구버전 산출물엔 없다). σ1/σ3 각각 독립적으로
+        # 없을 수 있으므로 따로 확인한다.
         principal_csv = result_dir / "stress" / f"part_{pid}_max_principal_stress.csv"
         if principal_csv.exists():
             pr.principal = _load_stress_strain_csv(principal_csv, target_points)
+        principal_min_csv = result_dir / "stress" / f"part_{pid}_min_principal_stress.csv"
+        if principal_min_csv.exists():
+            pr.principal_min = _load_stress_strain_csv(principal_min_csv, target_points)
 
         # Strain CSV
         strain_csv = result_dir / "strain" / f"part_{pid}_eff_plastic_strain.csv"
