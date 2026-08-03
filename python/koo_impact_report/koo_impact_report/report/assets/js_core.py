@@ -615,6 +615,10 @@ function boot() {
     initPhaseDiagram();
     initContactTimeline();
     initTrajectoryBundle3D();
+    // rcforc 계측 신뢰 — 없으면 패널이 스스로 숨는다(에러 아님)
+    if (typeof renderContactTrust === 'function') {
+      renderContactTrust(typeof _EF_POS !== 'undefined' ? _EF_POS : null);
+    }
   });
 
   // Section 04 — PER-PART G

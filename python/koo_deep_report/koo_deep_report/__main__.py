@@ -888,6 +888,7 @@ def run_single(args: argparse.Namespace) -> None:
                              d3plot_path=sim_info.d3plot)
         (output_dir / "contact_metrics.json").write_text(
             json.dumps(cmet, ensure_ascii=False, indent=2), encoding="utf-8")
+        result.contact_metrics = cmet          # HTML 접촉 탭이 소비
         if cmet.get("available"):
             n3 = (cmet.get("checks") or {}).get("newton3") or {}
             print(f"[koo_deep_report] 접촉력 계측: 인터페이스 {cmet['n_interfaces']}개 "

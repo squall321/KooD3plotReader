@@ -146,6 +146,14 @@ _PAGE3 = """
       <div class="pcap">각 색 띠 두께 = 그 시각 해당 부품이 보유한 내부에너지(IE). 파란 굵은 선 = 임팩터 잔여 KE. 임팩터 KE가 줄며 부품 IE 띠가 두꺼워지는 것이 에너지 전달입니다.</div>
     </div>
 
+    <div class="panel col-12 r" id="efd-trust-panel" style="display:none">
+      <div class="ph">
+        <span class="pt">CONTACT MEASUREMENT TRUST</span>
+        <span class="pd">rcforc 계측을 믿어도 되는가 &middot; 절대 합격 기준 없음, 값만 보고</span>
+      </div>
+      <div id="efd-trust-body"></div>
+    </div>
+
     <div class="panel col-3 r">
       <div class="ph">
         <span class="pt">CONSERVATION CHECK</span>
@@ -530,6 +538,44 @@ function renderFindings() {
   }
 }
 
+// 접촉력 계측 신뢰 — 선택 위치의 contact_checks 를 표로. 없으면 패널을 숨긴다
+// (에러가 아니라 누락 — rcforc 가 꺼진 해석에서도 나머지는 정상 동작해야 한다).
+function renderContactTrust(posId) {
+  var panel = document.getElementById('efd-trust-panel');
+  var body = document.getElementById('efd-trust-body');
+  if (!panel || !body) return;
+  var f = (DATA.energy_flows || {})[posId];
+  if (!f) { panel.style.display = 'none'; return; }
+  if (!f.contact_available) {
+    panel.style.display = '';
+    body.innerHTML = '<div class="pcap">' +
+      (f.contact_reason || '접촉력이 계측되지 않았습니다.') + '</div>';
+    return;
+  }
+  var ck = f.contact_checks || {};
+  var n3 = ck.newton3 || {}, tm = ck.timing || {}, se = ck.sliding_energy || {};
+  var ex = function (v) {
+    if (v === null || v === undefined) return '\u2014';
+    return Math.abs(v) < 1e-4 ? Number(v).toExponential(1) : Number(v).toFixed(4);
+  };
+  panel.style.display = '';
+  body.innerHTML =
+    '<table class="dt"><thead><tr><th class="tl">검증</th><th>값</th>' +
+    '<th class="tl">의미</th></tr></thead><tbody>' +
+    '<tr><td class="tl">뉴턴 3법칙 최악</td><td class="num">' + ex(n3.max_rel) + '</td>' +
+    '<td class="tl dim">master/slave 충격량 상대차 (검증 ' + (n3.n_checked || 0) +
+    '건, 한쪽만 ' + (n3.n_one_sided || 0) + '건 &mdash; 반대편이 ALL 인 정의라 대상 아님)</td></tr>' +
+    '<tr><td class="tl">접촉 동시성</td><td class="num">' + ex(tm.peak_spread) + '</td>' +
+    '<td class="tl dim">피크 시각 분포 폭 (접촉 ' + (tm.n_engaged || 0) +
+    '건, 최초 ' + ex(tm.first_engage) + ')</td></tr>' +
+    '<tr><td class="tl">sliding 에너지</td><td class="num">' + ex(se.rel) + '</td>' +
+    '<td class="tl dim">glstat ' + ex(se.glstat_sliding) +
+    ' vs sleout 합 ' + ex(se.sleout_sum) + '</td></tr>' +
+    '</tbody></table>' +
+    '<div class="pcap">인터페이스 ' + (f.contact_n_iface || 0) + '개 중 파트쌍으로 분해된 것 ' +
+    (f.contact_n_resolved || 0) + '개. 나머지는 인터페이스 단위 합력이라 파트쌍으로 읽으면 안 된다.</div>';
+}
+
 // H6: energy_flows 부재 시 축약 모드 — 빈 패널 7개 대신 glstat 흡수율 지도
 function initEnergyFlowPage() {
   const flows = DATA.energy_flows || {};
@@ -632,6 +678,7 @@ function refreshEnergyFlowForPos(posId) {
     if (typeof initTimeForceHeatmap === 'function') initTimeForceHeatmap();
     if (typeof initConservation === 'function') initConservation();
     if (typeof initEnergyResidence === 'function') initEnergyResidence();
+    if (typeof renderContactTrust === 'function') renderContactTrust(posId);
   } catch (e) { console.error('energy flow refresh failed:', e); }
   const lbl = document.getElementById('efd-pos-label');
   if (lbl) lbl.textContent = posId;

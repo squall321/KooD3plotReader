@@ -142,6 +142,8 @@ def _build_js_data(result: SingleResult) -> dict:
     si = result.sim_info
 
     data: dict = {
+        # rcforc 계측·검증. 없으면 빈 dict → 접촉 탭이 그 블록만 건너뛴다.
+        "contact_metrics": (getattr(result, "contact_metrics", None) or {}),
         "sim": {
             "name": si.path.name,
             "path": str(si.path),
@@ -1381,18 +1383,71 @@ function renderContact() {
 
   let html = '';
 
+  // 계측 신뢰 — 값 자체보다 먼저 "믿어도 되는가" 를 보여준다.
+  // 계측 안 됐으면 사유를 적고 아래 표는 그대로 진행한다(에러 아님).
+  const cmv = DATA.contact_metrics || {};
+  if (cmv.reason && !cmv.available) {
+    html += `<div class="sec-title">접촉력 계측</div>
+      <div class="chart-box"><p style="color:#888">${cmv.reason}</p></div>`;
+  } else if (cmv.available) {
+    const n3 = (cmv.checks || {}).newton3 || {};
+    const tm = (cmv.checks || {}).timing || {};
+    const se = (cmv.checks || {}).sliding_energy || {};
+    const ex = v => (v == null ? '&mdash;'
+                   : (Math.abs(v) < 1e-4 ? v.toExponential(1) : (+v).toFixed(4)));
+    html += `<div class="sec-title">접촉력 계측 신뢰</div>
+<div class="chart-box">
+  <table class="data-table"><thead><tr><th>검증</th><th>값</th><th>의미</th></tr></thead><tbody>
+   <tr><td>뉴턴 3법칙 최악</td><td class="num">${ex(n3.max_rel)}</td>
+       <td>master/slave 충격량 상대차 (검증 ${n3.n_checked || 0}건, 한쪽만 ${n3.n_one_sided || 0}건)</td></tr>
+   <tr><td>접촉 동시성</td><td class="num">${ex(tm.peak_spread)}</td>
+       <td>인터페이스 피크 시각 분포 폭 (접촉 ${tm.n_engaged || 0}건, 최초 ${ex(tm.first_engage)})</td></tr>
+   <tr><td>sliding 에너지</td><td class="num">${ex(se.rel)}</td>
+       <td>glstat ${ex(se.glstat_sliding)} vs sleout 합 ${ex(se.sleout_sum)}</td></tr>
+  </tbody></table>
+  <p style="color:#888;font-size:12px;margin-top:6px">
+    절대 합격 기준은 두지 않는다 — 값만 보고한다. 판단은 사람이 한다.
+    ${cmv.note ? '<br>' + cmv.note : ''}</p>
+</div>`;
+  }
+
   // rcforc: interface peak force table + selector
   if (bn.rcforc && bn.rcforc.length) {
     const slaves = bn.rcforc.filter(r => r.side === 0);
-    const rows = slaves.map(r =>
-      `<tr><td>${r.id}</td><td>${r.name}</td><td class="num">${fmt(r.peak_fmag)}</td></tr>`
-    ).join('');
+    // 계측표는 contact_metrics 를 우선 쓴다. bn.rcforc 의 slave 측만 보면
+    // SSTYP=5(반대편이 'ALL') 정의에서 값이 0 으로 나온다 — 실측 CID 172 는
+    // slave 0.2 / master 36251.5 였다. 계측 모듈은 큰 쪽으로 잰다.
+    const cm = DATA.contact_metrics || {};
+    let rows;
+    if (cm.available && (cm.interfaces || []).length) {
+      const fx = v => (v == null ? '&mdash;' : fmt(v));
+      // 시각은 1e-5 수준이라 fmt(2자리)로는 전부 0.00 이 된다 — 지수로 쓴다.
+      const ft = v => (v == null ? '&mdash;'
+                     : (Math.abs(v) >= 0.01 ? (+v).toFixed(4) : (+v).toExponential(2)));
+      rows = cm.interfaces.slice().sort((a,b) => (b.peak_force||0)-(a.peak_force||0))
+        .map(i => {
+          const pair = i.resolved
+            ? `${i.src_name} &rarr; ${i.dst_name}`
+            : `<span title="파트로 분해되지 않는 접촉 — 인터페이스 단위 합력이다">${i.src_name || i.src} &rarr; ${i.dst_name || i.dst} &#9888;</span>`;
+          const win = (i.engage_t0 == null) ? '&mdash;'
+            : `${ft(i.engage_t0)} ~ ${ft(i.engage_t1)}`;
+          return `<tr><td>${i.cid}</td><td>${i.name || ''}</td><td>${pair}</td>`
+               + `<td class="num">${fx(i.peak_force)}</td><td class="num">${ft(i.peak_time)}</td>`
+               + `<td class="num">${fx(i.impulse)}</td><td class="num">${win}</td></tr>`;
+        }).join('');
+    } else {
+      rows = slaves.map(r =>
+        `<tr><td>${r.id}</td><td>${r.name}</td><td>&mdash;</td><td class="num">${fmt(r.peak_fmag)}</td>`
+        + `<td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>`
+      ).join('');
+    }
     const opts = slaves.map(r =>
       `<option value="${r.id}">${r.name} (id=${r.id})</option>`).join('');
     html += `
 <div class="sec-title">접촉 인터페이스 피크 합력</div>
 <div class="chart-box">
-  <table class="data-table"><thead><tr><th>ID</th><th>이름</th><th>피크 합력</th></tr></thead>
+  <table class="data-table"><thead><tr><th>CID</th><th>이름</th><th>파트쌍</th>
+    <th>피크 합력</th><th>피크 시각</th><th>충격량</th><th>접촉 구간</th></tr></thead>
   <tbody>${rows}</tbody></table>
 </div>
 <div class="sec-title">접촉력 시계열</div>
