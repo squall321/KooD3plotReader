@@ -58,8 +58,11 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> R
     part_info: dict[int, PartInfo] = {}
     for pid_str, pi in d.get("parts", {}).items():
         pid = int(pid_str)
-        name = pi.get("name", f"Part {pid}")
-        group = pi.get("group", PartInfo.extract_group(name))
+        # json_report 는 "part_name" 으로 쓴다. "name" 만 보면 전 파트가
+        # "Part <id>" 로 소실된다 — --from-json 재생성에서 실제로 그랬다.
+        # 구 샘플 호환을 위해 "name" 도 받는다.
+        name = pi.get("part_name") or pi.get("name") or f"Part {pid}"
+        group = pi.get("group") or PartInfo.extract_group(name)
         part_info[pid] = PartInfo(part_id=pid, part_name=name, group=group)
 
     # Findings

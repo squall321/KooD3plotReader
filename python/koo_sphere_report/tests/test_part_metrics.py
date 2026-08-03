@@ -141,3 +141,27 @@ def test_flow_detail_no_truncation_when_small():
     flows = {f"R{i}": _flow([_edge("1", "2", 10, 1.0)]) for i in range(3)}
     keep, note = _flow_detail_folders(flows)
     assert len(keep) == 3 and note == ""
+
+
+def test_from_json_reads_part_name_key(tmp_path):
+    """--from-json 재생성에서 파트명이 소실되면 안 된다.
+
+    json_report 는 "part_name" 으로 쓰는데 from_json 이 "name" 만 읽어
+    전 파트가 "Part <id>" 로 뭉개졌다(실측 확인).
+    """
+    import json
+    from koo_sphere_report.from_json import load_report_from_json
+
+    doc = {
+        "project_name": "P", "doe_strategy": "fibonacci",
+        "simulation_params": {}, "findings": [],
+        "parts": {"1": {"part_name": "Front\\Metal", "group": "Front"},
+                  "2": {"name": "Legacy\\Old"}},          # 구 샘플 호환
+        "results_summary": [],
+    }
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    rep = load_report_from_json(str(p))
+    assert rep.part_info[1].part_name == "Front\\Metal"
+    assert rep.part_info[1].group == "Front"
+    assert rep.part_info[2].part_name == "Legacy\\Old"
