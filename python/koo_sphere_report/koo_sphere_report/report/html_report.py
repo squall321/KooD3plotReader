@@ -1209,7 +1209,13 @@ function renderGlobeHR(ctx, W, vLon, vLat) {
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2*Math.PI); ctx.stroke();
   // Quantity & part label
   const qty = mollweideState.quantity;
-  const qLbl = qty==='peak_stress'?'Von Mises (MPa)':qty==='peak_strain'?'Eff. Plastic Strain':qty==='peak_g'?'Peak G (MG)':qty==='peak_disp'?'Disp (mm)':qty==='peak_vel'?'Vel (mm/s)':'Safety Factor';
+  const QLBL = {
+    peak_stress: 'Von Mises (MPa)', peak_strain: 'Eff. Plastic Strain',
+    peak_g: 'Peak G (MG)', peak_disp: 'Disp (mm)', peak_vel: 'Vel (mm/s)',
+    peak_principal_stress: 'σ1 (MPa)', min_principal_stress: 'σ3 (MPa)',
+    peak_vm_strain: 'ε_vm', peak_principal_strain: 'ε1', min_principal_strain: 'ε3',
+  };
+  const qLbl = QLBL[qty] || 'Safety Factor';
   const pName = DATA.parts[String(mollweideState.partId)]?.name || '';
   ctx.fillStyle = '#c0caf5'; ctx.font = `${W/25}px sans-serif`; ctx.textAlign = 'center';
   ctx.fillText(pName + ' - ' + qLbl, cx, W - W/30);
@@ -1304,6 +1310,14 @@ function renderMollweide() {
       <option value="peak_g"${mollweideState.quantity==='peak_g'?' selected':''}>Peak G-Force (MG)</option>
       <option value="peak_disp"${mollweideState.quantity==='peak_disp'?' selected':''}>Max Displacement (mm)</option>
       <option value="peak_vel"${mollweideState.quantity==='peak_vel'?' selected':''}>Peak Velocity (mm/s)</option>
+      ${[['peak_principal_stress','σ1 · Max Principal Stress (MPa)'],
+          ['min_principal_stress','σ3 · Min Principal Stress (MPa)'],
+          ['peak_vm_strain','ε_vm · von Mises Strain'],
+          ['peak_principal_strain','ε1 · Max Principal Strain'],
+          ['min_principal_strain','ε3 · Min Principal Strain']]
+         .filter(kv => hasQty(kv[0]))
+         .map(kv => `<option value="${kv[0]}"${mollweideState.quantity===kv[0]?' selected':''}>${kv[1]}</option>`)
+         .join('')}
       <option value="safety_factor"${mollweideState.quantity==='safety_factor'?' selected':''}>Safety Factor</option>
     </select>
     <label>Part:</label>
@@ -1401,7 +1415,13 @@ function sphericalDist(lon1d, lat1d, lon2d, lat2d) {
 // Measure available width for the Mollweide map
 function getMollweideSize() {
   const wrap = document.getElementById('moll-map-wrap');
-  if (!wrap || wrap.clientWidth < 100) return { W: 800, H: 420, scale: 130 };
+  if (!wrap || wrap.clientWidth < 100) {
+    // 폴백에도 cx/cy/rx/ry 를 채운다. 예전에는 W/H/scale 만 돌려줘서
+    // 호출부의 구조분해가 undefined 를 받고 SVG 좌표가 NaN 이 됐다
+    // (탭이 아직 안 그려졌거나 컨테이너가 좁을 때 실제로 발생).
+    const s = 130, rx0 = 2 * Math.SQRT2 * s, ry0 = Math.SQRT2 * s;
+    return { W: 800, H: 420, scale: s, cx: 400, cy: 210, rx: rx0, ry: ry0 };
+  }
   const cbW = 90;  // colorbar width
   const axisMargin = 60;  // axis labels
   const mapAvail = wrap.clientWidth - cbW - axisMargin;
@@ -1729,7 +1749,13 @@ function drawRiskTable() {
 
   const qty = mollweideState.quantity;
   const pid = String(mollweideState.partId);
-  const qtyLabel = qty === 'peak_stress' ? 'Stress (MPa)' : qty === 'peak_strain' ? 'Strain' : qty === 'peak_g' ? 'G-Force (MG)' : qty === 'peak_vel' ? 'Velocity (mm/s)' : qty === 'safety_factor' ? 'Safety Factor' : 'Disp (mm)';
+  const QTL = {
+    peak_stress: 'Stress (MPa)', peak_strain: 'Strain', peak_g: 'G-Force (MG)',
+    peak_vel: 'Velocity (mm/s)', safety_factor: 'Safety Factor',
+    peak_principal_stress: 'σ1 (MPa)', min_principal_stress: 'σ3 (MPa)',
+    peak_vm_strain: 'ε_vm', peak_principal_strain: 'ε1', min_principal_strain: 'ε3',
+  };
+  const qtyLabel = QTL[qty] || 'Disp (mm)';
 
   // Build sorted list
   _riskRows = [];
@@ -1828,18 +1854,39 @@ function valueToColorRGB(norm) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
+// σ3/ε3 는 압축측이라 값이 음수다. 그대로 색 스케일에 넣으면 "가장 강한 압축"
+// 이 최솟값으로 가서 색이 뒤집힌다. 지도/히트맵은 **크기**로 정렬해야 하므로
+// 압축 계열은 절대값을 쓴다(표시 값은 formatValue 가 부호를 살려 보여준다).
+const _MAG_QTYS = { min_principal_stress: 1, min_principal_strain: 1 };
+
 function getQtyValue(pd, qty) {
   if (!pd) return 0;
   if (qty === 'safety_factor') {
     const ys = DATA.yield_stress || 0;
     return (ys > 0 && pd.peak_stress > 0) ? ys / pd.peak_stress : 0;
   }
-  return pd[qty] || 0;
+  const v = pd[qty];
+  if (v == null) return 0;          // 미계측 — 0 으로 그리되 값 표시는 '—'
+  return _MAG_QTYS[qty] ? Math.abs(v) : v;
+}
+
+// 그 물리량이 이 데이터셋에 실제로 있는가. 없으면 선택지에서 감춘다.
+function hasQty(qty) {
+  if (qty === 'safety_factor') return (DATA.yield_stress || 0) > 0;
+  for (const r of (DATA.results || [])) {
+    for (const k in (r.parts || {})) {
+      if (r.parts[k] && r.parts[k][qty] != null) return true;
+    }
+  }
+  return false;
 }
 
 function formatValue(v, qty) {
   if (qty === 'peak_stress') return v.toFixed(1) + ' MPa';
   if (qty === 'peak_strain') return v.toFixed(4);
+  if (qty === 'peak_vm_strain' || qty === 'peak_principal_strain'
+      || qty === 'min_principal_strain') return v.toFixed(5);
+  if (qty === 'peak_principal_stress' || qty === 'min_principal_stress') return v.toFixed(1);
   if (qty === 'peak_g') return (v/1e6).toFixed(2) + ' MG';
   if (qty === 'peak_disp') return v.toFixed(2) + ' mm';
   if (qty === 'peak_vel') return v.toFixed(1) + ' mm/s';
@@ -2383,6 +2430,13 @@ const HM_QTYS = [
   { key: 'peak_g', label: 'G-Force (MG)', fmt: v => (v/1e6).toFixed(2) + ' MG' },
   { key: 'peak_stress', label: 'Stress (MPa)', fmt: v => v.toFixed(1) + ' MPa' },
   { key: 'peak_strain', label: 'Eff. Plastic Strain', fmt: v => v.toFixed(4) },
+  // 아래 5종은 산출물에 있을 때만 값이 채워진다. 없으면 셀이 빈 채로 남는다
+  // (0 으로 칠하면 '변형 없음' 으로 오독된다).
+  { key: 'peak_vm_strain', label: 'ε_vm · von Mises Strain', fmt: v => v.toFixed(5) },
+  { key: 'peak_principal_strain', label: 'ε1 · Max Principal Strain', fmt: v => v.toFixed(5) },
+  { key: 'min_principal_strain', label: 'ε3 · Min Principal Strain', fmt: v => v.toFixed(5) },
+  { key: 'peak_principal_stress', label: 'σ1 · Max Principal (MPa)', fmt: v => v.toFixed(1) + ' MPa' },
+  { key: 'min_principal_stress', label: 'σ3 · Min Principal (MPa)', fmt: v => v.toFixed(1) + ' MPa' },
   { key: 'peak_disp', label: 'Displacement (mm)', fmt: v => v.toFixed(2) + ' mm' },
   { key: 'peak_vel', label: 'Velocity (mm/s)', fmt: v => v.toFixed(1) + ' mm/s' },
 ];
@@ -2396,7 +2450,11 @@ function renderGForce() {
 
   let filterHtml = `<div class="controls"><label>Quantity:</label>
     <select id="hm-qty" onchange="gforceState.quantity=this.value;renderGForce()">`;
-  for (const q of HM_QTYS) filterHtml += `<option value="${q.key}"${q.key===gforceState.quantity?' selected':''}>${q.label}</option>`;
+  // 산출물에 없는 물리량은 선택지에서 뺀다 — 고르면 빈 화면이 나오는 것보다 낫다
+  for (const q of HM_QTYS) {
+    if (!hasQty(q.key)) continue;
+    filterHtml += `<option value="${q.key}"${q.key===gforceState.quantity?' selected':''}>${q.label}</option>`;
+  }
   filterHtml += `</select><label style="margin-left:12px">Group:</label>
     <select id="gf-group" onchange="gforceState.groupFilter=this.value;renderGForce()">
       <option value="ALL">All Parts</option>`;

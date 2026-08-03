@@ -279,3 +279,31 @@ def test_vm_strain_absent_is_none():
     pr = _part()
     pr.strain = _ts([0.0, 0.01])
     assert pr.peak_vm_strain is None
+
+
+# --------------------------------------------------------------------------
+# 지도/히트맵 물리량 — 압축 계열은 크기로 정렬해야 색이 안 뒤집힌다
+# --------------------------------------------------------------------------
+def test_view_quantities_present_in_js():
+    """σ1/σ3/ε1/ε3/ε_vm 이 지도·히트맵 선택지에 있어야 한다."""
+    from koo_sphere_report.report.html_report import _JS
+    for q in ("peak_principal_stress", "min_principal_stress",
+              "peak_vm_strain", "peak_principal_strain", "min_principal_strain"):
+        assert q in _JS, f"{q} 가 뷰 선택지에 없다"
+
+
+def test_compression_quantities_use_magnitude():
+    """σ3/ε3 는 음수라 그대로 색 스케일에 넣으면 뒤집힌다 — 절대값 처리 확인."""
+    from koo_sphere_report.report.html_report import _JS
+    assert "_MAG_QTYS" in _JS
+    assert "min_principal_stress: 1" in _JS and "min_principal_strain: 1" in _JS
+
+
+def test_mollweide_fallback_has_center_coords():
+    """폴백 크기에도 cx/cy/rx/ry 가 있어야 한다 — 없으면 SVG 좌표가 NaN 이 된다."""
+    from koo_sphere_report.report.html_report import _JS
+    i = _JS.index("function getMollweideSize()")
+    body = _JS[i:i + 1200]
+    fb = body[body.index("clientWidth < 100"):]
+    for k in ("cx:", "cy:", "rx:", "ry:"):
+        assert k in fb[:400], f"폴백에 {k} 없음"
