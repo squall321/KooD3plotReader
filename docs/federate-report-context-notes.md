@@ -171,3 +171,39 @@ Test_006 구면 덱(TIED_SURFACE_TO_SURFACE 25 + AUTO_S2S 1 + SINGLE_SURFACE 1)�
 1144각도 보고서는 흐름 시계열까지 담으면 100MB 를 넘는다. 상위 60각도만 담는
 tier 를 걸되 무엇이 빠졌는지 화면에 적는다. 각도 비교용 스칼라 프로파일
 (contact_profile)은 전 각도를 담으므로 비교 자체는 영향 없다.
+
+---
+
+## 2026-08-03 — 변형률 계열: ISTRN 판정과 STRFLG 실측
+
+응력은 von Mises·σ1·σ3 인데 변형률은 eff_plastic 하나뿐이던 원인을 끝까지 팠다.
+
+### ① ISTRN 경계 오류 (src/data/ControlData.cpp)
+규격 원문:
+  "IDTDT ! 10000 = 1: ... **IDTDT>100**, then this is the value of ISTRN"
+  "The value of ISTRN must be computed **if IDTDT<100**"
+코드는 `IDTDT >= 100` 이라 `IDTDT==100` 이 읽기 분기를 타 `(100/10000)%10 = 0`
+→ ISTRN=0. 그런데 IDTDT==100 은 100 자리 = 1, 곧 "소성 변형률 텐서 기록" 이라
+변형률이 **있는** 케이스다. `> 100` 으로 교정.
+
+### ② 고쳤더니 값이 전부 0 이었다 → 가드
+Test_006 은 `*DATABASE_EXTENT_BINARY` 의 **STRFLG=10**(소성 변형률 텐서만)이라
+일반 변형률 슬롯(NEIPH 여분 6성분)이 비어 있었다. lasso 확인:
+`element_solid_strain` shape 정상 / max = 0.
+그대로 두면 "변형률 0" 을 참값으로 내보내므로, 전 파트·전 상태가 0 이면
+주변형률 결과를 버리고 사유를 출력하는 가드를 넣었다(미기록 ≠ 0).
+
+### ③ STRFLG=1 로 실제 솔버 실행해 관통 확인
+`LSDynaBasic_aocc420_ompi4.0.5_mpp_d.sif`, ncpu=4, 정상 종료.
+  element_solid_strain max 0 → 0.0364 / IDTDT=0 → ISTRN=1 /
+  주변형률 CSV 23파트 / sphere ε1·ε3 23/23 / 콘솔 에러 0
+  PID21 ε1 0.01348 · ε3 -0.03692 · σ1 831.7MPa (응력·변형률 순위 일치)
+
+**덱 축소 시 함정** — `*DATABASE_BINARY_D3PLOT` 의 NPLTC(4번째)가 DT 를
+덮어쓴다(DT = ENDTIM/NPLTC). DT 만 줄이면 출력이 1e-7 마다 나가 6.9GB 가 된다.
+ENDTIM 을 줄일 때 NPLTC 도 같이 줄일 것.
+
+### 남은 것
+von Mises 변형률은 계산 코드가 `NodalAverager.cpp` 에 있으나 단면뷰 렌더
+전용이라 파트별 시계열 CSV 로는 안 나온다. 넣으려면 SinglePassAnalyzer 에
+추가해야 한다.
