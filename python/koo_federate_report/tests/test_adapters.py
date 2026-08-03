@@ -101,7 +101,11 @@ def test_sphere_cell_aggregation_and_angles():
     assert (c.roll, c.pitch, c.yaw) == (45.0, 45.0, 0.0)
     assert c.category == "corner"
     # 파트 피크의 최대치가 셀 값
-    assert c.metrics == {"g": 1500.0, "s": 30.0, "e": 0.003, "d": 1.2}
+    # 지표가 9종으로 늘었다(주응력·주변형률 5종 추가). 상류에 없으면 None 이며
+    # 그 지표로 비교하면 전 셀이 미판정이 된다 — 0 으로 채우지 않는다.
+    assert {k: c.metrics[k] for k in ("g", "s", "e", "d")} == {
+        "g": 1500.0, "s": 30.0, "e": 0.003, "d": 1.2}
+    assert all(c.metrics[k] is None for k in ("s1", "s3", "e1", "e3", "evm"))
     assert b.part_metric("C1_Corner", "PCB\\PCB", "g") == 1300.0
 
 

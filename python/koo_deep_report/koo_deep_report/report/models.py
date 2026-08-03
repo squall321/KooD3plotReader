@@ -194,6 +194,8 @@ class D3plotResult:
     min_principal: list[PartTimeSeries] = field(default_factory=list)  # min_principal_history[]
     max_principal_strain: list[PartTimeSeries] = field(default_factory=list)  # max_principal_strain_history[]
     min_principal_strain: list[PartTimeSeries] = field(default_factory=list)  # min_principal_strain_history[]
+    #: von Mises 등가 변형률 (변형률 텐서가 있는 덱에서만)
+    vm_strain: list[PartTimeSeries] = field(default_factory=list)
     peak_element_tensors: list[ElementTensorHistory] = field(default_factory=list)
     element_quality: list[ElementQualityData] = field(default_factory=list)
     render_files: list[Path] = field(default_factory=list)
@@ -232,6 +234,9 @@ class D3plotResult:
     def get_min_principal_strain(self, part_id: int) -> PartTimeSeries | None:
         return next((s for s in self.min_principal_strain if s.part_id == part_id), None)
 
+    def get_vm_strain(self, part_id: int) -> PartTimeSeries | None:
+        return next((s for s in self.vm_strain if s.part_id == part_id), None)
+
 
 # ---------------------------------------------------------------------------
 # Aggregated result for one simulation (compare 입력용)
@@ -249,6 +254,8 @@ class PartSummary:
     peak_min_principal: float = 0.0
     peak_max_principal_strain: float = 0.0
     peak_min_principal_strain: float = 0.0
+    #: ε_vm. 미기록이면 None — 0 이 아니다(유효소성변형률로 대체 금지).
+    peak_vm_strain: float | None = None
     peak_disp_mag: float = 0.0
     peak_vel_mag: float = 0.0
     peak_acc_mag: float = 0.0

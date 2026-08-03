@@ -299,6 +299,13 @@ class PairResult:
     peak_strain: float = 0.0
     peak_disp: float = 0.0       # mm
     peak_vel: float = 0.0        # mm/s
+    #: 주응력·주변형률·등가변형률. 산출물에 없으면 None — 0 이 아니다.
+    #: σ3/ε3 는 압축측이라 음수이며 부호를 유지한다.
+    peak_principal_stress: float | None = None
+    min_principal_stress: float | None = None
+    peak_principal_strain: float | None = None
+    min_principal_strain: float | None = None
+    peak_vm_strain: float | None = None
     stress_ts: TimeSeriesData = field(default_factory=TimeSeriesData)
     impactor_trajectory: ImpactorTrajectory | None = None
     part_motion: PartMotion | None = None

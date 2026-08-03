@@ -16,7 +16,8 @@ import math
 import re
 from statistics import median, pstdev
 
-from .models import METRIC_KEYS, METRIC_UNIT_AXIS, METRIC_LABELS
+from .models import (METRIC_KEYS, METRIC_UNIT_AXIS, METRIC_LABELS,
+                     METRIC_COMPRESSIVE)
 from .tiers import build_tier_plan
 
 
@@ -394,7 +395,10 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         else:
             delta = [v - base_v for v in values]
             delta_pct = [_pct(v, base_v) for v in values]
-            winner = max(range(n_rev), key=lambda i: values[i])
+            # 압축측(σ3/ε3)은 음수라 "가장 나쁜" 것이 최솟값이다.
+            # max() 를 그대로 쓰면 가장 약한 압축이 최악으로 뒤집힌다.
+            winner = (min if metric in METRIC_COMPRESSIVE else max)(
+                range(n_rev), key=lambda i: values[i])
             trend_abs = _slope(values)
             trend = (trend_abs / abs(base_v)) if (trend_abs is not None and base_v) else None
             spread = _spread(values)

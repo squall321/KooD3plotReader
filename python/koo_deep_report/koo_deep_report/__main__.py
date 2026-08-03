@@ -1197,6 +1197,7 @@ def _aggregate(
         s3 = d3plot_result.get_min_principal(pid)
         e1 = d3plot_result.get_max_principal_strain(pid)
         e3 = d3plot_result.get_min_principal_strain(pid)
+        evm = d3plot_result.get_vm_strain(pid)
 
         # Priority: keyword name > C++ output name > fallback
         part_name = kw_name_map.get(pid, "")
@@ -1218,6 +1219,7 @@ def _aggregate(
             peak_min_principal=s3.global_min if s3 else 0.0,
             peak_max_principal_strain=e1.global_max if e1 else 0.0,
             peak_min_principal_strain=e3.global_min if e3 else 0.0,
+            peak_vm_strain=(evm.global_max if evm else None),
             peak_disp_mag=mo.peak_disp_mag if mo else 0.0,
             peak_vel_mag=mo.peak_vel_mag if mo else 0.0,
             peak_acc_mag=mo.peak_acc_mag if mo else 0.0,

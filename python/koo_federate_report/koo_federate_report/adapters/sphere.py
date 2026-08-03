@@ -16,7 +16,13 @@ from __future__ import annotations
 from ..models import RevisionBundle, Cell, Trust
 
 #: sphere 파트 지표 → 공통 지표 키
-_METRIC_SRC = {"g": "peak_g", "s": "peak_stress", "e": "peak_strain", "d": "peak_disp"}
+_METRIC_SRC = {
+    "g": "peak_g", "s": "peak_stress", "e": "peak_strain", "d": "peak_disp",
+    # 아래 5종은 sphere report.json 에 있을 때만 채워진다 (없으면 None).
+    "s1": "peak_principal_stress", "s3": "min_principal_stress",
+    "e1": "peak_principal_strain", "e3": "min_principal_strain",
+    "evm": "peak_vm_strain",
+}
 
 
 

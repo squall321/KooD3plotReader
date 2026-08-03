@@ -332,3 +332,48 @@ def test_slope_helper():
     assert compare_mod._slope([100.0, 110.0, 120.0]) == pytest.approx(10.0)
     assert compare_mod._slope([5.0]) is None
     assert compare_mod._slope([3.0, 3.0, 3.0]) == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------
+# 확장 지표 (σ1/σ3/ε1/ε3/ε_vm) — 압축측은 최솟값이 최악이다
+# --------------------------------------------------------------------------
+def test_compressive_metric_winner_is_minimum():
+    """σ3/ε3 는 음수라 max() 를 쓰면 '가장 약한 압축' 이 최악으로 뒤집힌다."""
+    from koo_federate_report.models import METRIC_COMPRESSIVE
+    assert "s3" in METRIC_COMPRESSIVE and "e3" in METRIC_COMPRESSIVE
+
+    specs = [("C1", 0.0, 0.0, "F5", 100.0, True, "bounce")]
+    bundles = []
+    for lb, s3 in (("R1", -500.0), ("R2", -100.0)):
+        b = make_impact_bundle(lb, specs, PARTS)
+        for c in b.cells:
+            c.metrics["s3"] = s3
+        bundles.append(b)
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "impact", options.resample)
+    cmp_ = build_comparison(bundles, 0, "impact", match, aligned, options, metric="s3")
+    cell = cmp_["cells"][0]
+    assert cell["per_rev"][0]["value"] == -500.0
+    assert cell["winner"] == 0, "가장 큰 압축(R1)이 최악이어야 한다"
+
+
+def test_extended_metrics_are_selectable():
+    """9종 지표가 전부 비교 대상으로 받아들여져야 한다."""
+    from koo_federate_report.models import METRIC_KEYS, METRIC_LABELS, METRIC_UNIT_AXIS
+    for m in ("g", "s", "e", "d", "s1", "s3", "e1", "e3", "evm"):
+        assert m in METRIC_KEYS
+        assert m in METRIC_LABELS and m in METRIC_UNIT_AXIS
+
+
+def test_missing_extended_metric_is_ungraded_not_zero():
+    """상류에 없는 지표로 비교하면 미판정 — 0 으로 채워 '동일' 로 보이면 안 된다."""
+    specs = [("C1", 0.0, 0.0, "F5", 100.0, True, "bounce")]
+    bundles = [make_impact_bundle(lb, specs, PARTS) for lb in ("R1", "R2")]
+    options = Options()
+    match = build_matching(bundles, {}, options)
+    aligned = align(bundles, 0, "impact", options.resample)
+    cmp_ = build_comparison(bundles, 0, "impact", match, aligned, options, metric="evm")
+    cell = cmp_["cells"][0]
+    assert all(r["value"] is None for r in cell["per_rev"])
+    assert cell["winner"] is None

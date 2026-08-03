@@ -16,7 +16,7 @@ trust 규칙 (계획서 §impact trust_gate)
 """
 from __future__ import annotations
 
-from ..models import RevisionBundle, Cell, Trust
+from ..models import RevisionBundle, Cell, Trust, METRIC_KEYS, METRIC_COMPRESSIVE
 
 
 def _num(v):
@@ -48,11 +48,17 @@ def _fallback_metrics(results_by_pos, pos_id):
     """position_metrics 가 없을 때 results 에서 위치별 최대치를 직접 집계."""
     out = {}
     for rec in results_by_pos.get(pos_id, []):
-        for key in ("g", "s", "e", "d"):
+        for key in METRIC_KEYS:
             v = _num(rec.get(key))
             if v is None:
                 continue
-            if out.get(key) is None or v > out[key]:
+            cur = out.get(key)
+            if cur is None:
+                out[key] = v
+                continue
+            # 압축측(s3/e3)은 음수라 "최악" 이 최솟값이다.
+            worse = (v < cur) if key in METRIC_COMPRESSIVE else (v > cur)
+            if worse:
                 out[key] = v
     return out
 
@@ -117,6 +123,11 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
             "e": _num(pm.get("peak_strain_max")),
             "d": _num(pm.get("peak_disp_max")),
         }
+        # 주응력/주변형률은 position_metrics 에 없다 — results 행에서 집계한다.
+        # 상류에 없으면 그대로 None 이라 그 지표 비교는 미판정이 된다.
+        for _k, _v in _fallback_metrics(results_by_pos, pos_id).items():
+            if _k not in metrics or metrics.get(_k) is None:
+                metrics[_k] = _v
         if all(v is None for v in metrics.values()):
             metrics = _fallback_metrics(results_by_pos, pos_id)
 

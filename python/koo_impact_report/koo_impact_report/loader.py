@@ -1091,7 +1091,9 @@ def load_per_part_motions(
             # 하므로 skip — 이중 파싱 + 워커 내 nested ThreadPool 제거 (P2-2).
             # history 도 stress/strain 2종만 (7종 중 5종 미사용).
             d3plot_result = _parse_outputs(work_dir, parse_motion=False,
-                                           series={"stress", "strain"})
+                                           series={"stress", "strain", "max_principal", "min_principal",
+                                                   "max_principal_strain",
+                                                   "min_principal_strain", "vm_strain"})
             print(f"[loader] reusing deep_report output (no unified_analyzer rerun): {work_dir}")
         except Exception as e:
             print(f"[loader] deep_report output reuse failed ({e}) — falling back to unified_analyzer")
@@ -1109,7 +1111,9 @@ def load_per_part_motions(
                 verbose=False,
                 # motion 은 아래 full-column 자체 파싱 사용 (P2-2 — reuse 경로와 동일)
                 parse_motion=False,
-                series={"stress", "strain"},
+                series={"stress", "strain", "max_principal", "min_principal",
+                                                   "max_principal_strain",
+                                                   "min_principal_strain", "vm_strain"},
             )
         except Exception as e:
             print(f"[loader] unified_analyzer failed: {e}")
@@ -1240,6 +1244,25 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         rec["peak_strain"] = float(getattr(s, "global_max", 0.0) or 0.0)
         rec["strain_times"] = sn_t
         rec["strain_max_series"] = sn_m
+
+    # 주응력/주변형률/등가변형률 — 산출물에 있을 때만 채운다.
+    # 없으면 키 자체를 넣지 않아 소비자가 '미기록' 과 '0' 을 구분할 수 있다.
+    # σ3/ε3 는 압축측이라 global_min 이 최악값이다.
+    for attr, key, use_min in (
+        ("max_principal", "peak_principal_stress", False),
+        ("min_principal", "min_principal_stress", True),
+        ("max_principal_strain", "peak_principal_strain", False),
+        ("min_principal_strain", "min_principal_strain", True),
+        ("vm_strain", "peak_vm_strain", False),
+    ):
+        for s in getattr(d3plot_result, attr, []) or []:
+            pid = getattr(s, "part_id", None)
+            if pid is None:
+                continue
+            v = getattr(s, "global_min" if use_min else "global_max", None)
+            if v is None:
+                continue
+            out.setdefault(int(pid), {})[key] = float(v)
 
     return out
 
@@ -1699,6 +1722,11 @@ def load_single_d3plot_report(
             peak_g=float(pm.peak_g) if pm else 0.0,
             peak_stress=peak_stress,
             peak_strain=float(ss.get("peak_strain", 0.0) or 0.0),
+            peak_principal_stress=ss.get("peak_principal_stress"),
+            min_principal_stress=ss.get("min_principal_stress"),
+            peak_principal_strain=ss.get("peak_principal_strain"),
+            min_principal_strain=ss.get("min_principal_strain"),
+            peak_vm_strain=ss.get("peak_vm_strain"),
             peak_disp=float(pm.peak_disp) if pm else 0.0,
             peak_vel=float(pm.peak_vel) if pm else 0.0,
             stress_ts=stress_ts,
@@ -2136,7 +2164,7 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
 # --- per-run 증분 캐시 (P5-2) ------------------------------------------------
 # <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
 # 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
-_CACHE_SCHEMA = 5   # v5: 흐름 노드에 파트별 peak/final IE·KE 스칼라 추가
+_CACHE_SCHEMA = 6   # v6: PairResult 에 σ1/σ3/ε1/ε3/ε_vm 추가
 
 
 def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:
@@ -2469,6 +2497,11 @@ def load_partial_impact_doe_report(
                 peak_g=r.peak_g,
                 peak_stress=r.peak_stress,
                 peak_strain=r.peak_strain,
+                peak_principal_stress=r.peak_principal_stress,
+                min_principal_stress=r.min_principal_stress,
+                peak_principal_strain=r.peak_principal_strain,
+                min_principal_strain=r.min_principal_strain,
+                peak_vm_strain=r.peak_vm_strain,
                 peak_disp=r.peak_disp,
                 peak_vel=r.peak_vel,
                 stress_ts=r.stress_ts,

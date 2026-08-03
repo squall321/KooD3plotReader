@@ -125,6 +125,14 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
                 "s": _safe(r.peak_stress),
                 "e": _safe(r.peak_strain),
                 "d": _safe(r.peak_disp),
+                # 주응력/주변형률/등가변형률 — 없으면 키를 넣지 않는다(0 위장 금지).
+                **{k: v for k, v in (
+                    ("s1", r.peak_principal_stress),
+                    ("s3", r.min_principal_stress),
+                    ("e1", r.peak_principal_strain),
+                    ("e3", r.min_principal_strain),
+                    ("evm", r.peak_vm_strain),
+                ) if v is not None},
                 "stress_ts": _ts_payload(r.stress_ts),
             }
             for r in report.results

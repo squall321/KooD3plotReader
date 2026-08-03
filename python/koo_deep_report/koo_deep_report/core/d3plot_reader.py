@@ -440,6 +440,7 @@ def _parse_outputs(
     strain = [_parse_series(s) for s in raw.get("strain_history", [])] if _want("strain") else []
     max_principal = [_parse_series(s) for s in raw.get("max_principal_history", [])] if _want("max_principal") else []
     min_principal = [_parse_series(s) for s in raw.get("min_principal_history", [])] if _want("min_principal") else []
+    vm_strain = [_parse_series(s) for s in raw.get("vm_strain_history", [])] if _want("vm_strain") else []
     max_principal_strain = [_parse_series(s) for s in raw.get("max_principal_strain_history", [])] if _want("max_principal_strain") else []
     min_principal_strain = [_parse_series(s) for s in raw.get("min_principal_strain_history", [])] if _want("min_principal_strain") else []
     accel = [_parse_series(s) for s in raw.get("acceleration_history", [])] if _want("acceleration") else []
@@ -522,6 +523,7 @@ def _parse_outputs(
         motion=motion,
         max_principal=max_principal,
         min_principal=min_principal,
+        vm_strain=vm_strain,
         max_principal_strain=max_principal_strain,
         min_principal_strain=min_principal_strain,
         peak_element_tensors=tensor_list,

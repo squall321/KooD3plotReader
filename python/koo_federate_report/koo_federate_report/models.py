@@ -16,18 +16,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-#: 비교 대상 4개 지표 (peak acceleration / stress / strain / displacement)
-METRIC_KEYS = ("g", "s", "e", "d")
+#: 비교 대상 지표. 기본 4종(가속도/응력/변형률/변위) + 주응력·주변형률 5종.
+#: 뒤 5종은 상류 산출물에 있을 때만 값이 채워지고, 없으면 그 지표로 비교할 때
+#: 전 셀이 미판정이 된다 (0 으로 위장하지 않는다).
+METRIC_KEYS = ("g", "s", "e", "d", "s1", "s3", "e1", "e3", "evm")
 
 #: 지표 → 단위 축 이름 (unit_labels 의 키)
-METRIC_UNIT_AXIS = {"g": "acc", "s": "stress", "e": "strain", "d": "disp"}
+METRIC_UNIT_AXIS = {
+    "g": "acc", "s": "stress", "e": "strain", "d": "disp",
+    "s1": "stress", "s3": "stress", "e1": "strain", "e3": "strain", "evm": "strain",
+}
 
 METRIC_LABELS = {
     "g": "peak acc",
     "s": "peak stress",
     "e": "peak strain",
     "d": "peak disp",
+    "s1": "max principal stress",
+    "s3": "min principal stress",
+    "e1": "max principal strain",
+    "e3": "min principal strain",
+    "evm": "von Mises strain",
 }
+
+#: 압축측 지표 — 값이 음수라 "최악" 이 최솟값이다. 비교·정렬은 크기로 한다.
+METRIC_COMPRESSIVE = frozenset({"s3", "e3"})
 
 
 @dataclass

@@ -278,6 +278,7 @@ struct AnalysisResult {
         oss << indent << "\"min_principal_history\": " << partStatsArrayToJSON(min_principal_history, pretty, indent) << "," << nl;
 
         // Principal strain history
+        oss << indent << "\"vm_strain_history\": " << partStatsArrayToJSON(vm_strain_history, pretty, indent) << "," << nl;
         oss << indent << "\"max_principal_strain_history\": " << partStatsArrayToJSON(max_principal_strain_history, pretty, indent) << "," << nl;
         oss << indent << "\"min_principal_strain_history\": " << partStatsArrayToJSON(min_principal_strain_history, pretty, indent) << "," << nl;
 
