@@ -68,7 +68,18 @@ void ControlData::compute_derived_values() {
     }
 
     // Compute ISTRN (ls-dyna_database.txt lines 432-450)
-    if (IDTDT >= 100) {
+    //
+    // 규격은 경계를 이렇게 정한다:
+    //   "IDTDT ! 10000 = 1: ... IDTDT>100, then this is the value of ISTRN"
+    //   "The value of ISTRN must be computed if IDTDT<100"
+    // 즉 10000 자리에 값이 실리는 것은 IDTDT>100 일 때뿐이다.
+    //
+    // 예전에는 >= 100 이라 IDTDT==100 이 읽기 분기를 타고 (100/10000)%10 = 0
+    // 이 되어 ISTRN=0 으로 떨어졌다. 그런데 IDTDT==100 은 100 자리 = 1,
+    // 곧 "소성 변형률 텐서가 solid/shell 마다 기록됨" 이라 변형률이 **있는**
+    // 케이스다. 그 결과 주변형률 CSV 가 통째로 안 나왔다(실측 Test_006:
+    // NV3D=13=7+NEIPH, NEIPH=6 으로 solid 에 6성분 변형률이 실려 있었다).
+    if (IDTDT > 100) {
         // Extract digit from IDTDT
         ISTRN = (IDTDT / 10000) % 10;
     } else {

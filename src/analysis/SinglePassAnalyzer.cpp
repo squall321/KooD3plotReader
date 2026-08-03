@@ -1386,6 +1386,30 @@ AnalysisResult SinglePassAnalyzer::buildResult(const AnalysisConfig& config) {
     result.min_principal_history = std::move(min_principal_results_);
     result.max_principal_strain_history = std::move(max_principal_strain_results_);
     result.min_principal_strain_history = std::move(min_principal_strain_results_);
+
+    // 변형률 텐서 슬롯은 있는데 솔버가 채우지 않은 경우가 있다. 그대로 두면
+    // "변형률 0" 을 참값처럼 내보내게 된다 — '미기록' 과 '0 이었음' 은 다르다.
+    // 전 파트·전 상태가 정확히 0 이면 주변형률 결과를 통째로 버려 downstream
+    // 이 그 항목을 자연스럽게 건너뛰게 한다(에러가 아니라 누락).
+    // 실측: Test_006 은 IDTDT=100(소성변형률 텐서 별도 기록)이라 NEIPH 쪽
+    // element_solid_strain 이 전부 0 이었다(lasso 로 확인).
+    {
+        auto all_zero = [](const std::vector<PartTimeSeriesStats>& v) {
+            for (const auto& s : v) {
+                if (s.globalMax() != 0.0 || s.globalMin() != 0.0) return false;
+            }
+            return true;
+        };
+        if (!result.max_principal_strain_history.empty()
+            && all_zero(result.max_principal_strain_history)
+            && all_zero(result.min_principal_strain_history)) {
+            std::cout << "  [strain] 주변형률 텐서가 전부 0 — 솔버가 기록하지 않은 "
+                         "것으로 보고 주변형률 산출물을 생략합니다 "
+                         "(*DATABASE_EXTENT_BINARY STRFLG 확인).\n";
+            result.max_principal_strain_history.clear();
+            result.min_principal_strain_history.clear();
+        }
+    }
     result.surface_analysis = std::move(surface_results_);
 
     // Save outputs if requested

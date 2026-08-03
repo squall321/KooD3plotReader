@@ -241,3 +241,22 @@ def test_sigma3_absent_is_none():
     pr.stress = _ts([10.0, 500.0])
     pr.principal = _ts([0.0, 300.0])
     assert pr.min_principal is None
+
+
+def test_principal_strain_absent_is_none():
+    """변형률 텐서가 없는 덱에서는 ε1/ε3 가 None — 유효소성변형률로 대체 금지."""
+    pr = _part()
+    pr.strain = _ts([0.0, 0.004])          # eff_plastic 은 있다
+    assert pr.peak_principal_strain is None
+    assert pr.min_principal_strain is None
+
+
+def test_principal_strain_min_uses_minimum():
+    """ε3 도 압축측 — 최소값이 최악이다."""
+    pr = _part()
+    ts = _ts([0.0, -1e-4, -5e-4])
+    ts.min_values = [0.0, -1e-4, -5e-4]
+    pr.principal_strain_min = ts
+    pr.principal_strain = _ts([0.0, 3e-4])
+    assert pr.min_principal_strain == -5e-4
+    assert pr.peak_principal_strain == 3e-4

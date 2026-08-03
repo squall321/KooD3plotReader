@@ -195,6 +195,10 @@ class PartResult:
     principal: TimeSeriesData | None = None
     #: 최소 주응력 σ3 (압축측). 취성 파단·박리는 σ1 만으로 안 보인다.
     principal_min: TimeSeriesData | None = None
+    #: 주변형률 ε1/ε3. d3plot 에 변형률 텐서가 실린 덱에서만 나온다
+    #: (*DATABASE_EXTENT_BINARY STRFLG). 없으면 None — 0 이 아니다.
+    principal_strain: TimeSeriesData | None = None
+    principal_strain_min: TimeSeriesData | None = None
 
     @property
     def peak_stress(self) -> float:
@@ -204,6 +208,20 @@ class PartResult:
     def peak_principal(self) -> float | None:
         """최대 주응력 피크. 미계측이면 None — von Mises 로 대체하지 않는다."""
         return self.principal.peak if self.principal else None
+
+    @property
+    def peak_principal_strain(self) -> float | None:
+        """최대 주변형률 ε1. 미기록이면 None (유효소성변형률로 대체하지 않는다)."""
+        return self.principal_strain.peak if self.principal_strain else None
+
+    @property
+    def min_principal_strain(self) -> float | None:
+        """최소 주변형률 ε3 — 압축측이라 최소값이 의미 있다."""
+        ts = self.principal_strain_min
+        if ts is None:
+            return None
+        vals = list(ts.min_values or []) or list(ts.max_values or [])
+        return min(vals) if vals else None
 
     @property
     def min_principal(self) -> float | None:

@@ -86,6 +86,11 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
             if pr.principal_min is not None and pr.min_principal is not None:
                 # σ3 은 압축측이라 최소값이 의미 있다 (부호 유지).
                 pd["min_principal_stress"] = round(pr.min_principal, 2)
+            # 주변형률 — 변형률 텐서가 실린 덱에서만. 없으면 키 자체를 안 넣는다.
+            if pr.peak_principal_strain is not None:
+                pd["peak_principal_strain"] = round(pr.peak_principal_strain, 6)
+            if pr.min_principal_strain is not None:
+                pd["min_principal_strain"] = round(pr.min_principal_strain, 6)
 
             # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
             # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.
