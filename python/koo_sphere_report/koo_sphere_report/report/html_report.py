@@ -4644,7 +4644,53 @@ function renderEnergyFlow() {
     <div id="ef-residence">${_efResidenceHTML(flow)}</div>
   </div>`;
 
+  html += _efConservationHTML(flow);
+
   container.innerHTML = html;
+}
+
+// 에너지 보존 검사 — impact s3 의 CONSERVATION CHECK 를 sphere 로 이식.
+// KE0 = IE_final + 소산 + KE_final 이 맞는지. 잔차를 %로만 보고하고
+// 합격 기준은 두지 않는다(절대 임계값 발명 금지).
+// 필요한 값이 없으면 **빈 문자열을 돌려줘 패널 자체가 안 나온다** — 에러 아님.
+function _efConservationHTML(flow) {
+  if (!flow) return '';
+  const nodes = flow.nodes || [];
+  const ke0 = Number(flow.ke_init);
+  const keN = Number(flow.ke_final);
+  const diss = Number(flow.dissipated);
+  // 최종 IE 합 (파트 노드만 — 유령 노드는 ie 가 빈 배열이라 자동 제외)
+  let ieF = 0, nIE = 0;
+  for (const n of nodes) {
+    const a = n.ie || [];
+    if (a.length) { ieF += Number(a[a.length - 1]) || 0; nIE++; }
+  }
+  if (!isFinite(ke0) || ke0 <= 0 || !nIE) return '';
+
+  const acct = ieF + (isFinite(diss) ? diss : 0) + (isFinite(keN) ? keN : 0);
+  const res = (acct - ke0) / ke0 * 100;
+  const f = v => (!isFinite(v) ? '—' : (Math.abs(v) >= 1000 ? v.toExponential(2) : v.toFixed(2)));
+  const cells = [
+    ['KE 초기', f(ke0)], ['IE 최종 합', f(ieF)],
+    ['소산', f(isFinite(diss) ? diss : NaN)], ['KE 최종', f(isFinite(keN) ? keN : NaN)],
+  ].map(([l, v]) =>
+    `<div class="stat-card"><div class="value" style="font-size:15px">${v}</div>
+     <div class="label">${l}</div></div>`).join('');
+
+  return `<div class="panel" style="margin-top:16px">
+    <h2>Conservation Check</h2>
+    <div style="color:var(--dim);font-size:11px;margin-bottom:8px">
+      KE&#8320; = IE 최종 + 소산 + KE 최종 이 맞는지. 잔차는 값으로만 보고하며
+      합격 기준은 두지 않는다 — 판단은 사람이 한다.</div>
+    <div class="stat-grid">${cells}
+      <div class="stat-card"><div class="value" style="font-size:15px;color:${
+        Math.abs(res) > 10 ? 'var(--yellow)' : 'var(--green)'}">${f(res)}%</div>
+      <div class="label">잔차 (계정합 − KE&#8320;)</div></div>
+    </div>
+    <div style="color:var(--dim);font-size:11px;margin-top:8px">
+      IE 를 집계한 파트 ${nIE}개. 자유낙하라 KE 초기는 최조기 접촉 시점 기준이며,
+      중력 일과 구속력은 이 계정에 들어가지 않는다 — 잔차가 0 이 아닌 것이 정상이다.</div>
+  </div>`;
 }
 
 function _efSankeyHTML(flow) {
