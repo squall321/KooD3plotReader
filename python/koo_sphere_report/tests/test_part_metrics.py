@@ -260,3 +260,22 @@ def test_principal_strain_min_uses_minimum():
     pr.principal_strain = _ts([0.0, 3e-4])
     assert pr.min_principal_strain == -5e-4
     assert pr.peak_principal_strain == 3e-4
+
+
+def test_vm_strain_is_separate_from_eff_plastic():
+    """ε_vm 과 유효소성변형률은 다른 양 — 서로 대체하면 안 된다.
+
+    ε_vm 은 탄성분을 포함한 등가 변형률이라 실측에서 eff_plastic 보다 크다
+    (Test_006 STRFLG=1: PID21 ε_vm 0.0324 vs eff_pl 0.0138).
+    """
+    pr = _part()
+    pr.strain = _ts([0.0, 0.0138])       # eff_plastic
+    pr.vm_strain = _ts([0.0, 0.0324])    # von Mises 등가
+    assert pr.peak_strain == 0.0138
+    assert pr.peak_vm_strain == 0.0324
+
+
+def test_vm_strain_absent_is_none():
+    pr = _part()
+    pr.strain = _ts([0.0, 0.01])
+    assert pr.peak_vm_strain is None

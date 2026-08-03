@@ -91,6 +91,8 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 pd["peak_principal_strain"] = round(pr.peak_principal_strain, 6)
             if pr.min_principal_strain is not None:
                 pd["min_principal_strain"] = round(pr.min_principal_strain, 6)
+            if pr.peak_vm_strain is not None:
+                pd["peak_vm_strain"] = round(pr.peak_vm_strain, 6)
 
             # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
             # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.

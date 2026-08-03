@@ -199,6 +199,9 @@ class PartResult:
     #: (*DATABASE_EXTENT_BINARY STRFLG). 없으면 None — 0 이 아니다.
     principal_strain: TimeSeriesData | None = None
     principal_strain_min: TimeSeriesData | None = None
+    #: von Mises 등가 변형률 ε_vm = sqrt(2/3·e_dev:e_dev).
+    #: 유효소성변형률(eff_plastic)과 다른 양이다 — 탄성분을 포함한다.
+    vm_strain: TimeSeriesData | None = None
 
     @property
     def peak_stress(self) -> float:
@@ -208,6 +211,11 @@ class PartResult:
     def peak_principal(self) -> float | None:
         """최대 주응력 피크. 미계측이면 None — von Mises 로 대체하지 않는다."""
         return self.principal.peak if self.principal else None
+
+    @property
+    def peak_vm_strain(self) -> float | None:
+        """von Mises 등가 변형률 피크. 미기록이면 None."""
+        return self.vm_strain.peak if self.vm_strain else None
 
     @property
     def peak_principal_strain(self) -> float | None:

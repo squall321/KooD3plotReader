@@ -266,6 +266,7 @@ void UnifiedAnalyzer::processSolidJobs(
     // Move strain results (eff. plastic + principal strain)
     if (do_strain) {
         result.strain_history = std::move(sp_result.strain_history);
+        result.vm_strain_history = std::move(sp_result.vm_strain_history);
         result.max_principal_strain_history = std::move(sp_result.max_principal_strain_history);
         result.min_principal_strain_history = std::move(sp_result.min_principal_strain_history);
 

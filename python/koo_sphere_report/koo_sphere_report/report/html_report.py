@@ -154,6 +154,8 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 pd["peak_principal_strain"] = round(pr.peak_principal_strain, e_prec)
             if pr.min_principal_strain is not None:
                 pd["min_principal_strain"] = round(pr.min_principal_strain, e_prec)
+            if pr.peak_vm_strain is not None:
+                pd["peak_vm_strain"] = round(pr.peak_vm_strain, e_prec)
 
             # 파트별 에너지 (binout matsum). 미계측 파트는 키를 넣지 않는다 —
             # 0 으로 채우면 화면에서 '흡수 없음' 으로 오독된다.
@@ -2270,6 +2272,7 @@ function renderPartRisk() {
     let wps=null,wpsa='';       // 최대 주응력 σ1 (미계측이면 null 유지)
     let wp3=null,wp3a='';       // 최소 주응력 σ3 (압축측 — 최소값이 최악)
     let we1=null,we1a='',we3=null;   // 주변형률 ε1/ε3 (미기록이면 null)
+    let wev=null;                    // von Mises 등가 변형률
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
       if (!pd) continue;
@@ -2286,6 +2289,9 @@ function renderPartRisk() {
       }
       if (pd.min_principal_strain != null && (we3 == null || pd.min_principal_strain < we3)) {
         we3 = pd.min_principal_strain;
+      }
+      if (pd.peak_vm_strain != null && (wev == null || pd.peak_vm_strain > wev)) {
+        wev = pd.peak_vm_strain;
       }
       if (pd.peak_g > wg) { wg = pd.peak_g; wga = r.angle.name; }
       if (pd.peak_strain > wst) { wst = pd.peak_strain; wsta = r.angle.name; }
@@ -2306,6 +2312,7 @@ function renderPartRisk() {
       <td style="text-align:right">${eN(wp3,1)}</td><td style="color:var(--yellow)">${wp3a}</td>
       <td style="text-align:right">${eN(we1,4)}</td><td style="color:var(--yellow)">${we1a}</td>
       <td style="text-align:right">${eN(we3,4)}</td>
+      <td style="text-align:right">${eN(wev,4)}</td>
       <td style="text-align:right">${(wg/1e6).toFixed(2)}</td><td style="color:var(--yellow)">${wga}</td>
       <td style="text-align:right">${wst.toFixed(4)}</td><td style="color:var(--yellow)">${wsta}</td>
       <td style="text-align:right">${eN(wie,2)}</td><td style="color:var(--yellow)">${wiea}</td>
@@ -2360,6 +2367,7 @@ function renderPartRisk() {
             <th title="최소 주응력 σ3 (압축측). 음수가 클수록 강한 압축 — 취성 파단·박리 판단용">&sigma;3 (MPa)</th><th>Angle</th>
             <th title="최대 주변형률 ε1. d3plot 에 변형률 텐서가 있는 덱에서만 나온다 (*DATABASE_EXTENT_BINARY STRFLG)">&epsilon;1</th><th>Angle</th>
             <th title="최소 주변형률 ε3 (압축측)">&epsilon;3</th>
+            <th title="von Mises 등가 변형률 ε_vm = sqrt(2/3·e_dev:e_dev). 유효소성변형률과 달리 탄성분을 포함한다">&epsilon;<sub>vm</sub></th>
             <th>MG</th><th>Angle</th><th>Strain</th><th>Angle</th>
             <th title="내부에너지 피크 (binout matsum, 원해상도)">Peak IE</th><th>Angle</th>
             <th title="해석 종료 시점 내부에너지 — 되튐분을 뺀 실제 흡수량">Final IE</th>

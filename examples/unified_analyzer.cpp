@@ -242,6 +242,15 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         }
     }
 
+    // von Mises 등가 변형률 (변형률 텐서가 있는 덱에서만)
+    if (config.output_csv && !result.vm_strain_history.empty()) {
+        std::cout << "\nExporting von Mises strain history:\n";
+        for (const auto& stats : result.vm_strain_history) {
+            std::string filename = strain_dir + "/part_" + std::to_string(stats.part_id) + "_von_mises_strain.csv";
+            writePartCSV(filename, stats);
+        }
+    }
+
     // Export principal strain history (conditional - only when strain tensor exists in d3plot)
     if (config.output_csv && !result.max_principal_strain_history.empty()) {
         std::cout << "\nExporting principal strain history:\n";

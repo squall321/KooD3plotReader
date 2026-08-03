@@ -403,7 +403,8 @@ def load_simulation_result(
 
         # 주변형률 ε1/ε3 — 변형률 텐서가 실린 덱에서만 나온다. 없으면 건너뛴다.
         for _attr, _fn in (("principal_strain", "max_principal_strain"),
-                           ("principal_strain_min", "min_principal_strain")):
+                           ("principal_strain_min", "min_principal_strain"),
+                           ("vm_strain", "von_mises_strain")):
             _csv = result_dir / "strain" / f"part_{pid}_{_fn}.csv"
             if _csv.exists():
                 setattr(pr, _attr, _load_stress_strain_csv(_csv, target_points))

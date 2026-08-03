@@ -400,9 +400,15 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
 
     // Initialize principal strain results (conditional on strain tensor availability)
     if (config.analyze_strain && has_strain_tensor_) {
+        vm_strain_results_.resize(num_parts);
         max_principal_strain_results_.resize(num_parts);
         min_principal_strain_results_.resize(num_parts);
         for (size_t i = 0; i < num_parts; ++i) {
+            vm_strain_results_[i].part_id = part_ids_[i];
+            vm_strain_results_[i].quantity = "von_mises_strain";
+            vm_strain_results_[i].unit = "";
+            vm_strain_results_[i].data.resize(num_states);
+
             max_principal_strain_results_[i].part_id = part_ids_[i];
             max_principal_strain_results_[i].quantity = "max_principal_strain";
             max_principal_strain_results_[i].unit = "";
@@ -597,6 +603,14 @@ void SinglePassAnalyzer::analyzePartStats(
                     if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
                     stats.min_principal_strain_sum += e3;
 
+                    const double evm = vonMisesStrainOf(etensor);
+                    if (evm > stats.vm_strain_max) {
+                        stats.vm_strain_max = evm;
+                        stats.vm_strain_max_elem = elem_id;
+                    }
+                    if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                    stats.vm_strain_sum += evm;
+
                     stats.principal_strain_count++;
                 }
             }
@@ -691,6 +705,14 @@ void SinglePassAnalyzer::analyzePartStats(
                 if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
                 stats.min_principal_strain_sum += e3;
 
+                const double evm = vonMisesStrainOf(etensor);
+                if (evm > stats.vm_strain_max) {
+                    stats.vm_strain_max = evm;
+                    stats.vm_strain_max_elem = elem_id;
+                }
+                if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                stats.vm_strain_sum += evm;
+
                 stats.principal_strain_count++;
             }
         }
@@ -740,6 +762,17 @@ void SinglePassAnalyzer::analyzePartStats(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+
+            // von Mises 등가 변형률
+            if (i < vm_strain_results_.size()) {
+                auto& tvm = vm_strain_results_[i].data[state_idx];
+                tvm.time = state.time;
+                tvm.max_value = stats.vm_strain_max;
+                tvm.min_value = stats.vm_strain_min;
+                tvm.avg_value = (stats.principal_strain_count > 0) ?
+                                stats.vm_strain_sum / stats.principal_strain_count : 0.0;
+                tvm.max_element_id = stats.vm_strain_max_elem;
+            }
 
             // Principal strain results
             if (i < max_principal_strain_results_.size()) {
@@ -1001,6 +1034,14 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
                 stats.min_principal_strain_sum += e3;
 
+                const double evm = vonMisesStrainOf(etensor);
+                if (evm > stats.vm_strain_max) {
+                    stats.vm_strain_max = evm;
+                    stats.vm_strain_max_elem = elem_id;
+                }
+                if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                stats.vm_strain_sum += evm;
+
                 stats.principal_strain_count++;
             }
         }
@@ -1049,6 +1090,17 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+
+            // von Mises 등가 변형률 (병렬 집계 경로 — 순차 경로와 같은 값)
+            if (i < vm_strain_results_.size()) {
+                auto& tvm = vm_strain_results_[i].data[state_idx];
+                tvm.time = state.time;
+                tvm.max_value = stats.vm_strain_max;
+                tvm.min_value = stats.vm_strain_min;
+                tvm.avg_value = (stats.principal_strain_count > 0) ?
+                                stats.vm_strain_sum / stats.principal_strain_count : 0.0;
+                tvm.max_element_id = stats.vm_strain_max_elem;
+            }
 
             // Principal strain results
             if (i < max_principal_strain_results_.size()) {
@@ -1384,6 +1436,7 @@ AnalysisResult SinglePassAnalyzer::buildResult(const AnalysisConfig& config) {
     result.strain_history = std::move(strain_results_);
     result.max_principal_history = std::move(max_principal_results_);
     result.min_principal_history = std::move(min_principal_results_);
+    result.vm_strain_history = std::move(vm_strain_results_);
     result.max_principal_strain_history = std::move(max_principal_strain_results_);
     result.min_principal_strain_history = std::move(min_principal_strain_results_);
 
@@ -1408,6 +1461,7 @@ AnalysisResult SinglePassAnalyzer::buildResult(const AnalysisConfig& config) {
                          "(*DATABASE_EXTENT_BINARY STRFLG 확인).\n";
             result.max_principal_strain_history.clear();
             result.min_principal_strain_history.clear();
+            result.vm_strain_history.clear();
         }
     }
     result.surface_analysis = std::move(surface_results_);

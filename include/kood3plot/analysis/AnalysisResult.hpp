@@ -229,6 +229,8 @@ struct AnalysisResult {
     std::vector<PartTimeSeriesStats> acceleration_history;       ///< Average acceleration history
     std::vector<PartTimeSeriesStats> max_principal_history;      ///< Max principal stress (σ1) history
     std::vector<PartTimeSeriesStats> min_principal_history;      ///< Min principal stress (σ3) history
+    /// von Mises 등가 변형률 (변형률 텐서가 있는 덱에서만)
+    std::vector<PartTimeSeriesStats> vm_strain_history;
     std::vector<PartTimeSeriesStats> max_principal_strain_history; ///< Max principal strain (ε1) history
     std::vector<PartTimeSeriesStats> min_principal_strain_history; ///< Min principal strain (ε3) history
 

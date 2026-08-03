@@ -78,6 +78,14 @@ struct PartStateStats {
 
     size_t principal_strain_count = 0;
 
+    // von Mises 등가 변형률. 응력용 vonMises() 와 공식이 다르다 —
+    // 응력은 sqrt(3/2 · s:s), 변형률은 sqrt(2/3 · e_dev:e_dev).
+    // 같은 함수를 쓰면 계수가 틀린다.
+    double vm_strain_max = -std::numeric_limits<double>::max();
+    double vm_strain_min = std::numeric_limits<double>::max();
+    double vm_strain_sum = 0.0;
+    int32_t vm_strain_max_elem = 0;
+
     void reset() {
         stress_max = -std::numeric_limits<double>::max();
         stress_min = std::numeric_limits<double>::max();
@@ -104,6 +112,10 @@ struct PartStateStats {
 
         principal_count = 0;
 
+        vm_strain_max = -std::numeric_limits<double>::max();
+        vm_strain_min = std::numeric_limits<double>::max();
+        vm_strain_sum = 0.0;
+        vm_strain_max_elem = 0;
         max_principal_strain_max = -std::numeric_limits<double>::max();
         max_principal_strain_min = std::numeric_limits<double>::max();
         max_principal_strain_sum = 0.0;
@@ -158,6 +170,17 @@ struct PartStateStats {
         min_principal_sum += other.min_principal_sum;
 
         principal_count += other.principal_count;
+
+        // von Mises 등가 변형률 — 병합에서 빠지면 초기값(-DBL_MAX)이 그대로
+        // 결과로 나간다. 실제로 그렇게 나와서 잡았다.
+        if (other.vm_strain_max > vm_strain_max) {
+            vm_strain_max = other.vm_strain_max;
+            vm_strain_max_elem = other.vm_strain_max_elem;
+        }
+        if (other.vm_strain_min < vm_strain_min) {
+            vm_strain_min = other.vm_strain_min;
+        }
+        vm_strain_sum += other.vm_strain_sum;
 
         if (other.max_principal_strain_max > max_principal_strain_max) {
             max_principal_strain_max = other.max_principal_strain_max;
@@ -399,6 +422,7 @@ private:
     std::vector<PartTimeSeriesStats> strain_results_;
     std::vector<PartTimeSeriesStats> max_principal_results_;
     std::vector<PartTimeSeriesStats> min_principal_results_;
+    std::vector<PartTimeSeriesStats> vm_strain_results_;
     std::vector<PartTimeSeriesStats> max_principal_strain_results_;
     std::vector<PartTimeSeriesStats> min_principal_strain_results_;
     std::vector<SurfaceAnalysisStats> surface_results_;
@@ -493,6 +517,14 @@ private:
      * @note Uses StressTensor struct for eigenvalue computation (same math for any symmetric 3x3 tensor)
      */
     StressTensor extractStrainTensor(const std::vector<double>& solid_data, size_t elem_idx);
+
+    /// von Mises 등가 변형률 ε_eq = sqrt(2/3 · e_dev:e_dev)
+    static double vonMisesStrainOf(const StressTensor& e) {
+        const double em = (e.xx + e.yy + e.zz) / 3.0;
+        const double dxx = e.xx - em, dyy = e.yy - em, dzz = e.zz - em;
+        return std::sqrt(2.0 / 3.0 * (dxx * dxx + dyy * dyy + dzz * dzz +
+                                      2.0 * (e.xy * e.xy + e.yz * e.yz + e.zx * e.zx)));
+    }
 
     // ========================================
     // Peak element tensor extraction
