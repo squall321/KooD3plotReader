@@ -153,7 +153,9 @@ KOO_API koo_error_t koo_get_file_info(koo_handle_t handle, koo_file_info_t* info
             info->num_states = 0;
         }
 
-        info->word_size = ctrl.NDIM > 5 ? 8 : 4;  // Approximate
+        // 예전에는 NDIM 으로 추측했다 (NDIM 은 워드 크기와 무관한 포맷 표기라
+        // 단정밀도 파일을 8 로 보고할 수 있었다). 리더가 실제로 판별한 값을 쓴다.
+        info->word_size = data->reader->get_file_format().word_size;
         info->has_displacement = ctrl.IU != 0 ? 1 : 0;
         info->has_velocity = ctrl.IV != 0 ? 1 : 0;
         info->has_acceleration = ctrl.IA != 0 ? 1 : 0;

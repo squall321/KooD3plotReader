@@ -471,15 +471,16 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         if (config.sliding_peak_time < 0) {
             sliding_state_idx = (num_states > 1) ? (num_states - 1) : 0;
         } else {
-            // Linear approximation: peak_time / total_sim_time × num_states
-            double total = (num_states > 0)
-                ? all_states[num_states - 1].time : 0.0;
-            if (total > 0) {
-                double frac = config.sliding_peak_time / total;
-                if (frac < 0) frac = 0;
-                if (frac > 1) frac = 1;
-                sliding_state_idx = static_cast<size_t>(frac * (num_states - 1) + 0.5);
+            // 실제 시간 배열에서 가장 가까운 상태를 찾는다. 예전에는
+            // peak_time / total × num_states 로 선형 환산해서, 상태 간격이
+            // 균일하지 않으면(가변 출력·재시작 이어붙임) 엉뚱한 프레임을 골랐다.
+            size_t best = 0;
+            double best_d = std::abs(all_states[0].time - config.sliding_peak_time);
+            for (size_t i = 1; i < num_states; ++i) {
+                const double d = std::abs(all_states[i].time - config.sliding_peak_time);
+                if (d < best_d) { best_d = d; best = i; }
             }
+            sliding_state_idx = best;
         }
         N_steps = std::max(2, static_cast<int>(config.sliding_steps));
 

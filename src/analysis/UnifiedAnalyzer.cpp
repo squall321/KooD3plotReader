@@ -592,8 +592,10 @@ double computeArea4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec
     return 0.5 * ((p1 - p0).cross(p2 - p0).mag() + (p2 - p0).cross(p3 - p0).mag());
 }
 
-// Jacobian determinant at center for 8-node hex
-// Simplified: compute volume and compare sign
+// 8절점 hex 의 부호 있는 부피 (5-사면체 분해).
+// wedge(6고유) / pyramid(5고유) 축퇴에도 성립한다 — 겹친 절점이 만드는 항이
+// 0 이 되어 자연스럽게 3-tet / 2-tet 분해로 떨어진다.
+// **단 tet(4고유) 은 성립하지 않는다** → computeSolidVolume 참고.
 double computeHexVolume(const Vec3Q* p) {
     // 8-node hex volume via 5-tetrahedron decomposition
     auto tetVol = [](const Vec3Q& a, const Vec3Q& b, const Vec3Q& c, const Vec3Q& d) -> double {
@@ -644,6 +646,33 @@ std::pair<double, bool> computeScaledJacobian8(const Vec3Q* p) {
 
     if (!any) return {0.0, false};
     return {sj_min, true};
+}
+
+// 고유 절점 수에 맞는 부호 있는 부피.
+//
+// LS-DYNA 는 tet 을 노드가 겹친 hex8 (a,b,c,d,d,d,d,d) 로 싣는데, 이 패턴에서는
+// hex 5-사면체 분해의 다섯 항이 **모두** 0 이 되어 부피가 항상 0 으로 나온다.
+// 그 결과 뒤집힘 판정(vol < 0)이 tet 에서는 영원히 걸리지 않았다 —
+// tet 메시가 아무리 뒤집혀도 보고서엔 "음수 Jac 0개" 로 찍혔다는 뜻이다.
+// 4고유일 때만 직접 사면체 부피를 쓰고, 5/6/8 고유는 기존 분해가 성립한다.
+double computeSolidVolume(const Vec3Q* p, const std::vector<int32_t>& nid) {
+    int uniq[8];
+    int nu = 0;
+    for (int i = 0; i < 8; ++i) {
+        bool dup = false;
+        for (int j = 0; j < nu; ++j) {
+            if (nid[uniq[j]] == nid[i]) { dup = true; break; }
+        }
+        if (!dup && nu < 8) uniq[nu++] = i;
+    }
+    if (nu == 4) {
+        const Vec3Q& a = p[uniq[0]];
+        const Vec3Q& b = p[uniq[1]];
+        const Vec3Q& c = p[uniq[2]];
+        const Vec3Q& d = p[uniq[3]];
+        return (b - a).dot((c - a).cross(d - a)) / 6.0;
+    }
+    return computeHexVolume(p);
 }
 
 // Aspect ratio for hex: max edge / min edge (12 edges).
@@ -738,7 +767,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     Vec3Q p[8];
                     for (int n = 0; n < 8; ++n)
                         p[n] = getNodeInitialPos(mesh, elem.node_ids[n] - 1);
-                    metrics[ei].volume_or_area = std::abs(computeHexVolume(p));
+                    metrics[ei].volume_or_area = std::abs(computeSolidVolume(p, elem.node_ids));
                 }
             } else {
                 const auto& elem = mesh.shells[info.idx];
@@ -809,7 +838,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
                         p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
 
                     auto [ar, ar_ok] = computeAspectRatio8(p);
-                    double vol = computeHexVolume(p);
+                    double vol = computeSolidVolume(p, elem.node_ids);
                     double init_vol = initial_metrics[pid][ei].volume_or_area;
                     double vol_ratio = (init_vol > 1e-20) ? std::abs(vol) / init_vol : 1.0;
 
