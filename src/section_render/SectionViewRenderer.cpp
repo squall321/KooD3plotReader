@@ -252,14 +252,15 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
                     ni = uniq[i] - 1;
                 }
                 if (ni < 0 || ni >= static_cast<int32_t>(mesh.nodes.size())) continue;
-                const auto& nd = mesh.nodes[ni];
-                double dx = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
-                    ? state0.node_displacements[ni*3+0] : 0.0;
-                double dy = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
-                    ? state0.node_displacements[ni*3+1] : 0.0;
-                double dz = (ni < static_cast<int32_t>(state0.node_displacements.size()/3))
-                    ? state0.node_displacements[ni*3+2] : 0.0;
-                positions[i] = {nd.x + dx, nd.y + dy, nd.z + dz};
+                // node_displacements 는 절대 좌표다 (deformedPos 와 동일 규약).
+                if (ni < static_cast<int32_t>(state0.node_displacements.size()/3)) {
+                    positions[i] = {state0.node_displacements[ni*3+0],
+                                    state0.node_displacements[ni*3+1],
+                                    state0.node_displacements[ni*3+2]};
+                } else {
+                    const auto& nd = mesh.nodes[ni];
+                    positions[i] = {nd.x, nd.y, nd.z};
+                }
             }
             for (int i = 0; i < nn && i < 4; ++i) {
                 for (int j = i+1; j < nn && j < 4; ++j) {
@@ -648,19 +649,21 @@ int32_t resolveNodeIdx(int32_t nid,
 }
 
 /// Get deformed node position.
-/// `state.node_displacements` stores DELTAS from initial.
+/// d3plot 의 `state.node_displacements` 는 델타가 아니라 **현재 절대 좌표**다
+/// (StateData.hpp 주석 참고). 예전 주석은 "stores DELTAS" 라고 반대로 적혀
+/// 있었고 실제로 초기좌표에 더하고 있었다 → 2·X0 + u 로 렌더되어 변형이
+/// 기하 스케일 대비 절반으로 보였다.
 Vec3 deformedPos(int32_t idx,
                  const data::Mesh& mesh,
                  const data::StateData& state)
 {
-    const auto& nd = mesh.nodes[idx];
-    double dx = 0, dy = 0, dz = 0;
     if (idx < static_cast<int32_t>(state.node_displacements.size()/3)) {
-        dx = state.node_displacements[idx*3+0];
-        dy = state.node_displacements[idx*3+1];
-        dz = state.node_displacements[idx*3+2];
+        return {state.node_displacements[idx*3+0],
+                state.node_displacements[idx*3+1],
+                state.node_displacements[idx*3+2]};
     }
-    return {nd.x + dx, nd.y + dy, nd.z + dz};
+    const auto& nd = mesh.nodes[idx];
+    return {nd.x, nd.y, nd.z};
 }
 
 // ---- Triangle-plane clipping ----

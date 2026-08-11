@@ -98,11 +98,12 @@ void BoundingBox::compute_from_mesh(const data::Mesh& mesh, const data::StateDat
         double y = mesh.nodes[i].y;
         double z = mesh.nodes[i].z;
 
-        // Add displacement if available
+        // node_displacements 는 d3plot 에서 **현재 절대 좌표**다 (StateData.hpp).
+        // 더하면 2·X0 + u 가 된다 — 예전 구현이 그랬다.
         if (has_disp && i * 3 + 2 < state->node_displacements.size()) {
-            x += state->node_displacements[i * 3 + 0];
-            y += state->node_displacements[i * 3 + 1];
-            z += state->node_displacements[i * 3 + 2];
+            x = state->node_displacements[i * 3 + 0];
+            y = state->node_displacements[i * 3 + 1];
+            z = state->node_displacements[i * 3 + 2];
         }
 
         expand(Point3D(x, y, z));
@@ -200,9 +201,9 @@ BoundingBox BoundingBox::from_nodes(
         double z = mesh.nodes[idx].z;
 
         if (has_disp && idx * 3 + 2 < state->node_displacements.size()) {
-            x += state->node_displacements[idx * 3 + 0];
-            y += state->node_displacements[idx * 3 + 1];
-            z += state->node_displacements[idx * 3 + 2];
+            x = state->node_displacements[idx * 3 + 0];
+            y = state->node_displacements[idx * 3 + 1];
+            z = state->node_displacements[idx * 3 + 2];
         }
 
         bbox.expand(Point3D(x, y, z));

@@ -78,17 +78,18 @@ int32_t SectionClipper::nodeIndex(int32_t node_id) const
 Vec3 SectionClipper::nodePos(const data::StateData& state, int32_t idx) const
 {
     if (idx < 0 || idx >= static_cast<int32_t>(mesh_.nodes.size())) return {};
-    const auto& nd = mesh_.nodes[idx];
-    Vec3 pos{nd.x, nd.y, nd.z};
+    // IU=1 이면 node_displacements 자체가 현재 좌표다 — 더하면 안 된다.
+    // (KeywordExporter 는 원래부터 이렇게 분기하고 있었다.)
     if (control_.IU == 1 && !state.node_displacements.empty()) {
         size_t base = static_cast<size_t>(idx) * 3;
         if (base + 2 < state.node_displacements.size()) {
-            pos.x += state.node_displacements[base + 0];
-            pos.y += state.node_displacements[base + 1];
-            pos.z += state.node_displacements[base + 2];
+            return {state.node_displacements[base + 0],
+                    state.node_displacements[base + 1],
+                    state.node_displacements[base + 2]};
         }
     }
-    return pos;
+    const auto& nd = mesh_.nodes[idx];
+    return {nd.x, nd.y, nd.z};
 }
 
 // ============================================================
