@@ -368,6 +368,17 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
     ExtendedAnalysisResult& result,
     UnifiedProgressCallback callback
 ) {
+    // 표면 응력/변형률은 **솔리드** 요소의 외피에서 뽑는다. 솔리드가 없는
+    // 모델(순수 셸)에서는 solid_data 가 비어 있어 전 항목이 0 으로 나가고,
+    // 보고서에서는 '응력 0' 으로 읽힌다. 사유를 남기고 산출물을 만들지 않는다.
+    if (all_states.empty() || all_states.front().solid_data.empty()) {
+        if (callback) {
+            callback("  Surface stress: 솔리드 요소 데이터 없음 (순수 셸 모델로 보임) — "
+                     "표면 분석은 솔리드 외피 기준이라 건너뜁니다");
+        }
+        return;
+    }
+
     // Use SurfaceExtractor to get exterior surfaces
     SurfaceExtractor extractor(reader);
     if (!extractor.initialize()) {
@@ -468,6 +479,17 @@ void UnifiedAnalyzer::processSurfaceStrainJobs(
     ExtendedAnalysisResult& result,
     UnifiedProgressCallback callback
 ) {
+    // 표면 응력/변형률은 **솔리드** 요소의 외피에서 뽑는다. 솔리드가 없는
+    // 모델(순수 셸)에서는 solid_data 가 비어 있어 전 항목이 0 으로 나가고,
+    // 보고서에서는 '응력 0' 으로 읽힌다. 사유를 남기고 산출물을 만들지 않는다.
+    if (all_states.empty() || all_states.front().solid_data.empty()) {
+        if (callback) {
+            callback("  Surface strain: 솔리드 요소 데이터 없음 (순수 셸 모델로 보임) — "
+                     "표면 분석은 솔리드 외피 기준이라 건너뜁니다");
+        }
+        return;
+    }
+
     // Use SurfaceStrainAnalyzer
     SurfaceStrainAnalyzer analyzer(reader);
 
@@ -552,7 +574,8 @@ std::pair<double, bool> computeAspectRatio4(const Vec3Q& p0, const Vec3Q& p1, co
         if (edges[i] < mn) mn = edges[i];
         if (edges[i] > mx) mx = edges[i];
     }
-    if (mn <= 1e-20) return {0.0, false};   // 축퇴 — 정의되지 않음 (예전엔 1e6)
+    // 상대 임계값 — computeAspectRatio8 과 같은 이유 (붕괴 요소 제외)
+    if (mn <= 1e-20 || mn <= mx * 1e-9) return {0.0, false};
     return {mx / mn, true};
 }
 
@@ -692,11 +715,39 @@ std::pair<double, bool> computeAspectRatio8(const Vec3Q* p) {
     // 길이 0 모서리가 있으면 종횡비는 정의되지 않는다. 예전에는 1e6 을 넣었고
     // 그 값이 peak_aspect_ratio 로 올라가 tet 가 섞인 파트는 전부
     // "AR=1000000, > 10 이므로 crit" 이 됐다. 이제 미정의로 돌려준다.
-    if (mn <= 1e-20) return {0.0, false};
+    // 임계값은 **상대** 로 본다. 절대 1e-20 은 붕괴한 요소(실측 case_shell 에서
+    // 최소 모서리가 최대의 1e-16 배)를 못 걸러 AR 이 1.3e16 으로 튀었고,
+    // 그 값이 파트 최대를 삼켰다. 비율이 1e9 를 넘으면 수치적으로 붕괴다.
+    if (mn <= 1e-20 || mn <= mx * 1e-9) return {0.0, false};
     return {mx / mn, true};
 }
 
 } // anonymous namespace
+
+namespace {
+/// 요소 연결성의 절점 ID → 내부 인덱스.
+///
+/// real_node_ids 가 있으면 요소가 담은 값은 **실 절점 ID** 이므로 매핑해야
+/// 한다. 예전에는 무조건 id-1 로 깎아서, 실 ID 가 1..N 연속이 아닌 모델에서
+/// 엉뚱한 좌표를 읽었다 (실측 case_shell: t=0 면적비가 1.0 이어야 하는데
+/// [0.0, 1607] 이 나오고 뒤틀림이 158.6° 로 찍혔다).
+/// NodalAverager::nodeIndex 와 같은 규칙이다.
+struct NodeIndexResolver {
+    const data::Mesh& mesh;
+    std::map<int32_t, int32_t> id_to_idx;
+
+    explicit NodeIndexResolver(const data::Mesh& m) : mesh(m) {
+        for (size_t i = 0; i < mesh.real_node_ids.size(); ++i) {
+            id_to_idx[mesh.real_node_ids[i]] = static_cast<int32_t>(i);
+        }
+    }
+    int32_t operator()(int32_t node_id) const {
+        if (mesh.real_node_ids.empty()) return node_id - 1;
+        auto it = id_to_idx.find(node_id);
+        return (it != id_to_idx.end()) ? it->second : -1;
+    }
+};
+} // namespace
 
 void UnifiedAnalyzer::processElementQualityJobs(
     D3plotReader& reader,
@@ -706,6 +757,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
     UnifiedProgressCallback callback
 ) {
     auto mesh = reader.read_mesh();
+    const NodeIndexResolver node_index(mesh);
 
     // Collect target parts
     std::vector<int32_t> target_parts;
@@ -751,6 +803,32 @@ void UnifiedAnalyzer::processElementQualityJobs(
         part_types[pid] = "solid";
     }
 
+    // 기준 형상 = **첫 출력 상태**. 기하 섹션이 아니다.
+    //
+    // 체적/면적 변화율은 정의상 t=0 에 정확히 1.0 이어야 한다. 예전에는
+    // 기하 섹션(mesh.nodes)을 기준으로 삼았는데, 기하 섹션과 첫 상태가
+    // 어긋난 모델에서는 t=0 부터 비율이 깨졌다 (실측 case_shell:
+    // t=0 면적비가 [0.000, 1607.09]). 첫 상태를 기준으로 하면 이 불변식이
+    // 구조적으로 보장되고, 기하==상태0 인 모델(Test_006)에서는 결과가 같다.
+    const auto& ref_state = all_states.front();
+    if (callback && !mesh.nodes.empty() && !ref_state.node_displacements.empty()) {
+        // 두 좌표계가 어긋나면 그 사실 자체가 진단 정보다 — 조용히 넘기지 않는다.
+        double max_d2 = 0.0;
+        const size_t n_chk = std::min<size_t>(mesh.nodes.size(),
+                                              ref_state.node_displacements.size() / 3);
+        for (size_t i = 0; i < n_chk; ++i) {
+            const double dx = ref_state.node_displacements[i * 3 + 0] - mesh.nodes[i].x;
+            const double dy = ref_state.node_displacements[i * 3 + 1] - mesh.nodes[i].y;
+            const double dz = ref_state.node_displacements[i * 3 + 2] - mesh.nodes[i].z;
+            max_d2 = std::max(max_d2, dx * dx + dy * dy + dz * dz);
+        }
+        if (max_d2 > 1e-12) {
+            callback("  Quality: 기하 섹션과 첫 상태 좌표가 어긋남 (최대 " +
+                     std::to_string(std::sqrt(max_d2)) +
+                     ") — 변화율 기준은 첫 상태로 잡습니다");
+        }
+    }
+
     // Compute initial volumes/areas for reference
     struct InitialMetric {
         double volume_or_area;
@@ -765,16 +843,26 @@ void UnifiedAnalyzer::processElementQualityJobs(
                 const auto& elem = mesh.solids[info.idx];
                 if (elem.node_ids.size() >= 8) {
                     Vec3Q p[8];
-                    for (int n = 0; n < 8; ++n)
-                        p[n] = getNodeInitialPos(mesh, elem.node_ids[n] - 1);
+                    bool ok8 = true;
+                    for (int n = 0; n < 8 && ok8; ++n) {
+                        const int32_t ni = node_index(elem.node_ids[n]);
+                        if (ni < 0 || static_cast<size_t>(ni) >= mesh.nodes.size()) { ok8 = false; break; }
+                        p[n] = getNodePos(mesh, ref_state, static_cast<size_t>(ni));
+                    }
+                    if (!ok8) continue;
                     metrics[ei].volume_or_area = std::abs(computeSolidVolume(p, elem.node_ids));
                 }
             } else {
                 const auto& elem = mesh.shells[info.idx];
                 if (elem.node_ids.size() >= 4) {
                     Vec3Q p[4];
-                    for (int n = 0; n < 4; ++n)
-                        p[n] = getNodeInitialPos(mesh, elem.node_ids[n] - 1);
+                    bool ok4 = true;
+                    for (int n = 0; n < 4 && ok4; ++n) {
+                        const int32_t ni = node_index(elem.node_ids[n]);
+                        if (ni < 0 || static_cast<size_t>(ni) >= mesh.nodes.size()) { ok4 = false; break; }
+                        p[n] = getNodePos(mesh, ref_state, static_cast<size_t>(ni));
+                    }
+                    if (!ok4) continue;
                     metrics[ei].volume_or_area = computeArea4(p[0], p[1], p[2], p[3]);
                 }
             }
@@ -835,8 +923,13 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     if (elem.node_ids.size() < 8) continue;
 
                     Vec3Q p[8];
-                    for (int n = 0; n < 8; ++n)
-                        p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
+                    bool node_ok = true;
+                    for (int n = 0; n < 8 && node_ok; ++n) {
+                        const int32_t ni = node_index(elem.node_ids[n]);
+                        if (ni < 0 || static_cast<size_t>(ni) >= mesh.nodes.size()) { node_ok = false; break; }
+                        p[n] = getNodePos(mesh, state, static_cast<size_t>(ni));
+                    }
+                    if (!node_ok) continue;
 
                     auto [ar, ar_ok] = computeAspectRatio8(p);
                     double vol = computeSolidVolume(p, elem.node_ids);
@@ -902,8 +995,13 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     bool is_tria = (elem.node_ids[2] == elem.node_ids[3]);
 
                     Vec3Q p[4];
-                    for (int n = 0; n < 4; ++n)
-                        p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
+                    bool node_ok = true;
+                    for (int n = 0; n < 4 && node_ok; ++n) {
+                        const int32_t ni = node_index(elem.node_ids[n]);
+                        if (ni < 0 || static_cast<size_t>(ni) >= mesh.nodes.size()) { node_ok = false; break; }
+                        p[n] = getNodePos(mesh, state, static_cast<size_t>(ni));
+                    }
+                    if (!node_ok) continue;
 
                     double ar = 0, sk, wp, area;
                     bool ar_ok;
@@ -932,7 +1030,11 @@ void UnifiedAnalyzer::processElementQualityJobs(
                         ar_sum += ar;
                         ar_count++;
                     } else {
+                        // 붕괴한 요소는 각도 자체가 의미 없다 (왜곡도 1.0,
+                        // 뒤틀림 179° 가 나와 파트 최대를 삼킨다). 통째로 제외.
                         tp.n_aspect_unavailable++;
+                        count++;
+                        continue;
                     }
                     // 삼각형 셸은 왜곡도/뒤틀림이 정의되지 않아 위에서 0 을 넣는다
                     // — 그건 '측정된 0' 이 아니므로 사각형일 때만 measured 로 친다.
