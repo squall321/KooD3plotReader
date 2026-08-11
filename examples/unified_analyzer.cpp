@@ -164,29 +164,34 @@ void writeSurfaceStrainCSV(const std::string& filepath, const SurfaceStrainStats
         << "VMStrain_Max,VMStrain_Min,VMStrain_Avg,VMStrain_Max_ElemID,"
         << "EffPlastic_Max,EffPlastic_Min,EffPlastic_Avg,EffPlastic_Max_ElemID\n";
 
+    // 텐서가 없으면 텐서 기반 컬럼은 빈 칸 — 0 으로 채우면 '변형률 0' 으로
+    // 읽힌다. eff_plastic 만 항상 유효하다.
+    const bool T = stats.has_strain_tensor;
+    auto tnum = [&ofs, T](double v) { if (T) ofs << v; ofs << ","; };
+    auto tid  = [&ofs, T](int32_t v) { if (T) ofs << v; ofs << ","; };
+
     for (const auto& point : stats.data) {
-        ofs << std::scientific << std::setprecision(6)
-            << point.time << ","
-            << point.normal_strain_max << ","
-            << point.normal_strain_min << ","
-            << point.normal_strain_avg << ","
-            << point.normal_strain_max_element_id << ","
-            << point.shear_strain_max << ","
-            << point.shear_strain_avg << ","
-            << point.shear_strain_max_element_id << ","
-            << point.max_principal_strain_max << ","
-            << point.max_principal_strain_min << ","
-            << point.max_principal_strain_avg << ","
-            << point.max_principal_strain_max_element_id << ","
-            << point.min_principal_strain_max << ","
-            << point.min_principal_strain_min << ","
-            << point.min_principal_strain_avg << ","
-            << point.min_principal_strain_min_element_id << ","
-            << point.vm_strain_max << ","
-            << point.vm_strain_min << ","
-            << point.vm_strain_avg << ","
-            << point.vm_strain_max_element_id << ","
-            << point.eff_plastic_strain_max << ","
+        ofs << std::scientific << std::setprecision(6) << point.time << ",";
+        tnum(point.normal_strain_max);
+        tnum(point.normal_strain_min);
+        tnum(point.normal_strain_avg);
+        tid (point.normal_strain_max_element_id);
+        tnum(point.shear_strain_max);
+        tnum(point.shear_strain_avg);
+        tid (point.shear_strain_max_element_id);
+        tnum(point.max_principal_strain_max);
+        tnum(point.max_principal_strain_min);
+        tnum(point.max_principal_strain_avg);
+        tid (point.max_principal_strain_max_element_id);
+        tnum(point.min_principal_strain_max);
+        tnum(point.min_principal_strain_min);
+        tnum(point.min_principal_strain_avg);
+        tid (point.min_principal_strain_min_element_id);
+        tnum(point.vm_strain_max);
+        tnum(point.vm_strain_min);
+        tnum(point.vm_strain_avg);
+        tid (point.vm_strain_max_element_id);
+        ofs << point.eff_plastic_strain_max << ","
             << point.eff_plastic_strain_min << ","
             << point.eff_plastic_strain_avg << ","
             << point.eff_plastic_strain_max_element_id << "\n";
@@ -206,21 +211,49 @@ void writeQualityCSV(const std::string& filepath, const ElementQualityStats& sta
         return;
     }
 
+    // 미산출 지표는 **빈 칸**으로 남긴다. 예전에는 기본값(Jacobian 1.0,
+    // 뒤틀림/왜곡도 0.0)이 그대로 찍혀서 CSV 만 보면 '완벽한 메시' 로 읽혔다.
+    // JSON 쪽에는 *_measured 플래그가 있지만 CSV 에는 실을 자리가 없어
+    // 빈 칸이 유일하게 정직한 표기다.
+    const bool m_ar  = stats.aspect_measured;
+    const bool m_jac = stats.jacobian_measured;
+    const bool m_sk  = stats.skewness_measured;
+    const bool m_wp  = stats.warpage_measured;
+    const bool m_vol = stats.volume_measured;
+    if (!(m_ar && m_jac && m_sk && m_wp && m_vol)) {
+        ofs << "# 미산출 지표는 빈 칸:";
+        if (!m_ar)  ofs << " AspectRatio";
+        if (!m_jac) ofs << " Jacobian";
+        if (!m_sk)  ofs << " Skewness";
+        if (!m_wp)  ofs << " Warpage";
+        if (!m_vol) ofs << " VolumeChange";
+        ofs << " (축퇴 요소뿐이거나 해당 요소 종류가 없음)\n";
+    }
+
     ofs << "Time,AspectRatio_Max,AspectRatio_Avg,Jacobian_Min,Jacobian_Avg,"
         << "Skewness_Max,Skewness_Avg,Warpage_Max,Warpage_Avg,"
         << "VolumeChange_Min,VolumeChange_Max,"
         << "N_NegativeJacobian,N_HighAspectRatio,"
         << "Worst_AR_Elem,Worst_Jac_Elem,Worst_Skew_Elem,Worst_Warp_Elem,Worst_Vol_Elem\n";
 
+    auto num = [&ofs](bool measured, double v) {
+        if (measured) ofs << v;
+        ofs << ",";
+    };
+
     for (const auto& tp : stats.data) {
-        ofs << std::fixed << std::setprecision(6)
-            << tp.time << ","
-            << tp.aspect_ratio_max << "," << tp.aspect_ratio_avg << ","
-            << tp.jacobian_min << "," << tp.jacobian_avg << ","
-            << tp.skewness_max << "," << tp.skewness_avg << ","
-            << tp.warpage_max << "," << tp.warpage_avg << ","
-            << tp.volume_change_min << "," << tp.volume_change_max << ","
-            << tp.n_negative_jacobian << "," << tp.n_high_aspect << ","
+        ofs << std::fixed << std::setprecision(6) << tp.time << ",";
+        num(tp.aspect_measured,   tp.aspect_ratio_max);
+        num(tp.aspect_measured,   tp.aspect_ratio_avg);
+        num(tp.jacobian_measured, tp.jacobian_min);
+        num(tp.jacobian_measured, tp.jacobian_avg);
+        num(tp.skewness_measured, tp.skewness_max);
+        num(tp.skewness_measured, tp.skewness_avg);
+        num(tp.warpage_measured,  tp.warpage_max);
+        num(tp.warpage_measured,  tp.warpage_avg);
+        num(tp.volume_measured,   tp.volume_change_min);
+        num(tp.volume_measured,   tp.volume_change_max);
+        ofs << tp.n_negative_jacobian << "," << tp.n_high_aspect << ","
             << tp.worst_aspect_ratio_elem << "," << tp.worst_jacobian_elem << ","
             << tp.worst_skewness_elem << "," << tp.worst_warpage_elem << ","
             << tp.worst_volume_change_elem << "\n";
