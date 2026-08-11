@@ -18,6 +18,8 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <tuple>
+#include <utility>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -524,13 +526,16 @@ struct Vec3Q {
 
 // Get current position of node (initial + displacement)
 Vec3Q getNodePos(const data::Mesh& mesh, const data::StateData& state, size_t node_idx) {
-    double dx = 0, dy = 0, dz = 0;
+    // 이름과 달리 state.node_displacements 에는 **현재 좌표**가 들어 있다
+    // (IU=1). SurfaceExtractor::getNodePosition 은 원래부터 그렇게 읽는다.
+    // 여기서는 초기좌표에 더하고 있어서 실제로는 2·X0 + u 위에서 품질 지표를
+    // 계산했다 — t=0 에 체적비가 1.0 이 아니라 2³=8 로 나오던 원인이다.
     if (!state.node_displacements.empty() && node_idx * 3 + 2 < state.node_displacements.size()) {
-        dx = state.node_displacements[node_idx * 3 + 0];
-        dy = state.node_displacements[node_idx * 3 + 1];
-        dz = state.node_displacements[node_idx * 3 + 2];
+        return {state.node_displacements[node_idx * 3 + 0],
+                state.node_displacements[node_idx * 3 + 1],
+                state.node_displacements[node_idx * 3 + 2]};
     }
-    return {mesh.nodes[node_idx].x + dx, mesh.nodes[node_idx].y + dy, mesh.nodes[node_idx].z + dz};
+    return {mesh.nodes[node_idx].x, mesh.nodes[node_idx].y, mesh.nodes[node_idx].z};
 }
 
 Vec3Q getNodeInitialPos(const data::Mesh& mesh, size_t node_idx) {
@@ -538,7 +543,7 @@ Vec3Q getNodeInitialPos(const data::Mesh& mesh, size_t node_idx) {
 }
 
 // Aspect ratio: max edge length / min edge length
-double computeAspectRatio4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
+std::pair<double, bool> computeAspectRatio4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, const Vec3Q& p3) {
     double edges[4] = {
         (p1 - p0).mag(), (p2 - p1).mag(), (p3 - p2).mag(), (p0 - p3).mag()
     };
@@ -547,7 +552,8 @@ double computeAspectRatio4(const Vec3Q& p0, const Vec3Q& p1, const Vec3Q& p2, co
         if (edges[i] < mn) mn = edges[i];
         if (edges[i] > mx) mx = edges[i];
     }
-    return (mn > 1e-20) ? mx / mn : 1e6;
+    if (mn <= 1e-20) return {0.0, false};   // 축퇴 — 정의되지 않음 (예전엔 1e6)
+    return {mx / mn, true};
 }
 
 // Skewness for quad: max deviation of corner angles from 90 degrees / 90
@@ -601,8 +607,48 @@ double computeHexVolume(const Vec3Q* p) {
     return vol;
 }
 
-// Aspect ratio for hex: max edge / min edge (12 edges)
-double computeAspectRatio8(const Vec3Q* p) {
+// Scaled Jacobian (Verdict 정의) — 8개 코너에서 모서리 3벡터의 정규화 삼중곱의 최소값.
+//
+// 정육면체 = +1, 찌그러질수록 0 에 접근, 뒤집히면 음수. 예전에는 체적 부호만
+// 보고 ±1 을 넣어서 '뒤집힘 여부' 밖에 못 봤고, 보고서의 `< 0.3` 경고 밴드가
+// 구조적으로 절대 발동하지 않았다.
+//
+// 반환: {scaled_jacobian, 유효 코너 존재 여부}. LS-DYNA 는 tet/wedge 를 노드가
+// 겹친 hex8 로 싣기 때문에 길이 0 모서리가 생긴다. 그런 코너는 값이 정의되지
+// 않으므로 건너뛰고, 유효 코너가 하나도 없으면 false 를 돌려 '미산출' 로 남긴다
+// (1.0 으로 채우면 완벽한 요소로 위장된다).
+std::pair<double, bool> computeScaledJacobian8(const Vec3Q* p) {
+    // 각 코너에서 오른손 방향이 되도록 고른 인접 노드 3개
+    static const int adj[8][3] = {
+        {1, 3, 4}, {2, 0, 5}, {3, 1, 6}, {0, 2, 7},
+        {7, 5, 0}, {4, 6, 1}, {5, 7, 2}, {6, 4, 3}
+    };
+
+    double sj_min = 2.0;
+    bool any = false;
+
+    for (int c = 0; c < 8; ++c) {
+        const Vec3Q a = p[adj[c][0]] - p[c];
+        const Vec3Q b = p[adj[c][1]] - p[c];
+        const Vec3Q d = p[adj[c][2]] - p[c];
+
+        const double la = a.mag(), lb = b.mag(), ld = d.mag();
+        if (la < 1e-20 || lb < 1e-20 || ld < 1e-20) {
+            continue;  // 축퇴 코너 — 정의되지 않음
+        }
+
+        const double sj = a.cross(b).dot(d) / (la * lb * ld);
+        if (sj < sj_min) sj_min = sj;
+        any = true;
+    }
+
+    if (!any) return {0.0, false};
+    return {sj_min, true};
+}
+
+// Aspect ratio for hex: max edge / min edge (12 edges).
+// 반환 {값, 정의됨}. 축퇴(길이 0 모서리)면 정의되지 않는다.
+std::pair<double, bool> computeAspectRatio8(const Vec3Q* p) {
     int edges[12][2] = {
         {0,1},{1,2},{2,3},{3,0},
         {4,5},{5,6},{6,7},{7,4},
@@ -614,7 +660,11 @@ double computeAspectRatio8(const Vec3Q* p) {
         if (len < mn) mn = len;
         if (len > mx) mx = len;
     }
-    return (mn > 1e-20) ? mx / mn : 1e6;
+    // 길이 0 모서리가 있으면 종횡비는 정의되지 않는다. 예전에는 1e6 을 넣었고
+    // 그 값이 peak_aspect_ratio 로 올라가 tet 가 섞인 파트는 전부
+    // "AR=1000000, > 10 이므로 crit" 이 됐다. 이제 미정의로 돌려준다.
+    if (mn <= 1e-20) return {0.0, false};
+    return {mx / mn, true};
 }
 
 } // anonymous namespace
@@ -742,6 +792,8 @@ void UnifiedAnalyzer::processElementQualityJobs(
 
             double ar_sum = 0, sk_sum = 0, wp_sum = 0, jac_sum = 0;
             int count = 0;
+            int jac_count = 0;   // scaled Jacobian 이 정의된 요소만 따로 센다
+            int ar_count = 0;    // 종횡비가 정의된 요소만 따로 센다
 
             for (size_t ei = 0; ei < elems.size(); ++ei) {
                 const auto& info = elems[ei];
@@ -756,21 +808,60 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     for (int n = 0; n < 8; ++n)
                         p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
 
-                    double ar = computeAspectRatio8(p);
+                    auto [ar, ar_ok] = computeAspectRatio8(p);
                     double vol = computeHexVolume(p);
-                    double jac = (vol >= 0) ? 1.0 : -1.0;  // simplified: sign of volume
                     double init_vol = initial_metrics[pid][ei].volume_or_area;
                     double vol_ratio = (init_vol > 1e-20) ? std::abs(vol) / init_vol : 1.0;
 
-                    if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
-                    if (jac < tp.jacobian_min) { tp.jacobian_min = jac; tp.worst_jacobian_elem = elem_id; }
-                    if (vol_ratio < tp.volume_change_min) { tp.volume_change_min = vol_ratio; tp.worst_volume_change_elem = elem_id; }
-                    if (vol_ratio > tp.volume_change_max) tp.volume_change_max = vol_ratio;
-                    if (vol < 0) tp.n_negative_jacobian++;
-                    if (ar > 5.0) tp.n_high_aspect++;
+                    // scaled Jacobian 은 8절점이 모두 서로 다를 때만 의미가 있다.
+                    // LS-DYNA 는 tet/wedge 를 노드가 겹친 hex8 로 싣는데, 그 경우
+                    // hex 정규화를 적용하면 완벽한 정사면체도 0.707 로 나오고
+                    // 절점 순서에 따라 부호까지 뒤집혀 '뒤집힌 요소' 로 오판된다.
+                    bool distinct8 = true;
+                    for (int a = 0; a < 8 && distinct8; ++a)
+                        for (int b = a + 1; b < 8; ++b)
+                            if (elem.node_ids[a] == elem.node_ids[b]) { distinct8 = false; break; }
 
-                    ar_sum += ar;
-                    jac_sum += jac;
+                    if (distinct8) {
+                        auto [sj, ok] = computeScaledJacobian8(p);
+                        if (ok) {
+                            if (!tp.jacobian_measured || sj < tp.jacobian_min) {
+                                tp.jacobian_min = sj;
+                                tp.worst_jacobian_elem = elem_id;
+                            }
+                            tp.jacobian_measured = true;
+                            if (sj < 0) tp.n_negative_jacobian++;
+                            jac_sum += sj;
+                            jac_count++;
+                        } else {
+                            tp.n_jacobian_unavailable++;
+                            if (vol < 0) tp.n_negative_jacobian++;
+                        }
+                    } else {
+                        // 축퇴 요소는 scaled Jacobian 값을 못 내지만, 뒤집힘
+                        // 자체는 체적 부호로 여전히 잡을 수 있다 — 개수는 센다.
+                        tp.n_jacobian_unavailable++;
+                        if (vol < 0) tp.n_negative_jacobian++;
+                    }
+
+                    if (ar_ok) {
+                        if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
+                        if (ar > 5.0) tp.n_high_aspect++;
+                        tp.aspect_measured = true;
+                        ar_sum += ar;
+                        ar_count++;
+                    } else {
+                        tp.n_aspect_unavailable++;
+                    }
+                    if (distinct8 && init_vol > 1e-20) {
+                        if (!tp.volume_measured || vol_ratio < tp.volume_change_min) {
+                            tp.volume_change_min = vol_ratio;
+                            tp.worst_volume_change_elem = elem_id;
+                        }
+                        if (!tp.volume_measured || vol_ratio > tp.volume_change_max) tp.volume_change_max = vol_ratio;
+                        tp.volume_measured = true;
+                    }
+
                     count++;
                 } else {
                     const auto& elem = mesh.shells[info.idx];
@@ -784,16 +875,18 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     for (int n = 0; n < 4; ++n)
                         p[n] = getNodePos(mesh, state, elem.node_ids[n] - 1);
 
-                    double ar, sk, wp, area;
+                    double ar = 0, sk, wp, area;
+                    bool ar_ok;
                     if (is_tria) {
                         // Triangle: aspect ratio from 3 edges
                         double e0 = (p[1]-p[0]).mag(), e1 = (p[2]-p[1]).mag(), e2 = (p[0]-p[2]).mag();
                         double mn = std::min({e0,e1,e2}), mx = std::max({e0,e1,e2});
-                        ar = (mn > 1e-20) ? mx / mn : 1e6;
+                        ar_ok = (mn > 1e-20);
+                        if (ar_ok) ar = mx / mn;
                         sk = 0; wp = 0;
                         area = 0.5 * (p[1]-p[0]).cross(p[2]-p[0]).mag();
                     } else {
-                        ar = computeAspectRatio4(p[0], p[1], p[2], p[3]);
+                        std::tie(ar, ar_ok) = computeAspectRatio4(p[0], p[1], p[2], p[3]);
                         sk = computeSkewness4(p[0], p[1], p[2], p[3]);
                         wp = computeWarpage4(p[0], p[1], p[2], p[3]);
                         area = computeArea4(p[0], p[1], p[2], p[3]);
@@ -802,23 +895,43 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     double init_area = initial_metrics[pid][ei].volume_or_area;
                     double area_ratio = (init_area > 1e-20) ? area / init_area : 1.0;
 
-                    if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
+                    if (ar_ok) {
+                        if (ar > tp.aspect_ratio_max) { tp.aspect_ratio_max = ar; tp.worst_aspect_ratio_elem = elem_id; }
+                        if (ar > 5.0) tp.n_high_aspect++;
+                        tp.aspect_measured = true;
+                        ar_sum += ar;
+                        ar_count++;
+                    } else {
+                        tp.n_aspect_unavailable++;
+                    }
                     if (sk > tp.skewness_max) { tp.skewness_max = sk; tp.worst_skewness_elem = elem_id; }
                     if (wp > tp.warpage_max) { tp.warpage_max = wp; tp.worst_warpage_elem = elem_id; }
-                    if (area_ratio < tp.volume_change_min) { tp.volume_change_min = area_ratio; tp.worst_volume_change_elem = elem_id; }
-                    if (area_ratio > tp.volume_change_max) tp.volume_change_max = area_ratio;
-                    if (ar > 5.0) tp.n_high_aspect++;
+                    if (init_area > 1e-20) {
+                        if (!tp.volume_measured || area_ratio < tp.volume_change_min) {
+                            tp.volume_change_min = area_ratio;
+                            tp.worst_volume_change_elem = elem_id;
+                        }
+                        if (!tp.volume_measured || area_ratio > tp.volume_change_max) tp.volume_change_max = area_ratio;
+                        tp.volume_measured = true;
+                    }
 
-                    ar_sum += ar; sk_sum += sk; wp_sum += wp;
+                    sk_sum += sk; wp_sum += wp;
                     count++;
                 }
             }
 
             if (count > 0) {
-                tp.aspect_ratio_avg = ar_sum / count;
                 tp.skewness_avg = sk_sum / count;
                 tp.warpage_avg = wp_sum / count;
-                tp.jacobian_avg = jac_sum / count;
+            }
+            if (ar_count > 0) {
+                tp.aspect_ratio_avg = ar_sum / ar_count;
+            }
+            // Jacobian 평균은 값이 정의된 요소로만 나눈다. 예전에는 셸을 포함한
+            // 전체 count 로 나눠서, 셸 파트는 jac_sum=0 / count>0 → 0.0 이 나왔다
+            // (완전 축퇴로 읽히는 값). 이제 미측정이면 손대지 않는다.
+            if (jac_count > 0) {
+                tp.jacobian_avg = jac_sum / jac_count;
             }
 
             stats_map[pid].data.push_back(tp);

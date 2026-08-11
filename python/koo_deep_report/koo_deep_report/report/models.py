@@ -155,10 +155,17 @@ class ElementQualityData:
     part_name: str = ""
     element_type: str = "shell"
     num_elements: int = 0
+    # *_measured 가 False 면 그 지표는 미산출이다 (축퇴 요소뿐이거나 셸이라
+    # 정의되지 않음). 0/1.0 을 그대로 보여주면 '완벽한 메시' 로 오독된다.
+    aspect_measured: bool = False
     peak_aspect_ratio: float = 0.0
+    aspect_unavailable_count: int = 0
+    jacobian_measured: bool = False
     min_jacobian: float = 1.0
+    jacobian_unavailable_count: int = 0
     peak_warpage: float = 0.0
     peak_skewness: float = 0.0
+    volume_measured: bool = False
     min_volume_change: float = 1.0
     max_volume_change: float = 1.0
     max_negative_jacobian_count: int = 0

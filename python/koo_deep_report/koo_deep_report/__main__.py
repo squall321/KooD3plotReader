@@ -1281,10 +1281,17 @@ def _print_summary(result: SingleResult) -> None:
     if result.energy_ratio_min is not None:
         print(f"  에너지 비율  : {result.energy_ratio_min:.4f} (min)")
     if result.d3plot_result and result.d3plot_result.element_quality:
-        worst_ar = max(q.peak_aspect_ratio for q in result.d3plot_result.element_quality)
-        worst_jac = min(q.min_jacobian for q in result.d3plot_result.element_quality)
-        n_neg = max(q.max_negative_jacobian_count for q in result.d3plot_result.element_quality)
-        print(f"  요소 품질    : AR={worst_ar:.2f} | Jac={worst_jac:.2f} | 음수Jac={n_neg}개")
+        eqs = result.d3plot_result.element_quality
+        ar_vals = [q.peak_aspect_ratio for q in eqs if q.aspect_measured]
+        jac_vals = [q.min_jacobian for q in eqs if q.jacobian_measured]
+        n_neg = max(q.max_negative_jacobian_count for q in eqs)
+        n_na = sum(1 for q in eqs if not q.jacobian_measured)
+        ar_s = f"{max(ar_vals):.2f}" if ar_vals else "—"
+        jac_s = f"{min(jac_vals):.3f}" if jac_vals else "—"
+        # 축퇴 파트 수를 함께 찍는다. "—" 만 보이면 계산이 빠진 건지
+        # 정의가 안 되는 건지 구분이 안 된다.
+        na_s = f" | 미산출={n_na}파트" if n_na else ""
+        print(f"  요소 품질    : AR={ar_s} | Jac={jac_s} | 음수Jac={n_neg}개{na_s}")
 
     # Per-part design criteria warnings
     warnings = [(ps, ps.worst_warning) for ps in result.parts.values() if ps.worst_warning in ("warn", "crit")]

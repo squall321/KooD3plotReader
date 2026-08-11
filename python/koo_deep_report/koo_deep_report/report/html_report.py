@@ -248,6 +248,10 @@ def _build_js_data(result: SingleResult) -> dict:
                 "element_type": eq.element_type,
                 "num_elements": eq.num_elements,
                 "peak_aspect_ratio": eq.peak_aspect_ratio,
+                "aspect_measured": eq.aspect_measured,
+                "jacobian_measured": eq.jacobian_measured,
+                "volume_measured": eq.volume_measured,
+                "jacobian_unavailable_count": eq.jacobian_unavailable_count,
                 "min_jacobian": eq.min_jacobian,
                 "peak_warpage": eq.peak_warpage,
                 "peak_skewness": eq.peak_skewness,
@@ -425,6 +429,7 @@ a { color: var(--accent2); }
 /* Quality indicators */
 .crit { background: rgba(235,87,87,.18); color: var(--err); font-weight: 600; }
 .warn { background: rgba(242,201,76,.15); color: var(--warn); font-weight: 600; }
+.na { color: var(--fg2); opacity: .55; }   /* 미산출 — 경고도 정상도 아니다 */
 
 /* Part selector */
 .part-selector { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
@@ -1913,18 +1918,23 @@ function renderQuality() {
   html += '</tr></thead><tbody>';
 
   for (const q of eq) {
-    const arCls = q.peak_aspect_ratio > 10 ? 'crit' : (q.peak_aspect_ratio > 5 ? 'warn' : '');
-    const jacCls = q.min_jacobian < 0 ? 'crit' : (q.min_jacobian < 0.3 ? 'warn' : '');
+    // 미산출은 0/1.0 대신 "—" 로 둔다. 값이 없다는 사실 자체가 정보다.
+    const arM = q.aspect_measured !== false;
+    const jacM = q.jacobian_measured !== false;
+    const volM = q.volume_measured !== false;
+    const arCls = !arM ? 'na' : (q.peak_aspect_ratio > 10 ? 'crit' : (q.peak_aspect_ratio > 5 ? 'warn' : ''));
+    const jacCls = !jacM ? 'na' : (q.min_jacobian < 0 ? 'crit' : (q.min_jacobian < 0.3 ? 'warn' : ''));
     const negCls = q.max_negative_jacobian_count > 0 ? 'crit' : '';
+    const naTip = '축퇴 요소(tet/wedge 를 hex8 로 저장)라 hex 기준 지표가 정의되지 않음';
 
     html += `<tr>
       <td>${q.part_id}</td><td>${q.part_name}</td><td>${q.element_type}</td><td>${q.num_elements}</td>
-      <td class="${arCls}">${q.peak_aspect_ratio.toFixed(2)}</td>
-      <td class="${jacCls}">${q.min_jacobian.toFixed(3)}</td>
+      <td class="${arCls}"${arM ? '' : ` title="${naTip}"`}>${arM ? q.peak_aspect_ratio.toFixed(2) : '—'}</td>
+      <td class="${jacCls}"${jacM ? '' : ` title="${naTip}"`}>${jacM ? q.min_jacobian.toFixed(3) : '—'}</td>
       <td>${q.peak_warpage.toFixed(1)}</td>
       <td>${q.peak_skewness.toFixed(3)}</td>
-      <td>${q.min_volume_change.toFixed(3)}</td>
-      <td>${q.max_volume_change.toFixed(3)}</td>
+      <td>${volM ? q.min_volume_change.toFixed(3) : '—'}</td>
+      <td>${volM ? q.max_volume_change.toFixed(3) : '—'}</td>
       <td class="${negCls}">${q.max_negative_jacobian_count}</td>
     </tr>`;
   }

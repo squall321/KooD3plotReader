@@ -225,15 +225,25 @@ struct SurfaceStrainStats {
 struct ElementQualityTimePoint {
     double time = 0.0;
 
-    // Aspect ratio (max_edge / min_edge, ideal = 1.0)
+    // Aspect ratio (max_edge / min_edge, ideal = 1.0).
+    // aspect_measured=false 면 값이 없다 — 축퇴 요소뿐인 파트다.
+    // 예전에는 축퇴 요소에 1e6 을 넣어서, tet 가 하나라도 섞이면 파트 전체가
+    // "AR=1000000 > 10 → crit" 으로 찍혔다.
+    bool aspect_measured = false;
     double aspect_ratio_max = 0.0;
     double aspect_ratio_avg = 0.0;
     int32_t worst_aspect_ratio_elem = 0;
+    int32_t n_aspect_unavailable = 0;
 
-    // Jacobian determinant (normalized, ideal = 1.0, negative = inverted)
+    // Scaled Jacobian (정육면체=1.0, 찌그러질수록 0, 음수=뒤집힘).
+    // jacobian_measured=false 면 아래 두 값은 의미 없다 — 셸 파트이거나
+    // 솔리드가 전부 축퇴(tet/wedge 를 hex8 로 저장)라 정의되지 않은 경우다.
+    // 예전에는 체적 부호 ±1 만 넣어 '완벽(1.0)' 으로 보였다.
+    bool jacobian_measured = false;
     double jacobian_min = 1.0;
     double jacobian_avg = 1.0;
     int32_t worst_jacobian_elem = 0;
+    int32_t n_jacobian_unavailable = 0;  ///< 축퇴로 scaled Jacobian 미정의인 요소 수
 
     // Warpage angle for shells (degrees, ideal = 0)
     double warpage_max = 0.0;
@@ -245,7 +255,10 @@ struct ElementQualityTimePoint {
     double skewness_avg = 0.0;
     int32_t worst_skewness_elem = 0;
 
-    // Volume/area change from initial (ratio: 1.0 = no change)
+    // Volume/area change from initial (ratio: 1.0 = no change).
+    // 축퇴 솔리드는 hex 5-사면체 분해가 성립하지 않아 체적 자체가 못 믿을 값이다
+    // → volume_measured=false 로 두고 값에 손대지 않는다.
+    bool volume_measured = false;
     double volume_change_min = 1.0;   // most compressed
     double volume_change_max = 1.0;   // most expanded
     int32_t worst_volume_change_elem = 0;
@@ -266,36 +279,62 @@ struct ElementQualityStats {
     std::vector<ElementQualityTimePoint> data;
 
     // Peak values across all time
+    bool aspect_measured = false;
     double peak_aspect_ratio = 0.0;
+    int32_t max_aspect_unavailable_count = 0;
+    bool jacobian_measured = false;   ///< false 면 min_jacobian 은 미산출 (표기는 "—")
     double min_jacobian = 1.0;
+    int32_t max_jacobian_unavailable_count = 0;
     double peak_warpage = 0.0;
     double peak_skewness = 0.0;
+    bool volume_measured = false;
     double min_volume_change = 1.0;
     double max_volume_change = 1.0;
     int32_t max_negative_jacobian_count = 0;
 
     void computeGlobalStats() {
+        aspect_measured = false;
         peak_aspect_ratio = 0;
+        max_aspect_unavailable_count = 0;
+        jacobian_measured = false;
         min_jacobian = 1.0;
+        max_jacobian_unavailable_count = 0;
         peak_warpage = 0;
         peak_skewness = 0;
+        volume_measured = false;
         min_volume_change = 1.0;
         max_volume_change = 1.0;
         max_negative_jacobian_count = 0;
 
         for (const auto& tp : data) {
-            if (tp.aspect_ratio_max > peak_aspect_ratio)
-                peak_aspect_ratio = tp.aspect_ratio_max;
-            if (tp.jacobian_min < min_jacobian)
-                min_jacobian = tp.jacobian_min;
+            if (tp.aspect_measured) {
+                if (tp.aspect_ratio_max > peak_aspect_ratio)
+                    peak_aspect_ratio = tp.aspect_ratio_max;
+                aspect_measured = true;
+            }
+            if (tp.n_aspect_unavailable > max_aspect_unavailable_count)
+                max_aspect_unavailable_count = tp.n_aspect_unavailable;
+            if (tp.jacobian_measured) {
+                // 측정된 스텝끼리만 비교한다. 미측정 스텝의 기본값 1.0 을
+                // 섞으면 '최악' 이 낙관적으로 흐려진다.
+                if (!jacobian_measured || tp.jacobian_min < min_jacobian) {
+                    min_jacobian = tp.jacobian_min;
+                }
+                jacobian_measured = true;
+            }
+            if (tp.n_jacobian_unavailable > max_jacobian_unavailable_count)
+                max_jacobian_unavailable_count = tp.n_jacobian_unavailable;
             if (tp.warpage_max > peak_warpage)
                 peak_warpage = tp.warpage_max;
             if (tp.skewness_max > peak_skewness)
                 peak_skewness = tp.skewness_max;
-            if (tp.volume_change_min < min_volume_change)
-                min_volume_change = tp.volume_change_min;
-            if (tp.volume_change_max > max_volume_change)
-                max_volume_change = tp.volume_change_max;
+            if (tp.volume_measured) {
+                if (!volume_measured || tp.volume_change_min < min_volume_change)
+                    min_volume_change = tp.volume_change_min;
+                if (!volume_measured || tp.volume_change_max > max_volume_change)
+                    max_volume_change = tp.volume_change_max;
+                volume_measured = true;
+            }
             if (tp.n_negative_jacobian > max_negative_jacobian_count)
                 max_negative_jacobian_count = tp.n_negative_jacobian;
         }
@@ -578,10 +617,15 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                   << ", \"part_name\": \"" << q.part_name << "\""
                   << ", \"element_type\": \"" << q.element_type << "\""
                   << ", \"num_elements\": " << q.num_elements
+                  << ", \"aspect_measured\": " << (q.aspect_measured ? "true" : "false")
                   << ", \"peak_aspect_ratio\": " << std::fixed << std::setprecision(4) << q.peak_aspect_ratio
+                  << ", \"aspect_unavailable_count\": " << q.max_aspect_unavailable_count
+                  << ", \"jacobian_measured\": " << (q.jacobian_measured ? "true" : "false")
                   << ", \"min_jacobian\": " << q.min_jacobian
+                  << ", \"jacobian_unavailable_count\": " << q.max_jacobian_unavailable_count
                   << ", \"peak_warpage\": " << q.peak_warpage
                   << ", \"peak_skewness\": " << q.peak_skewness
+                  << ", \"volume_measured\": " << (q.volume_measured ? "true" : "false")
                   << ", \"min_volume_change\": " << q.min_volume_change
                   << ", \"max_volume_change\": " << q.max_volume_change
                   << ", \"max_negative_jacobian_count\": " << q.max_negative_jacobian_count
@@ -592,7 +636,9 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                 extra << "{\"time\": " << std::setprecision(8) << tp.time
                       << ", \"ar_max\": " << std::setprecision(4) << tp.aspect_ratio_max
                       << ", \"ar_avg\": " << tp.aspect_ratio_avg
+                      << ", \"jac_measured\": " << (tp.jacobian_measured ? "true" : "false")
                       << ", \"jac_min\": " << tp.jacobian_min
+                      << ", \"jac_avg\": " << tp.jacobian_avg
                       << ", \"skew_max\": " << tp.skewness_max
                       << ", \"warp_max\": " << tp.warpage_max
                       << ", \"vol_min\": " << tp.volume_change_min
