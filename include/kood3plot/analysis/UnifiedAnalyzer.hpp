@@ -141,6 +141,15 @@ private:
         UnifiedProgressCallback callback
     );
 
+    /// 빔 단면력 분석 (beam_force 잡)
+    void processBeamJobs(
+        D3plotReader& reader,
+        const std::vector<AnalysisJob>& jobs,
+        const std::vector<data::StateData>& all_states,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
     /**
      * @brief Fill metadata in result
      */

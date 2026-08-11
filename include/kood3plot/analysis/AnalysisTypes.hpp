@@ -34,6 +34,7 @@ enum class AnalysisJobType {
     SURFACE_STRAIN,         ///< Direction-based surface strain
     PART_MOTION,            ///< Part motion analysis (displacement/velocity/acceleration)
     ELEMENT_QUALITY,        ///< Element quality metrics (aspect ratio, Jacobian, etc.)
+    BEAM_FORCE,             ///< Beam resultants (axial force, shear, moment, torsion)
     COMPREHENSIVE           ///< Multiple quantities in one job
 };
 
@@ -46,6 +47,7 @@ inline std::string jobTypeToString(AnalysisJobType type) {
         case AnalysisJobType::EFF_PLASTIC_STRAIN: return "eff_plastic_strain";
         case AnalysisJobType::SURFACE_STRESS: return "surface_stress";
         case AnalysisJobType::SURFACE_STRAIN: return "surface_strain";
+        case AnalysisJobType::BEAM_FORCE: return "beam_force";
         case AnalysisJobType::PART_MOTION: return "part_motion";
         case AnalysisJobType::ELEMENT_QUALITY: return "element_quality";
         case AnalysisJobType::COMPREHENSIVE: return "comprehensive";
@@ -61,6 +63,7 @@ inline AnalysisJobType parseJobType(const std::string& str) {
     if (str == "eff_plastic_strain") return AnalysisJobType::EFF_PLASTIC_STRAIN;
     if (str == "surface_stress") return AnalysisJobType::SURFACE_STRESS;
     if (str == "surface_strain") return AnalysisJobType::SURFACE_STRAIN;
+    if (str == "beam_force" || str == "beam") return AnalysisJobType::BEAM_FORCE;
     if (str == "part_motion") return AnalysisJobType::PART_MOTION;
     if (str == "element_quality") return AnalysisJobType::ELEMENT_QUALITY;
     if (str == "comprehensive") return AnalysisJobType::COMPREHENSIVE;
@@ -574,6 +577,8 @@ struct ExtendedAnalysisResult : public AnalysisResult {
     // Additional results
     std::vector<PartMotionStats> motion_analysis;
     std::vector<SurfaceStrainStats> surface_strain_analysis;
+    /// 빔 단면력 (축력·전단·모멘트·비틀림) 파트별 시계열
+    std::vector<PartTimeSeriesStats> beam_analysis;
     std::vector<ElementQualityStats> element_quality;
 
     /**
@@ -664,6 +669,31 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                       << "}";
             }
             extra << "]}";
+        }
+        extra << "\n  ]";
+
+        // 빔 단면력
+        extra << ",\n  \"beam_analysis\": [";
+        for (size_t i = 0; i < beam_analysis.size(); ++i) {
+            if (i > 0) extra << ",";
+            const auto& b = beam_analysis[i];
+            double gmax = -1e300, gmin = 1e300;
+            double t_max = 0.0, t_min = 0.0;
+            int32_t e_max = 0, e_min = 0;
+            for (const auto& tp : b.data) {
+                if (tp.max_value > gmax) { gmax = tp.max_value; t_max = tp.time; e_max = tp.max_element_id; }
+                if (tp.min_value < gmin) { gmin = tp.min_value; t_min = tp.time; e_min = tp.min_element_id; }
+            }
+            extra << "\n    {\"part_id\": " << b.part_id
+                  << ", \"quantity\": \"" << b.quantity << "\""
+                  << ", \"num_points\": " << b.data.size()
+                  << ", \"peak_max\": " << std::fixed << std::setprecision(6) << gmax
+                  << ", \"peak_max_time\": " << t_max
+                  << ", \"peak_max_element_id\": " << e_max
+                  << ", \"peak_min\": " << gmin
+                  << ", \"peak_min_time\": " << t_min
+                  << ", \"peak_min_element_id\": " << e_min
+                  << "}";
         }
         extra << "\n  ]";
 

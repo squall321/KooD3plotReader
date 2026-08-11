@@ -237,8 +237,20 @@ void GeometryParser::parse_narbs(data::Mesh& mesh, size_t& offset) {
     // ls-dyna_database.txt lines 656-674
     // NARBS section contains arbitrary node and element numbering
 
+    // 파트 배정은 NARBS 유무와 무관하게 채운다.
+    // NARBS 가 없으면 재질 번호가 곧 파트 ID 다 (NARBSParser::get_real_part_id
+    // 도 같은 규칙으로 폴백한다). 예전에는 아래 early return 때문에 NARBS 가
+    // 없는 파일에서 *_parts 가 전부 비어 모든 요소가 part 0 으로 뭉쳤다.
+    auto fill_parts_identity = [](const std::vector<int32_t>& mats,
+                                  std::vector<int32_t>& parts) {
+        if (!mats.empty() && parts.empty()) parts = mats;
+    };
+
     if (control_data_.NARBS == 0) {
-        // No arbitrary numbering - use sequential IDs
+        fill_parts_identity(mesh.solid_materials, mesh.solid_parts);
+        fill_parts_identity(mesh.beam_materials, mesh.beam_parts);
+        fill_parts_identity(mesh.shell_materials, mesh.shell_parts);
+        fill_parts_identity(mesh.thick_shell_materials, mesh.thick_shell_parts);
         return;
     }
 
@@ -289,6 +301,15 @@ void GeometryParser::parse_narbs(data::Mesh& mesh, size_t& offset) {
                 mesh.beams[i].id = mesh.real_beam_ids[i];
             }
         }
+        // 파트 배정 — solid 만 채우고 beam/shell/tshell 은 비워 두고 있었다.
+        // 그 결과 셸·빔 모델의 모든 요소가 part 0 으로 뭉쳐 파트별 분석이
+        // 통째로 무의미했다 (실측 case_shell: 요소품질이 "part 0" 하나로만 나옴).
+        if (!mesh.beam_materials.empty()) {
+            mesh.beam_parts.resize(num_beams);
+            for (int i = 0; i < num_beams; ++i) {
+                mesh.beam_parts[i] = narbs_parser.get_real_part_id(mesh.beam_materials[i]);
+            }
+        }
     }
 
     int num_shells = control_data_.NEL4;
@@ -300,6 +321,12 @@ void GeometryParser::parse_narbs(data::Mesh& mesh, size_t& offset) {
                 mesh.shells[i].id = mesh.real_shell_ids[i];
             }
         }
+        if (!mesh.shell_materials.empty()) {
+            mesh.shell_parts.resize(num_shells);
+            for (int i = 0; i < num_shells; ++i) {
+                mesh.shell_parts[i] = narbs_parser.get_real_part_id(mesh.shell_materials[i]);
+            }
+        }
     }
 
     int num_thick_shells = control_data_.NELT;
@@ -309,6 +336,13 @@ void GeometryParser::parse_narbs(data::Mesh& mesh, size_t& offset) {
             mesh.real_thick_shell_ids[i] = narbs_parser.get_real_element_id(ElementType::THICK_SHELL, i);
             if (i < static_cast<int>(mesh.thick_shells.size())) {
                 mesh.thick_shells[i].id = mesh.real_thick_shell_ids[i];
+            }
+        }
+        if (!mesh.thick_shell_materials.empty()) {
+            mesh.thick_shell_parts.resize(num_thick_shells);
+            for (int i = 0; i < num_thick_shells; ++i) {
+                mesh.thick_shell_parts[i] =
+                    narbs_parser.get_real_part_id(mesh.thick_shell_materials[i]);
             }
         }
     }

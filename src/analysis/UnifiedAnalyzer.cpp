@@ -13,6 +13,7 @@
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
+#include "kood3plot/analysis/BeamAnalyzer.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
 #include <cmath>
@@ -77,6 +78,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     std::vector<AnalysisJob> motion_jobs;
     std::vector<AnalysisJob> surface_stress_jobs;
     std::vector<AnalysisJob> surface_strain_jobs;
+    std::vector<AnalysisJob> beam_jobs;
 
     for (const auto& job : config.analysis_jobs) {
         switch (job.type) {
@@ -94,6 +96,9 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
                 break;
             case AnalysisJobType::SURFACE_STRAIN:
                 surface_strain_jobs.push_back(job);
+                break;
+            case AnalysisJobType::BEAM_FORCE:
+                beam_jobs.push_back(job);
                 break;
             case AnalysisJobType::COMPREHENSIVE:
                 // Comprehensive jobs get split into multiple categories
@@ -149,6 +154,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (!motion_jobs.empty()) total_steps++;
     if (!surface_stress_jobs.empty()) total_steps++;
     if (!surface_strain_jobs.empty()) total_steps++;
+    if (!beam_jobs.empty()) total_steps++;
 
     std::vector<AnalysisJob> quality_jobs;
     for (const auto& job : config.analysis_jobs) {
@@ -185,6 +191,12 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         current_step++;
         if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Surface strain analysis...");
         processSurfaceStrainJobs(reader, surface_strain_jobs, all_states, result, callback);
+    }
+
+    if (!beam_jobs.empty()) {
+        current_step++;
+        if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Beam force analysis...");
+        processBeamJobs(reader, beam_jobs, all_states, result, callback);
     }
 
     if (!quality_jobs.empty()) {
@@ -748,6 +760,47 @@ struct NodeIndexResolver {
     }
 };
 } // namespace
+
+void UnifiedAnalyzer::processBeamJobs(
+    D3plotReader& reader,
+    const std::vector<AnalysisJob>& jobs,
+    const std::vector<data::StateData>& all_states,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback
+) {
+    BeamAnalyzer analyzer(reader);
+    if (!analyzer.initialize()) {
+        // 무음 스킵 금지 — 왜 산출물이 없는지 남긴다.
+        if (callback) callback("  Beam force: " + analyzer.getLastError() + " — 건너뜁니다");
+        return;
+    }
+
+    for (const auto& job : jobs) {
+        std::vector<int32_t> target_parts = job.part_ids;
+        if (!job.part_pattern.empty()) {
+            auto pattern_parts = UnifiedConfigParser::filterPartsByPattern(reader, job.part_pattern);
+            for (int32_t pid : pattern_parts) {
+                if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end()) {
+                    target_parts.push_back(pid);
+                }
+            }
+        }
+        analyzer.setTargetParts(target_parts);
+
+        auto stats = analyzer.analyze(all_states);
+        if (stats.empty()) {
+            if (callback) callback("  Beam force [" + job.name + "]: 대상 파트에 빔 요소 없음 — 건너뜁니다");
+            continue;
+        }
+        if (callback) {
+            callback("  Beam force [" + job.name + "]: 빔 " + std::to_string(analyzer.numBeams()) +
+                     "개 / 산출물 " + std::to_string(stats.size()) + "건");
+        }
+        for (auto& st : stats) {
+            result.beam_analysis.push_back(std::move(st));
+        }
+    }
+}
 
 void UnifiedAnalyzer::processElementQualityJobs(
     D3plotReader& reader,

@@ -348,6 +348,18 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         }
     }
 
+    // Export beam resultants — 축력은 부호가 의미이므로 max/min 을 함께 낸다
+    if (config.output_csv && !result.beam_analysis.empty()) {
+        std::string beam_dir = output_dir + "/beam";
+        fs::create_directories(beam_dir);
+        std::cout << "\nExporting beam resultants:\n";
+        for (const auto& stats : result.beam_analysis) {
+            std::string filename = beam_dir + "/part_" + std::to_string(stats.part_id)
+                                 + "_" + stats.quantity + ".csv";
+            writePartCSV(filename, stats);
+        }
+    }
+
     // Export surface stress
     if (config.output_csv && !result.surface_analysis.empty()) {
         std::cout << "\nExporting surface stress:\n";
@@ -749,6 +761,7 @@ void printSummary(const ExtendedAnalysisResult& result, const UnifiedConfig& con
     std::cout << "  - Stress history: " << result.stress_history.size() << " parts\n";
     std::cout << "  - Strain history: " << result.strain_history.size() << " parts\n";
     std::cout << "  - Motion analysis: " << result.motion_analysis.size() << " parts\n";
+    std::cout << "  - Beam resultants: " << result.beam_analysis.size() << " series\n";
     std::cout << "  - Surface stress: " << result.surface_analysis.size() << " surfaces\n";
     std::cout << "  - Surface strain: " << result.surface_strain_analysis.size() << " surfaces\n";
     std::cout << "  - Element quality: " << result.element_quality.size() << " parts\n";

@@ -945,6 +945,13 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "      - avg_acceleration\n";
     oss << "    output_prefix: \"motion\"\n\n";
 
+    oss << "  # Beam resultants (axial force / shear / moment / torsion)\n";
+    oss << "  # 볼트·리벳 대체 빔의 축력 판정용. NV1D >= 6 인 덱에서만 나온다.\n";
+    oss << "  - name: \"Beam Forces\"\n";
+    oss << "    type: beam_force\n";
+    oss << "    parts: []\n";
+    oss << "    output_prefix: \"beam\"\n\n";
+
     oss << "  # Surface stress analysis\n";
     oss << "  - name: \"Bottom Surface Stress\"\n";
     oss << "    type: surface_stress\n";

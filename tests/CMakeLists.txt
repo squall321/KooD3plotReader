@@ -25,6 +25,13 @@ add_executable(test_surface_strain_math test_surface_strain_math.cpp)
 target_link_libraries(test_surface_strain_math PRIVATE kood3plot)
 target_include_directories(test_surface_strain_math PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# BeamAnalyzer tests (합성 d3plot 왕복) — Writer 로 테스트 데이터를 만든다
+if(TARGET kood3plot_writer)
+    add_executable(test_beam_analyzer test_beam_analyzer.cpp)
+    target_link_libraries(test_beam_analyzer PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_beam_analyzer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # TimeHistoryAnalyzer tests
 add_executable(test_time_history test_time_history.cpp)
 target_link_libraries(test_time_history PRIVATE kood3plot)
