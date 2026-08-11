@@ -722,7 +722,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content','contactprofile-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content','contactprofile-content','toldoe-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -766,6 +766,7 @@ function renderTab(i) {
     case 11: renderRenderExport(); break;
     case 12: renderEnergyFlow(); break;
     case 13: renderContactProfile(); break;
+    case 14: renderToleranceDoe(); break;
   }
 }
 
@@ -5166,6 +5167,203 @@ function renderContactProfile() {
   container.dataset.done = '1';
 }
 
+
+// ============ Tab 14: Tolerance DOE (26방향 × 공차 산포) ============
+// 26방향(F1~6 / E01~12 / C1~8) 각각에 조립공차를 주고 LHS 로 흔든 DOE 를
+// "방향 단위" 로 되묶어 **공차 민감도**를 본다. 기존 탭들은 케이스를 개별로
+// 나열해서 "어느 방향이 공차에 취약한가" 에 답하지 못했다.
+//   이름 규칙: {방향}_{설명}_DOE{n}[_NOM]   예) F1_Back_DOE000_NOM
+//   규칙에 안 맞는 데이터셋이면 탭이 스스로 숨는다 (에러가 아니라 누락).
+let tolS = { metric: 'peak_stress', sort: 'sens' };
+
+function tolParse(name) {
+  const s = String(name || '');
+  const m = s.match(/^([FEC]\d+)(?:_|$)/i);
+  if (!m) return null;
+  const di = s.match(/_DOE(\d+)/i);
+  return {
+    dir: m[1].toUpperCase(),
+    nominal: /_NOM$/i.test(s),
+    doe: di ? parseInt(di[1], 10) : null,
+  };
+}
+
+// 한 각도의 대표값 = 전 파트 중 최악. getQtyValue 가 압축계열을 절대값으로
+// 돌려주므로 max 로 통일해도 방향이 뒤집히지 않는다.
+function tolAngleValue(r, qty) {
+  let best = null;
+  for (const k in (r.parts || {})) {
+    const v = getQtyValue(r.parts[k], qty);
+    if (v == null || !isFinite(v) || v === 0) continue;
+    if (best == null || v > best) best = v;
+  }
+  return best;
+}
+
+function tolGroups(qty) {
+  const g = {};
+  for (const r of (DATA.results || [])) {
+    const p = tolParse(r.angle && r.angle.name);
+    if (!p) continue;
+    const v = tolAngleValue(r, qty);
+    if (!g[p.dir]) {
+      g[p.dir] = { dir: p.dir, category: r.angle.category || '', nominal: null,
+                   vals: [], worst: null, worstName: '', n: 0 };
+    }
+    const e = g[p.dir];
+    e.n++;                       // 케이스 수는 값 유무와 무관하게 센다
+    if (v == null) continue;     // 값이 없는 케이스는 통계에서만 빠진다
+    if (p.nominal) e.nominal = v; else e.vals.push(v);
+    if (e.worst == null || v > e.worst) { e.worst = v; e.worstName = r.angle.name; }
+  }
+  // 통계 — 정각도가 없거나 섭동이 1개 이하면 산포/민감도는 None 이다
+  for (const k in g) {
+    const e = g[k], vs = e.vals.slice().sort((a, b) => a - b);
+    e.n_perturbed = vs.length;
+    if (vs.length) {
+      e.min = vs[0]; e.max = vs[vs.length - 1];
+      e.median = vs.length % 2 ? vs[(vs.length - 1) / 2]
+                               : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
+      e.spread = e.max - e.min;
+    } else {
+      e.min = e.max = e.median = e.spread = null;
+    }
+    // 민감도 = 산포폭 / 정각도. 정각도가 없으면 판정 불가(None) — 0 이 아니다.
+    e.sens = (e.nominal && e.spread != null && e.nominal !== 0)
+             ? e.spread / e.nominal : null;
+    // 정각도 대비 최악 배수
+    e.ratio = (e.nominal && e.max != null && e.nominal !== 0)
+              ? e.max / e.nominal : null;
+  }
+  return g;
+}
+
+function renderToleranceDoe() {
+  const c = document.getElementById('toldoe-content');
+  if (!c) return;
+  const ko = reportLang === 'ko';
+
+  const groups = tolGroups(tolS.metric);
+  const keys = Object.keys(groups);
+  if (!keys.length) {
+    c.innerHTML = `<div class="panel"><h2>Tolerance DOE</h2>
+      <p style="color:var(--dim)">${ko
+        ? '방향 접두(F1/E01/C1 …)가 붙은 각도 이름이 없어 공차 DOE 로 해석할 수 없습니다. '
+          + '이 탭은 {방향}_{설명}_DOE{n}[_NOM] 규칙일 때만 동작합니다.'
+        : 'No direction-prefixed angle names — this tab needs {DIR}_{label}_DOE{n}[_NOM].'}</p>
+      </div>`;
+    c.dataset.done = '1';
+    return;
+  }
+
+  const mi = (typeof HM_QTYS !== 'undefined'
+              ? HM_QTYS.find(q => q.key === tolS.metric) : null) || { label: tolS.metric };
+
+  // --- 컨트롤 ---
+  let ctl = `<div class="controls"><label>${ko ? '지표' : 'Metric'}:</label>
+    <select onchange="tolS.metric=this.value;renderToleranceDoe()">`;
+  for (const q of (typeof HM_QTYS !== 'undefined' ? HM_QTYS : [])) {
+    if (typeof hasQty === 'function' && !hasQty(q.key)) continue;
+    ctl += `<option value="${q.key}"${q.key === tolS.metric ? ' selected' : ''}>${q.label}</option>`;
+  }
+  ctl += `</select><label style="margin-left:12px">${ko ? '정렬' : 'Sort'}:</label>
+    <select onchange="tolS.sort=this.value;renderToleranceDoe()">
+      <option value="sens"${tolS.sort==='sens'?' selected':''}>${ko?'공차 민감도순':'By sensitivity'}</option>
+      <option value="worst"${tolS.sort==='worst'?' selected':''}>${ko?'최악값순':'By worst value'}</option>
+      <option value="dir"${tolS.sort==='dir'?' selected':''}>${ko?'방향 이름순':'By direction'}</option>
+    </select></div>`;
+
+  const rank = keys.slice().sort((a, b) => {
+    const A = groups[a], B = groups[b];
+    if (tolS.sort === 'dir') return a.localeCompare(b);
+    if (tolS.sort === 'worst') return (B.worst || 0) - (A.worst || 0);
+    return (B.sens == null ? -1 : B.sens) - (A.sens == null ? -1 : A.sens);
+  });
+
+  // --- 민감도 막대 ---
+  const W = 1240, H = 300, pl = 64, pr = 16, pt = 14, pb = 62;
+  const iw = W - pl - pr, ih = H - pt - pb;
+  const smax = Math.max(...rank.map(k => groups[k].sens || 0), 1e-9);
+  const bw = iw / Math.max(1, rank.length);
+  let sv = `<rect x="${pl}" y="${pt}" width="${iw}" height="${ih}" fill="var(--bg3)" opacity="0.35"/>`;
+  for (let i = 0; i <= 4; i++) {
+    const y = pt + ih * i / 4;
+    sv += `<line x1="${pl}" y1="${y}" x2="${pl+iw}" y2="${y}" stroke="var(--bg2)"/>`
+        + `<text x="${pl-6}" y="${y+3}" text-anchor="end" fill="var(--dim)" font-size="10">`
+        + `${((1 - i/4) * smax * 100).toFixed(1)}%</text>`;
+  }
+  const COL = { face: '#7aa2f7', edge: '#e0af68', corner: '#f7768e' };
+  rank.forEach((k, i) => {
+    const e = groups[k];
+    const x = pl + i * bw + bw * 0.15, w = bw * 0.7;
+    if (e.sens == null) {
+      // 정각도가 없어 민감도 판정 불가 — 빈 자리로 두고 표에 사유를 적는다
+      sv += `<rect x="${x.toFixed(1)}" y="${pt+ih-3}" width="${w.toFixed(1)}" height="3" fill="var(--dim)" opacity="0.4"/>`;
+    } else {
+      const h = (e.sens / smax) * ih;
+      sv += `<rect x="${x.toFixed(1)}" y="${(pt+ih-h).toFixed(1)}" width="${w.toFixed(1)}" `
+          + `height="${h.toFixed(1)}" fill="${COL[e.category] || 'var(--cyan)'}" opacity="0.9"/>`;
+    }
+    sv += `<text x="${(x + w/2).toFixed(1)}" y="${pt+ih+12}" text-anchor="end" fill="var(--dim)" `
+        + `font-size="9" transform="rotate(-55 ${(x+w/2).toFixed(1)} ${pt+ih+12})">${e.dir}</text>`;
+  });
+
+  // --- 표 ---
+  const f = (v, d) => (v == null ? '<span style="color:var(--dim)">&mdash;</span>'
+                                 : (Math.abs(v) >= 1000 ? v.toExponential(2) : v.toFixed(d)));
+  const pct = v => (v == null ? '<span style="color:var(--dim)">&mdash;</span>'
+                              : (v * 100).toFixed(1) + '%');
+  let rows = '';
+  for (const k of rank) {
+    const e = groups[k];
+    const why = (e.nominal == null)
+      ? (ko ? '정각도(_NOM) 없음' : 'no nominal')
+      : (e.n_perturbed < 2 ? (ko ? '섭동 2개 미만' : '<2 perturbed') : '');
+    rows += `<tr><td style="color:var(--cyan)">${e.dir}</td><td>${e.category}</td>`
+         + `<td style="text-align:right">${e.n}</td>`
+         + `<td style="text-align:right">${f(e.nominal, 2)}</td>`
+         + `<td style="text-align:right">${f(e.min, 2)}</td>`
+         + `<td style="text-align:right">${f(e.median, 2)}</td>`
+         + `<td style="text-align:right">${f(e.max, 2)}</td>`
+         + `<td style="text-align:right">${pct(e.sens)}</td>`
+         + `<td style="text-align:right">${e.ratio == null ? '—' : e.ratio.toFixed(2) + '&times;'}</td>`
+         + `<td style="color:var(--yellow)">${e.worstName || '—'}</td>`
+         + `<td style="color:var(--dim);font-size:11px">${why}</td></tr>`;
+  }
+
+  const nNoNom = rank.filter(k => groups[k].nominal == null).length;
+  c.innerHTML = `
+    <div class="panel">
+      <h2>${ko ? '공차 민감도 — 방향별' : 'Tolerance sensitivity by direction'}</h2>
+      ${ctl}
+      <div style="color:var(--dim);font-size:11px;margin:4px 0 8px">
+        ${ko ? `막대 높이 = (공차 내 최대 − 최소) / 정각도. 색은 면(파랑)·모서리(노랑)·꼭짓점(빨강).
+                높을수록 그 방향은 조립공차에 민감하다 — 같은 설계라도 실물 편차로 결과가 크게 흔들린다.`
+             : 'Bar = (max − min within tolerance) / nominal.'}
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${sv}</svg>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2>${ko ? '방향별 상세' : 'Per-direction detail'} &mdash; ${mi.label}</h2>
+      <div class="table-wrap" style="max-height:520px;overflow-y:auto">
+      <table>
+        <tr><th>${ko?'방향':'Dir'}</th><th>${ko?'분류':'Cat'}</th><th>${ko?'케이스':'N'}</th>
+            <th>${ko?'정각도':'Nominal'}</th><th>Min</th><th>Median</th><th>Max</th>
+            <th title="${ko?'(max−min)/정각도':'spread/nominal'}">${ko?'민감도':'Sens'}</th>
+            <th title="${ko?'최악값 ÷ 정각도':'max/nominal'}">${ko?'정각도 대비':'vs NOM'}</th>
+            <th>${ko?'최악 케이스':'Worst case'}</th><th>${ko?'비고':'Note'}</th></tr>
+        ${rows}
+      </table></div>
+      <p style="color:var(--dim);font-size:11px;margin-top:8px">
+        ${ko ? `절대 합격 기준은 두지 않는다 — 값만 보고하며 판단은 사람이 한다.
+                정각도가 없는 방향은 민감도를 계산할 수 없어 "—" 다(0 이 아니다).`
+             : 'No pass/fail thresholds. Directions without a nominal show "—", not 0.'}
+        ${nNoNom ? (ko ? ` 정각도 없는 방향 ${nNoNom}개.` : ` ${nNoNom} without nominal.`) : ''}
+      </p>
+    </div>`;
+  c.dataset.done = '1';
+}
+
 """
 
 
@@ -5221,6 +5419,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <div class="tab" data-tab="11">Render Export</div>
   <div class="tab" data-tab="12">Energy Flow</div>
   <div class="tab" data-tab="13">Contact Profile</div>
+  <div class="tab" data-tab="14">Tolerance DOE</div>
 </div>
 
 <div class="content">
@@ -5299,6 +5498,11 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <!-- Tab 13: Contact Profile (각도 X축 전개 + 파트쌍 선택) -->
   <div class="tab-content hidden" id="tab-13">
     <div id="contactprofile-content"></div>
+  </div>
+
+  <!-- Tab 14: Tolerance DOE (26방향 × 공차 산포) -->
+  <div class="tab-content hidden" id="tab-14">
+    <div id="toldoe-content"></div>
   </div>
 </div>
 

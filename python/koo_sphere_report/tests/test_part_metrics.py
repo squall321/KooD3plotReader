@@ -307,3 +307,29 @@ def test_mollweide_fallback_has_center_coords():
     fb = body[body.index("clientWidth < 100"):]
     for k in ("cx:", "cy:", "rx:", "ry:"):
         assert k in fb[:400], f"폴백에 {k} 없음"
+
+
+# --------------------------------------------------------------------------
+# Tolerance DOE 탭 — 26방향 × 공차 산포
+# --------------------------------------------------------------------------
+def test_tolerance_doe_parses_direction_naming():
+    """{방향}_{설명}_DOE{n}[_NOM] 규칙을 파싱하는 코드가 실려 있어야 한다."""
+    from koo_sphere_report.report.html_report import _JS
+    assert "function tolParse" in _JS
+    assert "renderToleranceDoe" in _JS
+    # 방향 접두 정규식과 _NOM 판정
+    assert "([FEC]" in _JS and "_NOM$" in _JS
+
+
+def test_tolerance_doe_sensitivity_needs_nominal():
+    """정각도가 없으면 민감도는 None — 0 으로 채우면 '공차에 둔감' 으로 오독된다."""
+    from koo_sphere_report.report.html_report import _JS
+    i = _JS.index("e.sens =")
+    seg = _JS[i:i + 200]
+    assert "e.nominal" in seg and "null" in seg
+
+
+def test_tolerance_doe_hides_when_naming_mismatch():
+    """규칙에 안 맞는 데이터셋이면 안내문만 — 에러가 아니라 누락이다."""
+    from koo_sphere_report.report.html_report import _JS
+    assert "공차 DOE 로 해석할 수 없습니다" in _JS
