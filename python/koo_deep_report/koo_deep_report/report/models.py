@@ -163,7 +163,9 @@ class ElementQualityData:
     jacobian_measured: bool = False
     min_jacobian: float = 1.0
     jacobian_unavailable_count: int = 0
+    warpage_measured: bool = False
     peak_warpage: float = 0.0
+    skewness_measured: bool = False
     peak_skewness: float = 0.0
     volume_measured: bool = False
     min_volume_change: float = 1.0

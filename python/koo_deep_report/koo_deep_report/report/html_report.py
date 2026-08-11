@@ -251,6 +251,8 @@ def _build_js_data(result: SingleResult) -> dict:
                 "aspect_measured": eq.aspect_measured,
                 "jacobian_measured": eq.jacobian_measured,
                 "volume_measured": eq.volume_measured,
+                "warpage_measured": eq.warpage_measured,
+                "skewness_measured": eq.skewness_measured,
                 "jacobian_unavailable_count": eq.jacobian_unavailable_count,
                 "min_jacobian": eq.min_jacobian,
                 "peak_warpage": eq.peak_warpage,
@@ -1931,8 +1933,8 @@ function renderQuality() {
       <td>${q.part_id}</td><td>${q.part_name}</td><td>${q.element_type}</td><td>${q.num_elements}</td>
       <td class="${arCls}"${arM ? '' : ` title="${naTip}"`}>${arM ? q.peak_aspect_ratio.toFixed(2) : '—'}</td>
       <td class="${jacCls}"${jacM ? '' : ` title="${naTip}"`}>${jacM ? q.min_jacobian.toFixed(3) : '—'}</td>
-      <td>${q.peak_warpage.toFixed(1)}</td>
-      <td>${q.peak_skewness.toFixed(3)}</td>
+      <td class="${q.warpage_measured === false ? 'na' : ''}">${q.warpage_measured === false ? '—' : q.peak_warpage.toFixed(1)}</td>
+      <td class="${q.skewness_measured === false ? 'na' : ''}">${q.skewness_measured === false ? '—' : q.peak_skewness.toFixed(3)}</td>
       <td>${volM ? q.min_volume_change.toFixed(3) : '—'}</td>
       <td>${volM ? q.max_volume_change.toFixed(3) : '—'}</td>
       <td class="${negCls}">${q.max_negative_jacobian_count}</td>

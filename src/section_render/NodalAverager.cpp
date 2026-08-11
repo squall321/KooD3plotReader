@@ -121,7 +121,8 @@ double computeHex8Strain(const double coords[][3], const double disp[][3])
 }
 
 /// Compute element-centroid total strain for Tet4 (constant strain element)
-double computeTet4Strain(const double coords[][3], const double disp[][3])
+/// tet4 변형률. 좌표 행렬이 특이하면 false — 0.0 을 정상값처럼 돌려주지 않는다.
+bool computeTet4Strain(const double coords[][3], const double disp[][3], double& out)
 {
     // For Tet4, strain is constant. Use the inverse of the coordinate matrix.
     // [x2-x1, x3-x1, x4-x1]^-1 gives dN/dx directly
@@ -132,7 +133,7 @@ double computeTet4Strain(const double coords[][3], const double disp[][3])
         A[2*3+j] = coords[3][j] - coords[0][j];
     }
     Mat3 Ainv;
-    if (std::abs(invert3x3(A, Ainv)) < 1e-30) return 0.0;
+    if (std::abs(invert3x3(A, Ainv)) < 1e-30) return false;
 
     // du/dx = [u2-u1, u3-u1, u4-u1]^T * Ainv^T
     // but more directly: du_i/dx_j = Σ_k (u_{k+1,i} - u_{0,i}) * Ainv_{k,j}
@@ -148,7 +149,8 @@ double computeTet4Strain(const double coords[][3], const double disp[][3])
     double exy = 0.5*(dudx[0][1]+dudx[1][0]);
     double eyz = 0.5*(dudx[1][2]+dudx[2][1]);
     double exz = 0.5*(dudx[0][2]+dudx[2][0]);
-    return vonMisesStrain(exx, eyy, ezz, exy, eyz, exz);
+    out = vonMisesStrain(exx, eyy, ezz, exy, eyz, exz);
+    return true;
 }
 
 /// Compute element-centroid total strain for Quad4 shell (in-plane + bending approximation)
@@ -234,11 +236,33 @@ double computeQuad4Strain(const double coords[][3], const double disp[][3])
     return vonMisesStrain(exx, eyy, 0.0, exy, 0.0, 0.0);
 }
 
-/// Generic strain for degenerate hex (penta6, pyram5): use first 4 nodes as tet4 fallback
-double computeDegenerateStrain(const double coords[][3], const double disp[][3], int nn)
+/// 축퇴 hex (tet4/penta6/pyram5) 의 변형률 — 기하적으로 서로 다른 절점 4개로 tet4.
+///
+/// 예전에는 배열 **앞 4칸을 그대로** 썼다. LS-DYNA 의 wedge 저장 패턴
+/// (a,b,c,c,d,e,f,f) 에서는 앞 4칸이 a,b,c,c 라 좌표 행렬이 특이해지고,
+/// computeTet4Strain 이 조용히 0.0 을 돌려줬다. 그 0 이 절점 평균에 그대로
+/// 합산돼 wedge 가 섞인 영역의 변형률 컨투어가 낮게 깔렸다.
+/// 이제 중복 좌표를 걸러 서로 다른 4점을 고르고, 그래도 안 되면 실패를
+/// 알려 호출부가 그 요소를 **건너뛴다** (0 으로 위장하지 않는다).
+bool computeDegenerateStrain(const double coords[][3], const double disp[][3],
+                             int nn, double& out)
 {
-    if (nn >= 4) return computeTet4Strain(coords, disp);
-    return 0.0;
+    double c4[4][3], d4[4][3];
+    int k = 0;
+    for (int i = 0; i < nn && k < 4; ++i) {
+        bool dup = false;
+        for (int j = 0; j < k; ++j) {
+            const double dx = coords[i][0] - c4[j][0];
+            const double dy = coords[i][1] - c4[j][1];
+            const double dz = coords[i][2] - c4[j][2];
+            if (dx*dx + dy*dy + dz*dz < 1e-24) { dup = true; break; }
+        }
+        if (dup) continue;
+        for (int a = 0; a < 3; ++a) { c4[k][a] = coords[i][a]; d4[k][a] = disp[i][a]; }
+        ++k;
+    }
+    if (k < 4) return false;
+    return computeTet4Strain(c4, d4, out);
 }
 
 } // anonymous namespace (strain helpers)
@@ -367,19 +391,26 @@ void NodalAverager::compute(const data::StateData& state,
             if (!ok) continue;
 
             double val = 0.0;
+            bool val_ok = true;
             if (actual_nn == 8) {
                 // Check for degenerate hex (repeated nodes → tet/penta/pyram)
                 bool degen = false;
                 for (int i = 0; i < 8 && !degen; ++i)
                     for (int j = i+1; j < 8 && !degen; ++j)
                         if (elem.node_ids[i] == elem.node_ids[j]) degen = true;
-                val = degen ? computeDegenerateStrain(coords, disp, actual_nn)
-                            : computeHex8Strain(coords, disp);
+                if (degen) {
+                    val_ok = computeDegenerateStrain(coords, disp, actual_nn, val);
+                } else {
+                    val = computeHex8Strain(coords, disp);
+                }
             } else if (actual_nn == 4) {
-                val = computeTet4Strain(coords, disp);
+                val_ok = computeTet4Strain(coords, disp, val);
             } else {
-                val = computeDegenerateStrain(coords, disp, actual_nn);
+                val_ok = computeDegenerateStrain(coords, disp, actual_nn, val);
             }
+            // 변형률을 못 구한 요소는 평균에서 제외한다 — 0 을 더하면
+            // 그 주변 절점의 변형률이 실제보다 낮게 깔린다.
+            if (!val_ok) continue;
 
             for (int i = 0; i < actual_nn; ++i) {
                 int32_t idx = nodeIndex(elem.node_ids[i]);
@@ -404,8 +435,12 @@ void NodalAverager::compute(const data::StateData& state,
                 ok = getNodeData(elem.node_ids[i], coords[i], disp[i]);
             if (!ok) continue;
 
-            double val = (nn == 8) ? computeHex8Strain(coords, disp)
-                                   : computeDegenerateStrain(coords, disp, nn);
+            double val = 0.0;
+            if (nn == 8) {
+                val = computeHex8Strain(coords, disp);
+            } else if (!computeDegenerateStrain(coords, disp, nn, val)) {
+                continue;   // 미산출 — 평균에서 제외
+            }
 
             for (int i = 0; i < nn; ++i) {
                 int32_t idx = nodeIndex(elem.node_ids[i]);

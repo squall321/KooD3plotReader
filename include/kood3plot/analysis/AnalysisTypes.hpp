@@ -245,12 +245,18 @@ struct ElementQualityTimePoint {
     int32_t worst_jacobian_elem = 0;
     int32_t n_jacobian_unavailable = 0;  ///< 축퇴로 scaled Jacobian 미정의인 요소 수
 
-    // Warpage angle for shells (degrees, ideal = 0)
+    // Warpage angle (degrees, ideal = 0) — **셸 전용 지표**.
+    // Skewness (0 = ideal, 1 = degenerate) — 현재 구현은 셸 4절점 기준.
+    // 솔리드만 있는 파트에서는 계산 자체를 안 하므로 measured=false 다.
+    // 예전에는 플래그가 없어 기본값 0.0 이 그대로 나갔고, 보고서에서
+    // '뒤틀림 0 · 왜곡도 0 = 완벽한 메시' 로 읽혔다 (실측 Test_006 은
+    // 23 파트 전부 솔리드인데 두 지표가 전 스텝 0.00000 이었다).
+    bool warpage_measured = false;
     double warpage_max = 0.0;
     double warpage_avg = 0.0;
     int32_t worst_warpage_elem = 0;
 
-    // Skewness (0 = ideal, 1 = degenerate)
+    bool skewness_measured = false;
     double skewness_max = 0.0;
     double skewness_avg = 0.0;
     int32_t worst_skewness_elem = 0;
@@ -285,7 +291,9 @@ struct ElementQualityStats {
     bool jacobian_measured = false;   ///< false 면 min_jacobian 은 미산출 (표기는 "—")
     double min_jacobian = 1.0;
     int32_t max_jacobian_unavailable_count = 0;
+    bool warpage_measured = false;
     double peak_warpage = 0.0;
+    bool skewness_measured = false;
     double peak_skewness = 0.0;
     bool volume_measured = false;
     double min_volume_change = 1.0;
@@ -299,7 +307,9 @@ struct ElementQualityStats {
         jacobian_measured = false;
         min_jacobian = 1.0;
         max_jacobian_unavailable_count = 0;
+        warpage_measured = false;
         peak_warpage = 0;
+        skewness_measured = false;
         peak_skewness = 0;
         volume_measured = false;
         min_volume_change = 1.0;
@@ -324,10 +334,14 @@ struct ElementQualityStats {
             }
             if (tp.n_jacobian_unavailable > max_jacobian_unavailable_count)
                 max_jacobian_unavailable_count = tp.n_jacobian_unavailable;
-            if (tp.warpage_max > peak_warpage)
-                peak_warpage = tp.warpage_max;
-            if (tp.skewness_max > peak_skewness)
-                peak_skewness = tp.skewness_max;
+            if (tp.warpage_measured) {
+                if (tp.warpage_max > peak_warpage) peak_warpage = tp.warpage_max;
+                warpage_measured = true;
+            }
+            if (tp.skewness_measured) {
+                if (tp.skewness_max > peak_skewness) peak_skewness = tp.skewness_max;
+                skewness_measured = true;
+            }
             if (tp.volume_measured) {
                 if (!volume_measured || tp.volume_change_min < min_volume_change)
                     min_volume_change = tp.volume_change_min;
@@ -623,7 +637,9 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                   << ", \"jacobian_measured\": " << (q.jacobian_measured ? "true" : "false")
                   << ", \"min_jacobian\": " << q.min_jacobian
                   << ", \"jacobian_unavailable_count\": " << q.max_jacobian_unavailable_count
+                  << ", \"warpage_measured\": " << (q.warpage_measured ? "true" : "false")
                   << ", \"peak_warpage\": " << q.peak_warpage
+                  << ", \"skewness_measured\": " << (q.skewness_measured ? "true" : "false")
                   << ", \"peak_skewness\": " << q.peak_skewness
                   << ", \"volume_measured\": " << (q.volume_measured ? "true" : "false")
                   << ", \"min_volume_change\": " << q.min_volume_change

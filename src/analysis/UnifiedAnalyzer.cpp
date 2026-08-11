@@ -823,6 +823,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
             int count = 0;
             int jac_count = 0;   // scaled Jacobian 이 정의된 요소만 따로 센다
             int ar_count = 0;    // 종횡비가 정의된 요소만 따로 센다
+            int sk_count = 0;    // 왜곡도/뒤틀림이 정의된 요소(사각 셸)만
 
             for (size_t ei = 0; ei < elems.size(); ++ei) {
                 const auto& info = elems[ei];
@@ -933,8 +934,15 @@ void UnifiedAnalyzer::processElementQualityJobs(
                     } else {
                         tp.n_aspect_unavailable++;
                     }
-                    if (sk > tp.skewness_max) { tp.skewness_max = sk; tp.worst_skewness_elem = elem_id; }
-                    if (wp > tp.warpage_max) { tp.warpage_max = wp; tp.worst_warpage_elem = elem_id; }
+                    // 삼각형 셸은 왜곡도/뒤틀림이 정의되지 않아 위에서 0 을 넣는다
+                    // — 그건 '측정된 0' 이 아니므로 사각형일 때만 measured 로 친다.
+                    if (!is_tria) {
+                        if (sk > tp.skewness_max) { tp.skewness_max = sk; tp.worst_skewness_elem = elem_id; }
+                        if (wp > tp.warpage_max) { tp.warpage_max = wp; tp.worst_warpage_elem = elem_id; }
+                        tp.skewness_measured = true;
+                        tp.warpage_measured = true;
+                        sk_count++;
+                    }
                     if (init_area > 1e-20) {
                         if (!tp.volume_measured || area_ratio < tp.volume_change_min) {
                             tp.volume_change_min = area_ratio;
@@ -944,14 +952,16 @@ void UnifiedAnalyzer::processElementQualityJobs(
                         tp.volume_measured = true;
                     }
 
-                    sk_sum += sk; wp_sum += wp;
+                    if (!is_tria) { sk_sum += sk; wp_sum += wp; }
                     count++;
                 }
             }
 
-            if (count > 0) {
-                tp.skewness_avg = sk_sum / count;
-                tp.warpage_avg = wp_sum / count;
+            // 왜곡도/뒤틀림 평균도 정의된 요소로만 나눈다. 예전에는 솔리드를
+            // 포함한 전체 count 로 나눠서 솔리드 파트가 0.0 을 냈다.
+            if (sk_count > 0) {
+                tp.skewness_avg = sk_sum / sk_count;
+                tp.warpage_avg = wp_sum / sk_count;
             }
             if (ar_count > 0) {
                 tp.aspect_ratio_avg = ar_sum / ar_count;
