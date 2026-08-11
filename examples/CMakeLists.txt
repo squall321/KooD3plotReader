@@ -21,6 +21,13 @@ add_executable(simple_read simple_read.cpp)
 target_link_libraries(simple_read PRIVATE kood3plot)
 
 # Check results - verify displacement and stress data
+# 셸 → 두께셸 변환 (두께셸 분석 경로 검증용). Writer 가 있을 때만.
+if(TARGET kood3plot_writer)
+    add_executable(make_tshell_from_shell make_tshell_from_shell.cpp)
+    target_link_libraries(make_tshell_from_shell PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(make_tshell_from_shell PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 add_executable(check_results check_results.cpp)
 target_link_libraries(check_results PRIVATE kood3plot)
 

@@ -836,7 +836,8 @@ void UnifiedAnalyzer::processElementQualityJobs(
     // Build part → element index maps
     struct ElemInfo {
         size_t idx;          // index in mesh.shells / mesh.solids
-        bool is_solid;
+        bool is_solid;      ///< true = 8절점(solid/thick shell), false = 4절점 shell
+        bool is_tshell = false;  ///< 두께셸이면 mesh.thick_shells 에서 꺼낸다
     };
     std::map<int32_t, std::vector<ElemInfo>> part_elements;
     std::map<int32_t, std::string> part_types;  // "shell" or "solid"
@@ -845,15 +846,25 @@ void UnifiedAnalyzer::processElementQualityJobs(
         int32_t pid = (i < mesh.shell_parts.size()) ? mesh.shell_parts[i] : 0;
         if (!want_all && std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
             continue;
-        part_elements[pid].push_back({i, false});
+        part_elements[pid].push_back({i, false, false});
         part_types[pid] = "shell";
     }
     for (size_t i = 0; i < mesh.solids.size(); ++i) {
         int32_t pid = (i < mesh.solid_parts.size()) ? mesh.solid_parts[i] : 0;
         if (!want_all && std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
             continue;
-        part_elements[pid].push_back({i, true});
+        part_elements[pid].push_back({i, true, false});
         part_types[pid] = "solid";
+    }
+    // 두께셸 — 8절점이라 hex 와 같은 지표를 그대로 쓸 수 있다.
+    // 예전에는 이 루프가 아예 없어서 두께셸 모델은 요소품질 산출물이
+    // 통째로 비었고 사유도 안 남았다 (실측: 3750요소 26상태 → 0 파트).
+    for (size_t i = 0; i < mesh.thick_shells.size(); ++i) {
+        int32_t pid = (i < mesh.thick_shell_parts.size()) ? mesh.thick_shell_parts[i] : 0;
+        if (!want_all && std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end())
+            continue;
+        part_elements[pid].push_back({i, true, true});
+        part_types[pid] = "tshell";
     }
 
     // 기준 형상 = **첫 출력 상태**. 기하 섹션이 아니다.
@@ -893,7 +904,8 @@ void UnifiedAnalyzer::processElementQualityJobs(
         for (size_t ei = 0; ei < elems.size(); ++ei) {
             const auto& info = elems[ei];
             if (info.is_solid) {
-                const auto& elem = mesh.solids[info.idx];
+                const auto& elem = info.is_tshell ? mesh.thick_shells[info.idx]
+                                                  : mesh.solids[info.idx];
                 if (elem.node_ids.size() >= 8) {
                     Vec3Q p[8];
                     bool ok8 = true;
@@ -971,7 +983,8 @@ void UnifiedAnalyzer::processElementQualityJobs(
                 int32_t elem_id = 0;
 
                 if (info.is_solid) {
-                    const auto& elem = mesh.solids[info.idx];
+                    const auto& elem = info.is_tshell ? mesh.thick_shells[info.idx]
+                                                      : mesh.solids[info.idx];
                     elem_id = elem.id;
                     if (elem.node_ids.size() < 8) continue;
 

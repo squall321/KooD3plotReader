@@ -119,6 +119,32 @@ void MotionAnalyzer::buildNodeToPartMapping() {
         }
     }
 
+    // 두께셸·빔 — 예전에는 solid/shell 만 훑어서, 두께셸이나 빔으로만 이뤄진
+    // 모델은 파트에 절점이 하나도 안 잡혀 모션 산출물이 통째로 비었다
+    // (실측: 두께셸 3750요소 모델 → 모션 0 파트).
+    for (size_t elem_idx = 0; elem_idx < mesh_.thick_shells.size(); ++elem_idx) {
+        const auto& elem = mesh_.thick_shells[elem_idx];
+        int32_t part_id = mesh_.thick_shell_parts.empty() ? 1 :
+                         (elem_idx < mesh_.thick_shell_parts.size() ? mesh_.thick_shell_parts[elem_idx] : 1);
+        for (int32_t node_id : elem.node_ids) {
+            if (node_id > 0) {
+                size_t node_idx = static_cast<size_t>(node_id - 1);
+                if (node_idx < num_nodes_) temp_sets[part_id].insert(node_idx);
+            }
+        }
+    }
+    for (size_t elem_idx = 0; elem_idx < mesh_.beams.size(); ++elem_idx) {
+        const auto& elem = mesh_.beams[elem_idx];
+        int32_t part_id = mesh_.beam_parts.empty() ? 1 :
+                         (elem_idx < mesh_.beam_parts.size() ? mesh_.beam_parts[elem_idx] : 1);
+        for (int32_t node_id : elem.node_ids) {
+            if (node_id > 0) {
+                size_t node_idx = static_cast<size_t>(node_id - 1);
+                if (node_idx < num_nodes_) temp_sets[part_id].insert(node_idx);
+            }
+        }
+    }
+
     // Convert to sorted vectors for cache-friendly sequential access
     for (auto& [pid, node_set] : temp_sets) {
         auto& vec = part_node_indices_[pid];
