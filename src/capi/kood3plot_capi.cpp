@@ -490,13 +490,26 @@ KOO_API koo_error_t koo_read_displacement(koo_handle_t handle, int32_t state_ind
     if (!data || !data->reader) return set_error(KOO_ERROR_INVALID_HANDLE);
 
     if (!ensure_state_loaded(data, state_index)) return set_error(KOO_ERROR_READ_FAILED);
+    if (!ensure_mesh_loaded(data)) return set_error(KOO_ERROR_READ_FAILED);
 
     try {
+        // d3plot 의 node_displacements 는 **현재 절대 좌표**다
+        // (data/NodeKinematics.hpp). 이 함수는 이름대로 변위를 돌려줘야
+        // 하므로 초기좌표를 뺀다 — 예전에는 좌표를 그대로 내보내서
+        // t=0 에도 0 이 아닌 값이 나왔다.
         const auto& disp = data->states[state_index].node_displacements;
         int32_t required = static_cast<int32_t>(disp.size());
         if (buffer_size < required) return set_error(KOO_ERROR_OUT_OF_MEMORY);
 
-        for (size_t i = 0; i < disp.size(); i++) {
+        const auto& mesh = data->mesh;
+        const size_t n_node = disp.size() / 3;
+        for (size_t i = 0; i < n_node; i++) {
+            const bool has_ref = (i < mesh.nodes.size());
+            buffer[i * 3 + 0] = static_cast<float>(disp[i * 3 + 0] - (has_ref ? mesh.nodes[i].x : 0.0));
+            buffer[i * 3 + 1] = static_cast<float>(disp[i * 3 + 1] - (has_ref ? mesh.nodes[i].y : 0.0));
+            buffer[i * 3 + 2] = static_cast<float>(disp[i * 3 + 2] - (has_ref ? mesh.nodes[i].z : 0.0));
+        }
+        for (size_t i = n_node * 3; i < disp.size(); i++) {
             buffer[i] = static_cast<float>(disp[i]);
         }
 

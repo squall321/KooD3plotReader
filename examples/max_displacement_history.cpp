@@ -4,6 +4,7 @@
  */
 
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -122,11 +123,8 @@ int main(int argc, char* argv[]) {
             if (it == node_to_part.end()) continue;
 
             int part_id = it->second;
-            int idx = i * ndim;
-            double ux = state.node_displacements[idx + 0];
-            double uy = state.node_displacements[idx + 1];
-            double uz = state.node_displacements[idx + 2];
-            double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
+            // 절대좌표 → 변위
+            double mag = kood3plot::data::nodeDisplacementMagnitude(mesh, state, static_cast<size_t>(i));
 
             if (mag > part_max_disp[part_id]) {
                 part_max_disp[part_id] = mag;

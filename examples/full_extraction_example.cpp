@@ -18,6 +18,7 @@
  */
 
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include "kood3plot/data/Mesh.hpp"
 #include "kood3plot/data/StateData.hpp"
 #include "kood3plot/data/ControlData.hpp"
@@ -183,6 +184,7 @@ void extract_mesh_data(D3plotReader& reader, const std::string& output_dir) {
 // ============================================================
 
 void extract_state_data(D3plotReader& reader, const std::string& output_dir) {
+    auto mesh = reader.read_mesh();
     print_section("2. State Data Extraction");
     Timer timer;
 
@@ -256,12 +258,9 @@ void extract_state_data(D3plotReader& reader, const std::string& output_dir) {
         size_t max_state = 0;
 
         for (size_t s = 0; s < states.size(); ++s) {
-            const auto& disp = states[s].node_displacements;
             for (size_t i = 0; i < num_nodes; ++i) {
-                double ux = disp[i * 3 + 0];
-                double uy = disp[i * 3 + 1];
-                double uz = disp[i * 3 + 2];
-                double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
+                // 절대좌표 → 변위 (NodeKinematics.hpp)
+                double mag = kood3plot::data::nodeDisplacementMagnitude(mesh, states[s], i);
                 if (mag > max_disp) {
                     max_disp = mag;
                     max_node = i;

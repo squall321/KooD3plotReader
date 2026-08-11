@@ -1,4 +1,5 @@
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -57,12 +58,13 @@ int main(int argc, char* argv[]) {
     std::cout << "시간: " << state0.time << " 초" << std::endl;
 
     // 노드 변위 분석
+    auto mesh = reader.read_mesh();
     if (!state0.node_displacements.empty() && cd.IU > 0) {
         std::cout << "\n[노드 변위 데이터]" << std::endl;
         std::cout << "  총 데이터 크기: " << state0.node_displacements.size() << std::endl;
         std::cout << "  노드당 값 개수: " << cd.NDIM << std::endl;
 
-        int numnp = state0.node_displacements.size() / cd.NDIM;
+        int numnp = state0.node_displacements.size() / kood3plot::data::effectiveNodeStride(cd.NDIM);
         std::cout << "  계산된 노드 수: " << numnp << std::endl;
 
         // 처음 10개 노드의 변위 출력
@@ -71,9 +73,9 @@ int main(int argc, char* argv[]) {
         std::cout << "  ----    ----------   ----------   ----------   ----------" << std::endl;
 
         for (int i = 0; i < std::min(10, numnp); ++i) {
-            double ux = state0.node_displacements[i * cd.NDIM + 0];
-            double uy = state0.node_displacements[i * cd.NDIM + 1];
-            double uz = state0.node_displacements[i * cd.NDIM + 2];
+            // 절대좌표 → 변위 (NodeKinematics.hpp)
+            const auto u = kood3plot::data::nodeDisplacement(mesh, state0, static_cast<size_t>(i));
+            double ux = u.x, uy = u.y, uz = u.z;
             double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
 
             std::cout << "  " << std::setw(4) << (i+1) << "    "
@@ -87,14 +89,9 @@ int main(int argc, char* argv[]) {
         double max_disp = 0.0;
         int max_node = 0;
         for (int i = 0; i < numnp; ++i) {
-            double ux = state0.node_displacements[i * cd.NDIM + 0];
-            double uy = state0.node_displacements[i * cd.NDIM + 1];
-            double uz = state0.node_displacements[i * cd.NDIM + 2];
-            double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
-            if (mag > max_disp) {
-                max_disp = mag;
-                max_node = i + 1;
-            }
+            const double mag = kood3plot::data::nodeDisplacementMagnitude(
+                mesh, state0, static_cast<size_t>(i));
+            if (mag > max_disp) { max_disp = mag; max_node = i + 1; }
         }
 
         std::cout << "\n  최대 변위: " << max_disp << " (노드 " << max_node << ")" << std::endl;
@@ -105,7 +102,7 @@ int main(int argc, char* argv[]) {
     // 노드 속도 분석
     if (!state0.node_velocities.empty() && cd.IV > 0) {
         std::cout << "\n[노드 속도 데이터]" << std::endl;
-        int numnp = state0.node_velocities.size() / cd.NDIM;
+        int numnp = state0.node_velocities.size() / kood3plot::data::effectiveNodeStride(cd.NDIM);
 
         std::cout << "  처음 5개 노드 속도:" << std::endl;
         std::cout << "  Node    Vx           Vy           Vz           |V|" << std::endl;

@@ -25,7 +25,8 @@ struct StateData {
     ///    d3plot 규약(절대좌표)으로 내보낸다.
     ///
     /// 그래서 d3plot 소비자는 IU!=0 이면 이 값을 **그대로** 좌표로 써야 한다.
-    /// 참고 구현: SurfaceExtractor::getNodePosition, KeywordExporter (IU 분기).
+    /// 직접 인덱싱하지 말고 data/NodeKinematics.hpp 의
+    /// nodePosition() / nodeDisplacement() 를 쓸 것.
     std::vector<double> node_displacements;
     std::vector<double> node_velocities;      ///< Node velocities (if IV=1): Vx,Vy,Vz per node
     std::vector<double> node_accelerations;   ///< Node accelerations (if IA=1): Ax,Ay,Az per node

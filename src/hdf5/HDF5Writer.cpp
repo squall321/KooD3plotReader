@@ -416,6 +416,13 @@ void HDF5Writer::write_beams(const data::Mesh& mesh) {
 void HDF5Writer::calibrate_quantizers(const data::StateData& state) {
     if (calibrated_) return;
 
+    // 주의: "displacement" 데이터셋에 실리는 node_displacements 는 d3plot
+    // 규약상 **현재 절대 좌표**다 (data/NodeKinematics.hpp). HDF5Reader 가
+    // 같은 필드로 되읽으므로 왕복은 자기일관적이라 값은 보존된다.
+    // 다만 양자화 범위가 변위(수 mm)가 아니라 모델 크기(수백 mm)로 잡혀
+    // 같은 비트폭에서 해상도가 그만큼 거칠어진다. 포맷 호환 때문에
+    // 저장 내용은 바꾸지 않았다.
+
     // Find min/max for displacements (Ux, Uy, Uz interleaved)
     if (!state.node_displacements.empty()) {
         size_t num_nodes = state.node_displacements.size() / 3;

@@ -1,4 +1,5 @@
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -12,6 +13,7 @@ double calculate_magnitude(double ux, double uy, double uz) {
 
 // 예제 1: 특정 state의 모든 노드 변위 출력
 void example1_all_nodes(kood3plot::D3plotReader& reader) {
+    auto mesh = reader.read_mesh();
     std::cout << "\n" << std::string(80, '=') << "\n";
     std::cout << "예제 1: 특정 State의 모든 노드 변위 출력\n";
     std::cout << std::string(80, '=') << "\n";
@@ -26,7 +28,7 @@ void example1_all_nodes(kood3plot::D3plotReader& reader) {
 
     // 마지막 state 사용
     const auto& state = states.back();
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
     int numnp = cd.NUMNP;
 
     std::cout << "Time: " << state.time << " 초\n";
@@ -47,9 +49,9 @@ void example1_all_nodes(kood3plot::D3plotReader& reader) {
     std::cout << "----    ----------  ----------  ----------  ----------\n";
 
     for (int i = 0; i < show_count; ++i) {
-        double ux = state.node_displacements[i * ndim + 0];
-        double uy = state.node_displacements[i * ndim + 1];
-        double uz = state.node_displacements[i * ndim + 2];
+        // node_displacements 는 현재 절대좌표다 — 초기좌표를 빼야 변위가 된다.
+        const auto u = kood3plot::data::nodeDisplacement(mesh, state, i);
+        double ux = u.x, uy = u.y, uz = u.z;
         double mag = calculate_magnitude(ux, uy, uz);
 
         std::cout << std::setw(4) << (i + 1) << "    "
@@ -75,7 +77,7 @@ void example2_specific_node(kood3plot::D3plotReader& reader, int node_id) {
     }
 
     const auto& state = states.back();
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
     int numnp = cd.NUMNP;
 
     if (node_id < 1 || node_id > numnp) {
@@ -135,6 +137,7 @@ void example2_specific_node(kood3plot::D3plotReader& reader, int node_id) {
 
 // 예제 3: 시간에 따른 변위 이력 (Time History)
 void example3_time_history(kood3plot::D3plotReader& reader, int node_id) {
+    auto mesh = reader.read_mesh();
     std::cout << "\n" << std::string(80, '=') << "\n";
     std::cout << "예제 3: 시간에 따른 변위 이력 (Time History)\n";
     std::cout << std::string(80, '=') << "\n";
@@ -147,7 +150,7 @@ void example3_time_history(kood3plot::D3plotReader& reader, int node_id) {
         return;
     }
 
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
     int numnp = cd.NUMNP;
 
     if (node_id < 1 || node_id > numnp) {
@@ -170,9 +173,8 @@ void example3_time_history(kood3plot::D3plotReader& reader, int node_id) {
 
         if (state.node_displacements.empty()) continue;
 
-        double ux = state.node_displacements[idx + 0];
-        double uy = state.node_displacements[idx + 1];
-        double uz = state.node_displacements[idx + 2];
+        const auto u = kood3plot::data::nodeDisplacement(mesh, state, static_cast<size_t>(idx / ndim));
+        double ux = u.x, uy = u.y, uz = u.z;
         double mag = calculate_magnitude(ux, uy, uz);
 
         std::cout << std::setw(5) << i << "   "
@@ -204,6 +206,7 @@ void example3_time_history(kood3plot::D3plotReader& reader, int node_id) {
 
 // 예제 4: 최대 변위 노드 찾기
 void example4_find_max_displacement(kood3plot::D3plotReader& reader) {
+    auto mesh = reader.read_mesh();
     std::cout << "\n" << std::string(80, '=') << "\n";
     std::cout << "예제 4: 최대 변위 노드 찾기\n";
     std::cout << std::string(80, '=') << "\n";
@@ -217,7 +220,7 @@ void example4_find_max_displacement(kood3plot::D3plotReader& reader) {
     }
 
     const auto& state = states.back();
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
     int numnp = cd.NUMNP;
 
     if (state.node_displacements.empty()) {
@@ -235,9 +238,8 @@ void example4_find_max_displacement(kood3plot::D3plotReader& reader) {
     // 모든 노드 순회
     for (int i = 0; i < numnp; ++i) {
         int idx = i * ndim;
-        double ux = state.node_displacements[idx + 0];
-        double uy = state.node_displacements[idx + 1];
-        double uz = state.node_displacements[idx + 2];
+        const auto u = kood3plot::data::nodeDisplacement(mesh, state, static_cast<size_t>(idx / ndim));
+        double ux = u.x, uy = u.y, uz = u.z;
         double mag = calculate_magnitude(ux, uy, uz);
 
         if (mag > max_disp) {
@@ -262,6 +264,7 @@ void example4_find_max_displacement(kood3plot::D3plotReader& reader) {
 
 // 예제 5: 변위 데이터를 CSV 파일로 내보내기
 void example5_export_to_csv(kood3plot::D3plotReader& reader, const std::string& filename) {
+    auto mesh = reader.read_mesh();
     std::cout << "\n" << std::string(80, '=') << "\n";
     std::cout << "예제 5: 변위 데이터 CSV 파일로 내보내기\n";
     std::cout << std::string(80, '=') << "\n";
@@ -276,7 +279,7 @@ void example5_export_to_csv(kood3plot::D3plotReader& reader, const std::string& 
 
     // 마지막 state 사용
     const auto& state = states.back();
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
     int numnp = cd.NUMNP;
 
     if (state.node_displacements.empty()) {
@@ -301,9 +304,8 @@ void example5_export_to_csv(kood3plot::D3plotReader& reader, const std::string& 
     for (int i = 0; i < numnp; ++i) {
         int idx = i * ndim;
 
-        double ux = state.node_displacements[idx + 0];
-        double uy = state.node_displacements[idx + 1];
-        double uz = state.node_displacements[idx + 2];
+        const auto u = kood3plot::data::nodeDisplacement(mesh, state, static_cast<size_t>(idx / ndim));
+        double ux = u.x, uy = u.y, uz = u.z;
         double umag = calculate_magnitude(ux, uy, uz);
 
         csv_file << (i + 1) << ","
@@ -353,7 +355,7 @@ void example6_slice_data(kood3plot::D3plotReader& reader, double z_plane) {
     }
 
     const auto& state = states.back();
-    int ndim = cd.NDIM;
+    int ndim = kood3plot::data::effectiveNodeStride(cd.NDIM);
 
     if (state.node_displacements.empty()) {
         std::cout << "변위 데이터가 없습니다.\n";

@@ -1,4 +1,5 @@
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -52,11 +53,11 @@ int main(int argc, char* argv[]) {
         bool has_velocity = !state.node_velocities.empty();
 
         for (int i = 0; i < show_nodes; ++i) {
-            int idx = i * cd.NDIM;
+            int idx = i * kood3plot::data::effectiveNodeStride(cd.NDIM);
 
-            double ux = state.node_displacements[idx + 0];
-            double uy = state.node_displacements[idx + 1];
-            double uz = state.node_displacements[idx + 2];
+            // 절대좌표 → 변위 (NodeKinematics.hpp)
+            const auto u = kood3plot::data::nodeDisplacement(mesh, state, static_cast<size_t>(i));
+            double ux = u.x, uy = u.y, uz = u.z;
             double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
 
             std::cout << std::setw(7) << (i + 1) << "   "
@@ -169,10 +170,10 @@ int main(int argc, char* argv[]) {
         double max_ux = 0, max_uy = 0, max_uz = 0;
 
         for (int i = 0; i < cd.NUMNP; ++i) {
-            int idx = i * cd.NDIM;
-            double ux = state.node_displacements[idx + 0];
-            double uy = state.node_displacements[idx + 1];
-            double uz = state.node_displacements[idx + 2];
+            int idx = i * kood3plot::data::effectiveNodeStride(cd.NDIM);
+            // 절대좌표 → 변위 (NodeKinematics.hpp)
+            const auto u = kood3plot::data::nodeDisplacement(mesh, state, static_cast<size_t>(i));
+            double ux = u.x, uy = u.y, uz = u.z;
             double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
 
             if (mag > max_disp) {

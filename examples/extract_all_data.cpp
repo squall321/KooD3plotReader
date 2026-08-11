@@ -1,4 +1,5 @@
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -170,12 +171,10 @@ public:
         file << "Node_ID,Ux,Uy,Uz,Magnitude\n";
         file << std::fixed << std::setprecision(6);
 
-        int ndim = cd_.NDIM;
+        int ndim = kood3plot::data::effectiveNodeStride(cd_.NDIM);
         for (int i = 0; i < cd_.NUMNP; ++i) {
-            int idx = i * ndim;
-            double ux = state.node_displacements[idx + 0];
-            double uy = state.node_displacements[idx + 1];
-            double uz = state.node_displacements[idx + 2];
+            const auto u = kood3plot::data::nodeDisplacement(mesh_, state, static_cast<size_t>(i));
+            double ux = u.x, uy = u.y, uz = u.z;
             double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
 
             file << (i + 1) << ","
@@ -210,7 +209,7 @@ public:
         file << "Node_ID,Vx,Vy,Vz,Magnitude\n";
         file << std::fixed << std::setprecision(6);
 
-        int ndim = cd_.NDIM;
+        int ndim = kood3plot::data::effectiveNodeStride(cd_.NDIM);
         for (int i = 0; i < cd_.NUMNP; ++i) {
             int idx = i * ndim;
             double vx = state.node_velocities[idx + 0];
@@ -342,7 +341,7 @@ public:
         file << "State,Time,Ux,Uy,Uz,U_Mag,Vx,Vy,Vz,V_Mag,Ax,Ay,Az,A_Mag\n";
         file << std::fixed << std::setprecision(6);
 
-        int ndim = cd_.NDIM;
+        int ndim = kood3plot::data::effectiveNodeStride(cd_.NDIM);
         int idx = (node_id - 1) * ndim;
 
         for (size_t s = 0; s < states_.size(); ++s) {

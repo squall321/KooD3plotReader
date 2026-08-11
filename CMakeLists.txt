@@ -222,6 +222,7 @@ set(KOOD3PLOT_HEADERS
     include/kood3plot/data/ControlData.hpp
     include/kood3plot/data/Mesh.hpp
     include/kood3plot/data/StateData.hpp
+    include/kood3plot/data/NodeKinematics.hpp
 
     # Export headers
     include/kood3plot/export/KeywordExporter.h
