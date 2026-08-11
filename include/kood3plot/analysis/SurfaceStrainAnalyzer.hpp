@@ -90,6 +90,8 @@ private:
     D3plotReader& reader_;
     std::string last_error_;
     bool initialized_ = false;
+    /// d3plot 에 변형률 텐서가 실렸는지. false 면 유효소성변형률만 채운다.
+    bool has_strain_tensor_ = false;
 
     // Surface specifications
     struct SurfaceSpec {

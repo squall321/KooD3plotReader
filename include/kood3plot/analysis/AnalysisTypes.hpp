@@ -155,6 +155,32 @@ struct SurfaceStrainTimePoint {
     double shear_strain_max = 0.0;
     double shear_strain_avg = 0.0;
     int32_t shear_strain_max_element_id = 0;
+
+    // 최대 주변형률 ε1 (인장)
+    double max_principal_strain_max = 0.0;
+    double max_principal_strain_min = 0.0;
+    double max_principal_strain_avg = 0.0;
+    int32_t max_principal_strain_max_element_id = 0;
+
+    // 최소 주변형률 ε3 (압축) — 최소값이 worst
+    double min_principal_strain_max = 0.0;
+    double min_principal_strain_min = 0.0;
+    double min_principal_strain_avg = 0.0;
+    int32_t min_principal_strain_min_element_id = 0;
+
+    // von Mises 등가 변형률 ε_vm = sqrt(2/3·e_dev:e_dev)
+    double vm_strain_max = 0.0;
+    double vm_strain_min = 0.0;
+    double vm_strain_avg = 0.0;
+    int32_t vm_strain_max_element_id = 0;
+
+    // 유효소성변형률 — 변형률 텐서와 **다른 양**이다. 예전 구현은 이 값을
+    // normal_strain 자리에 넣고 0.577 배를 shear 라 불렀다(둘 다 오표기).
+    // 이제 제 이름으로 분리해 싣는다. 텐서가 없어도 이 값은 항상 나온다.
+    double eff_plastic_strain_max = 0.0;
+    double eff_plastic_strain_min = 0.0;
+    double eff_plastic_strain_avg = 0.0;
+    int32_t eff_plastic_strain_max_element_id = 0;
 };
 
 /**
@@ -167,6 +193,12 @@ struct SurfaceStrainStats {
     std::vector<int32_t> part_ids;
     int32_t num_faces = 0;
     std::vector<SurfaceStrainTimePoint> data;
+
+    /// d3plot 에 변형률 텐서가 실려 있었는지 (*DATABASE_EXTENT_BINARY STRFLG).
+    /// false 면 normal/shear/주변형률/ε_vm 은 전부 0 이고 eff_plastic 만 유효하다.
+    bool has_strain_tensor = false;
+    /// 텐서가 없을 때 그 이유. 보고서가 '0 이었음' 으로 오독하지 않도록 남긴다.
+    std::string note;
 
     size_t size() const { return data.size(); }
     bool empty() const { return data.empty(); }
@@ -573,6 +605,43 @@ struct ExtendedAnalysisResult : public AnalysisResult {
         }
         extra << "\n  ]";
 
+        // 표면 변형률 — 지금까지 JSON 에 아예 안 실려서 CSV 를 열지 않으면
+        // 값을 볼 방법이 없었다. has_strain_tensor/note 를 함께 실어 '미계측'
+        // 과 '0 이었음' 을 구분할 수 있게 한다.
+        extra << ",\n  \"surface_strain_analysis\": [";
+        for (size_t i = 0; i < surface_strain_analysis.size(); ++i) {
+            if (i > 0) extra << ",";
+            const auto& s = surface_strain_analysis[i];
+            extra << "\n    {\"description\": \"" << s.description << "\""
+                  << ", \"reference_direction\": [" << std::fixed << std::setprecision(6)
+                  << s.reference_direction.x << ", " << s.reference_direction.y << ", "
+                  << s.reference_direction.z << "]"
+                  << ", \"angle_threshold_degrees\": " << s.angle_threshold_degrees
+                  << ", \"num_faces\": " << s.num_faces
+                  << ", \"has_strain_tensor\": " << (s.has_strain_tensor ? "true" : "false")
+                  << ", \"note\": \"" << s.note << "\""
+                  << ", \"data\": [";
+            for (size_t j = 0; j < s.data.size(); ++j) {
+                if (j > 0) extra << ", ";
+                const auto& tp = s.data[j];
+                extra << "{\"time\": " << std::setprecision(8) << tp.time
+                      << ", \"normal_max\": " << tp.normal_strain_max
+                      << ", \"normal_min\": " << tp.normal_strain_min
+                      << ", \"normal_avg\": " << tp.normal_strain_avg
+                      << ", \"shear_max\": " << tp.shear_strain_max
+                      << ", \"e1_max\": " << tp.max_principal_strain_max
+                      << ", \"e1_max_element_id\": " << tp.max_principal_strain_max_element_id
+                      << ", \"e3_min\": " << tp.min_principal_strain_min
+                      << ", \"e3_min_element_id\": " << tp.min_principal_strain_min_element_id
+                      << ", \"evm_max\": " << tp.vm_strain_max
+                      << ", \"evm_max_element_id\": " << tp.vm_strain_max_element_id
+                      << ", \"eff_plastic_max\": " << tp.eff_plastic_strain_max
+                      << "}";
+            }
+            extra << "]}";
+        }
+        extra << "\n  ]";
+
         // Insert before closing brace
         size_t close_brace = base.rfind('}');
         if (close_brace != std::string::npos) {
@@ -766,6 +835,13 @@ struct UnifiedConfig {
     // 3. Windows: {exe_dir}/../lsprepost/lspp412_win64.exe
     // 4. System PATH: "lsprepost"
     std::string lsprepost_path;
+
+    // 표면 방향 분석 기본값. surface_stress/surface_strain 잡을 하나도 안 적으면
+    // ±Z 두 방향(각도 surface_default_angle)을 자동으로 넣는다. 낙하/충격 해석은
+    // 바닥면과 상면이 사실상 항상 관심 대상이라 기본으로 뽑아 두는 편이 낫다.
+    // 필요 없으면 surface_defaults: false 로 끈다.
+    bool surface_defaults = true;
+    double surface_default_angle = 45.0;
 
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;

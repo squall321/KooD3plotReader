@@ -20,6 +20,11 @@ add_executable(test_surface_stress test_surface_stress.cpp)
 target_link_libraries(test_surface_stress PRIVATE kood3plot)
 target_include_directories(test_surface_stress PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# SurfaceStrainAnalyzer 텐서 수식 tests
+add_executable(test_surface_strain_math test_surface_strain_math.cpp)
+target_link_libraries(test_surface_strain_math PRIVATE kood3plot)
+target_include_directories(test_surface_strain_math PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # TimeHistoryAnalyzer tests
 add_executable(test_time_history test_time_history.cpp)
 target_link_libraries(test_time_history PRIVATE kood3plot)

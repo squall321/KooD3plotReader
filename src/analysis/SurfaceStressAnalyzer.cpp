@@ -159,10 +159,16 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
     stats.normal_stress_min = std::numeric_limits<double>::max();
     stats.shear_stress_max = -std::numeric_limits<double>::max();
     stats.shear_stress_min = std::numeric_limits<double>::max();
+    stats.max_principal_max = -std::numeric_limits<double>::max();
+    stats.max_principal_min = std::numeric_limits<double>::max();
+    stats.min_principal_max = -std::numeric_limits<double>::max();
+    stats.min_principal_min = std::numeric_limits<double>::max();
 
     double von_mises_sum = 0;
     double normal_stress_sum = 0;
     double shear_stress_sum = 0;
+    double max_principal_sum = 0;
+    double min_principal_sum = 0;
 
     for (const auto& face : faces) {
         FaceStressResult result = analyzeFace(face, state);
@@ -196,12 +202,34 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
             stats.shear_stress_min = result.shear_stress;
         }
         shear_stress_sum += result.shear_stress;
+
+        // σ1 — 최대값 추적
+        if (result.max_principal > stats.max_principal_max) {
+            stats.max_principal_max = result.max_principal;
+            stats.max_principal_max_element = result.element_id;
+        }
+        if (result.max_principal < stats.max_principal_min) {
+            stats.max_principal_min = result.max_principal;
+        }
+        max_principal_sum += result.max_principal;
+
+        // σ3 — 압축측이므로 **최소값**에 대표 요소를 붙인다
+        if (result.min_principal < stats.min_principal_min) {
+            stats.min_principal_min = result.min_principal;
+            stats.min_principal_min_element = result.element_id;
+        }
+        if (result.min_principal > stats.min_principal_max) {
+            stats.min_principal_max = result.min_principal;
+        }
+        min_principal_sum += result.min_principal;
     }
 
     size_t n = faces.size();
     stats.von_mises_avg = von_mises_sum / n;
     stats.normal_stress_avg = normal_stress_sum / n;
     stats.shear_stress_avg = shear_stress_sum / n;
+    stats.max_principal_avg = max_principal_sum / n;
+    stats.min_principal_avg = min_principal_sum / n;
 
     return stats;
 }

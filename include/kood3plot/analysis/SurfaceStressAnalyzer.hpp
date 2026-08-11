@@ -75,11 +75,26 @@ struct SurfaceStressStats {
     double shear_stress_avg;
     int32_t shear_stress_max_element;
 
+    // 최대 주응력 σ1 — 인장 파단 판정용. 면당 값은 예전부터 계산되고 있었으나
+    // 집계 단계에서 버려져 CSV/JSON 어디에도 안 나왔다.
+    double max_principal_max;
+    double max_principal_min;
+    double max_principal_avg;
+    int32_t max_principal_max_element;
+
+    // 최소 주응력 σ3 — 압축측이라 **최소값**이 의미 있다 (max 로 보면 안 됨).
+    double min_principal_max;
+    double min_principal_min;
+    double min_principal_avg;
+    int32_t min_principal_min_element;
+
     SurfaceStressStats()
         : time(0), num_faces(0),
           von_mises_max(0), von_mises_min(0), von_mises_avg(0), von_mises_max_element(0),
           normal_stress_max(0), normal_stress_min(0), normal_stress_avg(0), normal_stress_max_element(0),
-          shear_stress_max(0), shear_stress_min(0), shear_stress_avg(0), shear_stress_max_element(0) {}
+          shear_stress_max(0), shear_stress_min(0), shear_stress_avg(0), shear_stress_max_element(0),
+          max_principal_max(0), max_principal_min(0), max_principal_avg(0), max_principal_max_element(0),
+          min_principal_max(0), min_principal_min(0), min_principal_avg(0), min_principal_min_element(0) {}
 };
 
 /**

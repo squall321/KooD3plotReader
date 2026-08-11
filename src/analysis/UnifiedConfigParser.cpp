@@ -724,6 +724,10 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 config.verbose = parseBool(value);
             } else if (key == "cache_geometry") {
                 config.cache_geometry = parseBool(value);
+            } else if (key == "surface_defaults") {
+                config.surface_defaults = parseBool(value);
+            } else if (key == "surface_default_angle") {
+                try { config.surface_default_angle = std::stod(value); } catch (...) {}
             } else if (key == "lsprepost_path" || key == "lsprepost") {
                 config.lsprepost_path = value;
             }
@@ -767,6 +771,8 @@ bool UnifiedConfigParser::saveToYAML(const std::string& file_path, const Unified
     ofs << "  sv_threads: " << config.sv_threads << "\n";
     ofs << "  verbose: " << (config.verbose ? "true" : "false") << "\n";
     ofs << "  cache_geometry: " << (config.cache_geometry ? "true" : "false") << "\n";
+    ofs << "  surface_defaults: " << (config.surface_defaults ? "true" : "false") << "\n";
+    ofs << "  surface_default_angle: " << config.surface_default_angle << "\n";
     if (!config.lsprepost_path.empty()) {
         ofs << "  lsprepost_path: \"" << config.lsprepost_path << "\"\n";
     }
@@ -905,6 +911,10 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "  sv_threads: 2        # Parallel section view renderers (default 2)\n";
     oss << "  verbose: true\n";
     oss << "  cache_geometry: true\n";
+    oss << "  # surface_stress/surface_strain 잡을 하나도 안 적으면 +Z/-Z 두 방향을\n";
+    oss << "  # 자동으로 분석한다 (낙하 바닥면/상면). 필요 없으면 false.\n";
+    oss << "  surface_defaults: true\n";
+    oss << "  surface_default_angle: 45.0   # 기준 벡터로부터 허용 각도(deg)\n";
     oss << "  # lsprepost_path: \"/path/to/lsprepost\"  # Optional: custom LSPrePost path\n";
     oss << "  # Linux default: {exe_dir}/../lsprepost/lsprepost\n";
     oss << "  # Windows default: {exe_dir}/../lsprepost/lspp412_win64.exe\n\n";

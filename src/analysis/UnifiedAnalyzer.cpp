@@ -114,6 +114,32 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         }
     }
 
+    // 표면 방향 분석 기본값 주입.
+    // 사용자가 surface_stress/surface_strain 잡을 하나도 안 적었을 때만 개입한다
+    // (하나라도 적었으면 그 의도를 존중해 그대로 둔다). 낙하/충격에서 바닥면
+    // -Z 와 상면 +Z 는 사실상 항상 관심 대상이라 기본으로 뽑아 둔다.
+    if (config.surface_defaults && surface_stress_jobs.empty() && surface_strain_jobs.empty()) {
+        const double ang = config.surface_default_angle;
+        const std::pair<Vec3, const char*> defaults[] = {
+            {Vec3(0, 0, -1), "Bottom (-Z)"},
+            {Vec3(0, 0,  1), "Top (+Z)"},
+        };
+        for (const auto& d : defaults) {
+            AnalysisJob j;
+            j.name = d.second;
+            j.surface.direction = d.first;
+            j.surface.angle = ang;
+            j.type = AnalysisJobType::SURFACE_STRESS;
+            surface_stress_jobs.push_back(j);
+            j.type = AnalysisJobType::SURFACE_STRAIN;
+            surface_strain_jobs.push_back(j);
+        }
+        if (callback) {
+            callback("표면 방향 분석 기본값 적용: ±Z 각도 " + std::to_string(static_cast<int>(ang)) +
+                     "° (응력·변형률 각 2방향). 끄려면 surface_defaults: false");
+        }
+    }
+
     // Count total analysis steps for progress reporting
     int total_steps = 0;
     bool has_solid_jobs = !stress_jobs.empty() || !strain_jobs.empty();
@@ -376,6 +402,14 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
         auto filtered = SurfaceExtractor::filterByDirection(extraction.faces, job.surface.direction, job.surface.angle);
 
         if (filtered.empty()) {
+            // 무음 스킵 금지 — 방향/각도가 아무 면도 못 잡았다는 사실을 남긴다.
+            if (callback) {
+                callback("  Surface stress [" + job.name + "]: 조건에 맞는 면 0개 "
+                         "(방향 " + std::to_string(job.surface.direction.x) + "," +
+                         std::to_string(job.surface.direction.y) + "," +
+                         std::to_string(job.surface.direction.z) + " / 각도 " +
+                         std::to_string(job.surface.angle) + "°) — 건너뜀");
+            }
             continue;
         }
 
@@ -401,6 +435,18 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
             tp.shear_stress_max = stress_stats.shear_stress_max;
             tp.shear_stress_avg = stress_stats.shear_stress_avg;
             tp.shear_stress_max_element_id = stress_stats.shear_stress_max_element;
+            tp.von_mises_max = stress_stats.von_mises_max;
+            tp.von_mises_min = stress_stats.von_mises_min;
+            tp.von_mises_avg = stress_stats.von_mises_avg;
+            tp.von_mises_max_element_id = stress_stats.von_mises_max_element;
+            tp.max_principal_max = stress_stats.max_principal_max;
+            tp.max_principal_min = stress_stats.max_principal_min;
+            tp.max_principal_avg = stress_stats.max_principal_avg;
+            tp.max_principal_max_element_id = stress_stats.max_principal_max_element;
+            tp.min_principal_max = stress_stats.min_principal_max;
+            tp.min_principal_min = stress_stats.min_principal_min;
+            tp.min_principal_avg = stress_stats.min_principal_avg;
+            tp.min_principal_min_element_id = stress_stats.min_principal_min_element;
 
             stats.data.push_back(tp);
 

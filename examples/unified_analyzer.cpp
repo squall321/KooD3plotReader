@@ -107,7 +107,10 @@ void writeSurfaceCSV(const std::string& filepath, const SurfaceAnalysisStats& st
     }
 
     ofs << "Time,Normal_Max,Normal_Min,Normal_Avg,Normal_Max_ElemID,"
-        << "Shear_Max,Shear_Avg,Shear_Max_ElemID\n";
+        << "Shear_Max,Shear_Avg,Shear_Max_ElemID,"
+        << "VonMises_Max,VonMises_Min,VonMises_Avg,VonMises_Max_ElemID,"
+        << "MaxPrincipal_Max,MaxPrincipal_Min,MaxPrincipal_Avg,MaxPrincipal_Max_ElemID,"
+        << "MinPrincipal_Max,MinPrincipal_Min,MinPrincipal_Avg,MinPrincipal_Min_ElemID\n";
 
     for (const auto& point : stats.data) {
         ofs << std::fixed << std::setprecision(6)
@@ -118,7 +121,19 @@ void writeSurfaceCSV(const std::string& filepath, const SurfaceAnalysisStats& st
             << point.normal_stress_max_element_id << ","
             << point.shear_stress_max << ","
             << point.shear_stress_avg << ","
-            << point.shear_stress_max_element_id << "\n";
+            << point.shear_stress_max_element_id << ","
+            << point.von_mises_max << ","
+            << point.von_mises_min << ","
+            << point.von_mises_avg << ","
+            << point.von_mises_max_element_id << ","
+            << point.max_principal_max << ","
+            << point.max_principal_min << ","
+            << point.max_principal_avg << ","
+            << point.max_principal_max_element_id << ","
+            << point.min_principal_max << ","
+            << point.min_principal_min << ","
+            << point.min_principal_avg << ","
+            << point.min_principal_min_element_id << "\n";
     }
 
     ofs.close();
@@ -135,11 +150,22 @@ void writeSurfaceStrainCSV(const std::string& filepath, const SurfaceStrainStats
         return;
     }
 
+    // 변형률 텐서가 없으면 수직/전단·주변형률·ε_vm 컬럼은 전부 0 이다.
+    // '0 이었음' 으로 오독하지 않도록 헤더 앞에 사유를 주석으로 남긴다.
+    if (!stats.has_strain_tensor) {
+        ofs << "# 변형률 텐서 미기록 — 아래 EffPlastic_* 만 유효\n";
+        if (!stats.note.empty()) ofs << "# " << stats.note << "\n";
+    }
+
     ofs << "Time,Normal_Max,Normal_Min,Normal_Avg,Normal_Max_ElemID,"
-        << "Shear_Max,Shear_Avg,Shear_Max_ElemID\n";
+        << "Shear_Max,Shear_Avg,Shear_Max_ElemID,"
+        << "MaxPrincipal_Max,MaxPrincipal_Min,MaxPrincipal_Avg,MaxPrincipal_Max_ElemID,"
+        << "MinPrincipal_Max,MinPrincipal_Min,MinPrincipal_Avg,MinPrincipal_Min_ElemID,"
+        << "VMStrain_Max,VMStrain_Min,VMStrain_Avg,VMStrain_Max_ElemID,"
+        << "EffPlastic_Max,EffPlastic_Min,EffPlastic_Avg,EffPlastic_Max_ElemID\n";
 
     for (const auto& point : stats.data) {
-        ofs << std::fixed << std::setprecision(6)
+        ofs << std::scientific << std::setprecision(6)
             << point.time << ","
             << point.normal_strain_max << ","
             << point.normal_strain_min << ","
@@ -147,7 +173,23 @@ void writeSurfaceStrainCSV(const std::string& filepath, const SurfaceStrainStats
             << point.normal_strain_max_element_id << ","
             << point.shear_strain_max << ","
             << point.shear_strain_avg << ","
-            << point.shear_strain_max_element_id << "\n";
+            << point.shear_strain_max_element_id << ","
+            << point.max_principal_strain_max << ","
+            << point.max_principal_strain_min << ","
+            << point.max_principal_strain_avg << ","
+            << point.max_principal_strain_max_element_id << ","
+            << point.min_principal_strain_max << ","
+            << point.min_principal_strain_min << ","
+            << point.min_principal_strain_avg << ","
+            << point.min_principal_strain_min_element_id << ","
+            << point.vm_strain_max << ","
+            << point.vm_strain_min << ","
+            << point.vm_strain_avg << ","
+            << point.vm_strain_max_element_id << ","
+            << point.eff_plastic_strain_max << ","
+            << point.eff_plastic_strain_min << ","
+            << point.eff_plastic_strain_avg << ","
+            << point.eff_plastic_strain_max_element_id << "\n";
     }
 
     ofs.close();

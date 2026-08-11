@@ -114,6 +114,24 @@ struct SurfaceTimePointStats {
     double shear_stress_max = 0.0;
     double shear_stress_avg = 0.0;
     int32_t shear_stress_max_element_id = 0;
+
+    // von Mises 등가응력 — 항복 판정용
+    double von_mises_max = 0.0;
+    double von_mises_min = 0.0;
+    double von_mises_avg = 0.0;
+    int32_t von_mises_max_element_id = 0;
+
+    // 최대 주응력 σ1 (인장 파단)
+    double max_principal_max = 0.0;
+    double max_principal_min = 0.0;
+    double max_principal_avg = 0.0;
+    int32_t max_principal_max_element_id = 0;
+
+    // 최소 주응력 σ3 (압축) — 최소값이 worst
+    double min_principal_max = 0.0;
+    double min_principal_min = 0.0;
+    double min_principal_avg = 0.0;
+    int32_t min_principal_min_element_id = 0;
 };
 
 /**
@@ -537,7 +555,22 @@ private:
         oss << "\"shear_stress\": {";
         oss << "\"max\": " << tp.shear_stress_max << ", ";
         oss << "\"avg\": " << tp.shear_stress_avg << ", ";
-        oss << "\"max_element_id\": " << tp.shear_stress_max_element_id << "}";
+        oss << "\"max_element_id\": " << tp.shear_stress_max_element_id << "}, ";
+        oss << "\"von_mises\": {";
+        oss << "\"max\": " << tp.von_mises_max << ", ";
+        oss << "\"min\": " << tp.von_mises_min << ", ";
+        oss << "\"avg\": " << tp.von_mises_avg << ", ";
+        oss << "\"max_element_id\": " << tp.von_mises_max_element_id << "}, ";
+        oss << "\"max_principal\": {";
+        oss << "\"max\": " << tp.max_principal_max << ", ";
+        oss << "\"min\": " << tp.max_principal_min << ", ";
+        oss << "\"avg\": " << tp.max_principal_avg << ", ";
+        oss << "\"max_element_id\": " << tp.max_principal_max_element_id << "}, ";
+        oss << "\"min_principal\": {";
+        oss << "\"max\": " << tp.min_principal_max << ", ";
+        oss << "\"min\": " << tp.min_principal_min << ", ";
+        oss << "\"avg\": " << tp.min_principal_avg << ", ";
+        oss << "\"min_element_id\": " << tp.min_principal_min_element_id << "}";
         oss << "}";
         return oss.str();
     }
