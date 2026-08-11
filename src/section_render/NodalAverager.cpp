@@ -305,9 +305,13 @@ void NodalAverager::compute(const data::StateData& state,
         for (int32_t i = 0; i < numnp; ++i) {
             size_t base = static_cast<size_t>(i) * 3;
             if (base + 2 >= state.node_displacements.size()) break;
-            double ux = state.node_displacements[base + 0];
-            double uy = state.node_displacements[base + 1];
-            double uz = state.node_displacements[base + 2];
+            // node_displacements 는 **현재 절대 좌표**다 (StateData.hpp).
+            // 초기좌표를 빼야 변위가 된다 — 예전에는 그대로 써서 이 필드가
+            // '원점으로부터의 거리' 를 그리고 있었다.
+            if (static_cast<size_t>(i) >= mesh_.nodes.size()) break;
+            double ux = state.node_displacements[base + 0] - mesh_.nodes[i].x;
+            double uy = state.node_displacements[base + 1] - mesh_.nodes[i].y;
+            double uz = state.node_displacements[base + 2] - mesh_.nodes[i].z;
             double mag = std::sqrt(ux*ux + uy*uy + uz*uz);
             node_sum_[i]   = mag;
             node_count_[i] = 1;
@@ -338,9 +342,12 @@ void NodalAverager::compute(const data::StateData& state,
             pos[0] = mesh_.nodes[idx].x;
             pos[1] = mesh_.nodes[idx].y;
             pos[2] = mesh_.nodes[idx].z;
-            disp[0] = state.node_displacements[bi+0];
-            disp[1] = state.node_displacements[bi+1];
-            disp[2] = state.node_displacements[bi+2];
+            // 변형률은 변위구배 du/dX 로 구한다. node_displacements 가
+            // 절대좌표이므로 초기좌표를 빼지 않으면 du/dX = I + 실제구배 가
+            // 되어 변형률이 1.0(100%) 만큼 통째로 부풀어 오른다.
+            disp[0] = state.node_displacements[bi+0] - pos[0];
+            disp[1] = state.node_displacements[bi+1] - pos[1];
+            disp[2] = state.node_displacements[bi+2] - pos[2];
             return true;
         };
 

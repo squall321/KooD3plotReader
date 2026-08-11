@@ -138,10 +138,15 @@ Vec3 MotionAnalyzer::computeAverageDisplacement(int32_t part_id, const std::vect
 
     for (size_t node_idx : it->second) {
         if (node_idx * 3 + 2 < displacements.size()) {
-            // Displacements are already Ux, Uy, Uz
-            double dx = displacements[node_idx * 3 + 0];
-            double dy = displacements[node_idx * 3 + 1];
-            double dz = displacements[node_idx * 3 + 2];
+            // d3plot 의 이 배열은 변위가 아니라 **현재 절대 좌표**다
+            // (StateData.hpp 주석). 초기좌표를 빼야 변위가 된다.
+            // 예전에는 그대로 썼기 때문에 t=0 에서도 변위가 0 이 아니라
+            // 파트 중심의 원점 거리로 나왔다 (실측 Test_006 part_10:
+            // t=0 에 Avg_Disp = (-8.000, 64.000, -1.350), Mag = 64.512).
+            // 속도·가속도는 차분이라 초기좌표가 상쇄돼 영향이 없었다.
+            double dx = displacements[node_idx * 3 + 0] - initial_coords_[node_idx * 3 + 0];
+            double dy = displacements[node_idx * 3 + 1] - initial_coords_[node_idx * 3 + 1];
+            double dz = displacements[node_idx * 3 + 2] - initial_coords_[node_idx * 3 + 2];
             // Skip non-finite (eroded free-node inf/nan) so the average is not
             // poisoned to inf/nan; average over the surviving nodes only.
             if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz)) {
@@ -174,10 +179,10 @@ std::pair<double, int32_t> MotionAnalyzer::computeMaxDisplacement(int32_t part_i
 
     for (size_t node_idx : it->second) {
         if (node_idx * 3 + 2 < displacements.size()) {
-            // Displacements are already Ux, Uy, Uz
-            double dx = displacements[node_idx * 3 + 0];
-            double dy = displacements[node_idx * 3 + 1];
-            double dz = displacements[node_idx * 3 + 2];
+            // 절대좌표 → 변위 (computeAverageDisplacement 와 같은 이유)
+            double dx = displacements[node_idx * 3 + 0] - initial_coords_[node_idx * 3 + 0];
+            double dy = displacements[node_idx * 3 + 1] - initial_coords_[node_idx * 3 + 1];
+            double dz = displacements[node_idx * 3 + 2] - initial_coords_[node_idx * 3 + 2];
             double disp = std::sqrt(dx*dx + dy*dy + dz*dz);
 
             // Skip non-finite displacement: eroded elements leave free nodes

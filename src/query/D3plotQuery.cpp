@@ -632,9 +632,12 @@ QueryResult D3plotQuery::execute() {
         if (need_displacement && !state_data.node_displacements.empty()) {
             size_t num_nodes = state_data.node_displacements.size() / 3;
             for (size_t n = 0; n < num_nodes; ++n) {
-                double ux = state_data.node_displacements[n * 3 + 0];
-                double uy = state_data.node_displacements[n * 3 + 1];
-                double uz = state_data.node_displacements[n * 3 + 2];
+                // node_displacements 는 절대 좌표다 (StateData.hpp) — 변위로
+                // 쓰려면 초기좌표를 빼야 한다.
+                const bool has_ref = (n < mesh.nodes.size());
+                double ux = state_data.node_displacements[n * 3 + 0] - (has_ref ? mesh.nodes[n].x : 0.0);
+                double uy = state_data.node_displacements[n * 3 + 1] - (has_ref ? mesh.nodes[n].y : 0.0);
+                double uz = state_data.node_displacements[n * 3 + 2] - (has_ref ? mesh.nodes[n].z : 0.0);
 
                 // For node data, element_id represents node_id
                 int32_t node_id = (n < mesh.real_node_ids.size()) ?

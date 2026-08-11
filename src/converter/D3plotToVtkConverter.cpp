@@ -198,10 +198,19 @@ void D3plotToVtkConverter::addPointData(
 
     // Displacement
     if (options_.export_displacement && !state.node_displacements.empty()) {
+        // points 는 초기좌표(위 114-121)인데 node_displacements 는 **절대 좌표**다
+        // (StateData.hpp). 그대로 실으면 ParaView 의 Warp By Vector 가
+        // 초기좌표 + 절대좌표 = 2·X0 + u 로 형상을 2배로 만든다.
         VtkDataArray disp_array;
         disp_array.name = "displacement";
         disp_array.num_components = 3;
-        disp_array.data = state.node_displacements;
+        disp_array.data.resize(num_nodes * 3, 0.0);
+        const size_t n_avail = std::min(num_nodes, state.node_displacements.size() / 3);
+        for (size_t i = 0; i < n_avail; ++i) {
+            disp_array.data[i * 3 + 0] = state.node_displacements[i * 3 + 0] - mesh.nodes[i].x;
+            disp_array.data[i * 3 + 1] = state.node_displacements[i * 3 + 1] - mesh.nodes[i].y;
+            disp_array.data[i * 3 + 2] = state.node_displacements[i * 3 + 2] - mesh.nodes[i].z;
+        }
         vtk_mesh.point_data.push_back(disp_array);
     }
 
