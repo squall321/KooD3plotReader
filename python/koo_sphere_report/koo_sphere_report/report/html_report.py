@@ -4,6 +4,7 @@ import html
 import json
 import math
 from enum import Enum
+from pathlib import Path
 
 from ..models import MotionData, Report, Severity, SimulationResult
 
@@ -219,6 +220,8 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     # (시계열까지 담으면 1144각도 × 26쌍 × 120점 으로 payload 가 터진다)
     data["contact_profile"] = _contact_profile(flows, data["results"])
     data["contact_trust"] = _contact_trust(flows)
+    # Custom Report(세트 후처리) 연동 — per-run set_reports 산출물 스캔
+    data["set_report"] = _set_report_payload(data["results"], test_dir)
     # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
     data["unit_system"] = {
         "id": MotionData.UNIT_SYSTEM,
@@ -299,6 +302,94 @@ def _flow_detail_folders(flows: dict) -> tuple[set, str]:
         f"(전체 {len(folders)}개). 파트쌍 접촉력 프로파일 탭은 전 각도를 "
         f"스칼라로 담고 있어 각도 비교에는 영향이 없습니다."
     )
+
+
+def _set_report_payload(results: list, test_dir: str) -> dict:
+    """Custom Report(세트 후처리) 연동 탭의 데이터 — 세트 × 각도 행렬.
+
+    per-run 산출물 analysis_results/<run>/custom_report/set_reports/ (또는
+    구계층 <run>/set_reports/)의 metrics.json 을 스캔한다.
+
+    구조
+      sets[]      : {name, type, id, title}
+      stress/strain : sets × angles 피크 행렬. 산출물 없는 각도는 None
+                    (0 이 아니다 — '미실행' 과 '피크 0' 은 다르다).
+      png/mp4     : sets × angles 미디어 **상대경로** (report.html=test_dir 기준).
+                    없으면 None. base64 인라인 금지 — 용량 원칙.
+      note        : 커버리지 요약 (몇 각도에 산출물이 있는지)
+    """
+    import os as _os
+
+    n_ang = len(results)
+    if not test_dir or not n_ang:
+        return {"sets": [], "stress": [], "strain": [], "png": [], "mp4": [], "note": ""}
+
+    base = Path(test_dir)
+    sets: dict[str, dict] = {}          # name → meta
+    cell: dict[str, list] = {}          # name → [ (stress, strain, png, mp4) | None ] * n_ang
+
+    for ai, r in enumerate(results):
+        folder = r.get("folder")
+        if not folder:
+            continue
+        run_dir = base / "analysis_results" / folder
+        roots = [run_dir / "custom_report" / "set_reports", run_dir / "set_reports"]
+        root = next((x for x in roots if x.is_dir()), None)
+        if root is None:
+            continue
+        for set_dir in sorted(x for x in root.iterdir() if x.is_dir()):
+            mj = set_dir / "metrics.json"
+            if not mj.is_file():
+                continue
+            try:
+                m = json.loads(mj.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            name = str(m.get("name") or set_dir.name)
+            if name not in sets:
+                sets[name] = {"name": name,
+                              "type": str(m.get("set_type") or "part"),
+                              "id": int(m.get("set_id") or 0),
+                              "title": str(m.get("title") or "")}
+                cell[name] = [None] * n_ang
+
+            stress = strain = None
+            for f in (m.get("fields") or []):
+                if not f.get("measured"):
+                    continue
+                if f.get("field") == "von_mises":
+                    stress = float(f["peak"])
+                elif f.get("field") == "eff_plastic_strain":
+                    strain = float(f["peak"])
+
+            def _pick(prefix: str, prefer: str):
+                cand = set_dir / prefer
+                if not cand.is_file():
+                    found = sorted(set_dir.glob(prefix + "*"))
+                    cand = found[0] if found else None
+                if cand is None:
+                    return None
+                return _os.path.relpath(str(cand), str(base))
+
+            png = _pick("peak_", "peak_xy_von_mises.png")
+            mp4 = _pick("view_", "view_xy_von_mises.mp4")
+            cell[name][ai] = (stress, strain, png, mp4)
+
+    if not sets:
+        return {"sets": [], "stress": [], "strain": [], "png": [], "mp4": [], "note": ""}
+
+    order = sorted(sets)
+    n_cov = max(sum(1 for c in cell[k] if c is not None) for k in order)
+    note = (f"세트 산출물이 있는 각도: {n_cov} / {n_ang}. "
+            "나머지 각도는 koo_custom_report 를 해당 run 에 실행하면 채워집니다.")
+    return {
+        "sets": [sets[k] for k in order],
+        "stress": [[(cell[k][a][0] if cell[k][a] else None) for a in range(n_ang)] for k in order],
+        "strain": [[(cell[k][a][1] if cell[k][a] else None) for a in range(n_ang)] for k in order],
+        "png":    [[(cell[k][a][2] if cell[k][a] else None) for a in range(n_ang)] for k in order],
+        "mp4":    [[(cell[k][a][3] if cell[k][a] else None) for a in range(n_ang)] for k in order],
+        "note": note,
+    }
 
 
 def _contact_profile(flows: dict, results: list) -> dict:
@@ -722,7 +813,7 @@ function toggleLang() {
   reportLang = reportLang === 'ko' ? 'en' : 'ko';
   document.getElementById('lang-toggle-btn').textContent = reportLang === 'ko' ? 'EN' : '한';
   // Re-render current tab to apply language change
-  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content','contactprofile-content','toldoe-content'];
+  const tabs = ['overview-stats','mollweide-content','timehistory-content','partrisk-content','gforce-content','directional-content','failure-content','statistics-content','impact-content','deepdive-content','advanced-content','render-export-content','energyflow-content','contactprofile-content','toldoe-content','setreport-content'];
   tabs.forEach(id => { const el = document.getElementById(id); if (el) el.dataset.done = ''; });
   renderTab(currentTab);
 }
@@ -767,6 +858,7 @@ function renderTab(i) {
     case 12: renderEnergyFlow(); break;
     case 13: renderContactProfile(); break;
     case 14: renderToleranceDoe(); break;
+    case 15: renderSetReport(); break;
   }
 }
 
@@ -5364,6 +5456,212 @@ function renderToleranceDoe() {
   c.dataset.done = '1';
 }
 
+// ============ Tab 15: Set Report (Custom Report 세트 후처리 연동) ============
+// 데이터: DATA.set_report — 세트 × 각도 피크 행렬 + 미디어 상대경로.
+// 호버 = 그 각도의 피크 컨투어 PNG 스왑 (정적, 용량 원칙), 클릭 = MP4 모달.
+let srS = { set: 0, metric: 'stress', hoverRi: -1, pts: [] };
+
+function srColor(v, vmin, vmax) {
+  if (v === null || v === undefined) return 'var(--dim)';
+  const norm = vmax > vmin ? (v - vmin) / (vmax - vmin) : 0.5;
+  return typeof valueToColor === 'function' ? valueToColor(norm)
+       : `hsl(${(1 - norm) * 240},80%,50%)`;
+}
+
+function srDrawMollweide() {
+  const SR = DATA.set_report;
+  const vals = SR[srS.metric][srS.set];
+  const W = 620, H = 310, cx = W / 2, cy = H / 2, rx = W / 2 - 10, ry = H / 2 - 10;
+  const finite = vals.filter(v => v !== null);
+  const vmin = finite.length ? Math.min(...finite) : 0;
+  const vmax = finite.length ? Math.max(...finite) : 1;
+
+  let svg = `<svg id="sr-moll" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="cursor:crosshair">`;
+  svg += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="var(--bg3)" stroke="var(--dim)" stroke-width="0.5"/>`;
+  for (let lon = -150; lon <= 150; lon += 30) {
+    let path = '';
+    for (let lat = -85; lat <= 85; lat += 5) {
+      const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+      path += (lat === -85 ? 'M' : 'L') + mx.toFixed(1) + ',' + my.toFixed(1);
+    }
+    svg += `<path d="${path}" fill="none" stroke="var(--bg)" stroke-width="0.3"/>`;
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    let path = '';
+    for (let lon = -180; lon <= 180; lon += 5) {
+      const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+      path += (lon === -180 ? 'M' : 'L') + mx.toFixed(1) + ',' + my.toFixed(1);
+    }
+    svg += `<path d="${path}" fill="none" stroke="var(--bg)" stroke-width="0.3"/>`;
+  }
+
+  srS.pts = [];
+  const n = DATA.results.length;
+  const ptR = n > 200 ? 3 : n > 50 ? 4 : 5;
+  for (let ri = 0; ri < n; ri++) {
+    const r = DATA.results[ri];
+    const [lon, lat] = eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw,
+                                     r.angle.name, r.angle.swap);
+    const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
+    const has = vals[ri] !== null;
+    srS.pts.push({ ri, x: mx, y: my, has });
+    const col = has ? srColor(vals[ri], vmin, vmax) : 'var(--bg)';
+    // 미실행 각도는 회색 테두리 점 — '값 0' 으로 보이지 않게
+    svg += `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${has ? ptR : 2}"
+      fill="${col}" opacity="${has ? 0.95 : 0.45}"
+      stroke="${has ? 'none' : 'var(--dim)'}" stroke-width="0.5"/>`;
+  }
+  svg += '</svg>';
+  return { svg, vmin, vmax };
+}
+
+function srUpdatePanel(ri) {
+  const SR = DATA.set_report;
+  const ko = reportLang === 'ko';
+  const img = document.getElementById('sr-img');
+  const info = document.getElementById('sr-info');
+  if (!img || !info) return;
+  if (ri < 0) {
+    info.textContent = ko ? '지도의 점에 호버하면 그 각도의 피크 컨투어가 보입니다.'
+                          : 'Hover a point to see that angle\'s peak contour.';
+    return;
+  }
+  const r = DATA.results[ri];
+  const sv = SR.stress[srS.set][ri];
+  const ev = SR.strain[srS.set][ri];
+  const png = SR.png[srS.set][ri];
+  const mp4 = SR.mp4[srS.set][ri];
+  const bits = [`<b>${r.angle.name}</b>`];
+  bits.push(sv !== null ? `σ_vm ${sv.toFixed(2)} MPa` : (ko ? 'σ_vm 미계측' : 'σ_vm n/a'));
+  if (ev !== null) bits.push(`ε_p ${ev.toFixed(5)}`);
+  if (mp4) bits.push(ko ? '▶ 클릭 시 영상' : '▶ click for video');
+  info.innerHTML = bits.join(' · ');
+  if (png) {
+    img.src = png;                       // 정적 PNG 스왑 — 브라우저 캐시가 재호버 처리
+    img.style.display = 'block';
+    document.getElementById('sr-noimg').style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    const no = document.getElementById('sr-noimg');
+    no.style.display = 'block';
+    no.textContent = ko ? '이 각도에는 렌더 산출물이 없습니다 (미실행)'
+                        : 'No render artifact for this angle';
+  }
+}
+
+function srNearest(evt) {
+  const svg = document.getElementById('sr-moll');
+  if (!svg) return -1;
+  const rect = svg.getBoundingClientRect();
+  const sx = 620 / rect.width, sy = 310 / rect.height;
+  const x = (evt.clientX - rect.left) * sx, y = (evt.clientY - rect.top) * sy;
+  let best = -1, bd = 26 * 26;           // 최대 26px 반경
+  for (const p of srS.pts) {
+    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d < bd) { bd = d; best = p.ri; }
+  }
+  return best;
+}
+
+function srOpenVideo(src) {
+  let m = document.getElementById('sr-modal');
+  m.innerHTML = `<span style="position:absolute;top:14px;right:22px;color:#fff;
+    font-size:28px;cursor:pointer" onclick="srCloseVideo()">&times;</span>
+    <video controls autoplay src="${src}" style="max-width:92vw;max-height:86vh"></video>`;
+  m.style.display = 'flex';
+}
+function srCloseVideo() {
+  const m = document.getElementById('sr-modal');
+  if (m) { m.style.display = 'none'; m.innerHTML = ''; }
+}
+
+function renderSetReport() {
+  const el = document.getElementById('setreport-content');
+  if (!el || el.dataset.done) return;
+  el.dataset.done = '1';
+  const ko = reportLang === 'ko';
+  const SR = DATA.set_report;
+
+  if (!SR || !SR.sets || !SR.sets.length) {
+    el.innerHTML = `<div style="color:var(--dim);padding:30px 10px">
+      ${ko ? 'Custom Report 산출물이 없습니다. 각 run 에 koo_custom_report 를 실행하면 \
+(analysis_results/<run>/custom_report/) 이 탭이 채워집니다.'
+           : 'No custom report artifacts. Run koo_custom_report per run to populate this tab.'}
+    </div>`;
+    return;
+  }
+
+  const setOpts = SR.sets.map((s, i) =>
+    `<option value="${i}" ${i === srS.set ? 'selected' : ''}>${s.name}` +
+    `${s.title && s.title !== s.name ? ' — ' + s.title : ''} (${s.type} ${s.id})</option>`).join('');
+
+  const { svg, vmin, vmax } = srDrawMollweide();
+  const mLabel = srS.metric === 'stress' ? 'σ_vm [MPa]' : 'ε_p';
+
+  el.innerHTML = `
+    <div class="section">
+      <h2>${ko ? '세트 보고서 — 전각도 피크 조망' : 'Set Report — peak over all angles'}</h2>
+      <div style="margin:8px 0 12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <label>${ko ? '세트' : 'Set'}:
+          <select onchange="srS.set=+this.value;srS.hoverRi=-1;
+                            document.getElementById('setreport-content').dataset.done='';renderSetReport()">
+            ${setOpts}</select></label>
+        <label>${ko ? '지표' : 'Metric'}:
+          <select onchange="srS.metric=this.value;
+                            document.getElementById('setreport-content').dataset.done='';renderSetReport()">
+            <option value="stress" ${srS.metric === 'stress' ? 'selected' : ''}>σ_vm</option>
+            <option value="strain" ${srS.metric === 'strain' ? 'selected' : ''}>ε_p</option>
+          </select></label>
+        <span style="color:var(--dim);font-size:11px">${mLabel}:
+          ${vmin.toFixed(2)} ~ ${vmax.toFixed(2)}</span>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+        <div id="sr-moll-wrap">${svg}</div>
+        <div style="flex:1;min-width:320px;max-width:680px">
+          <div id="sr-info" style="color:var(--fg2);font-size:13px;margin-bottom:8px"></div>
+          <img id="sr-img" style="display:none;width:100%;border-radius:6px;
+               border:1px solid var(--bg3);cursor:pointer" title="${ko ? '클릭하면 영상 재생' : 'click to play video'}">
+          <div id="sr-noimg" style="display:none;color:var(--dim);font-size:12px;
+               padding:24px;border:1px dashed var(--bg3);border-radius:6px"></div>
+        </div>
+      </div>
+      <p style="color:var(--dim);font-size:11px;margin-top:10px">${SR.note || ''}</p>
+    </div>
+    <div id="sr-modal" style="display:none;position:fixed;inset:0;z-index:60;
+         background:rgba(0,0,0,.85);align-items:center;justify-content:center"></div>`;
+
+  // 호버: SVG 하나에 mousemove → 최근접점 (점마다 리스너 금지 — 1144각도)
+  const svgEl = document.getElementById('sr-moll');
+  if (svgEl) {
+    svgEl.addEventListener('mousemove', e => {
+      const ri = srNearest(e);
+      if (ri !== srS.hoverRi) { srS.hoverRi = ri; srUpdatePanel(ri); }
+    });
+    svgEl.addEventListener('mouseleave', () => { srS.hoverRi = -1; srUpdatePanel(-1); });
+    svgEl.addEventListener('click', e => {
+      const ri = srNearest(e);
+      if (ri >= 0) {
+        const mp4 = SR.mp4[srS.set][ri];
+        if (mp4) srOpenVideo(mp4);
+      }
+    });
+  }
+  const imgEl = document.getElementById('sr-img');
+  if (imgEl) {
+    imgEl.addEventListener('click', () => {
+      if (srS.hoverRi >= 0) {
+        const mp4 = SR.mp4[srS.set][srS.hoverRi];
+        if (mp4) srOpenVideo(mp4);
+      }
+    });
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') srCloseVideo(); });
+  document.getElementById('sr-modal').addEventListener('click', e => {
+    if (e.target.id === 'sr-modal') srCloseVideo();
+  });
+  srUpdatePanel(-1);
+}
+
 """
 
 
@@ -5420,6 +5718,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <div class="tab" data-tab="12">Energy Flow</div>
   <div class="tab" data-tab="13">Contact Profile</div>
   <div class="tab" data-tab="14">Tolerance DOE</div>
+  <div class="tab" data-tab="15">Set Report</div>
 </div>
 
 <div class="content">
@@ -5503,6 +5802,11 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <!-- Tab 14: Tolerance DOE (26방향 × 공차 산포) -->
   <div class="tab-content hidden" id="tab-14">
     <div id="toldoe-content"></div>
+  </div>
+
+  <!-- Tab 15: Set Report (Custom Report 세트 후처리 연동) -->
+  <div class="tab-content hidden" id="tab-15">
+    <div id="setreport-content"></div>
   </div>
 </div>
 

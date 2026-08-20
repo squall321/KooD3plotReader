@@ -34,10 +34,12 @@
 - [ ] KooChainRun 통합 실전 확인 (sphere/impact 탭과 함께 P4·P5 에서)
 
 ## P4 — sphere Set Report 탭
-- [ ] run 폴더 set_reports 스캔 (loader)
-- [ ] 탭 추가 (기존 탭 불변)
-- [ ] Mollweide 세트 피크 + 호버 PNG + 클릭 MP4
-- [ ] Playwright 확인
+- [x] _set_report_payload — analysis_results/<run>/custom_report/set_reports 스캔,
+      세트×각도 행렬 (미실행=None, 0 금지), 미디어 상대경로
+- [x] 탭 15 맨 끝 추가 (setupTabs DOM 순서 바인딩 준수, 기존 탭 불변)
+- [x] Mollweide 세트 피크 + 미실행 회색점 + 호버=PNG 스왑 + 클릭=MP4 모달
+- [x] Playwright 확인 — 1144점 중 12 데이터, 호버 최근접(P0001 212.89),
+      PNG 실로드(naturalWidth 640), 모달 영상 src 정상
 
 ## P5 — impact Set Report 탭
 - [ ] per-position set_reports 스캔 + 캐시 스키마 범프
