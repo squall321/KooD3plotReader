@@ -289,6 +289,64 @@ _JS_S1 = r"""function fillHeroKpi() {
   document.getElementById('heroWorstPart').textContent = fmt((k.worst.g || 0) / _gDiv, 0) + ' G  ON  ' + k.worst.part_name;
 }
 
+// 충격체 실형상 렌더 (make_stl 근사 메시, 고정 등각 뷰).
+// 개략도(원/실린더)로는 '뭐로 때렸는지' 감이 안 온다는 요청 반영 —
+// 메시가 있으면 실제 형상을, 없으면 종전 개략도를 그린다.
+function renderImpactorMesh(svgRoot) {
+  const M3 = DATA.impactor_mesh;
+  let cv = document.getElementById('impactor-mesh-canvas');
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.id = 'impactor-mesh-canvas';
+    cv.width = 400; cv.height = 220;
+    cv.style.cssText = 'width:100%;max-width:220px;height:auto;display:block;margin:0 auto';  // height:auto 로 버퍼 비율 유지 (고정 높이는 구를 찌그러뜨린다)
+    svgRoot.parentNode.insertBefore(cv, svgRoot);
+    svgRoot.style.display = 'none';
+  }
+  const V = M3.v, F = M3.f, n = V.length / 3;
+  // 중심·스케일
+  let cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < n; i++) { cx += V[i*3]; cy += V[i*3+1]; cz += V[i*3+2]; }
+  cx /= n; cy /= n; cz /= n;
+  // 등각 회전: rotX(-24°) · rotY(32°)
+  const a = -24 * Math.PI/180, b = 32 * Math.PI/180;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  const R = new Float32Array(n * 3);
+  let ext = 1e-9;
+  for (let i = 0; i < n; i++) {
+    const x0 = V[i*3]-cx, y0 = V[i*3+1]-cy, z0 = V[i*3+2]-cz;
+    const x1 = x0*cb + z0*sb, z1 = -x0*sb + z0*cb;
+    const y2 = y0*ca - z1*sa, z2 = y0*sa + z1*ca;
+    R[i*3] = x1; R[i*3+1] = -y2; R[i*3+2] = z2;   // 화면 y 아래 방향
+    ext = Math.max(ext, Math.abs(x1), Math.abs(y2));
+  }
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const sc = 0.42 * Math.min(W, H) / ext, ox = W/2, oy = H/2;
+  const nt = F.length / 3;
+  const order = [];
+  for (let t = 0; t < nt; t++) {
+    order.push([R[F[t*3]*3+2] + R[F[t*3+1]*3+2] + R[F[t*3+2]*3+2], t]);
+  }
+  order.sort((p2, q2) => p2[0] - q2[0]);
+  for (const [, t] of order) {
+    const i1 = F[t*3], i2 = F[t*3+1], i3 = F[t*3+2];
+    const ux = R[i2*3]-R[i1*3], uy = R[i2*3+1]-R[i1*3+1], uz = R[i2*3+2]-R[i1*3+2];
+    const vx = R[i3*3]-R[i1*3], vy = R[i3*3+1]-R[i1*3+1], vz = R[i3*3+2]-R[i1*3+2];
+    let nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+    const L = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+    const sh = 0.3 + 0.7 * Math.abs((nx*0.3 - ny*0.5 + nz*0.81)/L);
+    const g = Math.round(130 + 110 * sh);
+    ctx.fillStyle = 'rgb(' + Math.round(g*0.55) + ',' + Math.round(g*0.85) + ',' + g + ')';
+    ctx.beginPath();
+    ctx.moveTo(R[i1*3]*sc+ox, R[i1*3+1]*sc+oy);
+    ctx.lineTo(R[i2*3]*sc+ox, R[i2*3+1]*sc+oy);
+    ctx.lineTo(R[i3*3]*sc+ox, R[i3*3+1]*sc+oy);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
 function initImpactor() {
   const imp = DATA.meta.impactor;
   const svgRoot = document.getElementById('impactor-svg');
@@ -297,8 +355,13 @@ function initImpactor() {
   const sub = document.getElementById('impSubLabel');
   while (svgRoot.firstChild) svgRoot.removeChild(svgRoot.firstChild);
   while (tbl.firstChild) tbl.removeChild(tbl.firstChild);
+
+  // 실형상 메시가 있으면 개략도 대신 그린다 (표·라벨은 그대로 진행)
+  const hasMesh = !!(DATA.impactor_mesh && DATA.impactor_mesh.v &&
+                     DATA.impactor_mesh.f && DATA.impactor_mesh.f.length);
+  if (hasMesh) renderImpactorMesh(svgRoot);
   if (imp.type === 'Sphere') {
-    sub.textContent = 'Sphere';
+    sub.textContent = hasMesh ? 'Sphere · 실형상' : 'Sphere';
     svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 32, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 1.2 }));
     svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 8, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 0.6, 'stroke-dasharray': '2,2' }));
     svgRoot.appendChild(svg('line', { x1: 100, y1: 23, x2: 100, y2: 87, stroke: '#5c6383', 'stroke-width': 0.5, 'stroke-dasharray': '1,2' }));

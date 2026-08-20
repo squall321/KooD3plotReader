@@ -784,7 +784,81 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "energy_conservation_tolerance": None,
         # Custom Report(세트 후처리) 연동 — 없으면 None (s10 은 스스로 숨는다)
         "set_report": _build_set_report_payload(report),
+        # 충격체 실형상 (없으면 개략도 폴백)
+        "impactor_mesh": _build_impactor_mesh(report),
     }
+
+
+def _build_impactor_mesh(report) -> dict | None:
+    """충격체 실형상 (근사 외곽 메시) — "뭐로 때렸는지" 눈으로 확인용.
+
+    test_dir/impactor_preview.json 캐시. 없으면 make_stl 을 임팩터 파트로
+    실행해 생성한다. 파트 ID 미상·d3plot 부재·도구 부재면 None —
+    보고서는 종전 개략도(원/실린더)로 폴백한다.
+    """
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    from pathlib import Path as _P
+
+    test_dir = _P(str(report.test_dir)) if report.test_dir else None
+    if test_dir is None:
+        return None
+    cache = test_dir / "impactor_preview.json"
+
+    if not cache.is_file():
+        pid = getattr(getattr(report, "impactor", None), "part_id", None)
+        # make_stl 탐색
+        cands = []
+        env = _os.environ.get("KOOD3PLOT_HOME")
+        if env:
+            cands.append(_P(env) / "bin" / "make_stl")
+        # 저장소 루트를 조상 디렉터리에서 탐색 (payload/ 는 pkg 깊이가 달라질 수 있다)
+        for anc in _P(__file__).resolve().parents:
+            cands.append(anc / "build" / "examples" / "make_stl")
+        tool = next((c for c in cands if c.is_file()), None)
+        if tool is None:
+            return None
+        # 임팩터가 실린 d3plot 하나
+        d3 = None
+        for positions in (report.positions_by_face or {}).values():
+            for pos in positions or []:
+                rd = _P(str(pos.run_dir))
+                for c in (rd / "Output" / "d3plot", rd / "d3plot"):
+                    if c.is_file():
+                        d3 = c
+                        break
+                if d3:
+                    break
+            if d3:
+                break
+        if d3 is None:
+            return None
+
+        # 스펙에 part_id 가 없으면 키워드 PART 제목 휴리스틱으로 탐지
+        if not pid:
+            try:
+                from ...loader import _find_impactor_part_id
+                pid = _find_impactor_part_id(d3)
+            except Exception:
+                pid = None
+        if not pid:
+            return None
+        try:
+            _sp.run([str(tool), str(d3), str(test_dir / "impactor_preview"),
+                     "15000", "32", str(pid)],
+                    capture_output=True, timeout=300)
+        except (OSError, _sp.TimeoutExpired):
+            return None
+
+    if not cache.is_file():
+        return None
+    try:
+        if cache.stat().st_size > 1024 * 1024:
+            return None
+        return _json.loads(cache.read_text(encoding="utf-8"))
+    except (_json.JSONDecodeError, OSError):
+        return None
 
 
 def _build_set_report_payload(report) -> dict | None:

@@ -53,7 +53,19 @@
 - [x] 산출물 없으면 섹션·네비 자기 은닉
 - [x] Playwright 확인 — 마커 25(안 9 + 점선 16), 호버 PNG 실로드, 모달 MP4
 
-## P6 — node/segment 셋 확장
-- [ ] 노드셋: 절점 변위/속도 피크 + (절점 포함 요소) 응력
-- [ ] 세그먼트셋: 부모 요소 응력/변형률
-- [ ] 뷰: 해당 요소만 표시
+## P6 — node/segment 셋 확장 (완료 2026-08-20)
+- [x] 노드셋: disp_mag/vel_mag/acc_mag 직접 스윕 (NodeKinematics) — 검증:
+      "Sensor nodes" disp 피크 3.44215 @t=0.000991 node 13003
+- [x] 세그먼트셋: 부모 솔리드 요소 σ_vm/eff_plastic 직접 스윕 — 검증:
+      "Top window" σ_vm 40.06696 (파트 최대 212.89 미만 위생 확인)
+- [x] metric_source 필드("parts"|"nodes"|"segments")로 파트 이력 피크와 구분
+- [x] 뷰: 세그먼트셋은 부모 요소 파트 뷰 + 자기 하이라이트 ("9 max 40.98" 라벨)
+
+## 임팩터 실형상 미리보기 (완료 2026-08-20)
+- [x] make_stl 5번째 인자 parts_csv — 파트 한정 추출
+- [x] make_stl 사용 정점 압축 — 필터 시 미사용 절점이 bbox·데시메이션 오염 방지
+- [x] make_stl 표면 스냅 — 셀 평균 대신 최근접 원본 절점 (곡면 우둘투둘함 제거)
+- [x] impact payload _build_impactor_mesh — test_dir/impactor_preview.json 캐시,
+      pid 폴백(_find_impactor_part_id), 조상 경로 탐색으로 make_stl 발견
+- [x] s1 renderImpactorMesh 캔버스 (등각 페인터) + 비율 유지 CSS — 찌그러짐 수정
+- [x] Playwright 확인 — 구가 매끈한 공으로 표시 (8,335 tris, 159KB)
