@@ -105,7 +105,7 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::printf("사용: %s <d3plot> <out_prefix> [target_tris=6000]\n", argv[0]);
+        std::printf("사용: %s <d3plot> <out_prefix> [target_tris=6000] [voxel_res=128]\n", argv[0]);
         return 2;
     }
     const std::string d3 = argv[1];
@@ -153,7 +153,110 @@ int main(int argc, char** argv) {
             tris.push_back({n[0], n[2], n[3]});
         }
     }
-    std::printf("외곽 삼각형 %zu개 → 목표 %d\n", tris.size(), target);
+    std::printf("외곽 삼각형 %zu개 (내부 파트 표면 포함)\n", tris.size());
+
+    // ---- 가시 외피만 남기기 (복셀 플러드필) ----
+    //
+    // 요소 공유 기준의 '외곽면' 은 노드가 안 붙은 **내부 부품**(PCB·칩 등)의
+    // 표면까지 전부 포함한다 — 자세 미리보기에는 겉껍데기만 있으면 된다.
+    // 방법: 복셀 격자에 삼각형을 마킹 → 바깥 공기에서 6-연결 플러드필 →
+    // 외기와 접한 복셀에 걸린 삼각형만 유지. 하우징이 막힌 한 내부 표면은
+    // 도달 불가라 떨어져 나간다. (통풍구 급 큰 구멍이 있으면 일부 새어
+    // 들어올 수 있다 — 근사 목적상 허용.)
+    {
+        const int VR = (argc > 4) ? std::atoi(argv[4]) : 128;  // 복셀 해상도
+        // 실측(Test_006 스윕 24~256): 너무 낮으면 셀이 굵어 내부 셀까지
+        // 바깥과 면접해 아무것도 안 걸러지고, 너무 높으면 미세 틈으로
+        // 공기가 새어 들어간다. 128 이 최대 제거(27%) + 데시메이션 품질
+        // 최고였다. 개방 조립(보드 위 부품)은 원래 대부분 외기 가시라
+        // 제거량이 작은 게 정상 — 밀폐 하우징 모델에서 진가가 나온다.
+        const double ex = std::max(1e-9, bmax.x - bmin.x);
+        const double ey = std::max(1e-9, bmax.y - bmin.y);
+        const double ez = std::max(1e-9, bmax.z - bmin.z);
+        auto cellIx = [&](double v, double lo, double e) {
+            int i = (int)((v - lo) / e * VR);
+            return std::min(VR - 1, std::max(0, i));
+        };
+        auto cellId = [&](int ix, int iy, int iz) {
+            return (ix * VR + iy) * VR + iz;
+        };
+
+        std::vector<uint8_t> solid((size_t)VR * VR * VR, 0);
+        std::vector<std::vector<int32_t>> cell_of_tri(tris.size());
+
+        for (size_t t = 0; t < tris.size(); ++t) {
+            // 삼각형을 몇 개 샘플점으로 근사 마킹 (꼭짓점 + 변 중점 + 무게중심)
+            const V3& a = pts[tris[t][0]];
+            const V3& b = pts[tris[t][1]];
+            const V3& c = pts[tris[t][2]];
+            const V3 samples[7] = {
+                a, b, c,
+                {(a.x+b.x)/2, (a.y+b.y)/2, (a.z+b.z)/2},
+                {(b.x+c.x)/2, (b.y+c.y)/2, (b.z+c.z)/2},
+                {(a.x+c.x)/2, (a.y+c.y)/2, (a.z+c.z)/2},
+                {(a.x+b.x+c.x)/3, (a.y+b.y+c.y)/3, (a.z+b.z+c.z)/3},
+            };
+            for (const auto& sp : samples) {
+                const int id = cellId(cellIx(sp.x, bmin.x, ex),
+                                      cellIx(sp.y, bmin.y, ey),
+                                      cellIx(sp.z, bmin.z, ez));
+                if (!solid[id] || cell_of_tri[t].empty() ||
+                    cell_of_tri[t].back() != id) {
+                    cell_of_tri[t].push_back(id);
+                }
+                solid[id] = 1;
+            }
+        }
+
+        // 바깥 공기 플러드필 (경계 셀에서 시작)
+        std::vector<uint8_t> air((size_t)VR * VR * VR, 0);
+        std::vector<int32_t> stack;
+        auto push = [&](int ix, int iy, int iz) {
+            if (ix < 0 || iy < 0 || iz < 0 || ix >= VR || iy >= VR || iz >= VR) return;
+            const int id = cellId(ix, iy, iz);
+            if (air[id] || solid[id]) return;
+            air[id] = 1;
+            stack.push_back(id);
+        };
+        for (int i = 0; i < VR; ++i)
+            for (int j = 0; j < VR; ++j) {
+                push(0, i, j); push(VR - 1, i, j);
+                push(i, 0, j); push(i, VR - 1, j);
+                push(i, j, 0); push(i, j, VR - 1);
+            }
+        while (!stack.empty()) {
+            const int id = stack.back(); stack.pop_back();
+            const int iz = id % VR, iy = (id / VR) % VR, ix = id / (VR * VR);
+            push(ix + 1, iy, iz); push(ix - 1, iy, iz);
+            push(ix, iy + 1, iz); push(ix, iy - 1, iz);
+            push(ix, iy, iz + 1); push(ix, iy, iz - 1);
+        }
+
+        // 외기와 면접한 복셀에 걸린 삼각형만 유지
+        auto touchesAir = [&](int id) {
+            const int iz = id % VR, iy = (id / VR) % VR, ix = id / (VR * VR);
+            const int di[6][3] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+            for (const auto& d : di) {
+                const int jx = ix + d[0], jy = iy + d[1], jz = iz + d[2];
+                if (jx < 0 || jy < 0 || jz < 0 || jx >= VR || jy >= VR || jz >= VR)
+                    return true;                     // 격자 경계 = 바깥
+                if (air[cellId(jx, jy, jz)]) return true;
+            }
+            return false;
+        };
+        std::vector<std::array<int32_t, 3>> visible;
+        visible.reserve(tris.size());
+        for (size_t t = 0; t < tris.size(); ++t) {
+            for (int id : cell_of_tri[t]) {
+                if (touchesAir(id)) { visible.push_back(tris[t]); break; }
+            }
+        }
+        std::printf("가시 외피 필터: %zu → %zu 삼각형 (내부 표면 제거)\n",
+                    tris.size(), visible.size());
+        tris = std::move(visible);
+    }
+
+    std::printf("데시메이션 목표 %d\n", target);
 
     // 데시메이션: 해상도를 낮춰가며 목표 이하로
     MeshOut out;
