@@ -351,19 +351,12 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
     // Export Custom Report set results — set_reports/<safe_name>/{metrics.json, series CSV}
     if (!result.set_report_results.empty()) {
         std::string sets_root = output_dir + "/set_reports";
-        std::error_code ec;
-        fs::remove_all(sets_root, ec);   // 재실행 시 낡은 산출물 제거
+        // 낡은 산출물 정리는 prepareSetReports 가 한다 — 여기서 지우면
+        // analyze() 중 렌더된 세트 뷰(MP4/PNG)가 같이 날아간다.
         fs::create_directories(sets_root);
         std::cout << "\nExporting set reports:\n";
 
-        auto safe = [](const std::string& s2) {
-            std::string out;
-            for (char c : s2) {
-                out.push_back((std::isalnum(static_cast<unsigned char>(c)) ||
-                               c == '-' || c == '_') ? c : '_');
-            }
-            return out.empty() ? std::string("set") : out;
-        };
+        auto safe = [](const std::string& s2) { return sanitizeSetName(s2); };
 
         for (const auto& sr : result.set_report_results) {
             const std::string dir = sets_root + "/" + safe(sr.name);

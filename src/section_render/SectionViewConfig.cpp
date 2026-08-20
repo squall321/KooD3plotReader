@@ -219,6 +219,8 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "sliding_pad")         { try { sliding_pad = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "sliding_axis_sign")   { try { sliding_axis_sign = std::stoi(value); } catch(...) {} section = ""; continue; }
             if (key == "background_alpha")    { try { background_alpha = std::stod(value); } catch(...) {} section = ""; continue; }
+            if (key == "snapshot_state")      { try { snapshot_state = std::stoi(value); } catch(...) {} section = ""; continue; }
+            if (key == "max_frames")          { try { max_frames = std::stoi(value); } catch(...) {} section = ""; continue; }
         }
 
         // Plane sub-keys

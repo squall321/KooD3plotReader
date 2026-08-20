@@ -120,7 +120,8 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     if (config.view_mode == SectionViewMode::Section3D) {
         return render3D(mesh, ctrl, all_states, config);
     }
-    if (config.view_mode == SectionViewMode::IsoSurface) {
+    if (config.view_mode == SectionViewMode::IsoSurface ||
+        config.view_mode == SectionViewMode::PartTopView) {
         return renderIsoSurface(mesh, ctrl, all_states, config);
     }
 
@@ -1340,6 +1341,12 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
     size_t num_states = all_states.size();
     if (num_states == 0) return "No states in d3plot file";
 
+    // Custom Report 세트 뷰: 타깃 파트만, 클리핑 없음, 축 정렬 탑뷰.
+    // IsoSurface 파이프라인(외곽면 추출·컨투어·MP4)을 그대로 쓰되 세 가지만
+    // 바꾼다 — ① 타깃 외 면 제외 ② 축 정렬 ortho 카메라 ③ 백페이스 컷 해제
+    // (셸 파트는 뒷면만 보일 수 있어 컷하면 통째로 사라진다).
+    const bool top_view = (config.view_mode == SectionViewMode::PartTopView);
+
     // Output directory
     std::string out_dir = config.output_dir;
     try { fs::create_directories(out_dir); }
@@ -1671,6 +1678,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
         auto it = tri_count.find(sortedTri(t.a, t.b, t.c));
         if (it != tri_count.end() && it->second == 1) {
             bool is_tgt = all_are_target || config.target_parts.matches(t.part_id);
+            if (top_view && !is_tgt) continue;   // 세트 뷰: 타깃 파트만 표시
             ExtFace f{{t.a, t.b, t.c}, t.part_id, is_tgt, initialEdge2(t.a, t.b, t.c)};
             ext_faces.push_back(f);
         }
@@ -1679,6 +1687,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
         auto it = quad_count.find(sortedQuad(q.a, q.b, q.c, q.d));
         if (it == quad_count.end() || it->second != 1) continue;
         bool is_tgt = all_are_target || config.target_parts.matches(q.part_id);
+        if (top_view && !is_tgt) continue;       // 세트 뷰: 타깃 파트만 표시
         ExtFace f1{{q.a, q.b, q.c}, q.part_id, is_tgt, initialEdge2(q.a, q.b, q.c)};
         ExtFace f2{{q.a, q.c, q.d}, q.part_id, is_tgt, initialEdge2(q.a, q.c, q.d)};
         ext_faces.push_back(f1);
@@ -1732,9 +1741,17 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
         }
         mesh_center = bbox.center();
 
-        SectionPlane dummy = SectionPlane::fromAxis('z', mesh_center);
-        camera.setupIsometric(dummy, bbox, config.scale_factor,
-                              config.width, config.height);
+        if (top_view) {
+            // 탑뷰: 요청 축을 내려다보는 직교 카메라, 타깃 bbox 에 fit.
+            // scale_factor 기본 3.0 은 iso 용으로 크다 — 탑뷰는 1.15 로 캡.
+            const double sf = (config.scale_factor > 2.0) ? 1.15 : config.scale_factor;
+            SectionPlane p = SectionPlane::fromAxis(config.axis, mesh_center);
+            camera.setupAxisAligned(p, bbox, sf, config.width, config.height);
+        } else {
+            SectionPlane dummy = SectionPlane::fromAxis('z', mesh_center);
+            camera.setupIsometric(dummy, bbox, config.scale_factor,
+                                  config.width, config.height);
+        }
     }
 
     // Global range scan
@@ -1767,7 +1784,25 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
 
     std::string frame_pattern = out_dir + "/frame_%04d.png";
 
-    for (size_t si = 0; si < num_states; ++si) {
+    // 렌더할 상태 목록 — max_frames 로 균등 다운샘플 (스냅샷 상태는 항상 포함).
+    std::vector<size_t> frame_states;
+    if (config.max_frames > 1 && num_states > (size_t)config.max_frames) {
+        for (int32_t k = 0; k < config.max_frames; ++k) {
+            frame_states.push_back((size_t)k * (num_states - 1) / (config.max_frames - 1));
+        }
+        if (config.snapshot_state >= 0 && (size_t)config.snapshot_state < num_states &&
+            std::find(frame_states.begin(), frame_states.end(),
+                      (size_t)config.snapshot_state) == frame_states.end()) {
+            frame_states.push_back((size_t)config.snapshot_state);
+            std::sort(frame_states.begin(), frame_states.end());
+        }
+    } else {
+        for (size_t si2 = 0; si2 < num_states; ++si2) frame_states.push_back(si2);
+    }
+    const size_t num_frames = frame_states.size();
+
+    for (size_t fi = 0; fi < num_frames; ++fi) {
+        const size_t si = frame_states[fi];
         const auto& state = all_states[si];
 
         averager.compute(state, config.field, config.target_parts);
@@ -1802,7 +1837,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
             double face_area2 = cross.dot(cross);
             if (face_area2 < 1e-10) continue;
             Vec3 fn = cross.normalizedSafe();
-            if (fn.dot(vd) > 1e-3) continue;
+            if (!top_view && fn.dot(vd) > 1e-3) continue;   // 탑뷰는 깊이 테스트에 맡긴다
             if (fn.dot(light_dir) < 0) fn = fn * -1.0;
             double ndotl = std::max(0.0, fn.dot(light_dir));
 
@@ -1985,12 +2020,19 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
                                     cmap.vmin(), cmap.vmax(), title);
         }
 
-        std::string frame_path = out_dir + "/" + frameName((int)si, (int)num_states);
+        std::string frame_path = out_dir + "/" + frameName((int)fi, (int)num_frames);
         std::string err = rasterizer.savePng(frame_path);
         if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;
 
-        if (si % 20 == 0 || si == num_states - 1)
-            std::fprintf(stderr, "[iso_surface] Rendered frame %zu / %zu\n", si + 1, num_states);
+        // 피크 시각 스냅샷 — 프레임과 같은 컬러 범위로 저장된다
+        if (config.snapshot_state >= 0 && si == (size_t)config.snapshot_state) {
+            std::error_code ec;
+            fs::copy_file(frame_path, out_dir + "/snapshot.png",
+                          fs::copy_options::overwrite_existing, ec);
+        }
+
+        if (fi % 20 == 0 || fi == num_frames - 1)
+            std::fprintf(stderr, "[iso_surface] Rendered frame %zu / %zu\n", fi + 1, num_frames);
     }
 
     if (config.mp4) {

@@ -83,6 +83,15 @@ public:
      * @param img_width     Output image width  in pixels
      * @param img_height    Output image height in pixels
      */
+    /// 축 정렬 직교 카메라 — 평면 법선을 내려다보는 탑뷰 (PartTopView 용).
+    /// setup() 은 view_dir_ 를 채우지 않아 project3D 깊이가 전부 0이 되므로
+    /// 3D 깊이 테스트가 필요한 경로는 반드시 이걸 써야 한다.
+    void setupAxisAligned(const SectionPlane& plane,
+                          const AABB3& bbox,
+                          double scale_factor,
+                          int32_t img_width,
+                          int32_t img_height);
+
     void setupIsometric(const SectionPlane& plane,
                         const AABB3& bbox,
                         double scale_factor,

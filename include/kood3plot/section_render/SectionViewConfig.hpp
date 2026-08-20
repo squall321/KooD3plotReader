@@ -46,7 +46,8 @@ namespace section_render {
 enum class SectionViewMode {
     Section2D,    ///< Default: 2D cross-section view (camera perpendicular to cut plane)
     Section3D,    ///< 3D half-model: isometric view with cut face + 3D exterior
-    IsoSurface    ///< Iso view, no cut: target part = fringe contour, background = part color + alpha
+    IsoSurface,   ///< Iso view, no cut: target part = fringe contour, background = part color + alpha
+    PartTopView   ///< Custom Report: 타깃 파트만, 클리핑 없음, 축 정렬 ortho 탑뷰 + fit
 };
 
 struct SectionViewConfig {
@@ -71,7 +72,10 @@ struct SectionViewConfig {
     FieldSelector field       = FieldSelector::VonMises;
     ColorMapType  colormap    = ColorMapType::Fringe;
     bool          global_range = true;   ///< true = consistent color scale (red=global max, blue=global min)
-    double        scale_factor = 3.0;    ///< viewport extent relative to target bbox (clamped to full model)
+    double        scale_factor = 3.0;
+    // ---- PartTopView (Custom Report 세트 뷰) 전용 ----
+    int32_t       snapshot_state = -1;   ///< >=0 이면 그 상태를 snapshot.png 로 저장 (피크 시각)
+    int32_t       max_frames = 0;        ///< 0 = 전 상태, N = 균등 다운샘플 (스냅샷 상태는 항상 포함)    ///< viewport extent relative to target bbox (clamped to full model)
     int32_t       supersampling = 2;
 
     // ── Sliding section (SW backend) ──

@@ -157,6 +157,16 @@ private:
         UnifiedProgressCallback callback
     );
 
+    /// Custom Report: 세트 뷰 렌더 (3면 탑뷰 영상 + 피크 스냅샷).
+    /// SECTION_RENDER 빌드가 꺼져 있으면 사유만 남기고 생략.
+    void processSetViews(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        const std::vector<data::StateData>& all_states,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
     /// 빔 단면력 분석 (beam_force 잡)
     void processBeamJobs(
         D3plotReader& reader,

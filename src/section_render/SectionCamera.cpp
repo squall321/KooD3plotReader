@@ -97,6 +97,24 @@ Vec2 SectionCamera::project(const Vec3& p) const
     return {px, py};
 }
 
+void SectionCamera::setupAxisAligned(const SectionPlane& plane,
+                                     const AABB3& bbox,
+                                     double scale_factor,
+                                     int32_t img_width,
+                                     int32_t img_height)
+{
+    // 2D setup 이 axis_u_/axis_v_/half_w_/half_h_/origin_ 을 전부 채운다.
+    setup(plane, bbox, scale_factor, img_width, img_height);
+    // 탑뷰: 평면 법선을 따라 내려다본다 (project3D 의 깊이 축).
+    view_dir_ = plane.normal() * -1.0;
+    const double len = std::sqrt(view_dir_.x * view_dir_.x +
+                                 view_dir_.y * view_dir_.y +
+                                 view_dir_.z * view_dir_.z);
+    if (len > 1e-12) {
+        view_dir_.x /= len; view_dir_.y /= len; view_dir_.z /= len;
+    }
+}
+
 // ================================================================
 // 3D Isometric camera
 // ================================================================

@@ -398,6 +398,16 @@ struct SetReportSpec {
     int max_frames = 0;               ///< 0 = 전 상태, N = 균등 다운샘플
 };
 
+/// 세트 이름 → 파일시스템 안전 폴더명 (산출물·렌더 경로 공용 규약)
+inline std::string sanitizeSetName(const std::string& name) {
+    std::string out;
+    for (char c : name) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        out.push_back((std::isalnum(u) || c == '-' || c == '_') ? c : '_');
+    }
+    return out.empty() ? std::string("set") : out;
+}
+
 /**
  * @brief 세트 하나·필드 하나의 집계 결과 (시계열 + 피크)
  */
@@ -408,6 +418,7 @@ struct SetFieldResult {
 
     double peak = 0.0;                ///< 피크 값 (압축 필드는 최소값)
     double peak_time = 0.0;
+    int32_t peak_state = -1;          ///< 피크가 난 상태 인덱스 (뷰 스냅샷용)
     int32_t peak_element_id = 0;
     int32_t peak_part_id = 0;
 

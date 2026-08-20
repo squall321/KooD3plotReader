@@ -19,6 +19,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <filesystem>
+#include <algorithm>
 
 namespace kood3plot {
 namespace analysis {
@@ -180,6 +182,133 @@ bool UnifiedAnalyzer::processSectionViews(
     }
 
     return all_ok;
+}
+
+// ============================================================
+// processSetViews — Custom Report 세트 뷰 (3면 탑뷰 영상 + 피크 스냅샷)
+// ============================================================
+//
+// 세트마다 planes × {von_mises, eff_plastic_strain} 조합으로 PartTopView 를
+// 렌더한다. 스냅샷 상태는 finalizeSetReports 가 구한 피크 상태 인덱스 —
+// C++ 이 피크를 알고 있으므로 Python 오케스트레이션 없이 정확한 시각을 찍는다.
+// 산출물 규약 (per-run):
+//   <output>/set_reports/<safe_name>/view_<plane>_<field>.mp4
+//   <output>/set_reports/<safe_name>/peak_<plane>_<field>.png
+
+void UnifiedAnalyzer::processSetViews(
+    D3plotReader& reader,
+    const UnifiedConfig& config,
+    const std::vector<data::StateData>& all_states,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback)
+{
+    namespace fs = std::filesystem;
+    (void)reader;
+
+    if (config.output_directory.empty()) {
+        for (auto& sr : result.set_report_results) {
+            if (!sr.resolved_parts.empty()) {
+                sr.notes.push_back("세트 뷰 미생성 — output.directory 미지정");
+            }
+        }
+        return;
+    }
+
+    auto mesh = reader.read_mesh();
+    const auto& ctrl = reader.get_control_data();
+
+    // 뷰 대상 필드 — 렌더러(FieldSelector)가 지원하는 것만
+    struct ViewField {
+        const char* name;
+        section_render::FieldSelector sel;
+    };
+    const ViewField kViewFields[] = {
+        {"von_mises",          section_render::FieldSelector::VonMises},
+        {"eff_plastic_strain", section_render::FieldSelector::EffectivePlasticStrain},
+    };
+
+    auto planeAxis = [](const std::string& plane) -> char {
+        if (plane == "xy") return 'z';
+        if (plane == "yz") return 'x';
+        return 'y';   // zx
+    };
+
+    for (size_t si = 0; si < result.set_report_results.size(); ++si) {
+        auto& sr = result.set_report_results[si];
+        if (sr.resolved_parts.empty()) continue;   // 사유는 이미 notes 에
+
+        const SetReportSpec spec = (si < config.set_reports.size())
+                                   ? config.set_reports[si]
+                                   : SetReportSpec{};
+        if (!spec.video && !spec.peak_snapshot) continue;
+
+        const std::string set_dir = config.output_directory + "/set_reports/" +
+                                    sanitizeSetName(sr.name);
+        std::error_code ec;
+        fs::create_directories(set_dir, ec);
+
+        for (const auto& vf : kViewFields) {
+            // 요청 필드 필터 (비우면 전부)
+            if (!spec.fields.empty() &&
+                std::find(spec.fields.begin(), spec.fields.end(),
+                          std::string(vf.name)) == spec.fields.end()) {
+                continue;
+            }
+
+            // 이 필드의 피크 상태 (지표에서)
+            int32_t peak_state = -1;
+            for (const auto& fr : sr.fields) {
+                if (fr.field == vf.name && fr.measured) { peak_state = fr.peak_state; break; }
+            }
+
+            for (const auto& plane : spec.planes) {
+                if (callback) {
+                    callback("  Set view [" + sr.name + "] " + plane + "/" + vf.name + "...");
+                }
+
+                section_render::SectionViewConfig sv;
+                sv.view_mode = section_render::SectionViewMode::PartTopView;
+                sv.use_axis = true;
+                sv.axis = planeAxis(plane);
+                sv.field = vf.sel;
+                sv.width = spec.width;
+                sv.height = spec.height;
+                sv.global_range = true;          // 영상·스냅샷 컬러바 통일
+                sv.mp4 = spec.video;
+                sv.png_frames = false;
+                sv.snapshot_state = spec.peak_snapshot ? peak_state : -1;
+                sv.max_frames = spec.max_frames;
+                for (int32_t pid : sr.resolved_parts) sv.target_parts.addById(pid);
+
+                // 임시 하위 폴더에 렌더 후 규약 이름으로 옮긴다
+                const std::string tmp_dir = set_dir + "/_render_" + plane + "_" + vf.name;
+                sv.output_dir = tmp_dir;
+
+                section_render::SectionViewRenderer renderer;
+                const std::string err = renderer.render(mesh, ctrl, all_states, sv);
+                if (!err.empty()) {
+                    sr.notes.push_back("뷰 실패 [" + plane + "/" + vf.name + "]: " + err);
+                    fs::remove_all(tmp_dir, ec);
+                    continue;
+                }
+
+                if (spec.video) {
+                    fs::rename(tmp_dir + "/section_view.mp4",
+                               set_dir + "/view_" + plane + "_" + vf.name + ".mp4", ec);
+                    if (ec) sr.notes.push_back("뷰 이동 실패 [" + plane + "/" + vf.name + "]");
+                }
+                if (spec.peak_snapshot && peak_state >= 0) {
+                    fs::rename(tmp_dir + "/snapshot.png",
+                               set_dir + "/peak_" + plane + "_" + vf.name + ".png", ec);
+                    if (ec) sr.notes.push_back("스냅샷 이동 실패 [" + plane + "/" + vf.name + "]");
+                } else if (spec.peak_snapshot && peak_state < 0) {
+                    sr.notes.push_back("스냅샷 생략 [" + plane + "/" + vf.name +
+                                       "] — 피크 상태 미산출");
+                }
+                fs::remove_all(tmp_dir, ec);
+            }
+        }
+    }
 }
 
 } // namespace analysis

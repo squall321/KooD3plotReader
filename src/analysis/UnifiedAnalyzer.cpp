@@ -196,9 +196,10 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         processSolidJobs(reader, stress_jobs, strain_jobs, all_states, result, callback);
     }
 
-    // Custom Report 집계 (solid 이력이 준비된 직후)
+    // Custom Report 집계 (solid 이력이 준비된 직후) + 세트 뷰 렌더
     if (!result.set_report_results.empty()) {
         finalizeSetReports(config, result, callback);
+        processSetViews(reader, config, all_states, result, callback);
     }
 
     if (!motion_jobs.empty()) {
@@ -845,6 +846,13 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
         return inject_parts;
     }
 
+    // 낡은 산출물 정리는 여기서 한 번만 — exportResults 시점에 지우면
+    // analyze() 중에 렌더된 세트 뷰까지 같이 지워진다.
+    if (!config.output_directory.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(config.output_directory + "/set_reports", ec);
+    }
+
     auto parsed = parsers::parseKeywordSetFile(sets_path);
     if (!parsed.ok) {
         for (const auto& spec : config.set_reports) {
@@ -1011,6 +1019,7 @@ void UnifiedAnalyzer::finalizeSetReports(
                     best = v;
                     fr.peak = v;
                     fr.peak_time = time;
+                    fr.peak_state = static_cast<int32_t>(t);
                     fr.peak_element_id = elem;
                     fr.peak_part_id = part;
                 }
@@ -1493,6 +1502,24 @@ bool UnifiedAnalyzer::processPartSectionRenders(
     if (callback) callback("  Part section renders skipped: LSPrePost renderer not available");
     if (callback) callback("  Build with KOOD3PLOT_BUILD_V4_RENDER=ON to enable");
     return false;
+}
+#endif
+
+#ifndef KOOD3PLOT_HAS_SECTION_RENDER
+void UnifiedAnalyzer::processSetViews(
+    D3plotReader&, const UnifiedConfig&,
+    const std::vector<data::StateData>&,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback)
+{
+    // 섹션 렌더 빌드가 꺼져 있으면 뷰는 못 만든다 — 지표는 이미 나갔고,
+    // 사유를 남긴다 (무음 금지).
+    for (auto& sr : result.set_report_results) {
+        if (!sr.resolved_parts.empty()) {
+            sr.notes.push_back("세트 뷰 미생성 — SECTION_RENDER 빌드 꺼짐");
+        }
+    }
+    if (callback) callback("  Set view: SECTION_RENDER 빌드가 꺼져 있어 뷰 생략");
 }
 #endif
 
