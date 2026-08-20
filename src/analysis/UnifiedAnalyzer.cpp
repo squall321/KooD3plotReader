@@ -820,58 +820,31 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
 
     // 세트 파일 결정: 명시 > d3plot 옆 자동 탐색
     std::string sets_path = config.sets_file;
-    if (sets_path.empty()) {
-        namespace fs = std::filesystem;
-        const fs::path dir = fs::path(config.d3plot_path).parent_path();
-        for (const char* ext : {".k", ".key", ".dyn"}) {
-            std::error_code ec;
-            for (const auto& e : fs::directory_iterator(dir, ec)) {
-                if (e.path().extension() == ext) { sets_path = e.path().string(); break; }
-            }
-            if (!sets_path.empty()) break;
-        }
-    }
+    // 세트 파일은 이제 **선택**이다 — set_id/하이라이트를 참조하는 항목만
+    // 필요하다. parts/part_patterns 로만 고른 항목은 파일 없이도 동작한다.
+    const bool need_file = std::any_of(
+        config.set_reports.begin(), config.set_reports.end(),
+        [](const SetReportSpec& sp) {
+            return sp.set_id > 0 || !sp.highlight_segment_sets.empty();
+        });
 
-    if (sets_path.empty()) {
-        // 파일이 없으면 각 항목에 사유를 남기고 스킵 — 무음 금지
-        for (const auto& spec : config.set_reports) {
-            SetReportResult sr;
-            sr.name = spec.name;
-            sr.set_type = spec.set_type;
-            sr.set_id = spec.set_id;
-            sr.notes.push_back("세트 파일 없음 — sets.file 을 지정하거나 d3plot 옆에 .k 파일 필요");
-            result.set_report_results.push_back(std::move(sr));
+    parsers::KeywordSetParseResult parsed;
+    bool have_file = false;
+    if (!sets_path.empty()) {
+        parsed = parsers::parseKeywordSetFile(sets_path);
+        have_file = parsed.ok;
+        if (!parsed.ok && need_file && callback) {
+            callback("  Set report: " + parsed.error);
         }
-        if (callback) callback("  Set report: 세트 파일을 찾지 못해 전 항목 스킵");
-        return inject_parts;
-    }
-
-    // 낡은 산출물 정리는 여기서 한 번만 — exportResults 시점에 지우면
-    // analyze() 중에 렌더된 세트 뷰까지 같이 지워진다.
-    if (!config.output_directory.empty()) {
-        std::error_code ec;
-        std::filesystem::remove_all(config.output_directory + "/set_reports", ec);
-    }
-
-    auto parsed = parsers::parseKeywordSetFile(sets_path);
-    if (!parsed.ok) {
-        for (const auto& spec : config.set_reports) {
-            SetReportResult sr;
-            sr.name = spec.name;
-            sr.set_type = spec.set_type;
-            sr.set_id = spec.set_id;
-            sr.notes.push_back("세트 파일 파싱 실패: " + parsed.error);
-            result.set_report_results.push_back(std::move(sr));
+        if (parsed.ok && callback) {
+            callback("  Set report: " + sets_path + " 에서 세트 " +
+                     std::to_string(parsed.sets.size()) + "개 로드" +
+                     (parsed.warnings.empty() ? "" :
+                      " (경고 " + std::to_string(parsed.warnings.size()) + "건)"));
+            for (const auto& w : parsed.warnings) callback("    [set] " + w);
         }
-        if (callback) callback("  Set report: " + parsed.error);
-        return inject_parts;
-    }
-    if (callback) {
-        callback("  Set report: " + sets_path + " 에서 세트 " +
-                 std::to_string(parsed.sets.size()) + "개 로드" +
-                 (parsed.warnings.empty() ? "" :
-                  " (경고 " + std::to_string(parsed.warnings.size()) + "건)"));
-        for (const auto& w : parsed.warnings) callback("    [set] " + w);
+    } else if (need_file && callback) {
+        callback("  Set report: 세트 파일 없음 — set_id/하이라이트 참조 항목은 사유 기록");
     }
 
     // 메시의 실제 파트 ID 집합
@@ -890,46 +863,107 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
         sr.set_type = spec.set_type;
         sr.set_id = spec.set_id;
 
-        parsers::KeywordSet::Kind kind;
-        if (!parsers::setKindFromString(spec.set_type, kind)) {
-            sr.notes.push_back("알 수 없는 set_type '" + spec.set_type +
-                               "' (part/node/segment 중 하나)");
-            result.set_report_results.push_back(std::move(sr));
-            continue;
-        }
+        // ---- 파트 후보 수집: 세트 파일 + 직접 ID + 이름 패턴의 **합집합** ----
+        std::vector<int32_t> candidates;
+        auto add_candidate = [&](int32_t pid) {
+            if (std::find(candidates.begin(), candidates.end(), pid) == candidates.end()) {
+                candidates.push_back(pid);
+            }
+        };
 
-        const auto* set = parsed.find(kind, spec.set_id);
-        if (!set) {
-            sr.notes.push_back("*SET_" + std::string(parsers::setKindName(kind)) +
-                               " " + std::to_string(spec.set_id) + " 이 세트 파일에 없음");
-            result.set_report_results.push_back(std::move(sr));
-            continue;
-        }
-        sr.title = set->title;
+        bool node_or_segment_ref = false;
 
-        if (kind == parsers::KeywordSet::Kind::PART) {
-            for (int32_t pid : set->ids) {
-                if (mesh_pids.count(pid)) {
-                    sr.resolved_parts.push_back(pid);
-                    inject_set.insert(pid);
+        if (spec.set_id > 0) {
+            parsers::KeywordSet::Kind kind;
+            if (!parsers::setKindFromString(spec.set_type, kind)) {
+                sr.notes.push_back("알 수 없는 set_type '" + spec.set_type +
+                                   "' (part/node/segment 중 하나)");
+            } else if (!have_file) {
+                sr.notes.push_back("세트 파일이 없어 *SET_" +
+                                   std::string(parsers::setKindName(kind)) + " " +
+                                   std::to_string(spec.set_id) + " 을 해석하지 못함");
+            } else {
+                const auto* set = parsed.find(kind, spec.set_id);
+                if (!set) {
+                    sr.notes.push_back("*SET_" + std::string(parsers::setKindName(kind)) +
+                                       " " + std::to_string(spec.set_id) +
+                                       " 이 세트 파일에 없음");
                 } else {
-                    sr.missing_parts.push_back(pid);
+                    sr.title = set->title;
+                    if (kind == parsers::KeywordSet::Kind::PART) {
+                        for (int32_t pid : set->ids) add_candidate(pid);
+                    } else if (kind == parsers::KeywordSet::Kind::NODE) {
+                        sr.num_nodes = set->ids.size();
+                        node_or_segment_ref = true;
+                        sr.notes.push_back("node 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+                    } else {
+                        sr.num_segments = set->segments.size();
+                        node_or_segment_ref = true;
+                        sr.notes.push_back("segment 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+                    }
                 }
             }
-            if (!sr.missing_parts.empty()) {
-                sr.notes.push_back("메시에 없는 파트 " +
-                                   std::to_string(sr.missing_parts.size()) +
-                                   "개는 제외하고 진행");
+        }
+
+        for (int32_t pid : spec.part_ids) add_candidate(pid);
+
+        // 이름 패턴 (글롭). 정확한 파트 이름도 패턴으로 그대로 동작한다.
+        for (const auto& pat : spec.part_patterns) {
+            auto matched = UnifiedConfigParser::filterPartsByPattern(reader, pat);
+            if (matched.empty()) {
+                sr.notes.push_back("이름 패턴 '" + pat + "' 에 맞는 파트 없음");
             }
-            if (sr.resolved_parts.empty()) {
-                sr.notes.push_back("세트의 파트가 메시에 하나도 없음 — 지표 미산출");
+            for (int32_t pid : matched) add_candidate(pid);
+        }
+
+        if (candidates.empty() && !node_or_segment_ref &&
+            spec.highlight_segment_sets.empty()) {
+            sr.notes.push_back("파트 선택이 비어 있음 — set_id / parts / part_patterns "
+                               "중 하나는 필요");
+        }
+
+        for (int32_t pid : candidates) {
+            if (mesh_pids.count(pid)) {
+                sr.resolved_parts.push_back(pid);
+                inject_set.insert(pid);
+            } else {
+                sr.missing_parts.push_back(pid);
             }
-        } else if (kind == parsers::KeywordSet::Kind::NODE) {
-            sr.num_nodes = set->ids.size();
-            sr.notes.push_back("node 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
-        } else {
-            sr.num_segments = set->segments.size();
-            sr.notes.push_back("segment 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+        }
+        if (!sr.missing_parts.empty()) {
+            sr.notes.push_back("메시에 없는 파트 " +
+                               std::to_string(sr.missing_parts.size()) +
+                               "개는 제외하고 진행");
+        }
+        if (!candidates.empty() && sr.resolved_parts.empty()) {
+            sr.notes.push_back("선택된 파트가 메시에 하나도 없음 — 지표 미산출");
+        }
+
+        // ---- 연동 세그먼트 셋 해석 (렌더 하이라이트 + 영역 최대값) ----
+        for (int32_t hsid : spec.highlight_segment_sets) {
+            if (!have_file) {
+                sr.notes.push_back("하이라이트 세그먼트 셋 " + std::to_string(hsid) +
+                                   " — 세트 파일이 없어 해석 불가");
+                continue;
+            }
+            const auto* hs = parsed.find(parsers::KeywordSet::Kind::SEGMENT, hsid);
+            if (!hs) {
+                sr.notes.push_back("하이라이트용 *SET_SEGMENT " + std::to_string(hsid) +
+                                   " 이 세트 파일에 없음");
+                continue;
+            }
+            SetReportResult::HighlightSet h;
+            h.sid = hsid;
+            h.title = hs->title;
+            for (const auto& seg : hs->segments) {
+                h.segments.push_back({seg.n[0], seg.n[1], seg.n[2], seg.n[3]});
+            }
+            if (h.segments.empty()) {
+                sr.notes.push_back("*SET_SEGMENT " + std::to_string(hsid) +
+                                   " 이 비어 있음 — 하이라이트 생략");
+                continue;
+            }
+            sr.highlights.push_back(std::move(h));
         }
 
         result.set_report_results.push_back(std::move(sr));

@@ -37,6 +37,7 @@
 #include "kood3plot/section_render/PartMatcher.hpp"
 #include "kood3plot/section_render/ColorMap.hpp"
 #include "kood3plot/section_render/NodalAverager.hpp"  // FieldSelector
+#include <array>
 #include <string>
 
 namespace kood3plot {
@@ -75,7 +76,15 @@ struct SectionViewConfig {
     double        scale_factor = 3.0;
     // ---- PartTopView (Custom Report 세트 뷰) 전용 ----
     int32_t       snapshot_state = -1;   ///< >=0 이면 그 상태를 snapshot.png 로 저장 (피크 시각)
-    int32_t       max_frames = 0;        ///< 0 = 전 상태, N = 균등 다운샘플 (스냅샷 상태는 항상 포함)    ///< viewport extent relative to target bbox (clamped to full model)
+    int32_t       max_frames = 0;        ///< 0 = 전 상태, N = 균등 다운샘플 (스냅샷 상태는 항상 포함)
+
+    /// 컨투어 위 세그먼트 영역 하이라이트 (Custom Report 연동 — YAML 아님,
+    /// processSetViews 가 프로그램으로 채운다). 세그먼트 절점은 **실 절점 ID**.
+    struct HighlightRegion {
+        std::string label;                                ///< 예: "S3" 또는 셋 제목
+        std::vector<std::array<int32_t, 4>> segments;     ///< 실 절점 ID (tria 는 n4==n3)
+    };
+    std::vector<HighlightRegion> highlights;    ///< viewport extent relative to target bbox (clamped to full model)
     int32_t       supersampling = 2;
 
     // ── Sliding section (SW backend) ──

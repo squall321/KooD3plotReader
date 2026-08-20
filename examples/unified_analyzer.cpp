@@ -384,6 +384,13 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
                     if (i) mj << ", ";
                     mj << "\"" << sr.notes[i] << "\"";
                 }
+                mj << "],\n  \"highlights\": [";
+                for (size_t i = 0; i < sr.highlights.size(); ++i) {
+                    if (i) mj << ", ";
+                    mj << "{\"sid\": " << sr.highlights[i].sid
+                       << ", \"title\": \"" << sr.highlights[i].title << "\""
+                       << ", \"n_segments\": " << sr.highlights[i].segments.size() << "}";
+                }
                 mj << "],\n  \"fields\": [";
                 for (size_t i = 0; i < sr.fields.size(); ++i) {
                     const auto& f = sr.fields[i];

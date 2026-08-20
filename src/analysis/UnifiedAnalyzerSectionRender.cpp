@@ -280,6 +280,17 @@ void UnifiedAnalyzer::processSetViews(
                 sv.max_frames = spec.max_frames;
                 for (int32_t pid : sr.resolved_parts) sv.target_parts.addById(pid);
 
+                // 연동 세그먼트 셋 → 렌더 하이라이트 (외곽선 + 영역 최대값 라벨)
+                for (const auto& hl : sr.highlights) {
+                    section_render::SectionViewConfig::HighlightRegion region;
+                    // 이미지 라벨은 항상 "S<sid>" — 래스터라이저 폰트가
+                    // 소문자 일부를 지원하지 않아 제목은 깨질 수 있다.
+                    // 제목은 metrics.json/HTML 쪽에 실린다.
+                    region.label = "S" + std::to_string(hl.sid);
+                    region.segments = hl.segments;
+                    sv.highlights.push_back(std::move(region));
+                }
+
                 // 임시 하위 폴더에 렌더 후 규약 이름으로 옮긴다
                 const std::string tmp_dir = set_dir + "/_render_" + plane + "_" + vf.name;
                 sv.output_dir = tmp_dir;

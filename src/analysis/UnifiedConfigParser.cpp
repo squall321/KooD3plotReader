@@ -508,6 +508,14 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     try { current_sr.height = std::stoi(value); } catch (...) {}
                 } else if (key == "max_frames") {
                     try { current_sr.max_frames = std::stoi(value); } catch (...) {}
+                } else if (key == "parts" || key == "part_ids") {
+                    auto v2 = parseIntArray(value);
+                    current_sr.part_ids.assign(v2.begin(), v2.end());
+                } else if (key == "part_patterns" || key == "part_names") {
+                    current_sr.part_patterns = parseStringArray(value);
+                } else if (key == "highlight_segments" || key == "segments") {
+                    auto v2 = parseIntArray(value);
+                    current_sr.highlight_segment_sets.assign(v2.begin(), v2.end());
                 }
                 // 알 수 없는 키는 조용히 넘기되 스키마 확장 여지로 남긴다
             }

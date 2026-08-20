@@ -74,6 +74,11 @@ class SetSpec:
     width: int = 1280
     height: int = 720
     max_frames: int = 0
+    # 세트 파일 없이 YAML 에서 직접 고르는 경로 (셋 다 합집합)
+    part_ids: list[int] = field(default_factory=list)
+    part_patterns: list[str] = field(default_factory=list)
+    # 연동 세그먼트 셋 — 렌더 위 하이라이트 + 영역 최대값 라벨
+    highlight_segments: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -111,6 +116,11 @@ def load_config(path: str | Path) -> CustomReportConfig:
             width=int(item.get("width") or 1280),
             height=int(item.get("height") or 720),
             max_frames=int(item.get("max_frames") or 0),
+            part_ids=[int(x) for x in (item.get("parts") or item.get("part_ids") or [])],
+            part_patterns=[str(x) for x in (item.get("part_patterns")
+                                            or item.get("part_names") or [])],
+            highlight_segments=[int(x) for x in (item.get("highlight_segments")
+                                                 or item.get("segments") or [])],
         )
         if spec.name:
             cfg.set_reports.append(spec)
@@ -163,6 +173,14 @@ def build_ua_yaml(d3plot: str, out_dir: str, cfg: CustomReportConfig) -> str:
         lines.append(f"    width: {s.width}")
         lines.append(f"    height: {s.height}")
         lines.append(f"    max_frames: {s.max_frames}")
+        if s.part_ids:
+            lines.append(f"    parts: [{', '.join(str(x) for x in s.part_ids)}]")
+        if s.part_patterns:
+            pats = ", ".join('"' + x.replace('"', '') + '"' for x in s.part_patterns)
+            lines.append(f"    part_patterns: [{pats}]")
+        if s.highlight_segments:
+            lines.append(
+                f"    highlight_segments: [{', '.join(str(x) for x in s.highlight_segments)}]")
     return "\n".join(lines) + "\n"
 
 

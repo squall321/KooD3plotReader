@@ -2041,6 +2041,91 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
                                     cmap.vmin(), cmap.vmax(), title);
         }
 
+        // ---- 세그먼트 영역 하이라이트 (Custom Report 연동) ----
+        // 세그먼트 외곽선을 컨투어 위에 그리고, 그 영역 절점들의 현재 프레임
+        // 최대값을 라벨과 함께 글자로 쓴다. 절점 값은 컨투어와 같은
+        // NodalAverager 값 — 눈에 보이는 색과 글자가 일치한다.
+        if (top_view && !config.highlights.empty()) {
+            const double ss = (double)config.supersampling;
+            const int32_t txt_scale = std::max(1, rasterizer.ssWidth() / 640);
+            auto resolveNid = [&](int32_t nid) -> int32_t {
+                if (!nid_to_idx.empty()) {
+                    auto it2 = nid_to_idx.find(nid);
+                    return (it2 != nid_to_idx.end()) ? it2->second : -1;
+                }
+                const int32_t k = nid - 1;
+                return (k >= 0 && k < (int32_t)mesh.nodes.size()) ? k : -1;
+            };
+
+            for (const auto& hl : config.highlights) {
+                double rmax = -std::numeric_limits<double>::max();
+                bool r_any = false;
+                double ax_px = 0, ay_px = 0;      // 라벨 앵커 (영역 최상단 픽셀)
+                bool anchor_set = false;
+
+                for (const auto& seg : hl.segments) {
+                    // 절점 해석 → 현재 좌표 → 화면 투영
+                    Vec2 sp[4];
+                    double sz[4];
+                    int n_ok = 0;
+                    const bool tria = (seg[3] == seg[2]);
+                    const int nn = tria ? 3 : 4;
+                    for (int k = 0; k < nn; ++k) {
+                        const int32_t idx = resolveNid(seg[k]);
+                        if (idx < 0) break;
+                        const Vec3 pw = deformedPos(idx, mesh, state);
+                        sp[n_ok] = camera.project3D(pw, sz[n_ok]);
+                        sp[n_ok].x *= ss; sp[n_ok].y *= ss;
+                        // 살짝 카메라 쪽으로 당겨 컨투어 면과의 z-파이팅 방지
+                        sz[n_ok] -= 1e-3;
+
+                        const double v = averager.nodeValue(idx);
+                        if (std::isfinite(v)) {
+                            if (!r_any || v > rmax) {
+                                rmax = v;
+                                r_any = true;
+                            }
+                        }
+                        if (!anchor_set || sp[n_ok].y < ay_px) {
+                            ax_px = sp[n_ok].x;
+                            ay_px = sp[n_ok].y;
+                            anchor_set = true;
+                        }
+                        ++n_ok;
+                    }
+                    if (n_ok < nn) continue;
+
+                    // 외곽선: 검정 두꺼운 선 위에 흰 얇은 선 — 어느 컨투어 색
+                    // 위에서도 읽힌다
+                    for (int k = 0; k < nn; ++k) {
+                        const int k2 = (k + 1) % nn;
+                        rasterizer.drawLine3D(sp[k].x, sp[k].y, sz[k],
+                                              sp[k2].x, sp[k2].y, sz[k2],
+                                              RGBA{0, 0, 0, 255}, 3 * txt_scale);
+                        rasterizer.drawLine3D(sp[k].x, sp[k].y, sz[k] - 1e-4,
+                                              sp[k2].x, sp[k2].y, sz[k2] - 1e-4,
+                                              RGBA{255, 255, 255, 255}, 1 * txt_scale);
+                    }
+                }
+
+                // 영역 최대값 라벨 — 미계측이면 값 대신 사유 (0 위장 금지)
+                if (anchor_set) {
+                    char buf[96];
+                    if (r_any) {
+                        std::snprintf(buf, sizeof(buf), "%s max %.4g",
+                                      hl.label.c_str(), rmax);
+                    } else {
+                        std::snprintf(buf, sizeof(buf), "%s (n/a)", hl.label.c_str());
+                    }
+                    const int32_t tx = (int32_t)ax_px + 4 * txt_scale;
+                    const int32_t ty = std::max(2, (int32_t)ay_px - 12 * txt_scale);
+                    // 검정 그림자 + 흰 본문
+                    rasterizer.drawText(tx + 1, ty + 1, buf, RGBA{0, 0, 0, 255}, txt_scale);
+                    rasterizer.drawText(tx, ty, buf, RGBA{255, 255, 255, 255}, txt_scale);
+                }
+            }
+        }
+
         std::string frame_path = out_dir + "/" + frameName((int)fi, (int)num_frames);
         std::string err = rasterizer.savePng(frame_path);
         if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;

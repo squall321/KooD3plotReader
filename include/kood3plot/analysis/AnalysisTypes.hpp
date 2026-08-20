@@ -12,6 +12,7 @@
 
 #include "kood3plot/analysis/VectorMath.hpp"
 #include "kood3plot/analysis/AnalysisResult.hpp"
+#include <array>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -384,7 +385,17 @@ struct SurfaceSpec {
 struct SetReportSpec {
     std::string name;                 ///< 표시 이름 (산출물 폴더명으로도 사용)
     std::string set_type = "part";    ///< part | node | segment
-    int32_t set_id = 0;               ///< *SET_ 의 SID
+    int32_t set_id = 0;               ///< *SET_ 의 SID (0 = 세트 파일 참조 없음)
+
+    /// 세트 파일 없이 YAML 에서 직접 고르는 경로 — 셋 다 합집합으로 동작한다.
+    ///   parts:         [1, 2, 3]            직접 파트 ID
+    ///   part_patterns: ["PKG*", "Front\\Metal"]  이름 글롭(정확명도 패턴으로 동작)
+    std::vector<int32_t> part_ids;
+    std::vector<std::string> part_patterns;
+
+    /// 연동 세그먼트 셋 (*SET_SEGMENT SID). 지정하면 렌더 위에 해당 세그먼트
+    /// 영역을 하이라이트하고 그 영역의 현재 프레임 최대값을 글자로 쓴다.
+    std::vector<int32_t> highlight_segment_sets;
 
     /// 집계할 필드. 비우면 가용 전부 (von_mises, eff_plastic_strain, σ1/σ3, ε 계열)
     std::vector<std::string> fields;
@@ -436,6 +447,14 @@ struct SetReportResult {
     std::string title;                        ///< *SET_..._TITLE 의 제목
 
     std::vector<int32_t> resolved_parts;      ///< 메시와 교집합된 파트 (part set)
+
+    /// 해석된 하이라이트 세그먼트 셋 (렌더 오버레이 입력)
+    struct HighlightSet {
+        int32_t sid = 0;
+        std::string title;
+        std::vector<std::array<int32_t, 4>> segments;   ///< 실 절점 ID 4개 (tria 는 n4==n3)
+    };
+    std::vector<HighlightSet> highlights;
     std::vector<int32_t> missing_parts;       ///< 세트에는 있으나 메시에 없는 파트
     size_t num_nodes = 0;                     ///< node set 멤버 수
     size_t num_segments = 0;                  ///< segment set 멤버 수
