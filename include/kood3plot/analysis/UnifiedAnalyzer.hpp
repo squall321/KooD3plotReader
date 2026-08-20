@@ -157,6 +157,14 @@ private:
         UnifiedProgressCallback callback
     );
 
+    /// Custom Report: node/segment 세트 지표 (상태 직접 스윕)
+    void computeDirectSetMetrics(
+        D3plotReader& reader,
+        const std::vector<data::StateData>& all_states,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
     /// Custom Report: 세트 뷰 렌더 (3면 탑뷰 영상 + 피크 스냅샷).
     /// SECTION_RENDER 빌드가 꺼져 있으면 사유만 남기고 생략.
     void processSetViews(

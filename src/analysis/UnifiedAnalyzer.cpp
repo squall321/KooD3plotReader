@@ -15,6 +15,7 @@
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 #include "kood3plot/analysis/BeamAnalyzer.hpp"
 #include "kood3plot/parsers/KeywordSetParser.hpp"
+#include "kood3plot/data/NodeKinematics.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
 #include <cmath>
@@ -199,6 +200,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     // Custom Report 집계 (solid 이력이 준비된 직후) + 세트 뷰 렌더
     if (!result.set_report_results.empty()) {
         finalizeSetReports(config, result, callback);
+        computeDirectSetMetrics(reader, all_states, result, callback);
         processSetViews(reader, config, all_states, result, callback);
     }
 
@@ -893,13 +895,107 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
                     if (kind == parsers::KeywordSet::Kind::PART) {
                         for (int32_t pid : set->ids) add_candidate(pid);
                     } else if (kind == parsers::KeywordSet::Kind::NODE) {
+                        // 절점 실 ID → 내부 인덱스 (real_node_ids 있으면 매핑)
                         sr.num_nodes = set->ids.size();
+                        sr.metric_source = "nodes";
                         node_or_segment_ref = true;
-                        sr.notes.push_back("node 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+                        std::map<int32_t, int32_t> nid2idx;
+                        for (size_t ni = 0; ni < mesh.real_node_ids.size(); ++ni) {
+                            nid2idx[mesh.real_node_ids[ni]] = (int32_t)ni;
+                        }
+                        size_t miss = 0;
+                        for (int32_t nid : set->ids) {
+                            int32_t idx = -1;
+                            if (!nid2idx.empty()) {
+                                auto itn = nid2idx.find(nid);
+                                if (itn != nid2idx.end()) idx = itn->second;
+                            } else if (nid >= 1 && (size_t)nid <= mesh.nodes.size()) {
+                                idx = nid - 1;
+                            }
+                            if (idx >= 0) sr.resolved_node_idx.push_back(idx);
+                            else ++miss;
+                        }
+                        if (miss) {
+                            sr.notes.push_back("메시에 없는 절점 " + std::to_string(miss) +
+                                               "개는 제외하고 진행");
+                        }
+                        if (sr.resolved_node_idx.empty()) {
+                            sr.notes.push_back("세트의 절점이 메시에 하나도 없음 — 지표 미산출");
+                        }
                     } else {
+                        // 세그먼트 → 부모 solid 요소 해석. 지표는 부모 요소의
+                        // σ/ε 직접 스윕으로, 뷰는 부모 파트 + 자기 하이라이트로.
                         sr.num_segments = set->segments.size();
+                        sr.metric_source = "segments";
                         node_or_segment_ref = true;
-                        sr.notes.push_back("segment 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+
+                        std::map<int32_t, int32_t> nid2idx;
+                        for (size_t ni = 0; ni < mesh.real_node_ids.size(); ++ni) {
+                            nid2idx[mesh.real_node_ids[ni]] = (int32_t)ni;
+                        }
+                        auto ridx = [&](int32_t nid) -> int32_t {
+                            if (!nid2idx.empty()) {
+                                auto itn = nid2idx.find(nid);
+                                return itn != nid2idx.end() ? itn->second : -1;
+                            }
+                            return (nid >= 1 && (size_t)nid <= mesh.nodes.size()) ? nid - 1 : -1;
+                        };
+
+                        // 절점 → solid 요소 역인덱스
+                        std::map<int32_t, std::vector<int32_t>> node2elem;
+                        for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+                            for (int32_t nid : mesh.solids[ei].node_ids) {
+                                const int32_t ni = ridx(nid);
+                                if (ni >= 0) node2elem[ni].push_back((int32_t)ei);
+                            }
+                        }
+
+                        std::set<int32_t> parents;
+                        size_t unresolved = 0;
+                        for (const auto& seg : set->segments) {
+                            // 세그먼트 절점 3개 이상을 담은 요소 = 부모
+                            std::map<int32_t, int> hit;
+                            const bool tria = (seg.n[3] == seg.n[2]);
+                            const int nn = tria ? 3 : 4;
+                            for (int k = 0; k < nn; ++k) {
+                                const int32_t ni = ridx(seg.n[k]);
+                                if (ni < 0) continue;
+                                auto itv = node2elem.find(ni);
+                                if (itv == node2elem.end()) continue;
+                                for (int32_t ei : itv->second) hit[ei]++;
+                            }
+                            int32_t best = -1;
+                            int best_n = 0;
+                            for (const auto& kv2 : hit) {
+                                if (kv2.second > best_n) { best_n = kv2.second; best = kv2.first; }
+                            }
+                            if (best >= 0 && best_n >= 3) parents.insert(best);
+                            else ++unresolved;
+                        }
+                        sr.parent_elem_idx.assign(parents.begin(), parents.end());
+                        if (unresolved) {
+                            sr.notes.push_back("부모 solid 요소를 못 찾은 세그먼트 " +
+                                               std::to_string(unresolved) +
+                                               "개 (셸 면이거나 절점 미존재) — 제외");
+                        }
+                        if (sr.parent_elem_idx.empty()) {
+                            sr.notes.push_back("부모 요소가 하나도 없음 — 지표 미산출");
+                        } else {
+                            // 뷰: 부모 요소들의 파트 + 자기 세그먼트 하이라이트
+                            for (int32_t ei : sr.parent_elem_idx) {
+                                if ((size_t)ei < mesh.solid_parts.size()) {
+                                    add_candidate(mesh.solid_parts[ei]);
+                                }
+                            }
+                            SetReportResult::HighlightSet self;
+                            self.sid = spec.set_id;
+                            self.title = set->title;
+                            for (const auto& seg : set->segments) {
+                                self.segments.push_back({seg.n[0], seg.n[1],
+                                                         seg.n[2], seg.n[3]});
+                            }
+                            sr.highlights.push_back(std::move(self));
+                        }
                     }
                 }
             }
@@ -980,6 +1076,7 @@ void UnifiedAnalyzer::finalizeSetReports(
 ) {
     for (size_t si = 0; si < result.set_report_results.size(); ++si) {
         auto& sr = result.set_report_results[si];
+        if (sr.metric_source != "parts") continue; // node/segment 는 직접 스윕이 채운다
         if (sr.resolved_parts.empty()) continue;   // 사유는 이미 notes 에
 
         const auto& spec = (si < config.set_reports.size())
@@ -1072,6 +1169,156 @@ void UnifiedAnalyzer::finalizeSetReports(
                 }
             }
             callback(line);
+        }
+    }
+}
+
+void UnifiedAnalyzer::computeDirectSetMetrics(
+    D3plotReader& reader,
+    const std::vector<data::StateData>& all_states,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback
+) {
+    // node/segment 세트의 지표를 상태 직접 스윕으로 채운다.
+    // 파트 이력 집계(finalize)를 쓰면 '파트 전체 최대' 가 세트 값으로
+    // 위장되므로 여기서 정확한 대상(세트 절점/부모 요소)만 본다.
+    bool need = false;
+    for (const auto& sr : result.set_report_results) {
+        if ((sr.metric_source == "nodes" && !sr.resolved_node_idx.empty()) ||
+            (sr.metric_source == "segments" && !sr.parent_elem_idx.empty())) {
+            need = true;
+            break;
+        }
+    }
+    if (!need || all_states.empty()) return;
+
+    auto mesh = reader.read_mesh();
+    const auto& cd = reader.get_control_data();
+    const int nv3d = cd.NV3D;
+    const size_t n_state = all_states.size();
+
+    for (auto& sr : result.set_report_results) {
+        // ---- node 세트: 절점 운동 (변위/속도/가속도 크기의 세트 최대) ----
+        if (sr.metric_source == "nodes" && !sr.resolved_node_idx.empty()) {
+            struct NF { const char* name; bool available; };
+            SetFieldResult f_disp, f_vel, f_acc;
+            f_disp.field = "disp_mag";
+            f_vel.field = "vel_mag";
+            f_acc.field = "acc_mag";
+
+            const bool has_v = !all_states.front().node_velocities.empty();
+            const bool has_a = !all_states.front().node_accelerations.empty();
+
+            for (size_t t = 0; t < n_state; ++t) {
+                const auto& st = all_states[t];
+                double dmax = -1.0, vmax = -1.0, amax = -1.0;
+                int32_t d_id = 0, v_id = 0, a_id = 0;
+                for (int32_t ni : sr.resolved_node_idx) {
+                    const double dm = data::nodeDisplacementMagnitude(mesh, st, (size_t)ni);
+                    if (dm > dmax) {
+                        dmax = dm;
+                        d_id = ((size_t)ni < mesh.nodes.size()) ? mesh.nodes[ni].id : ni + 1;
+                    }
+                    const size_t b = (size_t)ni * 3;
+                    if (has_v && b + 2 < st.node_velocities.size()) {
+                        const double vx = st.node_velocities[b], vy = st.node_velocities[b+1],
+                                     vz = st.node_velocities[b+2];
+                        const double vm = std::sqrt(vx*vx + vy*vy + vz*vz);
+                        if (vm > vmax) {
+                            vmax = vm;
+                            v_id = ((size_t)ni < mesh.nodes.size()) ? mesh.nodes[ni].id : ni + 1;
+                        }
+                    }
+                    if (has_a && b + 2 < st.node_accelerations.size()) {
+                        const double ax = st.node_accelerations[b], ay = st.node_accelerations[b+1],
+                                     az = st.node_accelerations[b+2];
+                        const double am = std::sqrt(ax*ax + ay*ay + az*az);
+                        if (am > amax) {
+                            amax = am;
+                            a_id = ((size_t)ni < mesh.nodes.size()) ? mesh.nodes[ni].id : ni + 1;
+                        }
+                    }
+                }
+                auto push = [&](SetFieldResult& f, double v, int32_t id, bool avail) {
+                    if (!avail) return;
+                    f.times.push_back(st.time);
+                    f.values.push_back(v);
+                    if (!f.measured || v > f.peak) {
+                        f.peak = v;
+                        f.peak_time = st.time;
+                        f.peak_state = (int32_t)t;
+                        f.peak_element_id = id;   // 절점 ID (필드명이 말해준다)
+                    }
+                    f.measured = true;
+                };
+                push(f_disp, dmax, d_id, true);
+                push(f_vel, vmax, v_id, has_v);
+                push(f_acc, amax, a_id, has_a);
+            }
+            if (!has_v) f_vel.note = "속도 미기록 (IV=0)";
+            if (!has_a) f_acc.note = "가속도 미기록 (IA=0)";
+            sr.fields.push_back(std::move(f_disp));
+            sr.fields.push_back(std::move(f_vel));
+            sr.fields.push_back(std::move(f_acc));
+            if (callback) {
+                callback("  Set report [" + sr.name + "]: 절점 " +
+                         std::to_string(sr.resolved_node_idx.size()) +
+                         "개, 변위 피크 " + std::to_string(sr.fields[sr.fields.size()-3].peak));
+            }
+        }
+
+        // ---- segment 세트: 부모 요소 σ_vm / 유효소성변형률 ----
+        if (sr.metric_source == "segments" && !sr.parent_elem_idx.empty() && nv3d >= 7) {
+            SetFieldResult f_vm, f_eps;
+            f_vm.field = "von_mises";
+            f_eps.field = "eff_plastic_strain";
+
+            for (size_t t = 0; t < n_state; ++t) {
+                const auto& st = all_states[t];
+                if (st.solid_data.empty()) continue;
+                double smax = -1.0, emax = -1.0;
+                int32_t s_id = 0, e_id = 0;
+                for (int32_t ei : sr.parent_elem_idx) {
+                    const size_t base = (size_t)ei * nv3d;
+                    if (base + 6 >= st.solid_data.size()) continue;
+                    const StressTensor sig(st.solid_data[base], st.solid_data[base+1],
+                                           st.solid_data[base+2], st.solid_data[base+3],
+                                           st.solid_data[base+4], st.solid_data[base+5]);
+                    const double vm = sig.vonMises();
+                    const double ep = st.solid_data[base + 6];
+                    const int32_t rid = ((size_t)ei < mesh.solids.size())
+                                        ? mesh.solids[ei].id : ei + 1;
+                    if (vm > smax) { smax = vm; s_id = rid; }
+                    if (ep > emax) { emax = ep; e_id = rid; }
+                }
+                if (smax < 0) continue;
+                auto push = [&](SetFieldResult& f, double v, int32_t id) {
+                    f.times.push_back(st.time);
+                    f.values.push_back(v);
+                    if (!f.measured || v > f.peak) {
+                        f.peak = v;
+                        f.peak_time = st.time;
+                        f.peak_state = (int32_t)t;
+                        f.peak_element_id = id;
+                        if ((size_t)0 < mesh.solid_parts.size()) {
+                            // 대표 파트: 그 요소의 파트
+                        }
+                    }
+                    f.measured = true;
+                };
+                push(f_vm, smax, s_id);
+                push(f_eps, emax, e_id);
+            }
+            if (!f_vm.measured) f_vm.note = "solid 결과 없음";
+            if (!f_eps.measured) f_eps.note = "solid 결과 없음";
+            sr.fields.push_back(std::move(f_vm));
+            sr.fields.push_back(std::move(f_eps));
+            if (callback) {
+                callback("  Set report [" + sr.name + "]: 세그먼트 부모 요소 " +
+                         std::to_string(sr.parent_elem_idx.size()) +
+                         "개, σ_vm 피크 " +
+                         std::to_string(sr.fields[sr.fields.size()-2].peak));
+            }
         }
     }
 }

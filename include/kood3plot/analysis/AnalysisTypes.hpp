@@ -448,6 +448,15 @@ struct SetReportResult {
 
     std::vector<int32_t> resolved_parts;      ///< 메시와 교집합된 파트 (part set)
 
+    /// 지표 산출 방식 — "parts"(파트 이력 집계) | "nodes"(절점 직접 스윕) |
+    /// "segments"(부모 요소 직접 스윕). finalize 는 parts 만 처리하고
+    /// 나머지는 computeDirectSetMetrics 가 채운다.
+    std::string metric_source = "parts";
+    /// node 세트: 해석된 내부 절점 인덱스 (0-based)
+    std::vector<int32_t> resolved_node_idx;
+    /// segment 세트: 부모 solid 요소 내부 인덱스 (0-based)
+    std::vector<int32_t> parent_elem_idx;
+
     /// 해석된 하이라이트 세그먼트 셋 (렌더 오버레이 입력)
     struct HighlightSet {
         int32_t sid = 0;
