@@ -26,10 +26,12 @@
 - [x] 기존 단면뷰 회귀 (avg_edge 1.7290, 992 프레임)
 
 ## P3 — koo_custom_report 패키지
-- [ ] 패키지 뼈대 (koo_deep_report 구조 준용)
-- [ ] YAML 오케스트레이션 (unified_analyzer 호출)
-- [ ] 단독 HTML (세트별 3면 뷰 갤러리 + 피크 표 + 경고 표시)
-- [ ] KooChainRun per-run 산출물 규약 (Output/report/set_reports/)
+- [x] 패키지 뼈대 (pyproject + runner + report, 얇은 오케스트레이션)
+- [x] YAML 합성 → unified_analyzer 실행 → per-set 산출물 수집
+- [x] 단독 HTML — 피크 표(미계측 '—')·경고·3면 갤러리·클릭→영상 모달
+- [x] Playwright 검증 (콘솔 에러 favicon 뿐, 모달 영상 재생 확인)
+- [x] CLI: --config / --sets --part-set 속성 조합, 스키마 마커
+- [ ] KooChainRun 통합 실전 확인 (sphere/impact 탭과 함께 P4·P5 에서)
 
 ## P4 — sphere Set Report 탭
 - [ ] run 폴더 set_reports 스캔 (loader)

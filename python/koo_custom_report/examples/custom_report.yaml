@@ -1,0 +1,16 @@
+# koo_custom_report 설정 예 — sets/set_reports 만 담는다.
+# 실행: python3 -m koo_custom_report <d3plot> --config custom_report.yaml -o out/
+sets:
+  file: "sets.k"            # 생략 시 d3plot 옆 .k 자동 탐색
+
+set_reports:
+  - name: "PKG 모듈"
+    set_type: part          # part | node | segment (node/segment 지표는 P6)
+    set_id: 5
+    fields: [von_mises, eff_plastic_strain]   # 생략 시 가용 전부
+    planes: [xy, yz, zx]
+    video: true             # 전 상태 컨투어 영상
+    peak_snapshot: true     # 필드별 피크 시각 PNG
+    max_frames: 60          # 0 = 전 상태 (긴 해석은 다운샘플 권장)
+    width: 1280
+    height: 720
