@@ -292,6 +292,12 @@ void UnifiedAnalyzer::processSetViews(
                     continue;
                 }
 
+                // 뷰 변환 메타 — 평면당 하나 (필드와 무관, 같은 카메라)
+                {
+                    std::error_code mec;
+                    fs::rename(tmp_dir + "/view_meta.json",
+                               set_dir + "/view_" + plane + ".meta.json", mec);
+                }
                 if (spec.video) {
                     fs::rename(tmp_dir + "/section_view.mp4",
                                set_dir + "/view_" + plane + "_" + vf.name + ".mp4", ec);

@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <fstream>
 #include <filesystem>
 #include <limits>
 #include <map>
@@ -1747,6 +1748,26 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
             const double sf = (config.scale_factor > 2.0) ? 1.15 : config.scale_factor;
             SectionPlane p = SectionPlane::fromAxis(config.axis, mesh_center);
             camera.setupAxisAligned(p, bbox, sf, config.width, config.height);
+
+            // 뷰 변환 메타 — 임팩트 보고서가 충격 위치를 이 이미지 **위에**
+            // 오버레이할 때 모델좌표 → 픽셀 매핑에 쓴다.
+            //   u = dot(p - origin, u_vec); px = (u/half_w + 1)/2 * width
+            //   v = dot(p - origin, v_vec); py = (1 - v/half_h)/2 * height (V 반전)
+            {
+                const Vec3& o = camera.originPoint();
+                const Vec3& u = camera.axisU();
+                const Vec3& v = camera.axisV();
+                std::ofstream mf(out_dir + "/view_meta.json");
+                mf << "{\"axis\": \"" << config.axis << "\""
+                   << std::setprecision(10)
+                   << ", \"origin\": [" << o.x << ", " << o.y << ", " << o.z << "]"
+                   << ", \"u\": [" << u.x << ", " << u.y << ", " << u.z << "]"
+                   << ", \"v\": [" << v.x << ", " << v.y << ", " << v.z << "]"
+                   << ", \"half_w\": " << camera.halfW()
+                   << ", \"half_h\": " << camera.halfH()
+                   << ", \"width\": " << config.width
+                   << ", \"height\": " << config.height << "}\n";
+            }
         } else {
             SectionPlane dummy = SectionPlane::fromAxis('z', mesh_center);
             camera.setupIsometric(dummy, bbox, config.scale_factor,

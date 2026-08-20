@@ -116,6 +116,10 @@ public:
 
     /** @brief Camera right axis (u) and up axis (v) */
     const Vec3& axisU() const { return axis_u_; }
+    /// 뷰 변환 노출 — 오버레이(충격 위치 등)를 이미지 좌표로 매핑할 때 사용
+    const Vec3& originPoint() const { return origin_; }
+    double halfW() const { return half_w_; }
+    double halfH() const { return half_h_; }
     const Vec3& axisV() const { return axis_v_; }
 
     int32_t imageWidth()  const { return img_width_;  }

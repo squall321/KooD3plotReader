@@ -67,6 +67,65 @@ def render_from_payload(payload: dict, out_path: str | Path,
     return out_path
 
 
+_SET_MEDIA_MP4_CAP = 60   # 영상 파일 수 상한 — 초과 시 세트 피크 상위만 (사유 고지)
+
+
+def _attach_set_media(payload: dict, out_path: Path) -> None:
+    """set_report 의 media_abs 를 <stem>_data/set_media/ 로 복사하고 상대경로로 치환.
+
+    payload 에 media_abs 가 없으면 no-op — --from-json 재렌더(이미 복사됨)에서
+    안전하다. PNG 는 전부, MP4 는 상한(_SET_MEDIA_MP4_CAP)까지 복사한다
+    (tier energy_flow_topk 선례 — 무음 절삭 금지, note 로 고지).
+    """
+    import shutil
+
+    sr = payload.get("set_report")
+    if not sr or "media_abs" not in sr:
+        return
+
+    data_dir = out_path.parent / f"{out_path.stem}_data" / "set_media"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    rel_base = f"{out_path.stem}_data/set_media"
+
+    # MP4 상한: (set, pos) 를 세트 피크 내림차순으로 랭크
+    mp4_rank: list[tuple[float, int, int]] = []
+    for si, row in enumerate(sr["media_abs"]):
+        for pi, m in enumerate(row):
+            if m and m.get("mp4"):
+                v = sr["stress"][si][pi]
+                mp4_rank.append((-(v if v is not None else float("-inf")), si, pi))
+    mp4_rank.sort()
+    mp4_keep = {(si, pi) for _, si, pi in mp4_rank[:_SET_MEDIA_MP4_CAP]}
+    n_drop = max(0, len(mp4_rank) - _SET_MEDIA_MP4_CAP)
+
+    for si, row in enumerate(sr["media_abs"]):
+        for pi, m in enumerate(row):
+            if not m:
+                continue
+            pid = sr["positions"][pi]["id"]
+            base = f"{_chunk_fname(pid)}_s{si}"
+            out_m: dict = {}
+            if m.get("png"):
+                dst = data_dir / f"{base}_peak.png"
+                try:
+                    shutil.copyfile(m["png"], dst)
+                    out_m["png"] = f"{rel_base}/{dst.name}"
+                except OSError:
+                    pass
+            if m.get("mp4") and (si, pi) in mp4_keep:
+                dst = data_dir / f"{base}_view.mp4"
+                try:
+                    shutil.copyfile(m["mp4"], dst)
+                    out_m["mp4"] = f"{rel_base}/{dst.name}"
+                except OSError:
+                    pass
+            sr["media"][si][pi] = out_m or None
+
+    if n_drop:
+        sr["note"] = (sr.get("note") or "") +             f" 영상은 세트 피크 상위 {_SET_MEDIA_MP4_CAP}개 위치만 담았습니다"             f" (전체 {len(mp4_rank)}개, 피크 스냅샷은 전 위치)."
+    del sr["media_abs"]
+
+
 def emit_report(report, out_path: str | Path, mode: str | None = None,
                 sidecar: bool = True) -> Path:
     """report 를 out_path 에 방출. 반환값은 실제 쓴 HTML 경로."""
@@ -75,6 +134,7 @@ def emit_report(report, out_path: str | Path, mode: str | None = None,
 
     if mode == "inline":
         payload = _build_payload(report)
+        _attach_set_media(payload, out_path)
         out_path.write_text(generate_html(report, payload=payload),
                             encoding="utf-8")
         if sidecar:
@@ -84,6 +144,7 @@ def emit_report(report, out_path: str | Path, mode: str | None = None,
     # chunked 는 인라인 payload 캡도 tier D 로 맞춘다 (곡선은 청크가 담당).
     payload = _build_payload(
         report, tier_override=_CHUNK_FORCED_TIER if mode == "chunked" else None)
+    _attach_set_media(payload, out_path)
 
     if mode == "chunked":
         # 청크 디렉터리: report.html 옆 <stem>_data/

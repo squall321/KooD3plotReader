@@ -61,3 +61,21 @@
   충돌 없음.
 - **LSPrePost 대비**: cfile 원자 명령은 다 있으나 서버 헤드리스 리스크로
   소프트웨어 래스터라이저 우선 결정 유지.
+
+## 2026-08-20 P5 구현 중 결정
+
+- **오버레이 UX (사용자 요청 반영)**: impact 는 별도 히트맵이 아니라 **세트
+  응력 뷰 이미지 위에 충격 위치 마커를 겹친다**. 같은 메시·같은 카메라라
+  마커는 고정, 호버 시 배경 이미지만 그 위치 것으로 스왑.
+- **뷰 변환 메타**: PartTopView 가 view_meta.json (origin/u/v/half_w/half_h)
+  을 내보내고 processSetViews 가 view_<plane>.meta.json 으로 배치. JS 는
+  내적 기반 매핑이라 기저 방향(u=+Y, v=-X 실측)과 무관.
+- **좌표계 함정**: ImpactPosition.x/y 는 디바이스 로컬(step_config LocationX/Y),
+  뷰 메타는 모델 좌표. 로컬을 그대로 매핑하면 전부 뷰 밖 (실측 25/25).
+  다리 = report.impactor_trajectories[pid].pos_x/y[0] (모델 좌표 상태값).
+- **캐시 무변경**: per-position 세트 스캔을 pickle 이 아니라 payload 빌드
+  시점 파일 직스캔으로 설계 → _CACHE_SCHEMA 범프·지문 수정 불요 (정찰의
+  권고는 pickle 저장 가정이었음).
+- **Test_Impact_A 특성**: 전 파트 σ 피크가 초기 프리로드 상태(t≈2μs)에서
+  나와 위치 간 동일 — 파이프라인 문제 아님 (런별 CSV md5 상이 확인).
+  파트 5,6,7 은 y≈126 픽스처였음. 데모 세트는 20,12,11 로 교체.

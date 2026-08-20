@@ -41,10 +41,17 @@
 - [x] Playwright 확인 — 1144점 중 12 데이터, 호버 최근접(P0001 212.89),
       PNG 실로드(naturalWidth 640), 모달 영상 src 정상
 
-## P5 — impact Set Report 탭
-- [ ] per-position set_reports 스캔 + 캐시 스키마 범프
-- [ ] 그리드 히트맵 + 호버 PNG + 클릭 MP4 (tier 정책 준수)
-- [ ] Playwright 확인
+## P5 — impact s10 섹션 (오버레이 방식 — 사용자 요청 반영)
+- [x] 뷰 변환 메타 (C++ 카메라 → view_<plane>.meta.json) — 모델좌표↔픽셀 매핑
+- [x] 좌표계 다리: 위치 로컬좌표 ≠ 모델좌표 → 임팩터 궤적 첫 샘플(mx/my) 사용
+      (실측: 로컬 그대로 매핑 시 25/25 전부 뷰 밖 — 궤적 사용 후 기하 예측과
+      일치하는 9/25 안쪽)
+- [x] s10: 세트 응력 뷰 **위에** 위치 마커 오버레이 — 호버=그 위치 피크 PNG 스왑,
+      클릭=MP4 모달, 뷰 밖 위치는 가장자리 점선 링
+- [x] emit: <stem>_data/set_media/ 복사 (PNG 전부, MP4 상한 60 + 사유 고지)
+- [x] 캐시 무변경 설계 — payload 빌드 시 파일 직스캔이라 _CACHE_SCHEMA 범프 불요
+- [x] 산출물 없으면 섹션·네비 자기 은닉
+- [x] Playwright 확인 — 마커 25(안 9 + 점선 16), 호버 PNG 실로드, 모달 MP4
 
 ## P6 — node/segment 셋 확장
 - [ ] 노드셋: 절점 변위/속도 피크 + (절점 포함 요소) 응력

@@ -782,6 +782,136 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         # None disables the conservation-tolerance banner; set to a percent
         # (e.g. 5.0) to enable the residual check.
         "energy_conservation_tolerance": None,
+        # Custom Report(세트 후처리) 연동 — 없으면 None (s10 은 스스로 숨는다)
+        "set_report": _build_set_report_payload(report),
+    }
+
+
+def _build_set_report_payload(report) -> dict | None:
+    """Custom Report(세트 후처리) 연동 — 위치 × 세트 피크 + 미디어 + 뷰 메타.
+
+    per-position 산출물은 deep 결과 폴더 후보(run_dir/Output/report 또는
+    test_dir/deep_reports/<run>/) 아래 custom_report/set_reports/ 에서 찾는다.
+    미디어는 여기서 **절대경로**(media_abs)로 모으고, emit._attach_set_media 가
+    <stem>_data/set_media/ 로 복사하며 상대경로(media)로 바꾼다.
+    미실행 위치는 None — '피크 0' 으로 위장하지 않는다.
+    """
+    import json as _json
+    from pathlib import Path as _P
+
+    test_dir = _P(str(report.test_dir)) if report.test_dir else None
+    positions = []
+    for face_positions in (report.positions_by_face or {}).values():
+        positions.extend(face_positions or [])
+    if not positions:
+        return None
+
+    def _set_root(pos):
+        run_dir = getattr(pos, "run_dir", None)
+        if not run_dir:
+            return None
+        run_dir = _P(str(run_dir))
+        deep_candidates = [run_dir / "Output" / "report"]
+        if test_dir:
+            deep_candidates.append(test_dir / "deep_reports" / run_dir.name)
+        for deep in deep_candidates:
+            for root in (deep / "custom_report" / "set_reports", deep / "set_reports"):
+                if root.is_dir():
+                    return root
+        return None
+
+    sets: dict[str, dict] = {}
+    cells: dict[str, list] = {}    # name → per-pos (stress, strain, png, mp4) | None
+    metas: dict[str, dict] = {}    # name → xy 뷰 메타 (첫 발견 것)
+
+    n_pos = len(positions)
+    for pi, pos in enumerate(positions):
+        root = _set_root(pos)
+        if root is None:
+            continue
+        for set_dir in sorted(x for x in root.iterdir() if x.is_dir()):
+            mj = set_dir / "metrics.json"
+            if not mj.is_file():
+                continue
+            try:
+                m = _json.loads(mj.read_text(encoding="utf-8"))
+            except (_json.JSONDecodeError, OSError):
+                continue
+            name = str(m.get("name") or set_dir.name)
+            if name not in sets:
+                sets[name] = {"name": name,
+                              "type": str(m.get("set_type") or "part"),
+                              "id": int(m.get("set_id") or 0),
+                              "title": str(m.get("title") or "")}
+                cells[name] = [None] * n_pos
+
+            stress = strain = None
+            for f in (m.get("fields") or []):
+                if not f.get("measured"):
+                    continue
+                if f.get("field") == "von_mises":
+                    stress = float(f["peak"])
+                elif f.get("field") == "eff_plastic_strain":
+                    strain = float(f["peak"])
+
+            png = set_dir / "peak_xy_von_mises.png"
+            mp4 = set_dir / "view_xy_von_mises.mp4"
+            cells[name][pi] = (stress, strain,
+                               str(png) if png.is_file() else None,
+                               str(mp4) if mp4.is_file() else None)
+
+            if name not in metas:
+                mf = set_dir / "view_xy.meta.json"
+                if mf.is_file():
+                    try:
+                        metas[name] = _json.loads(mf.read_text(encoding="utf-8"))
+                    except (_json.JSONDecodeError, OSError):
+                        pass
+
+    if not sets:
+        return None
+
+    order = sorted(sets)
+    n_cov = max(sum(1 for c in cells[k] if c is not None) for k in order)
+    # 모델 좌표 — 위치의 x/y 는 디바이스 로컬 좌표(step_config LocationX/Y)라
+    # 뷰 메타(모델 좌표 카메라)와 좌표계가 다르다. 임팩터 궤적의 첫 샘플이
+    # 모델 좌표의 충격 위치다 (실측: 로컬 -40..40 vs 모델 origin 30,126.5 —
+    # 로컬을 그대로 매핑하면 25/25 전부 뷰 밖으로 나갔다).
+    trajs = getattr(report, "impactor_trajectories", None) or {}
+
+    def _model_xy(pos):
+        tr = trajs.get(str(pos.pos_id))
+        px = getattr(tr, "pos_x", None) if tr else None
+        py = getattr(tr, "pos_y", None) if tr else None
+        if px and py:
+            try:
+                return float(px[0]), float(py[0])
+            except (TypeError, ValueError, IndexError):
+                pass
+        return None, None
+
+    pos_payload = []
+    n_no_model = 0
+    for p2 in positions:
+        mx, my = _model_xy(p2)
+        if mx is None:
+            n_no_model += 1
+        pos_payload.append({"id": str(p2.pos_id), "x": float(p2.x), "y": float(p2.y),
+                            "mx": mx, "my": my,
+                            "face": str(getattr(p2, "face", ""))})
+
+    return {
+        "sets": [sets[k] for k in order],
+        "positions": pos_payload,
+        "stress": [[(cells[k][i][0] if cells[k][i] else None) for i in range(n_pos)] for k in order],
+        "strain": [[(cells[k][i][1] if cells[k][i] else None) for i in range(n_pos)] for k in order],
+        "media_abs": [[({"png": cells[k][i][2], "mp4": cells[k][i][3]} if cells[k][i] else None)
+                       for i in range(n_pos)] for k in order],
+        "media": [[None] * n_pos for _ in order],
+        "meta": [metas.get(k) for k in order],
+        "note": (f"세트 산출물이 있는 위치: {n_cov} / {n_pos}."
+                 + (f" 궤적이 없어 오버레이 좌표를 못 구한 위치 {n_no_model}개."
+                    if n_no_model else "")),
     }
 
 

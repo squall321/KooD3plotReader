@@ -46,6 +46,7 @@ from .sections.s6_deep import _PAGE6  # noqa: F401
 from .sections.s7_insights import _PAGE7  # noqa: F401
 from .sections.s8_physics import _PAGE8  # noqa: F401
 from .sections.s9_position import _PAGE9  # noqa: F401
+from .sections.s10_set import _PAGE10  # noqa: F401
 
 
 
@@ -72,11 +73,12 @@ from .sections.s6_deep import _JS_S6  # noqa: F401
 from .sections.s7_insights import _JS_S7  # noqa: F401
 from .sections.s8_physics import _JS_S8  # noqa: F401
 from .sections.s9_position import _JS_S9  # noqa: F401
+from .sections.s10_set import _JS_S10  # noqa: F401
 
 # 원본 파일 순서 보존 조립 — 1단계 불변식: join == 분할 전 _JS 바이트 동일.
 _JS = "".join((
     _JS_HEAD, _JS_S1, _JS_S2, _JS_S3, _JS_WIRING, _JS_TRAJ, _JS_S4,
-    _JS_S5_DOE, _JS_S6, _JS_S7, _JS_S8, _JS_S9, _JS_TABS, _JS_S5_MAIN,
+    _JS_S5_DOE, _JS_S6, _JS_S7, _JS_S8, _JS_S9, _JS_S10, _JS_TABS, _JS_S5_MAIN,
     _JS_LAZY, _JS_TAIL,
 ))
 
@@ -172,6 +174,7 @@ def generate_html(report: ImpactReport, payload: dict | None = None,
         + _PAGE7
         + _PAGE8
         + _PAGE9
+        + _PAGE10
         + data_block
         + "<script>\n" + js + "\n</script>\n"
         "</body>\n</html>\n"

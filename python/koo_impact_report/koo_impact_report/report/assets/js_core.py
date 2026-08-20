@@ -285,7 +285,7 @@ function initNav() {
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
-    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'];
+    const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'];
     const y = window.scrollY + 120;
     let active = sections[0];
     for (const id of sections) {
@@ -689,6 +689,11 @@ function boot() {
   // Section 09 — POSITION DRILL-DOWN (P6)
   registerLazy('s9', function () {
     if (typeof initS9 === 'function') initS9();
+  });
+
+  // Section 10 — SET REPORT (Custom Report 오버레이)
+  registerLazy('s10', function () {
+    if (typeof initS10 === 'function') initS10();
   });
 
   setupLazyObserver();
