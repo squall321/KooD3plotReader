@@ -44,6 +44,8 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <a data-target="s8" id="navS8">PHYSICS</a>
     <a data-target="s9" id="navS9">POSITION</a>
     <a data-target="s10" id="navS10">SET</a>
+    <a id="view-mode-btn" onclick="toggleViewMode()" style="opacity:0.75"
+       title="탭/스크롤 보기 전환">SCROLL</a>
     <a id="lang-toggle-btn" onclick="toggleLang()" style="opacity:0.75">EN</a>
   </div>
 </div>

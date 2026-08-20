@@ -38,6 +38,9 @@ b { color: var(--fg); font-weight: 600; }
 .topbar .nav a:hover { color: var(--fg); background: var(--bg3); }
 .topbar .nav a.active { color: var(--bg); background: var(--accent); }
 .page { padding: 28px 32px 60px; max-width: 1680px; margin: 0 auto; }
+/* 탭 모드 (sphere 보고서 스타일) — 기본값. 토글로 스크롤 모드 전환 가능 */
+body.tab-mode section.page { display: none; }
+body.tab-mode section.page.tab-active { display: block; }
 .page-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .page-head .num { font-size: 24px; font-weight: 800; color: var(--accent); letter-spacing: -1px; }
 .page-head .ttl { font-size: 20px; font-weight: 700; }

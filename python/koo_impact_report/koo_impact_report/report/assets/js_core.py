@@ -281,10 +281,16 @@ function initReveal() {
 function initNav() {
   const navs = document.querySelectorAll('.topbar .nav a');
   navs.forEach(a => a.addEventListener('click', function () {
+    if (!a.dataset.target) return;
+    if (document.body.classList.contains('tab-mode')) {
+      activateTab(a.dataset.target);
+      return;
+    }
     const tgt = document.getElementById(a.dataset.target);
     if (tgt) tgt.scrollIntoView({ behavior: 'smooth' });
   }));
   window.addEventListener('scroll', function () {
+    if (document.body.classList.contains('tab-mode')) return;
     const sections = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'];
     const y = window.scrollY + 120;
     let active = sections[0];
@@ -402,6 +408,36 @@ const DOE_STATE = { metric: 'peak_g', sort: 'value', active_pos: null };
 
 
 _JS_LAZY = r"""function registerLazy(id, fn) { LAZY_INIT[id] = fn; }
+
+// ---- 탭 모드 (sphere 보고서 스타일) -------------------------------------
+// 긴 세로 스크롤 대신 섹션을 탭처럼 하나씩 보여준다. 섹션 초기화는
+// **보이게 만든 뒤** fireLazy — 숨긴 채 초기화하면 차트 폭이 0이 된다.
+function activateTab(id) {
+  document.querySelectorAll('section.page').forEach(function (sec) {
+    sec.classList.toggle('tab-active', sec.id === id);
+  });
+  document.querySelectorAll('.topbar .nav a[data-target]').forEach(function (a) {
+    a.classList.toggle('active', a.dataset.target === id);
+  });
+  fireLazy(id);
+  window.scrollTo(0, 0);
+  // 숨긴 채 초기화됐던 차트가 폭을 다시 재게 한다
+  window.dispatchEvent(new Event('resize'));
+}
+
+function toggleViewMode() {
+  const b = document.body;
+  const btn = document.getElementById('view-mode-btn');
+  if (b.classList.contains('tab-mode')) {
+    b.classList.remove('tab-mode');
+    if (btn) btn.textContent = 'TAB';
+  } else {
+    b.classList.add('tab-mode');
+    const act = document.querySelector('.topbar .nav a.active[data-target]');
+    activateTab(act && act.dataset.target ? act.dataset.target : 's1');
+    if (btn) btn.textContent = 'SCROLL';
+  }
+}
 function fireLazy(id) {
   const fn = LAZY_INIT[id];
   if (!fn) return;
@@ -697,6 +733,12 @@ function boot() {
   });
 
   setupLazyObserver();
+
+  // 기본 = 탭 모드 (sphere 보고서와 같은 탐색감). 토글로 스크롤 복귀 가능.
+  document.body.classList.add('tab-mode');
+  activateTab('s1');
+  const vmb = document.getElementById('view-mode-btn');
+  if (vmb) vmb.textContent = 'SCROLL';
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
