@@ -85,6 +85,21 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
                         cell_sum[i].y / cell_cnt[i],
                         cell_sum[i].z / cell_cnt[i]};
     }
+    // 평균점은 곡면 안쪽으로 파고든다 (구가 우둘투둘해짐) — 셀 평균에
+    // 가장 가까운 **원본 절점**으로 스냅해 정점을 표면 위에 유지한다.
+    {
+        std::vector<double> best(out.verts.size(), 1e30);
+        std::vector<V3> snap(out.verts.size());
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const int32_t id = remap[i];
+            const double dx = pts[i].x - out.verts[id].x;
+            const double dy = pts[i].y - out.verts[id].y;
+            const double dz = pts[i].z - out.verts[id].z;
+            const double d = dx * dx + dy * dy + dz * dz;
+            if (d < best[id]) { best[id] = d; snap[id] = pts[i]; }
+        }
+        out.verts = snap;
+    }
     // 겹친 삼각형 제거 (정렬 키로 중복 제거 + 축퇴 스킵)
     std::map<std::tuple<int32_t, int32_t, int32_t>, bool> seen;
     for (const auto& t : tris) {
@@ -105,12 +120,25 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::printf("사용: %s <d3plot> <out_prefix> [target_tris=6000] [voxel_res=128]\n", argv[0]);
+        std::printf("사용: %s <d3plot> <out_prefix> [target_tris=6000] [voxel_res=128] [parts_csv]\n", argv[0]);
         return 2;
     }
     const std::string d3 = argv[1];
     const std::string prefix = argv[2];
     const int target = (argc > 3) ? std::atoi(argv[3]) : 6000;
+    // 5번째 인자: 파트 ID CSV — 지정하면 그 파트들만 (예: 임팩터 형상 추출)
+    std::vector<int32_t> only_parts;
+    if (argc > 5) {
+        std::string csv = argv[5];
+        size_t pos = 0;
+        while (pos < csv.size()) {
+            size_t comma = csv.find(',', pos);
+            if (comma == std::string::npos) comma = csv.size();
+            try { only_parts.push_back(std::stoi(csv.substr(pos, comma - pos))); }
+            catch (...) {}
+            pos = comma + 1;
+        }
+    }
 
     D3plotReader reader(d3);
     if (reader.open() != ErrorCode::SUCCESS) {
@@ -124,7 +152,8 @@ int main(int argc, char** argv) {
         std::printf("외곽면 추출 실패: %s\n", ex.getLastError().c_str());
         return 1;
     }
-    auto surf = ex.extractExteriorSurfaces();
+    auto surf = only_parts.empty() ? ex.extractExteriorSurfaces()
+                                   : ex.extractExteriorSurfaces(only_parts);
     if (surf.faces.empty()) {
         std::printf("외곽면이 없음\n");
         return 1;
@@ -154,6 +183,29 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("외곽 삼각형 %zu개 (내부 파트 표면 포함)\n", tris.size());
+
+    // 사용 정점만 남기고 압축 — 파트 필터 시 미사용 절점이 bbox·복셀격자·
+    // 데시메이션에 섞여 미리보기가 전체 모델 크기로 잡히는 것을 막는다.
+    {
+        std::vector<int32_t> remap(pts.size(), -1);
+        std::vector<V3> used;
+        for (auto& t : tris) {
+            for (auto& idx : t) {
+                if (remap[idx] < 0) {
+                    remap[idx] = (int32_t)used.size();
+                    used.push_back(pts[idx]);
+                }
+                idx = remap[idx];
+            }
+        }
+        pts.swap(used);
+        bmin = pts.empty() ? V3{} : pts[0]; bmax = bmin;
+        for (const auto& p2 : pts) {
+            bmin.x = std::min(bmin.x, p2.x); bmax.x = std::max(bmax.x, p2.x);
+            bmin.y = std::min(bmin.y, p2.y); bmax.y = std::max(bmax.y, p2.y);
+            bmin.z = std::min(bmin.z, p2.z); bmax.z = std::max(bmax.z, p2.z);
+        }
+    }
 
     // ---- 가시 외피만 남기기 (복셀 플러드필) ----
     //
