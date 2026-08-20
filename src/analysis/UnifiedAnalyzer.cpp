@@ -14,6 +14,7 @@
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 #include "kood3plot/analysis/BeamAnalyzer.hpp"
+#include "kood3plot/parsers/KeywordSetParser.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,8 @@
 #include <map>
 #include <tuple>
 #include <utility>
+#include <filesystem>
+#include <set>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -44,7 +47,8 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         return result;
     }
 
-    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty()) {
+    if (config.analysis_jobs.empty() && config.render_jobs.empty() &&
+        config.section_views.empty() && config.set_reports.empty()) {
         last_error_ = "No analysis or render jobs defined";
         return result;
     }
@@ -147,6 +151,23 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         }
     }
 
+    // Custom Report: 세트 해석 + 파트셋 파트를 solid 잡에 주입.
+    // 세트 파트가 stress/strain 잡에 없으면 per-part 이력이 안 생겨 집계가
+    // 조용히 비므로, 전용 잡을 항상 주입한다 (processSolidJobs 는 잡들의
+    // 파트 합집합으로 한 번만 돌기 때문에 중복 비용은 없다).
+    {
+        std::vector<int32_t> set_parts = prepareSetReports(reader, config, result, callback);
+        if (!set_parts.empty()) {
+            AnalysisJob j;
+            j.name = "__set_report_auto";
+            j.part_ids = set_parts;
+            j.type = AnalysisJobType::VON_MISES;
+            stress_jobs.push_back(j);
+            j.type = AnalysisJobType::EFF_PLASTIC_STRAIN;
+            strain_jobs.push_back(j);
+        }
+    }
+
     // Count total analysis steps for progress reporting
     int total_steps = 0;
     bool has_solid_jobs = !stress_jobs.empty() || !strain_jobs.empty();
@@ -173,6 +194,11 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
         current_step++;
         if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Solid analysis (" + std::to_string(all_states.size()) + " states, single pass)...");
         processSolidJobs(reader, stress_jobs, strain_jobs, all_states, result, callback);
+    }
+
+    // Custom Report 집계 (solid 이력이 준비된 직후)
+    if (!result.set_report_results.empty()) {
+        finalizeSetReports(config, result, callback);
     }
 
     if (!motion_jobs.empty()) {
@@ -760,6 +786,252 @@ struct NodeIndexResolver {
     }
 };
 } // namespace
+
+namespace {
+
+/// 세트 필드명 → (이력 컨테이너 선택자, 압축측 여부)
+struct SetFieldSource {
+    const char* name;
+    std::vector<PartTimeSeriesStats> AnalysisResult::*member;
+    bool compressive;   // true 면 최소값이 worst (σ3/ε3)
+};
+
+const SetFieldSource kSetFieldSources[] = {
+    {"von_mises",            &AnalysisResult::stress_history,               false},
+    {"eff_plastic_strain",   &AnalysisResult::strain_history,               false},
+    {"max_principal_stress", &AnalysisResult::max_principal_history,        false},
+    {"min_principal_stress", &AnalysisResult::min_principal_history,        true},
+    {"vm_strain",            &AnalysisResult::vm_strain_history,            false},
+    {"max_principal_strain", &AnalysisResult::max_principal_strain_history, false},
+    {"min_principal_strain", &AnalysisResult::min_principal_strain_history, true},
+};
+
+}  // namespace
+
+std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
+    D3plotReader& reader,
+    const UnifiedConfig& config,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback
+) {
+    std::vector<int32_t> inject_parts;
+    if (config.set_reports.empty()) return inject_parts;
+
+    // 세트 파일 결정: 명시 > d3plot 옆 자동 탐색
+    std::string sets_path = config.sets_file;
+    if (sets_path.empty()) {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::path(config.d3plot_path).parent_path();
+        for (const char* ext : {".k", ".key", ".dyn"}) {
+            std::error_code ec;
+            for (const auto& e : fs::directory_iterator(dir, ec)) {
+                if (e.path().extension() == ext) { sets_path = e.path().string(); break; }
+            }
+            if (!sets_path.empty()) break;
+        }
+    }
+
+    if (sets_path.empty()) {
+        // 파일이 없으면 각 항목에 사유를 남기고 스킵 — 무음 금지
+        for (const auto& spec : config.set_reports) {
+            SetReportResult sr;
+            sr.name = spec.name;
+            sr.set_type = spec.set_type;
+            sr.set_id = spec.set_id;
+            sr.notes.push_back("세트 파일 없음 — sets.file 을 지정하거나 d3plot 옆에 .k 파일 필요");
+            result.set_report_results.push_back(std::move(sr));
+        }
+        if (callback) callback("  Set report: 세트 파일을 찾지 못해 전 항목 스킵");
+        return inject_parts;
+    }
+
+    auto parsed = parsers::parseKeywordSetFile(sets_path);
+    if (!parsed.ok) {
+        for (const auto& spec : config.set_reports) {
+            SetReportResult sr;
+            sr.name = spec.name;
+            sr.set_type = spec.set_type;
+            sr.set_id = spec.set_id;
+            sr.notes.push_back("세트 파일 파싱 실패: " + parsed.error);
+            result.set_report_results.push_back(std::move(sr));
+        }
+        if (callback) callback("  Set report: " + parsed.error);
+        return inject_parts;
+    }
+    if (callback) {
+        callback("  Set report: " + sets_path + " 에서 세트 " +
+                 std::to_string(parsed.sets.size()) + "개 로드" +
+                 (parsed.warnings.empty() ? "" :
+                  " (경고 " + std::to_string(parsed.warnings.size()) + "건)"));
+        for (const auto& w : parsed.warnings) callback("    [set] " + w);
+    }
+
+    // 메시의 실제 파트 ID 집합
+    auto mesh = reader.read_mesh();
+    std::set<int32_t> mesh_pids;
+    for (int32_t p : mesh.solid_parts) mesh_pids.insert(p);
+    for (int32_t p : mesh.shell_parts) mesh_pids.insert(p);
+    for (int32_t p : mesh.thick_shell_parts) mesh_pids.insert(p);
+    for (int32_t p : mesh.beam_parts) mesh_pids.insert(p);
+
+    std::set<int32_t> inject_set;
+
+    for (const auto& spec : config.set_reports) {
+        SetReportResult sr;
+        sr.name = spec.name;
+        sr.set_type = spec.set_type;
+        sr.set_id = spec.set_id;
+
+        parsers::KeywordSet::Kind kind;
+        if (!parsers::setKindFromString(spec.set_type, kind)) {
+            sr.notes.push_back("알 수 없는 set_type '" + spec.set_type +
+                               "' (part/node/segment 중 하나)");
+            result.set_report_results.push_back(std::move(sr));
+            continue;
+        }
+
+        const auto* set = parsed.find(kind, spec.set_id);
+        if (!set) {
+            sr.notes.push_back("*SET_" + std::string(parsers::setKindName(kind)) +
+                               " " + std::to_string(spec.set_id) + " 이 세트 파일에 없음");
+            result.set_report_results.push_back(std::move(sr));
+            continue;
+        }
+        sr.title = set->title;
+
+        if (kind == parsers::KeywordSet::Kind::PART) {
+            for (int32_t pid : set->ids) {
+                if (mesh_pids.count(pid)) {
+                    sr.resolved_parts.push_back(pid);
+                    inject_set.insert(pid);
+                } else {
+                    sr.missing_parts.push_back(pid);
+                }
+            }
+            if (!sr.missing_parts.empty()) {
+                sr.notes.push_back("메시에 없는 파트 " +
+                                   std::to_string(sr.missing_parts.size()) +
+                                   "개는 제외하고 진행");
+            }
+            if (sr.resolved_parts.empty()) {
+                sr.notes.push_back("세트의 파트가 메시에 하나도 없음 — 지표 미산출");
+            }
+        } else if (kind == parsers::KeywordSet::Kind::NODE) {
+            sr.num_nodes = set->ids.size();
+            sr.notes.push_back("node 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+        } else {
+            sr.num_segments = set->segments.size();
+            sr.notes.push_back("segment 세트 지표는 아직 미지원 (P6 예정) — 해석만 완료");
+        }
+
+        result.set_report_results.push_back(std::move(sr));
+    }
+
+    inject_parts.assign(inject_set.begin(), inject_set.end());
+    return inject_parts;
+}
+
+void UnifiedAnalyzer::finalizeSetReports(
+    const UnifiedConfig& config,
+    ExtendedAnalysisResult& result,
+    UnifiedProgressCallback callback
+) {
+    for (size_t si = 0; si < result.set_report_results.size(); ++si) {
+        auto& sr = result.set_report_results[si];
+        if (sr.resolved_parts.empty()) continue;   // 사유는 이미 notes 에
+
+        const auto& spec = (si < config.set_reports.size())
+                           ? config.set_reports[si]
+                           : SetReportSpec{};
+
+        // 요청 필드 (비우면 전부)
+        std::vector<std::string> want = spec.fields;
+        if (want.empty()) {
+            for (const auto& src : kSetFieldSources) want.push_back(src.name);
+        }
+
+        for (const auto& fname : want) {
+            const SetFieldSource* src = nullptr;
+            for (const auto& c : kSetFieldSources) {
+                if (fname == c.name) { src = &c; break; }
+            }
+
+            SetFieldResult fr;
+            fr.field = fname;
+            if (!src) {
+                fr.note = "알 수 없는 필드";
+                sr.fields.push_back(std::move(fr));
+                continue;
+            }
+
+            // 멤버 파트의 이력 수집
+            const auto& hist = result.*(src->member);
+            std::vector<const PartTimeSeriesStats*> members;
+            for (const auto& h : hist) {
+                if (std::find(sr.resolved_parts.begin(), sr.resolved_parts.end(),
+                              h.part_id) != sr.resolved_parts.end()) {
+                    members.push_back(&h);
+                }
+            }
+            if (members.empty()) {
+                fr.note = "이 덱에서 미계측 (이력 없음)";
+                sr.fields.push_back(std::move(fr));
+                continue;
+            }
+
+            const size_t n_state = members.front()->data.size();
+            fr.times.reserve(n_state);
+            fr.values.reserve(n_state);
+
+            const bool comp = src->compressive;
+            double best = comp ? std::numeric_limits<double>::max()
+                               : -std::numeric_limits<double>::max();
+
+            for (size_t t = 0; t < n_state; ++t) {
+                double v = comp ? std::numeric_limits<double>::max()
+                                : -std::numeric_limits<double>::max();
+                int32_t elem = 0, part = 0;
+                double time = 0.0;
+                for (const auto* m : members) {
+                    if (t >= m->data.size()) continue;
+                    const auto& tp = m->data[t];
+                    time = tp.time;
+                    // 압축 필드는 min_value 가 worst, 아니면 max_value
+                    const double cand = comp ? tp.min_value : tp.max_value;
+                    const int32_t cand_elem = comp ? tp.min_element_id : tp.max_element_id;
+                    if ((comp && cand < v) || (!comp && cand > v)) {
+                        v = cand;
+                        elem = cand_elem;
+                        part = m->part_id;
+                    }
+                }
+                fr.times.push_back(time);
+                fr.values.push_back(v);
+                if ((comp && v < best) || (!comp && v > best)) {
+                    best = v;
+                    fr.peak = v;
+                    fr.peak_time = time;
+                    fr.peak_element_id = elem;
+                    fr.peak_part_id = part;
+                }
+            }
+            fr.measured = true;
+            sr.fields.push_back(std::move(fr));
+        }
+
+        if (callback) {
+            std::string line = "  Set report [" + sr.name + "]: 파트 " +
+                               std::to_string(sr.resolved_parts.size()) + "개";
+            for (const auto& f : sr.fields) {
+                if (f.measured && f.field == "von_mises") {
+                    line += ", σ_vm 피크 " + std::to_string(f.peak) +
+                            " @ t=" + std::to_string(f.peak_time);
+                }
+            }
+            callback(line);
+        }
+    }
+}
 
 void UnifiedAnalyzer::processBeamJobs(
     D3plotReader& reader,

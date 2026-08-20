@@ -348,6 +348,83 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         }
     }
 
+    // Export Custom Report set results — set_reports/<safe_name>/{metrics.json, series CSV}
+    if (!result.set_report_results.empty()) {
+        std::string sets_root = output_dir + "/set_reports";
+        std::error_code ec;
+        fs::remove_all(sets_root, ec);   // 재실행 시 낡은 산출물 제거
+        fs::create_directories(sets_root);
+        std::cout << "\nExporting set reports:\n";
+
+        auto safe = [](const std::string& s2) {
+            std::string out;
+            for (char c : s2) {
+                out.push_back((std::isalnum(static_cast<unsigned char>(c)) ||
+                               c == '-' || c == '_') ? c : '_');
+            }
+            return out.empty() ? std::string("set") : out;
+        };
+
+        for (const auto& sr : result.set_report_results) {
+            const std::string dir = sets_root + "/" + safe(sr.name);
+            fs::create_directories(dir);
+
+            // metrics.json — Python 보고서가 단독으로 읽는 per-set 파일
+            {
+                std::ofstream mj(dir + "/metrics.json");
+                mj << "{\n  \"name\": \"" << sr.name << "\",\n";
+                mj << "  \"set_type\": \"" << sr.set_type << "\",\n";
+                mj << "  \"set_id\": " << sr.set_id << ",\n";
+                mj << "  \"title\": \"" << sr.title << "\",\n";
+                mj << "  \"resolved_parts\": [";
+                for (size_t i = 0; i < sr.resolved_parts.size(); ++i) {
+                    if (i) mj << ", ";
+                    mj << sr.resolved_parts[i];
+                }
+                mj << "],\n  \"missing_parts\": [";
+                for (size_t i = 0; i < sr.missing_parts.size(); ++i) {
+                    if (i) mj << ", ";
+                    mj << sr.missing_parts[i];
+                }
+                mj << "],\n  \"notes\": [";
+                for (size_t i = 0; i < sr.notes.size(); ++i) {
+                    if (i) mj << ", ";
+                    mj << "\"" << sr.notes[i] << "\"";
+                }
+                mj << "],\n  \"fields\": [";
+                for (size_t i = 0; i < sr.fields.size(); ++i) {
+                    const auto& f = sr.fields[i];
+                    if (i) mj << ",";
+                    mj << "\n    {\"field\": \"" << f.field << "\", \"measured\": "
+                       << (f.measured ? "true" : "false");
+                    if (f.measured) {
+                        mj << std::setprecision(9)
+                           << ", \"peak\": " << f.peak
+                           << ", \"peak_time\": " << f.peak_time
+                           << ", \"peak_element_id\": " << f.peak_element_id
+                           << ", \"peak_part_id\": " << f.peak_part_id;
+                    } else {
+                        mj << ", \"note\": \"" << f.note << "\"";
+                    }
+                    mj << "}";
+                }
+                mj << "\n  ]\n}\n";
+            }
+
+            // 필드별 시계열 CSV (원해상도)
+            for (const auto& f : sr.fields) {
+                if (!f.measured) continue;
+                std::ofstream cf(dir + "/" + f.field + ".csv");
+                cf << "Time," << f.field << "\n";
+                cf << std::setprecision(9);
+                for (size_t i = 0; i < f.times.size(); ++i) {
+                    cf << f.times[i] << "," << f.values[i] << "\n";
+                }
+            }
+            std::cout << "  Written: " << dir << "/ (필드 " << sr.fields.size() << "개)\n";
+        }
+    }
+
     // Export beam resultants — 축력은 부호가 의미이므로 max/min 을 함께 낸다
     if (config.output_csv && !result.beam_analysis.empty()) {
         std::string beam_dir = output_dir + "/beam";
@@ -762,6 +839,7 @@ void printSummary(const ExtendedAnalysisResult& result, const UnifiedConfig& con
     std::cout << "  - Strain history: " << result.strain_history.size() << " parts\n";
     std::cout << "  - Motion analysis: " << result.motion_analysis.size() << " parts\n";
     std::cout << "  - Beam resultants: " << result.beam_analysis.size() << " series\n";
+    std::cout << "  - Set reports: " << result.set_report_results.size() << " sets\n";
     std::cout << "  - Surface stress: " << result.surface_analysis.size() << " surfaces\n";
     std::cout << "  - Surface strain: " << result.surface_strain_analysis.size() << " surfaces\n";
     std::cout << "  - Element quality: " << result.element_quality.size() << " parts\n";
@@ -956,6 +1034,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Input: " << config.d3plot_path << "\n";
     std::cout << "Output: " << config.output_directory << "\n";
     std::cout << "Analysis jobs: " << config.analysis_jobs.size() << "\n";
+    if (!config.set_reports.empty()) {
+        std::cout << "Set reports: " << config.set_reports.size() << "\n";
+    }
     std::cout << "Render jobs: " << config.render_jobs.size() << "\n";
     std::cout << "=============================================================\n\n";
 
@@ -966,7 +1047,7 @@ int main(int argc, char* argv[]) {
     auto start_time = std::chrono::high_resolution_clock::now();
     bool sv_done_in_analyze = false;
 
-    if (!render_only && config.hasAnalysisJobs()) {
+    if (!render_only && (config.hasAnalysisJobs() || !config.set_reports.empty())) {
         UnifiedAnalyzer analyzer;
         ExtendedAnalysisResult result = analyzer.analyze(config,
             [](const std::string& msg) {

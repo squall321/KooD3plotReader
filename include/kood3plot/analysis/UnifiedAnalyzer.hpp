@@ -141,6 +141,22 @@ private:
         UnifiedProgressCallback callback
     );
 
+    /// Custom Report: 세트 파일 파싱·해석 + solid 잡 주입용 파트 합집합 반환.
+    /// result.set_report_results 에 스켈레톤(파트 해석·경고)을 채운다.
+    std::vector<int32_t> prepareSetReports(
+        D3plotReader& reader,
+        const UnifiedConfig& config,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
+    /// Custom Report: solid 잡 결과(per-part 이력)에서 세트별 피크·시계열 집계
+    void finalizeSetReports(
+        const UnifiedConfig& config,
+        ExtendedAnalysisResult& result,
+        UnifiedProgressCallback callback
+    );
+
     /// 빔 단면력 분석 (beam_force 잡)
     void processBeamJobs(
         D3plotReader& reader,

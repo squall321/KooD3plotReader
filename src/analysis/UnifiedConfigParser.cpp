@@ -303,6 +303,9 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     RenderJob current_render_job;
     SectionViewJobSpec current_sv;
     PartSectionRenderJob current_psr;
+    SetReportSpec current_sr;
+    bool has_current_sr = false;
+    bool in_set_reports = false;
     bool has_current_analysis_job = false;
     bool has_current_render_job = false;
     bool has_current_sv = false;
@@ -336,6 +339,14 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         }
         current_sv = SectionViewJobSpec();
         has_current_sv = false;
+    };
+
+    auto flush_sr = [&]() {
+        if (has_current_sr && !current_sr.name.empty()) {
+            config.set_reports.push_back(current_sr);
+        }
+        current_sr = SetReportSpec();
+        has_current_sr = false;
     };
 
     auto flush_psr = [&]() {
@@ -387,11 +398,13 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
             if (in_render_jobs) flush_render_job();
             if (in_section_views) flush_sv();
             if (in_part_section_renders) flush_psr();
+            if (in_set_reports) flush_sr();
 
             in_analysis_jobs = false;
             in_render_jobs = false;
             in_section_views = false;
             in_part_section_renders = false;
+            in_set_reports = false;
             current_section = key;
 
             if (key == "analysis_jobs") {
@@ -402,6 +415,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 in_section_views = true;
             } else if (key == "part_section_renders") {
                 in_part_section_renders = true;
+            } else if (key == "set_reports") {
+                in_set_reports = true;
             } else if (key == "version") {
                 config.version = value;
             }
@@ -449,6 +464,52 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
             has_current_render_job = true;
             if (key == "name") {
                 current_render_job.name = value;
+            }
+            continue;
+        }
+
+        // Handle set_reports list items (Custom Report)
+        if (in_set_reports && is_list_item && indent <= 2) {
+            flush_sr();
+            has_current_sr = true;
+            if (key == "name") current_sr.name = value;
+            continue;
+        }
+
+        // Parse set_reports fields — 인라인 리스트만 지원 ("planes: [xy, yz]").
+        // 블록 스타일 '- xy' 는 이 수제 파서가 콜론 없는 줄을 버리므로 쓰지 말 것.
+        if (in_set_reports && has_current_sr) {
+            if (indent == 4) {
+                if (key == "name") {
+                    current_sr.name = value;
+                } else if (key == "set_type" || key == "type") {
+                    current_sr.set_type = value;
+                } else if (key == "set_id" || key == "id") {
+                    try { current_sr.set_id = std::stoi(value); } catch (...) {}
+                } else if (key == "fields") {
+                    current_sr.fields = parseStringArray(value);
+                } else if (key == "planes") {
+                    auto strs = parseStringArray(value);
+                    current_sr.planes.clear();
+                    for (auto& v2 : strs) {
+                        std::string low;
+                        for (char c : v2) low.push_back(static_cast<char>(std::tolower(c)));
+                        if (low == "xy" || low == "yz" || low == "zx") {
+                            current_sr.planes.push_back(low);
+                        }
+                    }
+                } else if (key == "video") {
+                    current_sr.video = parseBool(value);
+                } else if (key == "peak_snapshot") {
+                    current_sr.peak_snapshot = parseBool(value);
+                } else if (key == "width") {
+                    try { current_sr.width = std::stoi(value); } catch (...) {}
+                } else if (key == "height") {
+                    try { current_sr.height = std::stoi(value); } catch (...) {}
+                } else if (key == "max_frames") {
+                    try { current_sr.max_frames = std::stoi(value); } catch (...) {}
+                }
+                // 알 수 없는 키는 조용히 넘기되 스키마 확장 여지로 남긴다
             }
             continue;
         }
@@ -697,6 +758,13 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         }
 
         // Parse input section
+        if (current_section == "sets") {
+            if (key == "file") {
+                config.sets_file = value;
+            }
+            continue;
+        }
+
         if (current_section == "input") {
             if (key == "d3plot") {
                 config.d3plot_path = value;
@@ -737,7 +805,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     // Flush remaining jobs
     if (in_analysis_jobs) flush_analysis_job();
     if (in_render_jobs) flush_render_job();
-    if (in_section_views) flush_sv();
+if (in_set_reports) flush_sr();
+        if (in_section_views) flush_sv();
     if (in_part_section_renders) flush_psr();
 
     return true;
@@ -952,6 +1021,21 @@ std::string UnifiedConfigParser::generateExampleYAML() {
     oss << "    parts: []\n";
     oss << "    output_prefix: \"beam\"\n\n";
 
+    oss << "  # ---- Custom Report: 세트 후처리 ----\n";
+    oss << "  # LS-DYNA *SET_PART/NODE/SEGMENT 정의를 참조해 그 세트만의\n";
+    oss << "  # 피크 지표(응력/변형률)와 세트-격리 뷰를 만든다.\n";
+    oss << "  # 최상위 sets: 블록으로 세트 파일을 지정한다 (생략 시 자동 탐색).\n";
+    oss << "  # sets:\n";
+    oss << "  #   file: \"sets.k\"\n";
+    oss << "  # set_reports:\n";
+    oss << "  #   - name: \"PKG 모듈\"\n";
+    oss << "  #     set_type: part          # part | node | segment\n";
+    oss << "  #     set_id: 5\n";
+    oss << "  #     fields: [von_mises, eff_plastic_strain]\n";
+    oss << "  #     planes: [xy, yz, zx]    # 반드시 인라인 리스트\n";
+    oss << "  #     video: true\n";
+    oss << "  #     peak_snapshot: true\n\n";
+
     oss << "  # Surface stress analysis\n";
     oss << "  - name: \"Bottom Surface Stress\"\n";
     oss << "    type: surface_stress\n";
@@ -1079,7 +1163,7 @@ bool UnifiedConfigParser::validate(const UnifiedConfig& config) {
         return false;
     }
 
-    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty()) {
+    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty() && config.set_reports.empty()) {
         last_error_ = "At least one analysis_job, render_job, or section_view is required";
         return false;
     }

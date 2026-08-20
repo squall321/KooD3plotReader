@@ -374,6 +374,66 @@ struct SurfaceSpec {
 };
 
 /**
+ * @brief Custom Report 의 세트 후처리 사양 (YAML set_reports 항목 하나)
+ *
+ * LS-DYNA *SET_ 정의(파트/노드/세그먼트)를 참조해 그 세트만의 피크 지표와
+ * 세트-격리 뷰(3면 탑뷰 영상·피크 스냅샷)를 만든다. 이후 상대 거동 등
+ * 새 분석은 여기에 새 블록(필드)을 추가하는 방식으로 확장한다 — 기존
+ * 블록과 독립이어야 한다.
+ */
+struct SetReportSpec {
+    std::string name;                 ///< 표시 이름 (산출물 폴더명으로도 사용)
+    std::string set_type = "part";    ///< part | node | segment
+    int32_t set_id = 0;               ///< *SET_ 의 SID
+
+    /// 집계할 필드. 비우면 가용 전부 (von_mises, eff_plastic_strain, σ1/σ3, ε 계열)
+    std::vector<std::string> fields;
+
+    // ---- 뷰 (P2) ----
+    std::vector<std::string> planes = {"xy", "yz", "zx"};
+    bool video = true;                ///< 전 상태 컨투어 영상
+    bool peak_snapshot = true;        ///< 필드별 피크 시각 스냅샷 PNG
+    int width = 1280;
+    int height = 720;
+    int max_frames = 0;               ///< 0 = 전 상태, N = 균등 다운샘플
+};
+
+/**
+ * @brief 세트 하나·필드 하나의 집계 결과 (시계열 + 피크)
+ */
+struct SetFieldResult {
+    std::string field;                ///< "von_mises" 등
+    bool measured = false;            ///< false 면 아래 값은 의미 없음 (note 참조)
+    std::string note;                 ///< 미계측 사유 등
+
+    double peak = 0.0;                ///< 피크 값 (압축 필드는 최소값)
+    double peak_time = 0.0;
+    int32_t peak_element_id = 0;
+    int32_t peak_part_id = 0;
+
+    std::vector<double> times;        ///< 상태별 시각
+    std::vector<double> values;       ///< 상태별 세트 극값 (원해상도, 다운샘플 없음)
+};
+
+/**
+ * @brief 세트 하나의 Custom Report 결과
+ */
+struct SetReportResult {
+    std::string name;
+    std::string set_type;
+    int32_t set_id = 0;
+    std::string title;                        ///< *SET_..._TITLE 의 제목
+
+    std::vector<int32_t> resolved_parts;      ///< 메시와 교집합된 파트 (part set)
+    std::vector<int32_t> missing_parts;       ///< 세트에는 있으나 메시에 없는 파트
+    size_t num_nodes = 0;                     ///< node set 멤버 수
+    size_t num_segments = 0;                  ///< segment set 멤버 수
+    std::vector<std::string> notes;           ///< 경고·스킵 사유 (무음 금지)
+
+    std::vector<SetFieldResult> fields;
+};
+
+/**
  * @brief Single analysis job definition
  */
 struct AnalysisJob {
@@ -577,6 +637,8 @@ struct ExtendedAnalysisResult : public AnalysisResult {
     // Additional results
     std::vector<PartMotionStats> motion_analysis;
     std::vector<SurfaceStrainStats> surface_strain_analysis;
+    /// Custom Report 세트 결과
+    std::vector<SetReportResult> set_report_results;
     /// 빔 단면력 (축력·전단·모멘트·비틀림) 파트별 시계열
     std::vector<PartTimeSeriesStats> beam_analysis;
     std::vector<ElementQualityStats> element_quality;
@@ -694,6 +756,51 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                   << ", \"peak_min_time\": " << t_min
                   << ", \"peak_min_element_id\": " << e_min
                   << "}";
+        }
+        extra << "\n  ]";
+
+        // Custom Report 세트 결과
+        extra << ",\n  \"set_reports\": [";
+        for (size_t i = 0; i < set_report_results.size(); ++i) {
+            if (i > 0) extra << ",";
+            const auto& sr = set_report_results[i];
+            extra << "\n    {\"name\": \"" << sr.name << "\""
+                  << ", \"set_type\": \"" << sr.set_type << "\""
+                  << ", \"set_id\": " << sr.set_id
+                  << ", \"title\": \"" << sr.title << "\""
+                  << ", \"resolved_parts\": [";
+            for (size_t j = 0; j < sr.resolved_parts.size(); ++j) {
+                if (j > 0) extra << ", ";
+                extra << sr.resolved_parts[j];
+            }
+            extra << "], \"missing_parts\": [";
+            for (size_t j = 0; j < sr.missing_parts.size(); ++j) {
+                if (j > 0) extra << ", ";
+                extra << sr.missing_parts[j];
+            }
+            extra << "], \"notes\": [";
+            for (size_t j = 0; j < sr.notes.size(); ++j) {
+                if (j > 0) extra << ", ";
+                extra << "\"" << sr.notes[j] << "\"";
+            }
+            extra << "], \"fields\": [";
+            for (size_t j = 0; j < sr.fields.size(); ++j) {
+                if (j > 0) extra << ",";
+                const auto& f = sr.fields[j];
+                extra << "\n      {\"field\": \"" << f.field << "\""
+                      << ", \"measured\": " << (f.measured ? "true" : "false");
+                if (f.measured) {
+                    extra << ", \"peak\": " << std::setprecision(8) << f.peak
+                          << ", \"peak_time\": " << f.peak_time
+                          << ", \"peak_element_id\": " << f.peak_element_id
+                          << ", \"peak_part_id\": " << f.peak_part_id
+                          << ", \"num_points\": " << f.values.size();
+                } else {
+                    extra << ", \"note\": \"" << f.note << "\"";
+                }
+                extra << "}";
+            }
+            extra << "\n    ]}";
         }
         extra << "\n  ]";
 
@@ -934,6 +1041,11 @@ struct UnifiedConfig {
     // 필요 없으면 surface_defaults: false 로 끈다.
     bool surface_defaults = true;
     double surface_default_angle = 45.0;
+
+    // Custom Report: 세트 정의 파일 (비우면 d3plot 근처 키워드 파일 자동 탐색)
+    std::string sets_file;
+    // Custom Report: 세트 후처리 사양
+    std::vector<SetReportSpec> set_reports;
 
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;

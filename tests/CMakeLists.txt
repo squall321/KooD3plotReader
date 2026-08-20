@@ -32,6 +32,11 @@ if(TARGET kood3plot_writer)
     target_include_directories(test_beam_analyzer PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# KeywordSetParser tests
+add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
+target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)
+target_include_directories(test_keyword_set_parser PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # TimeHistoryAnalyzer tests
 add_executable(test_time_history test_time_history.cpp)
 target_link_libraries(test_time_history PRIVATE kood3plot)

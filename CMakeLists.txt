@@ -196,6 +196,7 @@ set(KOOD3PLOT_SOURCES
     src/analysis/MotionAnalyzer.cpp
     src/analysis/SurfaceStrainAnalyzer.cpp
     src/analysis/BeamAnalyzer.cpp
+    src/parsers/KeywordSetParser.cpp
     src/analysis/UnifiedAnalyzer.cpp
 )
 
@@ -225,6 +226,7 @@ set(KOOD3PLOT_HEADERS
     include/kood3plot/data/StateData.hpp
     include/kood3plot/data/NodeKinematics.hpp
     include/kood3plot/analysis/BeamAnalyzer.hpp
+    include/kood3plot/parsers/KeywordSetParser.hpp
 
     # Export headers
     include/kood3plot/export/KeywordExporter.h

@@ -1,0 +1,63 @@
+# Custom Report 컨텍스트 노트
+
+작업 중 내린 결정과 이유. 다음 세션이 재추론 없이 이어가기 위한 기록.
+(계속 append)
+
+## 2026-08-20 설계 착수
+
+- **세트 파싱 = C++ 소유.** 지표 계산·렌더 타깃 모두 C++ 이 ID 를 쓰므로.
+  Python 은 analysis_result.json 의 resolved 결과만 읽는다.
+- **파서 토큰화는 콤마+공백 혼용.** 고정 10칸을 엄격히 지키지 않는 파일이
+  많고, 세트 카드 필드는 공백을 품지 않으므로 안전. 고정폭 중간 공란
+  필드(GENERATE 쌍 어긋남)는 이론상 오독 가능 — 홀수 필드 경고로 방어.
+- **parseInt 는 "1.0" 허용.** LS-DYNA 카드에 정수를 실수로 쓰는 파일 실존
+  (COLUMN 의 뒤 컬럼). 진짜 소수는 거부.
+- **GENERATE 전개 상한 5M.** 오타로 1..10^9 같은 범위가 오면 메모리 폭발
+  대신 경고 후 스킵.
+- **_ADD(세트의 세트) 미지원 + 경고.** 재귀 해석은 필요해지면. GENERAL 은
+  NODE 행만 (BOX/PART 행은 경고).
+- **테스트 기대값 실수 있었음** — 픽스처 유효 세트는 7개 (1,10,20,30,40,60,70).
+  세트 수를 셀 때 _ADD 스킵과 *END 제외를 함께 고려할 것.
+- **렌더 경로 = 소프트웨어 래스터라이저.** LSPrePost 는 서버 헤드리스에서
+  래퍼 필요 + 세그폴트 이력 (memory: render_pipeline_sif_diagnosis).
+  SectionViewRenderer 에 no-clip set_view 모드 추가가 최소 변경.
+- **호버=PNG / 클릭=MP4.** 사용자가 용량 우려를 명시. 인라인 base64 금지,
+  run 폴더 상대경로 참조 (sphere 렌더 갤러리 관례와 동일).
+- **미계측 규약 유지.** 이 세션 앞부분에서 확립한 원칙 (0 위장 금지,
+  measured 플래그, 사유 문자열) 을 세트 지표에도 그대로 적용한다.
+- **기존 보고서 불변 원칙.** sphere/impact 는 탭 추가만. set_reports 가
+  YAML 에 없으면 어떤 경로도 동작이 달라지지 않아야 한다.
+
+## YAML 파서 구조 (P1 구현 참고)
+
+- UnifiedConfigParser::parse 는 수제 라인 파서. 최상위 섹션은 indent==0
+  분기 (line ~385), 리스트 블록은 in_xxx 플래그 + flush_xxx 램다.
+- **가장 좋은 본보기 = part_section_renders** (line ~456-548): 리스트 항목
+  시작(`- name:`), indent 4 필드, indent 6 output 서브섹션, parseIntArray/
+  parseStringArray 헬퍼. set_reports 는 이 패턴을 그대로 따른다.
+- section_views 는 yaml_block 원문 축적 방식 (자체 파서에 재위임) — set_reports
+  에는 부적합 (필드가 적고 구조적이므로 직접 파싱).
+
+## 2026-08-20 정찰 워크플로 결과 (7 에이전트, 상세는 scratchpad/recon/*.json)
+
+- **P2 렌더 확정**: IsoSurface 모드가 이미 "클리핑 없는 전체 외곽면 컨투어"
+  파이프라인 — 새 PartTopView 는 renderIsoSurface 복제 + ① target 외 면 제외
+  ② 배경 실루엣 패스 삭제 ③ 축 정렬 카메라. **핵심 함정: SectionCamera::setup()
+  은 view_dir_ 를 안 채워서 재사용 불가** — setupAxisAligned 신설 필요.
+  스냅샷은 snapshot_state 키로 프레임 복사. YAML 은 SectionViewJobSpec.yaml_block
+  통과라 UnifiedConfigParser 무수정 (SectionViewConfig 파서에만 키 추가).
+- **YAML 파서**: validate() 1082행이 "잡 하나 필수" — set_reports 단독 설정
+  허용하려면 조건 확장 필수. 블록 스타일 문자열 리스트('- xy')는 파싱 안 됨
+  → planes 는 반드시 인라인 [xy, yz]. findKeywordFile 은 익명 네임스페이스 —
+  재사용하려면 public static 승격.
+- **sphere**: 탭 15로 맨 끝 추가 (setupTabs 가 DOM 순서 인덱스 바인딩이라 중간
+  삽입 금지). 호버는 1725행 최근접점 패턴, 미디어는 경로 참조(base64 금지),
+  모달은 sphere 에 없어서 이식 필요.
+- **impact**: s10 섹션 신설. 미디어는 `<stem>_data/` 형제 디렉터리 규약
+  (file:// 에서 fetch 는 막히지만 img/video src 는 동작). 캐시 _CACHE_SCHEMA
+  6→7 범프 + _run_fingerprint 에 set_reports stat 추가 필수.
+- **산출물 규약 안전 확인**: `<out>/set_reports/<safe_name>/` 는 sphere Run_
+  필터·deep renders/ 스캔·impact stat 지문·--skip-existing 판정 어느 것과도
+  충돌 없음.
+- **LSPrePost 대비**: cfile 원자 명령은 다 있으나 서버 헤드리스 리스크로
+  소프트웨어 래스터라이저 우선 결정 유지.
