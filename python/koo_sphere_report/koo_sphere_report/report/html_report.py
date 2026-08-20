@@ -222,6 +222,11 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     data["contact_trust"] = _contact_trust(flows)
     # Custom Report(세트 후처리) 연동 — per-run set_reports 산출물 스캔
     data["set_report"] = _set_report_payload(data["results"], test_dir)
+    # 자세 미리보기용 근사 외곽 메시 (없으면 CSS 박스 폴백)
+    data["device_mesh"] = _load_device_mesh(test_dir)
+    if data["device_mesh"] is None:
+        data["device_mesh_note"] = ("device_preview.json 없음 — make_stl 로 생성하면 "
+                                    "각도 미리보기가 실제 형상으로 바뀝니다")
     # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
     data["unit_system"] = {
         "id": MotionData.UNIT_SYSTEM,
@@ -302,6 +307,57 @@ def _flow_detail_folders(flows: dict) -> tuple[set, str]:
         f"(전체 {len(folders)}개). 파트쌍 접촉력 프로파일 탭은 전 각도를 "
         f"스칼라로 담고 있어 각도 비교에는 영향이 없습니다."
     )
+
+
+def _load_device_mesh(test_dir: str) -> dict | None:
+    """자세 미리보기용 근사 외곽 메시 (make_stl 산출 JSON).
+
+    test_dir/device_preview.json 이 있으면 임베드하고, 없으면 첫 run 의
+    d3plot 으로 make_stl 을 한 번 실행해 캐시한다 (STL 도 같이 남아
+    CAD/뷰어에서 재사용 가능). 실패하면 None — 보고서는 기존 CSS 박스로
+    폴백한다 (무음 아님: device_mesh_note 로 사유 전달).
+    """
+    import os
+    import subprocess
+
+    if not test_dir:
+        return None
+    base = Path(test_dir)
+    cache = base / "device_preview.json"
+
+    if not cache.is_file():
+        # make_stl 탐색: unified_analyzer 옆 → 저장소 빌드 트리
+        cands = []
+        env = os.environ.get("KOOD3PLOT_HOME")
+        if env:
+            cands.append(Path(env) / "bin" / "make_stl")
+        repo = Path(__file__).resolve().parents[4]
+        cands.append(repo / "build" / "examples" / "make_stl")
+        tool = next((c for c in cands if c.is_file()), None)
+
+        d3 = None
+        out_dir = base / "output"
+        if out_dir.is_dir():
+            for run in sorted(out_dir.iterdir()):
+                cand = run / "d3plot"
+                if cand.is_file():
+                    d3 = cand
+                    break
+        if tool and d3:
+            try:
+                subprocess.run([str(tool), str(d3), str(base / "device_preview"), "6000"],
+                               capture_output=True, timeout=300)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+    if not cache.is_file():
+        return None
+    try:
+        if cache.stat().st_size > 3 * 1024 * 1024:
+            return None    # 임베드 상한 — 형상 미리보기에 3MB 이상은 과하다
+        return json.loads(cache.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _set_report_payload(results: list, test_dir: str) -> dict:
@@ -2085,6 +2141,91 @@ function init3DDevice() {
     </div>`;
 }
 
+// STL 근사 메시를 CSS 박스 자리 캔버스에 렌더 (직교 투영 + 플랫 셰이딩).
+// 좌표 규약: 모델(sim body) → CSS 는 (x, -y, z), 화면 = M · v_css.
+let _dmCache = null;
+function drawDeviceMesh(inner, M) {
+  const host = inner.parentElement;
+  let cv = document.getElementById('device-mesh-canvas');
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.id = 'device-mesh-canvas';
+    const w = host.clientWidth || 260, h = host.clientHeight || 160;
+    cv.width = w * 2; cv.height = h * 2;      // 2x 오버샘플
+    cv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%';
+    host.appendChild(cv);
+    inner.style.display = 'none';             // CSS 박스 숨김
+  }
+  if (!_dmCache) {
+    const V = DATA.device_mesh.v, F = DATA.device_mesh.f;
+    const n = V.length / 3;
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < n; i++) { cx += V[i*3]; cy += V[i*3+1]; cz += V[i*3+2]; }
+    cx /= n; cy /= n; cz /= n;
+    let ext = 1e-9;
+    const P = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      // 모델 → CSS 프레임 (x, -y, z) + 중심 이동
+      P[i*3]   = V[i*3]   - cx;
+      P[i*3+1] = -(V[i*3+1] - cy);
+      P[i*3+2] = V[i*3+2] - cz;
+      ext = Math.max(ext, Math.abs(P[i*3]), Math.abs(P[i*3+1]), Math.abs(P[i*3+2]));
+    }
+    _dmCache = { P, F, n, ext };
+  }
+  const { P, F, n, ext } = _dmCache;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const s = 0.44 * Math.min(W, H) / ext;
+  const ox = W / 2, oy = H / 2;
+
+  // 정점 회전
+  const R = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const x = P[i*3], y = P[i*3+1], z = P[i*3+2];
+    R[i*3]   = M[0]*x + M[1]*y + M[2]*z;
+    R[i*3+1] = M[3]*x + M[4]*y + M[5]*z;
+    R[i*3+2] = M[6]*x + M[7]*y + M[8]*z;
+  }
+
+  // 삼각형 깊이 정렬 (뒤 → 앞)
+  const nt = F.length / 3;
+  const order = new Array(nt);
+  const depth = new Float32Array(nt);
+  for (let t = 0; t < nt; t++) {
+    order[t] = t;
+    depth[t] = R[F[t*3]*3+2] + R[F[t*3+1]*3+2] + R[F[t*3+2]*3+2];
+  }
+  order.sort((a, b) => depth[a] - depth[b]);
+
+  const lx = 0.35, ly = -0.5, lz = 0.79;    // 화면 프레임 광원
+  for (const t of order) {
+    const a = F[t*3], b = F[t*3+1], c = F[t*3+2];
+    const ax2 = R[a*3]*s + ox,  ay2 = R[a*3+1]*s + oy;
+    const bx2 = R[b*3]*s + ox,  by2 = R[b*3+1]*s + oy;
+    const cx2 = R[c*3]*s + ox,  cy2 = R[c*3+1]*s + oy;
+    // 법선 (화면 프레임)
+    const ux = R[b*3]-R[a*3], uy = R[b*3+1]-R[a*3+1], uz = R[b*3+2]-R[a*3+2];
+    const vx = R[c*3]-R[a*3], vy = R[c*3+1]-R[a*3+1], vz = R[c*3+2]-R[a*3+2];
+    let nx2 = uy*vz-uz*vy, ny2 = uz*vx-ux*vz, nz2 = ux*vy-uy*vx;
+    const L = Math.sqrt(nx2*nx2+ny2*ny2+nz2*nz2) || 1;
+    const shade = 0.3 + 0.7 * Math.abs((nx2*lx+ny2*ly+nz2*lz)/L);
+    const g = Math.round(120 + 110 * shade);
+    ctx.fillStyle = `rgb(${Math.round(g*0.75)},${Math.round(g*0.85)},${g})`;
+    ctx.beginPath();
+    ctx.moveTo(ax2, ay2); ctx.lineTo(bx2, by2); ctx.lineTo(cx2, cy2);
+    ctx.closePath(); ctx.fill();
+  }
+  // 낙하 방향 표시 (CSS 아래 = 화면 아래)
+  ctx.strokeStyle = 'rgba(255,120,120,.9)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ox, H - 26); ctx.lineTo(ox, H - 8);
+  ctx.lineTo(ox - 5, H - 14); ctx.moveTo(ox, H - 8); ctx.lineTo(ox + 5, H - 14);
+  ctx.stroke();
+}
+
 function update3DDevice(roll, pitch, yaw, angleName) {
   const inner = document.getElementById('device-inner');
   const anglesEl = document.getElementById('device-angles');
@@ -2120,31 +2261,29 @@ function update3DDevice(roll, pitch, yaw, angleName) {
   const kx = -uz, kz = ux;
   const kmag = Math.sqrt(kx*kx + kz*kz);
 
-  let transform;
+  // 회전행렬 M (CSS 프레임): 충격 방향 → CSS 아래 (0,1,0)
+  let M;
   if (kmag < 0.0001) {
-    // Impact is parallel to CSS down - face/edge/corner already pointing down
-    if (dot > 0) {
-      transform = 'none';
-    } else {
-      // Pointing up - flip 180 around Z
-      transform = 'rotateZ(180deg)';
-    }
+    M = (dot > 0)
+      ? [1,0,0, 0,1,0, 0,0,1]
+      : [-1,0,0, 0,-1,0, 0,0,1];      // rotateZ(180)
   } else {
-    // Rodrigues rotation: impact direction -> CSS down (0,1,0)
     const ax = kx/kmag, az = kz/kmag;
     const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
     const t = 1 - cosA;
-    // Rodrigues with axis=(ax, 0, az)
-    const m00 = t*ax*ax+cosA, m01 = -sinA*az,   m02 = t*ax*az;
-    const m10 = sinA*az,      m11 = cosA,        m12 = -sinA*ax;
-    const m20 = t*az*ax,      m21 = sinA*ax,     m22 = t*az*az+cosA;
-
-    // Pure orthogonal view - no tilt
-    transform = `matrix3d(${m00},${m10},${m20},0, ${m01},${m11},${m21},0, ${m02},${m12},${m22},0, 0,0,0,1)`;
+    M = [t*ax*ax+cosA, -sinA*az,  t*ax*az,
+         sinA*az,      cosA,      -sinA*ax,
+         t*az*ax,      sinA*ax,   t*az*az+cosA];
   }
 
-  inner.style.transform = transform;
+  // STL 기반 실제 형상이 있으면 캔버스로, 없으면 종전 CSS 박스로
+  if (DATA.device_mesh && DATA.device_mesh.v && DATA.device_mesh.f) {
+    drawDeviceMesh(inner, M);
+  } else {
+    const transform = `matrix3d(${M[0]},${M[3]},${M[6]},0, ${M[1]},${M[4]},${M[7]},0, ${M[2]},${M[5]},${M[8]},0, 0,0,0,1)`;
+    inner.style.transform = transform;
+  }
   if (anglesEl) {
     const label = angleName || `R:${roll.toFixed(0)} P:${pitch.toFixed(0)} Y:${yaw.toFixed(0)}`;
     anglesEl.textContent = label;

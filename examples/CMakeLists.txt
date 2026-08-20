@@ -28,6 +28,11 @@ if(TARGET kood3plot_writer)
     target_include_directories(make_tshell_from_shell PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# 외곽면 → STL/JSON (자세 미리보기)
+add_executable(make_stl make_stl.cpp)
+target_link_libraries(make_stl PRIVATE kood3plot)
+target_include_directories(make_stl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 add_executable(check_results check_results.cpp)
 target_link_libraries(check_results PRIVATE kood3plot)
 
