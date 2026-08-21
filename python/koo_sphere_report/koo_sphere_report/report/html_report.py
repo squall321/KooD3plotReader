@@ -2303,6 +2303,23 @@ function drawDeviceMesh(inner, M) {
     ctx.moveTo(ax2, ay2); ctx.lineTo(bx2, by2); ctx.lineTo(cx2, cy2);
     ctx.closePath(); ctx.fill();
   }
+  // 선택 파트가 외피에 있지만 현재 자세에서 뒷면에 가려 보이지 않으면
+  // (주황 픽셀이 거의 없음) 그 파트 패치의 외곽선을 하우징 너머로 점선 표기한다.
+  let selHidden = false;
+  if (PID && selPid && selOnHull) {
+    const img = ctx.getImageData(0, 0, W, H).data;
+    let orange = 0, painted = 0;
+    for (let i = 0; i < img.length; i += 4) {
+      if (img[i + 3] === 0) continue;
+      ++painted;
+      if (img[i] > 200 && img[i + 1] > 100 && img[i + 1] < 175 && img[i + 2] < 90) ++orange;
+    }
+    // 모서리 실오라기(전체의 1.5% 미만)만 보이는 것도 '가려짐' 으로 본다
+    // 가려졌으면 내부 파트와 같은 시각 언어(점선 bbox 고스트)로 위치를 알린다.
+    // (패치 경계 변 외곽선은 데시메이션 메시에서 점박이로 흩어져 읽히지 않았다)
+    if (orange < Math.max(40, 0.015 * painted)) selHidden = true;
+  }
+
   // 낙하 방향 표시 (CSS 아래 = 화면 아래)
   ctx.strokeStyle = 'rgba(255,120,120,.9)';
   ctx.lineWidth = 3;
@@ -2311,9 +2328,10 @@ function drawDeviceMesh(inner, M) {
   ctx.lineTo(ox - 5, H - 14); ctx.moveTo(ox, H - 8); ctx.lineTo(ox + 5, H - 14);
   ctx.stroke();
 
-  // 선택 파트가 외피에 없으면(내부 부품) bbox 고스트를 하우징 너머로 그린다
+  // 선택 파트가 외피에 없거나(내부 부품) 현재 자세에서 가려졌으면 bbox 고스트를
+  // 하우징 너머로 그린다
   const partsBB = DATA.device_mesh.parts || null;
-  if (selPid && !selOnHull && partsBB && partsBB[selPid]) {
+  if (selPid && (!selOnHull || selHidden) && partsBB && partsBB[selPid]) {
     const [x0, y0, z0, x1, y1, z1] = partsBB[selPid];
     const { cx, cy, cz } = _dmCache;
     const corner = (x, y, z) => {
@@ -2363,10 +2381,11 @@ function drawDeviceMesh(inner, M) {
     if (selPid) {
       const pn = ((DATA.parts || {})[selPid] || {}).name || ('Part ' + selPid);
       const hasBB = !!(DATA.device_mesh.parts && DATA.device_mesh.parts[selPid]);
-      const tag = selOnHull ? '▶ ' : (hasBB ? '▶ [내부] ' : '▶ [미리보기 없음] ');
+      const tag = selOnHull ? (selHidden ? '▶ [뒷면] ' : '▶ ')
+                            : (hasBB ? '▶ [내부] ' : '▶ [미리보기 없음] ');
       html += item([255, 140, 40], tag + pn, true);
     }
-    lg.innerHTML = html;
+    if (lg.dataset.key !== html) { lg.innerHTML = html; lg.dataset.key = html; }   // 매 프레임 재생성 방지
     // 범례 행 수에 따라 패널이 늘어나도록 (고정 240px 이면 아래 카드 테두리에 걸친다)
     const box = host.parentElement;
     if (box && box.style.height !== 'auto') { box.style.minHeight = '240px'; box.style.height = 'auto'; }
