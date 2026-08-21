@@ -363,8 +363,15 @@ int main(int argc, char** argv) {
             f << out.tris[i][0] << "," << out.tris[i][1] << "," << out.tris[i][2];
         }
         f.precision(3);
-        f << "],\"bbox\":[" << bmin.x << "," << bmin.y << "," << bmin.z << ","
-          << bmax.x << "," << bmax.y << "," << bmax.z << "]}";
+        // bbox 는 실제 실린 정점(데시메이션 후) 기준 — 파일 안에서 자기모순이 없게 한다
+        V3 obmin = out.verts.empty() ? V3{} : out.verts[0], obmax = obmin;
+        for (const auto& p2 : out.verts) {
+            obmin.x = std::min(obmin.x, p2.x); obmax.x = std::max(obmax.x, p2.x);
+            obmin.y = std::min(obmin.y, p2.y); obmax.y = std::max(obmax.y, p2.y);
+            obmin.z = std::min(obmin.z, p2.z); obmax.z = std::max(obmax.z, p2.z);
+        }
+        f << "],\"bbox\":[" << obmin.x << "," << obmin.y << "," << obmin.z << ","
+          << obmax.x << "," << obmax.y << "," << obmax.z << "]}";
     }
 
     std::printf("출력: %s.stl / %s.json\n", prefix.c_str(), prefix.c_str());
