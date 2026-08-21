@@ -597,11 +597,17 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     // ---- 9. Clean up frame PNGs unless png_frames is requested ----
     if (!config.png_frames) {
         namespace fs = std::filesystem;
-        for (const auto& entry : fs::directory_iterator(out_dir)) {
+        // 동시 실행 등으로 폴더가 사라졌을 수 있다 — 예외 대신 error_code 로
+        // (uncaught filesystem_error 가 terminate/abort 를 부르던 경로)
+        std::error_code it_ec;
+        for (fs::directory_iterator it(out_dir, it_ec), end;
+             !it_ec && it != end; it.increment(it_ec)) {
+            const auto& entry = *it;
             if (entry.path().extension() == ".png") {
                 const std::string fname = entry.path().filename().string();
                 if (fname.substr(0, 6) == "frame_") {
-                    fs::remove(entry.path());
+                    std::error_code rm_ec;
+                    fs::remove(entry.path(), rm_ec);
                 }
             }
         }

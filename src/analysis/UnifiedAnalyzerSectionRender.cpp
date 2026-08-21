@@ -11,6 +11,8 @@
 
 #ifdef KOOD3PLOT_HAS_SECTION_RENDER
 
+#include <unistd.h>
+#include <iostream>
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include "kood3plot/section_render/SectionViewConfig.hpp"
 #include "kood3plot/section_render/SectionViewRenderer.hpp"
@@ -291,14 +293,20 @@ void UnifiedAnalyzer::processSetViews(
                     sv.highlights.push_back(std::move(region));
                 }
 
-                // 임시 하위 폴더에 렌더 후 규약 이름으로 옮긴다
-                const std::string tmp_dir = set_dir + "/_render_" + plane + "_" + vf.name;
+                // 임시 하위 폴더에 렌더 후 규약 이름으로 옮긴다.
+                // PID 접미사 — 같은 출력 폴더로 동시 실행 시 서로의 프레임을
+                // 지우던 경쟁(무음 오염 + 간헐 abort)을 막는다.
+                const std::string tmp_dir = set_dir + "/_render_" + plane + "_" + vf.name +
+                                            "_" + std::to_string(::getpid());
                 sv.output_dir = tmp_dir;
 
                 section_render::SectionViewRenderer renderer;
                 const std::string err = renderer.render(mesh, ctrl, all_states, sv);
                 if (!err.empty()) {
                     sr.notes.push_back("뷰 실패 [" + plane + "/" + vf.name + "]: " + err);
+                    // notes 에만 남기면 배치 로그로는 감지 불가 — stderr 에도 알린다
+                    std::cerr << "[set_report] 뷰 실패 [" << sr.name << "/" << plane
+                              << "/" << vf.name << "]: " << err << std::endl;
                     fs::remove_all(tmp_dir, ec);
                     continue;
                 }
