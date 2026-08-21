@@ -195,15 +195,24 @@ TEST_F(VonMisesQuantizerTest, ArrayQuantization) {
     double max_rel_error = 0.0;
     double sum_rel_error = 0.0;
 
+    // 설계상 하한(0.1 MPa) 미만은 클램프된다 (Quantizers.hpp 문서) —
+    // 상대오차는 하한 이상 값에만 적용하고, 미만 값은 클램프 동작을 검증한다.
+    const double kThreshold = 0.1;
+    size_t n_rel = 0;
     for (size_t i = 0; i < test_data_.size(); ++i) {
-        if (test_data_[i] > 1e-6) {
+        if (test_data_[i] >= kThreshold) {
             double rel_error = std::abs(test_data_[i] - dequantized[i]) / test_data_[i] * 100.0;
             max_rel_error = std::max(max_rel_error, rel_error);
             sum_rel_error += rel_error;
+            ++n_rel;
+        } else {
+            // 클램프: 복원값은 하한 근처여야 하고 하한을 2% 넘게 밑돌면 안 된다
+            EXPECT_GE(dequantized[i], kThreshold * 0.98);
+            EXPECT_LE(dequantized[i], kThreshold * 1.02);
         }
     }
 
-    double mean_rel_error = sum_rel_error / test_data_.size();
+    double mean_rel_error = sum_rel_error / std::max<size_t>(1, n_rel);
 
     std::cout << "[VonMisesQuantizer] 10k values (0.001-10000 MPa):\n";
     std::cout << "  Max rel. error:  " << std::fixed << std::setprecision(4)
@@ -230,6 +239,7 @@ TEST_F(VonMisesQuantizerTest, LogarithmicBehavior) {
     VonMisesQuantizer quantizer;
     quantizer.calibrate(wide_range);
 
+    const double kThreshold = 0.1;   // 설계 하한 — 미만은 클램프 (Quantizers.hpp)
     for (double v : wide_range) {
         uint16_t q = quantizer.quantize(v);
         double dq = quantizer.dequantize(q);
@@ -241,7 +251,12 @@ TEST_F(VonMisesQuantizerTest, LogarithmicBehavior) {
                   << std::setw(10) << std::fixed << std::setprecision(4) << dq
                   << " MPa (error: " << rel_error << "%)\n";
 
-        EXPECT_LT(rel_error, 2.0);
+        if (v >= kThreshold) {
+            EXPECT_LT(rel_error, 2.0);
+        } else {
+            EXPECT_GE(dq, kThreshold * 0.98);
+            EXPECT_LE(dq, kThreshold * 1.02);
+        }
     }
 }
 
