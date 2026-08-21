@@ -138,7 +138,22 @@ KeywordSetParseResult parseKeywordSetFile(const std::string& path) {
 
     auto flush = [&]() {
         if (in_set) {
-            res.sets.push_back(cur);
+            if (cur.sid <= 0) {
+                // 헤더만 있고 SID 카드가 없던 절단 세트 — sid=0 팬텀으로
+                // '세트 N개 로드' 집계를 부풀리지 않는다
+                res.warnings.push_back("SID 없이 끝난 *SET_ 헤더 — 세트 버림");
+            } else {
+                bool dup = false;
+                for (const auto& prev : res.sets) {
+                    if (prev.sid == cur.sid && prev.kind == cur.kind) { dup = true; break; }
+                }
+                if (dup) {
+                    res.warnings.push_back("SID " + std::to_string(cur.sid) +
+                                           " 중복 정의 — 첫 정의를 유지, 이후 정의 무시");
+                } else {
+                    res.sets.push_back(cur);
+                }
+            }
             cur = KeywordSet{};
             seen.clear();
             in_set = false;
@@ -283,10 +298,22 @@ KeywordSetParseResult parseKeywordSetFile(const std::string& path) {
             continue;
         }
 
-        // LIST (기본): 모든 토큰이 ID
-        for (const auto& tok : toks) {
-            int32_t id;
-            if (parseInt(tok, id)) pushUnique(cur.ids, seen, id);
+        // LIST (기본): 모든 토큰이 ID. 파싱 불가 토큰은 무음 폐기 대신 경고 —
+        // 오타('1O3' 등)가 조용히 사라지면 세트가 부분만 실린다.
+        {
+            int skipped = 0;
+            for (const auto& tok : toks) {
+                int32_t id;
+                if (parseInt(tok, id)) {
+                    pushUnique(cur.ids, seen, id);
+                } else {
+                    ++skipped;
+                }
+            }
+            if (skipped > 0) {
+                res.warnings.push_back("ID 로 해석 불가한 토큰 " + std::to_string(skipped) +
+                                       "개 무시 (line " + std::to_string(line_no) + ")");
+            }
         }
     }
 
