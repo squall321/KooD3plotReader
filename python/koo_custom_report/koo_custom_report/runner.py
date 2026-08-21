@@ -218,14 +218,37 @@ def run(d3plot: str | Path, out_dir: str | Path, cfg: CustomReportConfig,
         return RunResult(ok=False, error="unified_analyzer 를 찾지 못함 (KOOD3PLOT_HOME 확인)")
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+    # 동시 실행 가드 — 같은 출력 폴더로 두 실행이 겹치면 렌더 산출물이
+    # 상호 오염된다. 죽은 프로세스의 stale 락은 자동 회수.
+    lock = Path(out_dir) / ".custom_report.lock"
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+    except FileExistsError:
+        try:
+            other = int(lock.read_text().strip() or "0")
+        except (OSError, ValueError):
+            other = 0
+        if other > 0 and Path(f"/proc/{other}").exists():
+            return RunResult(ok=False, error=(
+                f"같은 출력 폴더({out_dir})에서 다른 실행(PID {other})이 진행 중 — "
+                "동시 실행은 산출물을 오염시키므로 중단"))
+        # 죽은 프로세스의 락 — 회수
+        lock.write_text(str(os.getpid()))
+
     yaml_text = build_ua_yaml(d3plot, out_dir, cfg)
     yaml_path = Path(out_dir) / "_custom_report_ua.yaml"
     yaml_path.write_text(yaml_text, encoding="utf-8")
 
-    proc = subprocess.run(
-        [ua, "--config", str(yaml_path)],
-        capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [ua, "--config", str(yaml_path)],
+            capture_output=True, text=True,
+        )
+    finally:
+        lock.unlink(missing_ok=True)
     tail = "\n".join((proc.stdout or "").splitlines()[-25:])
     if verbose:
         sys.stderr.write(tail + "\n")
