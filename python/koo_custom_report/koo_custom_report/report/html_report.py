@@ -14,7 +14,8 @@ from pathlib import Path
 
 from ..runner import RunResult, SetResult
 
-# 필드 표기 (순서 = 표 순서)
+# 필드 표기 (순서 = 표 순서). 목록 밖 필드도 표에서 무음 탈락시키지 않는다 —
+# 노드셋(disp_mag 등)·미래 필드는 원어 키로라도 표시 (정직성: 무음 스킵 금지).
 _FIELD_LABELS = [
     ("von_mises", "σ_vm [MPa]"),
     ("max_principal_stress", "σ1 [MPa]"),
@@ -23,6 +24,9 @@ _FIELD_LABELS = [
     ("vm_strain", "ε_vm"),
     ("max_principal_strain", "ε1"),
     ("min_principal_strain", "ε3"),
+    ("disp_mag", "|변위| [mm]"),
+    ("vel_mag", "|속도| [mm/s]"),
+    ("acc_mag", "|가속도| [mm/s²]"),
 ]
 
 _PLANE_LABELS = {"xy": "XY (탑뷰, Z축)", "yz": "YZ (측면, X축)", "zx": "ZX (정면, Y축)"}
@@ -120,7 +124,12 @@ def _set_section(sr: SetResult) -> str:
     if fields:
         parts.append("<table><thead><tr><th>필드</th><th>피크</th><th>시각 [s]</th>"
                      "<th>요소</th><th>파트</th></tr></thead><tbody>")
-        for key, label in _FIELD_LABELS:
+        known = [k for k, _ in _FIELD_LABELS]
+        label_of = dict(_FIELD_LABELS)
+        # 라벨 목록 순서 + 목록 밖 필드는 metrics 순서대로 뒤에 (무음 탈락 금지)
+        ordered = [k for k in known if k in fields] + [k for k in fields if k not in known]
+        for key in ordered:
+            label = label_of.get(key, key)
             f = fields.get(key)
             if f is None:
                 continue
