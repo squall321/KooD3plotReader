@@ -171,6 +171,11 @@ log "Building C++ (${JOBS} jobs)..."
 cmake --build "${BUILD_DIR}" -j"${JOBS}" --target unified_analyzer 2>&1 | tail -3
 ok "unified_analyzer built"
 
+# make_stl — 스피어/임팩트 보고서의 실형상 미리보기(device/impactor_preview)
+# 자동 생성이 KOOD3PLOT_HOME/bin/make_stl 을 찾는다. 없으면 개략도로 무음 폴백.
+cmake --build "${BUILD_DIR}" -j"${JOBS}" --target make_stl 2>&1 | tail -2
+ok "make_stl built"
+
 if [ "$BUILD_VIEWER" = true ]; then
     cmake --build "${BUILD_DIR}" -j"${JOBS}" --target koo_viewer 2>&1 | tail -3
     ok "koo_viewer built"
@@ -188,6 +193,8 @@ mkdir -p "${PREFIX}/python"
 
 # C++ binaries
 cp "${BUILD_DIR}/examples/unified_analyzer" "${PREFIX}/bin/"
+cp "${BUILD_DIR}/examples/make_stl" "${PREFIX}/bin/"
+ok "make_stl → bin/"
 chmod +x "${PREFIX}/bin/unified_analyzer"
 ok "unified_analyzer → bin/"
 
