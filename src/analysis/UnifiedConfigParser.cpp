@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <map>
 #include <filesystem>
 #include <unordered_map>
 #include <set>
@@ -342,8 +343,14 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     };
 
     auto flush_sr = [&]() {
-        if (has_current_sr && !current_sr.name.empty()) {
-            config.set_reports.push_back(current_sr);
+        if (has_current_sr) {
+            if (!current_sr.name.empty()) {
+                config.set_reports.push_back(current_sr);
+            } else {
+                // 무음 탈락 금지 — 요청이 조용히 사라지면 부분 산출물이 정상 행세한다
+                std::cerr << "[config] 경고: name 없는 set_reports 항목을 건너뜀 "
+                          << "(name 은 필수)" << std::endl;
+            }
         }
         current_sr = SetReportSpec();
         has_current_sr = false;
@@ -377,7 +384,16 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
 
         // Parse key:value
         size_t colon_pos = trimmed.find(':');
-        if (colon_pos == std::string::npos) continue;
+        if (colon_pos == std::string::npos) {
+            // 값만 있는 리스트 항목('- xxx')은 블록 리스트 문법 — 이 수제 파서가
+            // 지원하지 않는다. 무음 폐기하면 'fields 1개 요청'이 '전 필드 기본값'
+            // 으로 둔갑하므로 경고. (위에서 '-' 를 이미 벗겼으므로 플래그로 판별)
+            if (is_list_item) {
+                std::cerr << "[config] 경고: 블록 리스트 문법 미지원 — '- " << trimmed
+                          << "' 무시됨. 인라인 [a, b] 형식을 쓰세요" << std::endl;
+            }
+            continue;
+        }
 
         std::string key = trim(trimmed.substr(0, colon_pos));
         std::string value = trim(trimmed.substr(colon_pos + 1));
@@ -485,7 +501,10 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 } else if (key == "set_type" || key == "type") {
                     current_sr.set_type = value;
                 } else if (key == "set_id" || key == "id") {
-                    try { current_sr.set_id = std::stoi(value); } catch (...) {}
+                    try { current_sr.set_id = std::stoi(value); } catch (...) {
+                        std::cerr << "[config] 경고: set_id 파싱 실패 '" << value
+                                  << "' — 0 으로 둠 (parts/part_patterns 필요)" << std::endl;
+                    }
                 } else if (key == "fields") {
                     current_sr.fields = parseStringArray(value);
                 } else if (key == "planes") {
@@ -1172,8 +1191,24 @@ bool UnifiedConfigParser::validate(const UnifiedConfig& config) {
     }
 
     if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty() && config.set_reports.empty()) {
-        last_error_ = "At least one analysis_job, render_job, or section_view is required";
+        last_error_ = "At least one analysis_job, render_job, section_view, or set_report is required";
         return false;
+    }
+
+    // set_reports 이름이 sanitize 후 같은 폴더로 합쳐지면 키메라 산출물 —
+    // 무음 덮어쓰기 대신 명확히 거부한다
+    {
+        std::map<std::string, std::string> seen_safe;
+        for (const auto& sr : config.set_reports) {
+            const std::string safe = sanitizeSetName(sr.name);
+            auto it = seen_safe.find(safe);
+            if (it != seen_safe.end()) {
+                last_error_ = "set_reports 이름 충돌: '" + it->second + "' 와 '" + sr.name +
+                              "' 이 같은 산출 폴더(" + safe + ")로 정리됨 — 이름을 바꾸세요";
+                return false;
+            }
+            seen_safe[safe] = sr.name;
+        }
     }
 
     // Validate analysis jobs
