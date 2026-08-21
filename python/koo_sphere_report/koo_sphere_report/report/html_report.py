@@ -1515,7 +1515,7 @@ function renderMollweide() {
       <option value="safety_factor"${mollweideState.quantity==='safety_factor'?' selected':''}>Safety Factor</option>
     </select>
     <label>Part:</label>
-    <select id="moll-part" onchange="mollweideState.partId=parseInt(this.value);drawMollweideAll()">`;
+    <select id="moll-part" onchange="mollweideState.partId=parseInt(this.value);mollweideState.partPicked=true;drawMollweideAll();dmRedraw()">`;
   for (const pid of parts) {
     const p = DATA.parts[String(pid)];
     controlsHtml += `<option value="${pid}"${pid===mollweideState.partId?' selected':''}>${p.name} (ID:${pid})</option>`;
@@ -2216,9 +2216,41 @@ function drawDeviceMesh(inner, M) {
       P[i*3+2] = V[i*3+2] - cz;
       ext = Math.max(ext, Math.abs(P[i*3]), Math.abs(P[i*3+1]), Math.abs(P[i*3+2]));
     }
-    _dmCache = { P, F, n, ext };
+    // 삼각형별 파트 → 그룹 색 (make_stl JSON 의 "p"; 없으면 단색 폴백)
+    // 손상 캐시(p 길이 ≠ 삼각형 수)는 단색 폴백으로 강등
+    const PID = (DATA.device_mesh.p && DATA.device_mesh.p.length === F.length / 3) ? DATA.device_mesh.p : null;
+    const groupOf = pid => ((DATA.parts || {})[pid] || {}).group || 'Other';
+    const groups = [];
+    const triGroup = PID ? new Int16Array(PID.length) : null;
+    if (PID) {
+      const gi = {};
+      for (let t = 0; t < PID.length; t++) {
+        const g = groupOf(PID[t]);
+        if (!(g in gi)) { gi[g] = groups.length; groups.push(g); }
+        triGroup[t] = gi[g];
+      }
+    }
+    _dmCache = { P, F, n, ext, cx, cy, cz, PID, triGroup, groups, lastM: null };
   }
-  const { P, F, n, ext } = _dmCache;
+  const { P, F, n, ext, PID, triGroup, groups } = _dmCache;
+  _dmCache.lastM = M;
+  // 그룹 팔레트 (고정 규약) — 미지 그룹은 이름 해시 색
+  const DM_PALETTE = { Front: [120, 170, 235], Display: [90, 205, 190], Bond: [235, 190, 90],
+                       Geom: [180, 150, 220], PKG: [240, 130, 110], PCB: [130, 200, 120],
+                       SUBPCB: [170, 185, 75], Back: [160, 160, 200], Other: [165, 170, 185] };
+  // 미지 그룹: 해시 색은 팔레트와 충돌했다(실측 SUBPCB≈Display ΔE 3.2) —
+  // 팔레트 색상환에서 떨어진 2차 고정 리스트를 등장 순서로 배정한다
+  const DM_EXTRA = [[215, 120, 215], [180, 120, 90], [230, 140, 170], [120, 190, 210], [200, 200, 140]];
+  const groupRGB = g => {
+    if (Object.prototype.hasOwnProperty.call(DM_PALETTE, g)) return DM_PALETTE[g];
+    const extras = groups.filter(x => !Object.prototype.hasOwnProperty.call(DM_PALETTE, x));
+    return DM_EXTRA[extras.indexOf(g) % DM_EXTRA.length];
+  };
+  // 선택 파트 하이라이트 (Mollweide 파트 드롭다운과 연동)
+  const selPid = (typeof mollweideState !== 'undefined' && mollweideState.partPicked &&
+                  mollweideState.partId > 0) ? mollweideState.partId : 0;
+  let selOnHull = false;
+  if (selPid && PID) for (let t = 0; t < PID.length; t++) if (PID[t] === selPid) { selOnHull = true; break; }
   const ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
   ctx.clearRect(0, 0, W, H);
@@ -2256,8 +2288,17 @@ function drawDeviceMesh(inner, M) {
     let nx2 = uy*vz-uz*vy, ny2 = uz*vx-ux*vz, nz2 = ux*vy-uy*vx;
     const L = Math.sqrt(nx2*nx2+ny2*ny2+nz2*nz2) || 1;
     const shade = 0.3 + 0.7 * Math.abs((nx2*lx+ny2*ly+nz2*lz)/L);
-    const g = Math.round(120 + 110 * shade);
-    ctx.fillStyle = `rgb(${Math.round(g*0.75)},${Math.round(g*0.85)},${g})`;
+    let base;
+    if (PID && selPid && PID[t] === selPid) {
+      base = [255, 140, 40];                                   // 선택 파트: 주황 강조
+    } else if (PID) {
+      base = groupRGB(groups[triGroup[t]]);
+      if (selPid) base = base.map(v => Math.round(v * 0.55 + 60));   // 선택 중엔 나머지를 눌러준다
+    } else {
+      base = [150, 170, 200];                                  // 파트 정보 없음(구버전 캐시): 단색
+    }
+    const k = 0.45 + 0.55 * shade;
+    ctx.fillStyle = `rgb(${Math.round(base[0]*k)},${Math.round(base[1]*k)},${Math.round(base[2]*k)})`;
     ctx.beginPath();
     ctx.moveTo(ax2, ay2); ctx.lineTo(bx2, by2); ctx.lineTo(cx2, cy2);
     ctx.closePath(); ctx.fill();
@@ -2269,6 +2310,74 @@ function drawDeviceMesh(inner, M) {
   ctx.moveTo(ox, H - 26); ctx.lineTo(ox, H - 8);
   ctx.lineTo(ox - 5, H - 14); ctx.moveTo(ox, H - 8); ctx.lineTo(ox + 5, H - 14);
   ctx.stroke();
+
+  // 선택 파트가 외피에 없으면(내부 부품) bbox 고스트를 하우징 너머로 그린다
+  const partsBB = DATA.device_mesh.parts || null;
+  if (selPid && !selOnHull && partsBB && partsBB[selPid]) {
+    const [x0, y0, z0, x1, y1, z1] = partsBB[selPid];
+    const { cx, cy, cz } = _dmCache;
+    const corner = (x, y, z) => {
+      const px = x - cx, py = -(y - cy), pz = z - cz;          // 모델 → CSS 프레임
+      return [ (M[0]*px + M[1]*py + M[2]*pz) * s + ox,
+               (M[3]*px + M[4]*py + M[5]*pz) * s + oy ];
+    };
+    const C = [[x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0],[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]].map(c => corner(...c));
+    const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,140,40,.95)'; ctx.lineWidth = 3; ctx.setLineDash([7, 5]);
+    ctx.beginPath();
+    for (const [a, b] of E) { ctx.moveTo(C[a][0], C[a][1]); ctx.lineTo(C[b][0], C[b][1]); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,140,40,.18)';
+    // 앞면(z1) 사각형을 살짝 채워 위치감을 준다
+    ctx.beginPath(); ctx.moveTo(C[4][0], C[4][1]); for (const i of [5,6,7]) ctx.lineTo(C[i][0], C[i][1]); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // 범례: 캔버스 밖 HTML 배지 (캔버스 안 글자는 배경·기기와 겹쳐 안 읽힌다)
+  if (PID) {
+    // CSS 박스용 면 범례(Display/Right/Top…)는 실형상에선 의미가 없다 —
+    // 그 자리(#device-angles 다음 형제, 2열 grid)를 그룹 범례로 재사용한다.
+    let lg = document.getElementById('device-legend');
+    if (!lg) {
+      const angles = document.getElementById('device-angles');
+      const old = angles && angles.nextElementSibling;
+      if (old && old.id !== 'device-legend') {
+        old.id = 'device-legend';
+        lg = old;
+      } else {
+        lg = document.createElement('div');
+        lg.id = 'device-legend';
+        (host.parentElement || host).appendChild(lg);
+      }
+      lg.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:1px 8px;font-size:9px;' +
+        'color:var(--fg2);margin-top:4px;padding:0 10px';
+    }
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const item = (rgb, label, strong) =>
+      `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${strong ? 'grid-column:1/3;font-weight:600;color:var(--fg)' : ''}">` +
+      `<span style="display:inline-block;width:8px;height:8px;border-radius:1px;margin-right:3px;vertical-align:middle;` +
+      `background:rgb(${rgb[0]},${rgb[1]},${rgb[2]})"></span>${esc(label)}</div>`;
+    let html = groups.map(g => item(groupRGB(g), g, false)).join('');
+    if (selPid) {
+      const pn = ((DATA.parts || {})[selPid] || {}).name || ('Part ' + selPid);
+      const hasBB = !!(DATA.device_mesh.parts && DATA.device_mesh.parts[selPid]);
+      const tag = selOnHull ? '▶ ' : (hasBB ? '▶ [내부] ' : '▶ [미리보기 없음] ');
+      html += item([255, 140, 40], tag + pn, true);
+    }
+    lg.innerHTML = html;
+    // 범례 행 수에 따라 패널이 늘어나도록 (고정 240px 이면 아래 카드 테두리에 걸친다)
+    const box = host.parentElement;
+    if (box && box.style.height !== 'auto') { box.style.minHeight = '240px'; box.style.height = 'auto'; }
+  }
+}
+
+// 파트 선택이 바뀌면 같은 자세로 다시 그린다 (Mollweide 드롭다운 onchange 에서 호출)
+function dmRedraw() {
+  const inner = document.getElementById('device-inner');
+  if (!inner || !_dmCache || !_dmCache.lastM) return;
+  if (DATA.device_mesh && DATA.device_mesh.v && DATA.device_mesh.f) drawDeviceMesh(inner, _dmCache.lastM);
 }
 
 function update3DDevice(roll, pitch, yaw, angleName) {
