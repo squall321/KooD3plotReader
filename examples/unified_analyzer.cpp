@@ -357,6 +357,29 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
         std::cout << "\nExporting set reports:\n";
 
         auto safe = [](const std::string& s2) { return sanitizeSetName(s2); };
+        // 문자열을 JSON 에 그대로 박으면 따옴표·역슬래시·제어문자가 파일을 깨뜨린다
+        auto jesc = [](const std::string& s2) {
+            std::string o;
+            o.reserve(s2.size() + 8);
+            for (unsigned char c : s2) {
+                switch (c) {
+                    case '"':  o += "\\\""; break;
+                    case '\\': o += "\\\\"; break;
+                    case '\n': o += "\\n"; break;
+                    case '\r': o += "\\r"; break;
+                    case '\t': o += "\\t"; break;
+                    default:
+                        if (c < 0x20) {
+                            char buf[8];
+                            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                            o += buf;
+                        } else {
+                            o += static_cast<char>(c);
+                        }
+                }
+            }
+            return o;
+        };
 
         for (const auto& sr : result.set_report_results) {
             const std::string dir = sets_root + "/" + safe(sr.name);
@@ -365,11 +388,11 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
             // metrics.json — Python 보고서가 단독으로 읽는 per-set 파일
             {
                 std::ofstream mj(dir + "/metrics.json");
-                mj << "{\n  \"name\": \"" << sr.name << "\",\n";
+                mj << "{\n  \"name\": \"" << jesc(sr.name) << "\",\n";
                 mj << "  \"set_type\": \"" << sr.set_type << "\",\n";
                 mj << "  \"metric_source\": \"" << sr.metric_source << "\",\n";
                 mj << "  \"set_id\": " << sr.set_id << ",\n";
-                mj << "  \"title\": \"" << sr.title << "\",\n";
+                mj << "  \"title\": \"" << jesc(sr.title) << "\",\n";
                 mj << "  \"resolved_parts\": [";
                 for (size_t i = 0; i < sr.resolved_parts.size(); ++i) {
                     if (i) mj << ", ";
@@ -383,13 +406,13 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
                 mj << "],\n  \"notes\": [";
                 for (size_t i = 0; i < sr.notes.size(); ++i) {
                     if (i) mj << ", ";
-                    mj << "\"" << sr.notes[i] << "\"";
+                    mj << "\"" << jesc(sr.notes[i]) << "\"";
                 }
                 mj << "],\n  \"highlights\": [";
                 for (size_t i = 0; i < sr.highlights.size(); ++i) {
                     if (i) mj << ", ";
                     mj << "{\"sid\": " << sr.highlights[i].sid
-                       << ", \"title\": \"" << sr.highlights[i].title << "\""
+                       << ", \"title\": \"" << jesc(sr.highlights[i].title) << "\""
                        << ", \"n_segments\": " << sr.highlights[i].segments.size() << "}";
                 }
                 mj << "],\n  \"fields\": [";
@@ -405,7 +428,7 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
                            << ", \"peak_element_id\": " << f.peak_element_id
                            << ", \"peak_part_id\": " << f.peak_part_id;
                     } else {
-                        mj << ", \"note\": \"" << f.note << "\"";
+                        mj << ", \"note\": \"" << jesc(f.note) << "\"";
                     }
                     mj << "}";
                 }

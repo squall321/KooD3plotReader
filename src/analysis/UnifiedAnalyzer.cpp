@@ -820,6 +820,19 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
     std::vector<int32_t> inject_parts;
     if (config.set_reports.empty()) return inject_parts;
 
+    // 낡은 산출물 정리 — 이번 실행이 만들 세트 폴더를 미리 비운다.
+    // (planes/fields 를 줄여 재실행하면 이전 뷰 파일이 남아 최신 보고서에
+    //  현재 산출물인 척 실리는 무음 stale 오염이 있었다.)
+    {
+        namespace fs = std::filesystem;
+        for (const auto& sp : config.set_reports) {
+            const fs::path set_dir = fs::path(config.output_directory) /
+                                     "set_reports" / sanitizeSetName(sp.name);
+            std::error_code ec;
+            fs::remove_all(set_dir, ec);   // 없으면 no-op, 실패해도 분석은 진행
+        }
+    }
+
     // 세트 파일 결정: 명시 > d3plot 옆 자동 탐색
     std::string sets_path = config.sets_file;
     // 세트 파일은 이제 **선택**이다 — set_id/하이라이트를 참조하는 항목만
