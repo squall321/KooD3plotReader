@@ -309,13 +309,55 @@ def _flow_detail_folders(flows: dict) -> tuple[set, str]:
     )
 
 
+def _scenario_model_file(base: Path) -> Path | None:
+    """시나리오가 참조하는 **원본** 모델 파일 (바닥/임팩터 생성 이전).
+
+    자세 미리보기는 낙하 덱(바닥 플레이트 포함)이 아니라 이 원본에서 만들어야
+    한다. runner_config.json 의 model_file 이 1순위, 없으면 scenario*.json /
+    DropSet.json 류의 model_file 키를 찾는다.
+    """
+    cands = [base / "runner_config.json"] + sorted(base.glob("*scenario*.json")) + \
+            sorted(base.glob("*.json"))
+    seen = set()
+    for cf in cands:
+        if cf in seen or not cf.is_file():
+            continue
+        seen.add(cf)
+        try:
+            d = json.loads(cf.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            continue
+        # model_file 은 최상위 또는 한두 단계 안쪽(scenario/config 블록)에 있을 수 있다
+        def _find(o, depth=0):
+            if isinstance(o, dict):
+                if isinstance(o.get("model_file"), str):
+                    return o["model_file"]
+                if depth < 3:
+                    for v in o.values():
+                        r = _find(v, depth + 1)
+                        if r:
+                            return r
+            return None
+        mf = _find(d)
+        if not mf:
+            continue
+        mp = Path(mf)
+        if not mp.is_absolute():
+            mp = base / mp
+        if mp.is_file():
+            return mp
+    return None
+
+
 def _load_device_mesh(test_dir: str) -> dict | None:
     """자세 미리보기용 근사 외곽 메시 (make_stl 산출 JSON).
 
-    test_dir/device_preview.json 이 있으면 임베드하고, 없으면 첫 run 의
-    d3plot 으로 make_stl 을 한 번 실행해 캐시한다 (STL 도 같이 남아
-    CAD/뷰어에서 재사용 가능). 실패하면 None — 보고서는 기존 CSS 박스로
-    폴백한다 (무음 아님: device_mesh_note 로 사유 전달).
+    test_dir/device_preview.json 이 있으면 임베드하고, 없으면 **시나리오가
+    참조하는 원본 모델 파일(.k)** 로 make_stl 을 한 번 실행해 캐시한다 — 낙하
+    덱/d3plot 은 자동 생성된 바닥 플레이트가 섞여 있어 자세가 안 읽힌다.
+    원본이 없을 때만 첫 run 의 d3plot + device 모드(환경 파트 기하 제외)로
+    폴백한다. 실패하면 None — 보고서는 기존 CSS 박스로 폴백한다
+    (무음 아님: device_mesh_note 로 사유 전달).
     """
     import os
     import subprocess
@@ -331,22 +373,25 @@ def _load_device_mesh(test_dir: str) -> dict | None:
         env = os.environ.get("KOOD3PLOT_HOME")
         if env:
             cands.append(Path(env) / "bin" / "make_stl")
-        repo = Path(__file__).resolve().parents[4]
-        cands.append(repo / "build" / "examples" / "make_stl")
+        for anc in Path(__file__).resolve().parents:
+            cands.append(anc / "build" / "examples" / "make_stl")
         tool = next((c for c in cands if c.is_file()), None)
 
-        d3 = None
-        out_dir = base / "output"
-        if out_dir.is_dir():
-            for run in sorted(out_dir.iterdir()):
-                cand = run / "d3plot"
-                if cand.is_file():
-                    d3 = cand
-                    break
-        if tool and d3:
+        src = _scenario_model_file(base)
+        args = None
+        if src is not None:
+            args = [str(src), str(base / "device_preview"), "6000", "128"]
+        else:
+            out_dir = base / "output"
+            if out_dir.is_dir():
+                for run in sorted(out_dir.iterdir()):
+                    cand = run / "d3plot"
+                    if cand.is_file():
+                        args = [str(cand), str(base / "device_preview"), "6000", "128", "device"]
+                        break
+        if tool and args:
             try:
-                subprocess.run([str(tool), str(d3), str(base / "device_preview"), "6000"],
-                               capture_output=True, timeout=300)
+                subprocess.run([str(tool)] + args, capture_output=True, timeout=300)
             except (OSError, subprocess.TimeoutExpired):
                 pass
 
@@ -2231,18 +2276,21 @@ function update3DDevice(roll, pitch, yaw, angleName) {
   const anglesEl = document.getElementById('device-angles');
   if (!inner) return;
 
-  // Compute impact direction in device body frame:
-  // impact_body = Rx(roll) * Ry(pitch) * Rz(yaw) * [0,0,-1]
+  // Compute impact direction in device body frame.
+  // 기기 자세가 R = Rx(roll)·Ry(pitch)·Rz(yaw) (body→world) 이면, 세계의 아래
+  // 방향 [0,0,-1] 을 기기 좌표로 본 것은 Rᵀ·[0,0,-1] = -(R 의 셋째 행).
+  // 검증: Test_006 1144런 덱의 *INITIAL_VELOCITY 방향과 최악 내적 +1.0000.
+  // (이전 수식 R·[0,0,-1] 은 최악 -1.0000 — 정반대 면을 아래로 그리던 버그)
   // Device body coords: X=Right, Y=Top(up), Z=Front
   const r = roll * Math.PI / 180;
   const p = pitch * Math.PI / 180;
   const yw = yaw * Math.PI / 180;
   const cr = Math.cos(r), sr = Math.sin(r);
   const cp = Math.cos(p), sp = Math.sin(p);
-  // R * [0,0,-1] = -column2 of Rx*Ry*Rz = [-sp, sr*cp, -cr*cp]
-  const bx = -sp;         // body X (Right)
-  const by = sr * cp;     // body Y (Top/up)
-  const bz = -cr * cp;    // body Z (Front)
+  const cy = Math.cos(yw), sy = Math.sin(yw);
+  const bx = cr * sp * cy - sr * sy;     // body X (Right)
+  const by = -sr * cy - cr * sp * sy;    // body Y (Top/up)
+  const bz = -cr * cp;                   // body Z (Front)
 
   // This vector points from device center toward the ground face (in sim body frame).
   // Sim body: Right=+X, Top=+Y, Front=+Z
