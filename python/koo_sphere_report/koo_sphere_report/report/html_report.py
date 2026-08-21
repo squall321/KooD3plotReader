@@ -5651,7 +5651,7 @@ function srDrawMollweide() {
       stroke="${has ? 'none' : 'var(--dim)'}" stroke-width="0.5"/>`;
   }
   svg += '</svg>';
-  return { svg, vmin, vmax };
+  return { svg, vmin, vmax, nFinite: finite.length };
 }
 
 function srUpdatePanel(ri) {
@@ -5734,8 +5734,11 @@ function renderSetReport() {
     `<option value="${i}" ${i === srS.set ? 'selected' : ''}>${s.name}` +
     `${s.title && s.title !== s.name ? ' — ' + s.title : ''} (${s.type} ${s.id})</option>`).join('');
 
-  const { svg, vmin, vmax } = srDrawMollweide();
+  const { svg, vmin, vmax, nFinite } = srDrawMollweide();
   const mLabel = srS.metric === 'stress' ? 'σ_vm [MPa]' : 'ε_p';
+  // 산출이 하나도 없는 지표는 범위를 지어내지 않는다 (결측 ≠ 0~1)
+  const rangeTxt = nFinite ? `${vmin.toFixed(2)} ~ ${vmax.toFixed(2)}`
+                           : (ko ? '산출 없음 (이 지표 미실행)' : 'no data (metric not run)');
 
   el.innerHTML = `
     <div class="section">
@@ -5752,7 +5755,7 @@ function renderSetReport() {
             <option value="strain" ${srS.metric === 'strain' ? 'selected' : ''}>ε_p</option>
           </select></label>
         <span style="color:var(--dim);font-size:11px">${mLabel}:
-          ${vmin.toFixed(2)} ~ ${vmax.toFixed(2)}</span>
+          ${rangeTxt}</span>
       </div>
       <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
         <div id="sr-moll-wrap">${svg}</div>

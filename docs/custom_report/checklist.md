@@ -6,7 +6,7 @@
 - [x] KeywordSetParser.hpp/.cpp (*SET_PART/NODE/SEGMENT, LIST/TITLE/GENERATE/COLUMN/GENERAL)
 - [x] 미지원 변형(_ADD, GENERAL BOX 등) 경고 경로
 - [x] 콤마/고정폭 혼용, 소문자 키워드, $ 주석, *END
-- [x] tests/test_keyword_set_parser (28 케이스 전부 통과)
+- [x] tests/test_keyword_set_parser (27 케이스 전부 통과)
 
 ## P1 — YAML + 파트셋 피크 지표
 - [x] UnifiedConfig: sets_file, set_reports (SetReportSpec)

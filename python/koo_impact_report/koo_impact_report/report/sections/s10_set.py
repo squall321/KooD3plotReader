@@ -86,9 +86,12 @@ function s10Draw() {
   const finite = vals.filter(v => v !== null);
   const vmin = finite.length ? Math.min(...finite) : 0;
   const vmax = finite.length ? Math.max(...finite) : 1;
+  // 산출이 하나도 없는 지표는 범위를 지어내지 않는다 (결측 ≠ 0~1)
   document.getElementById('s10-range').textContent =
     (S10.metric === 's' ? 'σ_vm [MPa] ' : 'ε_p ') +
-    vmin.toFixed(S10.metric === 's' ? 1 : 5) + ' ~ ' + vmax.toFixed(S10.metric === 's' ? 1 : 5);
+    (finite.length
+      ? vmin.toFixed(S10.metric === 's' ? 1 : 5) + ' ~ ' + vmax.toFixed(S10.metric === 's' ? 1 : 5)
+      : '산출 없음');
 
   const W = meta.width, H = meta.height;
   ov.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
