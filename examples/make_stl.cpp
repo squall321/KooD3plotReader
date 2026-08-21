@@ -16,6 +16,7 @@
  */
 
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/parsers/KeywordMeshParser.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 
 #include <cstdio>
@@ -24,6 +25,7 @@
 #include <cmath>
 #include <fstream>
 #include <map>
+#include <unordered_map>
 #include <tuple>
 #include <vector>
 
@@ -39,6 +41,57 @@ struct MeshOut {
     std::vector<std::array<int32_t, 3>> tris;
 };
 
+
+/// 파트별 bbox (device 모드 환경 파트 제외용)
+struct PartBB {
+    double lo[3] = {1e300, 1e300, 1e300}, hi[3] = {-1e300, -1e300, -1e300};
+    bool any = false;
+    void add(double x, double y, double z) {
+        const double c[3] = {x, y, z};
+        for (int a = 0; a < 3; ++a) { lo[a] = std::min(lo[a], c[a]); hi[a] = std::max(hi[a], c[a]); }
+        any = true;
+    }
+};
+
+/// 자세 미리보기는 '기기'만 보여야 한다. 낙하 덱의 바닥/벽 플레이트는 이름이
+/// 없는 경우가 많아(실측: Test_006 파트 23 무명) 기하로 거른다 —
+/// 혼자서 나머지 전체(합집합)보다 두 축 이상에서 1.5배 크면 환경으로 본다.
+/// (기기 하우징은 합집합을 '정의'하는 쪽이라 1.5배를 넘지 못한다.)
+/// 원본 키워드 파일(바닥 생성 이전)을 쓰면 보통 제외 대상이 없다.
+bool selectDeviceParts(const std::map<int32_t, PartBB>& bbs, std::vector<int32_t>& only_parts) {
+    only_parts.clear();
+    size_t excluded = 0;
+    for (const auto& [pid, b] : bbs) {
+        if (!b.any) continue;
+        double olo[3] = {1e300, 1e300, 1e300}, ohi[3] = {-1e300, -1e300, -1e300};
+        bool others = false;
+        for (const auto& [q, ob] : bbs) {
+            if (q == pid || !ob.any) continue;
+            others = true;
+            for (int a = 0; a < 3; ++a) { olo[a] = std::min(olo[a], ob.lo[a]); ohi[a] = std::max(ohi[a], ob.hi[a]); }
+        }
+        if (!others) { only_parts.push_back(pid); continue; }
+        int bigger = 0;
+        for (int a = 0; a < 3; ++a) {
+            const double mine = b.hi[a] - b.lo[a], rest = std::max(1e-9, ohi[a] - olo[a]);
+            if (mine > 1.5 * rest) ++bigger;
+        }
+        if (bigger >= 2) {
+            ++excluded;
+            std::printf("환경 파트 제외: %d (%.0f x %.0f x %.0f — 나머지 합집합보다 %d축에서 1.5배 초과)\n",
+                        pid, b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], bigger);
+        } else {
+            only_parts.push_back(pid);
+        }
+    }
+    if (only_parts.empty()) {
+        std::printf("device 모드: 남는 파트가 없음 — 중단\n");
+        return false;
+    }
+    if (excluded == 0) std::printf("device 모드: 환경 파트 없음 (전 파트 %zu개 사용)\n", only_parts.size());
+    return true;
+}
+
 /// 격자 해상도 res 로 정점 클러스터링 데시메이션.
 MeshOut clusterDecimate(const std::vector<V3>& pts,
                         const std::vector<std::array<int32_t, 3>>& tris,
@@ -46,11 +99,14 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
     const double ex = std::max(1e-9, bmax.x - bmin.x);
     const double ey = std::max(1e-9, bmax.y - bmin.y);
     const double ez = std::max(1e-9, bmax.z - bmin.z);
+    // 등방 셀(최장축/res) — 축별 res 등분이면 얇은 기기의 두께 방향만 과분해되고
+    // 넓은 면은 거칠어진다 (실측: 71×147×9 기기가 res=11 로 끝나 902 정점)
+    const double cell = std::max({ex, ey, ez}) / res;
 
     auto cellOf = [&](const V3& p) {
-        int ix = (int)((p.x - bmin.x) / ex * res); ix = std::min(res - 1, std::max(0, ix));
-        int iy = (int)((p.y - bmin.y) / ey * res); iy = std::min(res - 1, std::max(0, iy));
-        int iz = (int)((p.z - bmin.z) / ez * res); iz = std::min(res - 1, std::max(0, iz));
+        int ix = (int)((p.x - bmin.x) / cell);
+        int iy = (int)((p.y - bmin.y) / cell);
+        int iz = (int)((p.z - bmin.z) / cell);
         return std::tuple<int, int, int>(ix, iy, iz);
     };
 
@@ -120,7 +176,7 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::printf("사용: %s <d3plot> <out_prefix> [target_tris=6000] [voxel_res=128] [parts_csv]\n", argv[0]);
+        std::printf("사용: %s <d3plot|model.k> <out_prefix> [target_tris=6000] [voxel_res=128] [parts_csv | device]\n", argv[0]);
         return 2;
     }
     const std::string d3 = argv[1];
@@ -141,7 +197,10 @@ int main(int argc, char** argv) {
     // 5번째 인자: 파트 ID CSV — 지정하면 그 파트들만 (예: 임팩터 형상 추출)
     // 파싱 불가 토큰을 삼키면 빈 필터 = 전체 모델로 둔갑하므로 정직하게 거부한다.
     std::vector<int32_t> only_parts;
-    if (argc > 5) {
+    bool device_mode = false;   // 환경 파트(바닥/벽) 자동 제외
+    if (argc > 5 && std::string(argv[5]) == "device") {
+        device_mode = true;
+    } else if (argc > 5) {
         std::string csv = argv[5];
         size_t pos = 0;
         bool bad = false;
@@ -168,48 +227,183 @@ int main(int argc, char** argv) {
         }
     }
 
-    D3plotReader reader(d3);
-    if (reader.open() != ErrorCode::SUCCESS) {
-        std::printf("d3plot 열기 실패: %s\n", d3.c_str());
-        return 1;
-    }
-    auto mesh = reader.read_mesh();
-
-    SurfaceExtractor ex(reader);
-    if (!ex.initialize()) {
-        std::printf("외곽면 추출 실패: %s\n", ex.getLastError().c_str());
-        return 1;
-    }
-    auto surf = only_parts.empty() ? ex.extractExteriorSurfaces()
-                                   : ex.extractExteriorSurfaces(only_parts);
-    if (surf.faces.empty()) {
-        std::printf("외곽면이 없음\n");
-        return 1;
-    }
-
-    // 삼각화 + 좌표 수집 (기하 섹션 = 원본 자세)
-    std::vector<V3> pts(mesh.nodes.size());
-    for (size_t i = 0; i < mesh.nodes.size(); ++i) {
-        pts[i] = {mesh.nodes[i].x, mesh.nodes[i].y, mesh.nodes[i].z};
-    }
-    V3 bmin = pts.empty() ? V3{} : pts[0], bmax = bmin;
-    for (const auto& p : pts) {
-        bmin.x = std::min(bmin.x, p.x); bmax.x = std::max(bmax.x, p.x);
-        bmin.y = std::min(bmin.y, p.y); bmax.y = std::max(bmax.y, p.y);
-        bmin.z = std::min(bmin.z, p.z); bmax.z = std::max(bmax.z, p.z);
-    }
-
+    // 공통 기하 컨테이너 — 입력이 .k 든 d3plot 이든 여기로 모인다
+    std::vector<V3> pts;
     std::vector<std::array<int32_t, 3>> tris;
-    for (const auto& f : surf.faces) {
-        const auto& n = f.node_indices;
-        if (n.size() < 3) continue;
-        auto ok = [&](int32_t idx) { return idx >= 0 && (size_t)idx < pts.size(); };
-        if (!ok(n[0]) || !ok(n[1]) || !ok(n[2])) continue;
-        tris.push_back({n[0], n[1], n[2]});
-        if (n.size() >= 4 && ok(n[3]) && n[3] != n[2]) {
-            tris.push_back({n[0], n[2], n[3]});
+    V3 bmin{}, bmax{};
+
+    auto lower = [](std::string v) { for (auto& c : v) c = (char)std::tolower((unsigned char)c); return v; };
+    const std::string dl = lower(d3);
+    auto endsWith = [&](const std::string& suf) {
+        return dl.size() >= suf.size() && dl.compare(dl.size() - suf.size(), suf.size(), suf) == 0;
+    };
+    const bool is_keyword = endsWith(".k") || endsWith(".key") || endsWith(".dyn");
+
+    if (is_keyword) {
+        // ---- 원본 키워드 파일 경로 (바닥/임팩터 생성 이전의 모델) ----
+        auto km = parsers::parseKeywordMesh(d3);
+        for (const auto& w : km.warnings) std::printf("  [k] %s\n", w.c_str());
+        if (!km.ok) {
+            std::printf("키워드 메시 읽기 실패: %s\n", km.error.c_str());
+            return 1;
+        }
+        std::printf("키워드 메시: 절점 %zu, 솔리드 %zu, 셸 %zu, 두께셸 %zu\n",
+                    km.nodes.size(), km.solids.size(), km.shells.size(), km.tshells.size());
+        std::unordered_map<int32_t, int32_t> idx;
+        idx.reserve(km.nodes.size() * 2);
+        pts.reserve(km.nodes.size());
+        for (const auto& n : km.nodes) {
+            idx[n.id] = (int32_t)pts.size();
+            pts.push_back({n.x, n.y, n.z});
+        }
+        if (device_mode) {
+            std::map<int32_t, PartBB> bbs;
+            auto scanE = [&](const std::vector<parsers::KeywordMesh::Elem>& els) {
+                for (const auto& e : els)
+                    for (int k = 0; k < e.nn; ++k) {
+                        auto it = idx.find(e.n[k]);
+                        if (it != idx.end()) bbs[e.pid].add(pts[it->second].x, pts[it->second].y, pts[it->second].z);
+                    }
+            };
+            scanE(km.solids); scanE(km.shells); scanE(km.tshells);
+            if (!selectDeviceParts(bbs, only_parts)) return 2;
+        }
+        auto keep = [&](int32_t pid) {
+            return only_parts.empty() ||
+                   std::find(only_parts.begin(), only_parts.end(), pid) != only_parts.end();
+        };
+        // 외곽면: 요소 공유 기준 (한 번만 등장하는 면). 축퇴면(서로 다른 절점 <3)은 버린다.
+        static const int HF[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+        std::unordered_map<std::string, int> cnt;
+        std::unordered_map<std::string, std::array<int32_t, 4>> first;
+        auto faceKey = [&](const std::array<int32_t, 4>& f, int& distinct) {
+            std::array<int32_t, 4> s2 = f;
+            std::sort(s2.begin(), s2.end());
+            std::string key;
+            distinct = 0;
+            for (int k = 0; k < 4; ++k) {
+                if (k > 0 && s2[k] == s2[k - 1]) continue;
+                ++distinct;
+                key += std::to_string(s2[k]) + ",";
+            }
+            return key;
+        };
+        auto addHexFaces = [&](const parsers::KeywordMesh::Elem& e) {
+            if (!keep(e.pid) || e.nn < 8) return;
+            int32_t ni[8];
+            for (int k = 0; k < 8; ++k) {
+                auto it = idx.find(e.n[k]);
+                if (it == idx.end()) return;
+                ni[k] = it->second;
+            }
+            for (const auto& hf : HF) {
+                std::array<int32_t, 4> f = {ni[hf[0]], ni[hf[1]], ni[hf[2]], ni[hf[3]]};
+                int distinct;
+                const std::string key = faceKey(f, distinct);
+                if (distinct < 3) continue;
+                if (++cnt[key] == 1) first[key] = f;
+            }
+        };
+        for (const auto& e : km.solids) addHexFaces(e);
+        for (const auto& e : km.tshells) addHexFaces(e);
+        size_t n_ext = 0;
+        auto emitQuad = [&](const std::array<int32_t, 4>& f) {
+            // 중복 절점 제거 후 삼각화
+            std::vector<int32_t> u;
+            for (int32_t v : f) if (u.empty() || std::find(u.begin(), u.end(), v) == u.end()) u.push_back(v);
+            if (u.size() < 3) return;
+            tris.push_back({u[0], u[1], u[2]});
+            if (u.size() == 4) tris.push_back({u[0], u[2], u[3]});
+        };
+        for (const auto& [key, c] : cnt) {
+            if (c == 1) { emitQuad(first[key]); ++n_ext; }
+        }
+        for (const auto& e : km.shells) {
+            if (!keep(e.pid)) continue;
+            std::array<int32_t, 4> f = {0, 0, 0, 0};
+            bool okf = true;
+            for (int k = 0; k < e.nn && k < 4; ++k) {
+                auto it = idx.find(e.n[k]);
+                if (it == idx.end()) { okf = false; break; }
+                f[k] = it->second;
+            }
+            if (!okf) continue;
+            if (e.nn == 3) f[3] = f[2];
+            emitQuad(f);
+            ++n_ext;
+        }
+        if (tris.empty()) {
+            std::printf("외곽면이 없음\n");
+            return 1;
+        }
+        bmin = pts.empty() ? V3{} : pts[0]; bmax = bmin;
+        for (const auto& p2 : pts) {
+            bmin.x = std::min(bmin.x, p2.x); bmax.x = std::max(bmax.x, p2.x);
+            bmin.y = std::min(bmin.y, p2.y); bmax.y = std::max(bmax.y, p2.y);
+            bmin.z = std::min(bmin.z, p2.z); bmax.z = std::max(bmax.z, p2.z);
+        }
+    } else {
+        D3plotReader reader(d3);
+        if (reader.open() != ErrorCode::SUCCESS) {
+            std::printf("d3plot 열기 실패: %s\n", d3.c_str());
+            return 1;
+        }
+        auto mesh = reader.read_mesh();
+
+        if (device_mode) {
+            std::map<int32_t, PartBB> bbs;
+            auto scan = [&](const std::vector<Element>& els, const std::vector<int32_t>& parts) {
+                for (size_t i = 0; i < els.size(); ++i) {
+                    const int32_t pid = (i < parts.size()) ? parts[i] : 0;
+                    for (int nid : els[i].node_ids) {
+                        const size_t k = (size_t)(nid - 1);
+                        if (k < mesh.nodes.size())
+                            bbs[pid].add(mesh.nodes[k].x, mesh.nodes[k].y, mesh.nodes[k].z);
+                    }
+                }
+            };
+            scan(mesh.solids, mesh.solid_parts);
+            scan(mesh.shells, mesh.shell_parts);
+            scan(mesh.thick_shells, mesh.thick_shell_parts);
+            if (!selectDeviceParts(bbs, only_parts)) return 2;
+        }
+
+        SurfaceExtractor ex(reader);
+        if (!ex.initialize()) {
+            std::printf("외곽면 추출 실패: %s\n", ex.getLastError().c_str());
+            return 1;
+        }
+        auto surf = only_parts.empty() ? ex.extractExteriorSurfaces()
+                                       : ex.extractExteriorSurfaces(only_parts);
+        if (surf.faces.empty()) {
+            std::printf("외곽면이 없음\n");
+            return 1;
+        }
+
+        // 삼각화 + 좌표 수집 (기하 섹션 = 원본 자세)
+        pts.assign(mesh.nodes.size(), V3{});
+        for (size_t i = 0; i < mesh.nodes.size(); ++i) {
+            pts[i] = {mesh.nodes[i].x, mesh.nodes[i].y, mesh.nodes[i].z};
+        }
+        bmin = pts.empty() ? V3{} : pts[0]; bmax = bmin;
+        for (const auto& p : pts) {
+            bmin.x = std::min(bmin.x, p.x); bmax.x = std::max(bmax.x, p.x);
+            bmin.y = std::min(bmin.y, p.y); bmax.y = std::max(bmax.y, p.y);
+            bmin.z = std::min(bmin.z, p.z); bmax.z = std::max(bmax.z, p.z);
+        }
+
+        for (const auto& f : surf.faces) {
+            const auto& n = f.node_indices;
+            if (n.size() < 3) continue;
+            auto ok = [&](int32_t idx) { return idx >= 0 && (size_t)idx < pts.size(); };
+            if (!ok(n[0]) || !ok(n[1]) || !ok(n[2])) continue;
+            tris.push_back({n[0], n[1], n[2]});
+            if (n.size() >= 4 && ok(n[3]) && n[3] != n[2]) {
+                tris.push_back({n[0], n[2], n[3]});
+            }
         }
     }
+
     std::printf("외곽 삼각형 %zu개 (내부 파트 표면 포함)\n", tris.size());
 
     // 사용 정점만 남기고 압축 — 파트 필터 시 미사용 절점이 bbox·복셀격자·
@@ -244,24 +438,33 @@ int main(int argc, char** argv) {
     // 도달 불가라 떨어져 나간다. (통풍구 급 큰 구멍이 있으면 일부 새어
     // 들어올 수 있다 — 근사 목적상 허용.)
     {
-        const int VR = (argc > 4) ? std::atoi(argv[4]) : 128;  // 복셀 해상도
+        const int VR = (argc > 4) ? std::atoi(argv[4]) : 128;  // 최장축 셀 수
         // 실측(Test_006 스윕 24~256): 너무 낮으면 셀이 굵어 내부 셀까지
         // 바깥과 면접해 아무것도 안 걸러지고, 너무 높으면 미세 틈으로
         // 공기가 새어 들어간다. 128 이 최대 제거(27%) + 데시메이션 품질
         // 최고였다. 개방 조립(보드 위 부품)은 원래 대부분 외기 가시라
         // 제거량이 작은 게 정상 — 밀폐 하우징 모델에서 진가가 나온다.
+        //
+        // 셀은 **등방**(최장축/VR)으로 잡는다. 축별로 VR 등분하면 얇은
+        // 기기(147×71×9)의 두께 방향 셀이 0.07mm 가 되어 플러드필이 새고
+        // 내부 제거가 0 이 된다 (실측).
         const double ex = std::max(1e-9, bmax.x - bmin.x);
         const double ey = std::max(1e-9, bmax.y - bmin.y);
         const double ez = std::max(1e-9, bmax.z - bmin.z);
-        auto cellIx = [&](double v, double lo, double e) {
-            int i = (int)((v - lo) / e * VR);
-            return std::min(VR - 1, std::max(0, i));
+        const double cell = std::max({ex, ey, ez}) / VR;
+        const int NX = std::max(1, (int)std::ceil(ex / cell));
+        const int NY = std::max(1, (int)std::ceil(ey / cell));
+        const int NZ = std::max(1, (int)std::ceil(ez / cell));
+        auto cellIx = [&](double v, double lo, int n) {
+            int i = (int)((v - lo) / cell);
+            return std::min(n - 1, std::max(0, i));
         };
         auto cellId = [&](int ix, int iy, int iz) {
-            return (ix * VR + iy) * VR + iz;
+            return (ix * NY + iy) * NZ + iz;
         };
+        const size_t NCELL = (size_t)NX * NY * NZ;
 
-        std::vector<uint8_t> solid((size_t)VR * VR * VR, 0);
+        std::vector<uint8_t> solid(NCELL, 0);
         std::vector<std::vector<int32_t>> cell_of_tri(tris.size());
 
         for (size_t t = 0; t < tris.size(); ++t) {
@@ -271,15 +474,15 @@ int main(int argc, char** argv) {
             const V3& c = pts[tris[t][2]];
             const V3 samples[7] = {
                 a, b, c,
-                {(a.x+b.x)/2, (a.y+b.y)/2, (a.z+b.z)/2},
-                {(b.x+c.x)/2, (b.y+c.y)/2, (b.z+c.z)/2},
-                {(a.x+c.x)/2, (a.y+c.y)/2, (a.z+c.z)/2},
-                {(a.x+b.x+c.x)/3, (a.y+b.y+c.y)/3, (a.z+b.z+c.z)/3},
+                {(a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2},
+                {(b.x + c.x) / 2, (b.y + c.y) / 2, (b.z + c.z) / 2},
+                {(c.x + a.x) / 2, (c.y + a.y) / 2, (c.z + a.z) / 2},
+                {(a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3},
             };
-            for (const auto& sp : samples) {
-                const int id = cellId(cellIx(sp.x, bmin.x, ex),
-                                      cellIx(sp.y, bmin.y, ey),
-                                      cellIx(sp.z, bmin.z, ez));
+            for (const V3& sp : samples) {
+                const int id = cellId(cellIx(sp.x, bmin.x, NX),
+                                      cellIx(sp.y, bmin.y, NY),
+                                      cellIx(sp.z, bmin.z, NZ));
                 if (!solid[id] || cell_of_tri[t].empty() ||
                     cell_of_tri[t].back() != id) {
                     cell_of_tri[t].push_back(id);
@@ -289,24 +492,24 @@ int main(int argc, char** argv) {
         }
 
         // 바깥 공기 플러드필 (경계 셀에서 시작)
-        std::vector<uint8_t> air((size_t)VR * VR * VR, 0);
+        std::vector<uint8_t> air(NCELL, 0);
         std::vector<int32_t> stack;
         auto push = [&](int ix, int iy, int iz) {
-            if (ix < 0 || iy < 0 || iz < 0 || ix >= VR || iy >= VR || iz >= VR) return;
+            if (ix < 0 || iy < 0 || iz < 0 || ix >= NX || iy >= NY || iz >= NZ) return;
             const int id = cellId(ix, iy, iz);
             if (air[id] || solid[id]) return;
             air[id] = 1;
             stack.push_back(id);
         };
-        for (int i = 0; i < VR; ++i)
-            for (int j = 0; j < VR; ++j) {
-                push(0, i, j); push(VR - 1, i, j);
-                push(i, 0, j); push(i, VR - 1, j);
-                push(i, j, 0); push(i, j, VR - 1);
-            }
+        for (int i = 0; i < NY; ++i) for (int j = 0; j < NZ; ++j) { push(0, i, j); push(NX - 1, i, j); }
+        for (int i = 0; i < NX; ++i) for (int j = 0; j < NZ; ++j) { push(i, 0, j); push(i, NY - 1, j); }
+        for (int i = 0; i < NX; ++i) for (int j = 0; j < NY; ++j) { push(i, j, 0); push(i, j, NZ - 1); }
+        auto decode = [&](int id, int& ix, int& iy, int& iz) {
+            iz = id % NZ; iy = (id / NZ) % NY; ix = id / (NZ * NY);
+        };
         while (!stack.empty()) {
             const int id = stack.back(); stack.pop_back();
-            const int iz = id % VR, iy = (id / VR) % VR, ix = id / (VR * VR);
+            int ix, iy, iz; decode(id, ix, iy, iz);
             push(ix + 1, iy, iz); push(ix - 1, iy, iz);
             push(ix, iy + 1, iz); push(ix, iy - 1, iz);
             push(ix, iy, iz + 1); push(ix, iy, iz - 1);
@@ -314,11 +517,11 @@ int main(int argc, char** argv) {
 
         // 외기와 면접한 복셀에 걸린 삼각형만 유지
         auto touchesAir = [&](int id) {
-            const int iz = id % VR, iy = (id / VR) % VR, ix = id / (VR * VR);
+            int ix, iy, iz; decode(id, ix, iy, iz);
             const int di[6][3] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
             for (const auto& d : di) {
                 const int jx = ix + d[0], jy = iy + d[1], jz = iz + d[2];
-                if (jx < 0 || jy < 0 || jz < 0 || jx >= VR || jy >= VR || jz >= VR)
+                if (jx < 0 || jy < 0 || jz < 0 || jx >= NX || jy >= NY || jz >= NZ)
                     return true;                     // 격자 경계 = 바깥
                 if (air[cellId(jx, jy, jz)]) return true;
             }
@@ -331,8 +534,8 @@ int main(int argc, char** argv) {
                 if (touchesAir(id)) { visible.push_back(tris[t]); break; }
             }
         }
-        std::printf("가시 외피 필터: %zu → %zu 삼각형 (내부 표면 제거)\n",
-                    tris.size(), visible.size());
+        std::printf("가시 외피 필터: %zu → %zu 삼각형 (내부 표면 제거, 격자 %dx%dx%d)\n",
+                    tris.size(), visible.size(), NX, NY, NZ);
         tris = std::move(visible);
     }
 
