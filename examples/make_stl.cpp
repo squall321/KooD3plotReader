@@ -39,6 +39,7 @@ struct V3 { double x = 0, y = 0, z = 0; };
 struct MeshOut {
     std::vector<V3> verts;
     std::vector<std::array<int32_t, 3>> tris;
+    std::vector<int32_t> tri_pid;   // 삼각형별 파트 ID (보고서 파트별 색용)
 };
 
 
@@ -95,6 +96,7 @@ bool selectDeviceParts(const std::map<int32_t, PartBB>& bbs, std::vector<int32_t
 /// 격자 해상도 res 로 정점 클러스터링 데시메이션.
 MeshOut clusterDecimate(const std::vector<V3>& pts,
                         const std::vector<std::array<int32_t, 3>>& tris,
+                        const std::vector<int32_t>& tri_pid,
                         const V3& bmin, const V3& bmax, int res) {
     const double ex = std::max(1e-9, bmax.x - bmin.x);
     const double ey = std::max(1e-9, bmax.y - bmin.y);
@@ -158,7 +160,8 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
     }
     // 겹친 삼각형 제거 (정렬 키로 중복 제거 + 축퇴 스킵)
     std::map<std::tuple<int32_t, int32_t, int32_t>, bool> seen;
-    for (const auto& t : tris) {
+    for (size_t ti = 0; ti < tris.size(); ++ti) {
+        const auto& t = tris[ti];
         int32_t a = remap[t[0]], b = remap[t[1]], c = remap[t[2]];
         if (a == b || b == c || a == c) continue;
         int32_t k0 = std::min({a, b, c});
@@ -168,6 +171,7 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
         if (seen.count(key)) continue;
         seen[key] = true;
         out.tris.push_back({a, b, c});
+        out.tri_pid.push_back(ti < tri_pid.size() ? tri_pid[ti] : 0);
     }
     return out;
 }
@@ -230,6 +234,8 @@ int main(int argc, char** argv) {
     // 공통 기하 컨테이너 — 입력이 .k 든 d3plot 이든 여기로 모인다
     std::vector<V3> pts;
     std::vector<std::array<int32_t, 3>> tris;
+    std::vector<int32_t> tri_pid;          // 삼각형별 파트 ID
+    std::map<int32_t, PartBB> part_bbs;    // 전 파트 bbox (내부 파트 고스트용)
     V3 bmin{}, bmax{};
 
     auto lower = [](std::string v) { for (auto& c : v) c = (char)std::tolower((unsigned char)c); return v; };
@@ -256,17 +262,16 @@ int main(int argc, char** argv) {
             idx[n.id] = (int32_t)pts.size();
             pts.push_back({n.x, n.y, n.z});
         }
-        if (device_mode) {
-            std::map<int32_t, PartBB> bbs;
+        {
             auto scanE = [&](const std::vector<parsers::KeywordMesh::Elem>& els) {
                 for (const auto& e : els)
                     for (int k = 0; k < e.nn; ++k) {
                         auto it = idx.find(e.n[k]);
-                        if (it != idx.end()) bbs[e.pid].add(pts[it->second].x, pts[it->second].y, pts[it->second].z);
+                        if (it != idx.end()) part_bbs[e.pid].add(pts[it->second].x, pts[it->second].y, pts[it->second].z);
                     }
             };
             scanE(km.solids); scanE(km.shells); scanE(km.tshells);
-            if (!selectDeviceParts(bbs, only_parts)) return 2;
+            if (device_mode && !selectDeviceParts(part_bbs, only_parts)) return 2;
         }
         auto keep = [&](int32_t pid) {
             return only_parts.empty() ||
@@ -275,7 +280,7 @@ int main(int argc, char** argv) {
         // 외곽면: 요소 공유 기준 (한 번만 등장하는 면). 축퇴면(서로 다른 절점 <3)은 버린다.
         static const int HF[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
         std::unordered_map<std::string, int> cnt;
-        std::unordered_map<std::string, std::array<int32_t, 4>> first;
+        std::unordered_map<std::string, std::pair<std::array<int32_t, 4>, int32_t>> first;
         auto faceKey = [&](const std::array<int32_t, 4>& f, int& distinct) {
             std::array<int32_t, 4> s2 = f;
             std::sort(s2.begin(), s2.end());
@@ -301,22 +306,22 @@ int main(int argc, char** argv) {
                 int distinct;
                 const std::string key = faceKey(f, distinct);
                 if (distinct < 3) continue;
-                if (++cnt[key] == 1) first[key] = f;
+                if (++cnt[key] == 1) first[key] = {f, e.pid};
             }
         };
         for (const auto& e : km.solids) addHexFaces(e);
         for (const auto& e : km.tshells) addHexFaces(e);
         size_t n_ext = 0;
-        auto emitQuad = [&](const std::array<int32_t, 4>& f) {
+        auto emitQuad = [&](const std::array<int32_t, 4>& f, int32_t pid) {
             // 중복 절점 제거 후 삼각화
             std::vector<int32_t> u;
             for (int32_t v : f) if (u.empty() || std::find(u.begin(), u.end(), v) == u.end()) u.push_back(v);
             if (u.size() < 3) return;
-            tris.push_back({u[0], u[1], u[2]});
-            if (u.size() == 4) tris.push_back({u[0], u[2], u[3]});
+            tris.push_back({u[0], u[1], u[2]}); tri_pid.push_back(pid);
+            if (u.size() == 4) { tris.push_back({u[0], u[2], u[3]}); tri_pid.push_back(pid); }
         };
         for (const auto& [key, c] : cnt) {
-            if (c == 1) { emitQuad(first[key]); ++n_ext; }
+            if (c == 1) { emitQuad(first[key].first, first[key].second); ++n_ext; }
         }
         for (const auto& e : km.shells) {
             if (!keep(e.pid)) continue;
@@ -329,7 +334,7 @@ int main(int argc, char** argv) {
             }
             if (!okf) continue;
             if (e.nn == 3) f[3] = f[2];
-            emitQuad(f);
+            emitQuad(f, e.pid);
             ++n_ext;
         }
         if (tris.empty()) {
@@ -350,22 +355,21 @@ int main(int argc, char** argv) {
         }
         auto mesh = reader.read_mesh();
 
-        if (device_mode) {
-            std::map<int32_t, PartBB> bbs;
+        {
             auto scan = [&](const std::vector<Element>& els, const std::vector<int32_t>& parts) {
                 for (size_t i = 0; i < els.size(); ++i) {
                     const int32_t pid = (i < parts.size()) ? parts[i] : 0;
                     for (int nid : els[i].node_ids) {
                         const size_t k = (size_t)(nid - 1);
                         if (k < mesh.nodes.size())
-                            bbs[pid].add(mesh.nodes[k].x, mesh.nodes[k].y, mesh.nodes[k].z);
+                            part_bbs[pid].add(mesh.nodes[k].x, mesh.nodes[k].y, mesh.nodes[k].z);
                     }
                 }
             };
             scan(mesh.solids, mesh.solid_parts);
             scan(mesh.shells, mesh.shell_parts);
             scan(mesh.thick_shells, mesh.thick_shell_parts);
-            if (!selectDeviceParts(bbs, only_parts)) return 2;
+            if (device_mode && !selectDeviceParts(part_bbs, only_parts)) return 2;
         }
 
         SurfaceExtractor ex(reader);
@@ -397,9 +401,9 @@ int main(int argc, char** argv) {
             if (n.size() < 3) continue;
             auto ok = [&](int32_t idx) { return idx >= 0 && (size_t)idx < pts.size(); };
             if (!ok(n[0]) || !ok(n[1]) || !ok(n[2])) continue;
-            tris.push_back({n[0], n[1], n[2]});
+            tris.push_back({n[0], n[1], n[2]}); tri_pid.push_back(f.part_id);
             if (n.size() >= 4 && ok(n[3]) && n[3] != n[2]) {
-                tris.push_back({n[0], n[2], n[3]});
+                tris.push_back({n[0], n[2], n[3]}); tri_pid.push_back(f.part_id);
             }
         }
     }
@@ -528,15 +532,17 @@ int main(int argc, char** argv) {
             return false;
         };
         std::vector<std::array<int32_t, 3>> visible;
+        std::vector<int32_t> visible_pid;
         visible.reserve(tris.size());
         for (size_t t = 0; t < tris.size(); ++t) {
             for (int id : cell_of_tri[t]) {
-                if (touchesAir(id)) { visible.push_back(tris[t]); break; }
+                if (touchesAir(id)) { visible.push_back(tris[t]); visible_pid.push_back(tri_pid[t]); break; }
             }
         }
         std::printf("가시 외피 필터: %zu → %zu 삼각형 (내부 표면 제거, 격자 %dx%dx%d)\n",
                     tris.size(), visible.size(), NX, NY, NZ);
         tris = std::move(visible);
+        tri_pid = std::move(visible_pid);
     }
 
     std::printf("데시메이션 목표 %d\n", target);
@@ -545,7 +551,7 @@ int main(int argc, char** argv) {
     MeshOut out;
     int res = 128;
     while (true) {
-        out = clusterDecimate(pts, tris, bmin, bmax, res);
+        out = clusterDecimate(pts, tris, tri_pid, bmin, bmax, res);
         if ((int)out.tris.size() <= target || res <= 8) break;
         res = (int)(res * 0.82);
     }
@@ -610,7 +616,29 @@ int main(int argc, char** argv) {
             obmin.z = std::min(obmin.z, p2.z); obmax.z = std::max(obmax.z, p2.z);
         }
         f << "],\"bbox\":[" << obmin.x << "," << obmin.y << "," << obmin.z << ","
-          << obmax.x << "," << obmax.y << "," << obmax.z << "]}";
+          << obmax.x << "," << obmax.y << "," << obmax.z << "]";
+        // 삼각형별 파트 ID — 보고서의 파트/그룹별 색칠
+        f << ",\"p\":[";
+        for (size_t i = 0; i < out.tri_pid.size(); ++i) {
+            if (i) f << ",";
+            f << out.tri_pid[i];
+        }
+        // 전 파트 bbox — 외피에 안 보이는 내부 파트의 위치 고스트용
+        f << "],\"parts\":{";
+        bool firstp = true;
+        f.precision(2);
+        for (const auto& [pid, b] : part_bbs) {
+            if (!b.any) continue;
+            // 파트 필터/device 모드가 걸려 있으면 제외 파트(바닥 등)의 bbox 는 싣지 않는다 —
+            // 보고서가 그 파트를 '내부 파트' 로 오인해 거대한 고스트를 그리는 것을 막는다
+            if (!only_parts.empty() &&
+                std::find(only_parts.begin(), only_parts.end(), pid) == only_parts.end()) continue;
+            if (!firstp) f << ",";
+            firstp = false;
+            f << "\"" << pid << "\":[" << b.lo[0] << "," << b.lo[1] << "," << b.lo[2] << ","
+              << b.hi[0] << "," << b.hi[1] << "," << b.hi[2] << "]";
+        }
+        f << "}}";
     }
 
     // 쓰기 실패(디스크 풀·권한)를 성공으로 위장하지 않는다 — flush 후 상태 확인
