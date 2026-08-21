@@ -126,17 +126,45 @@ int main(int argc, char** argv) {
     const std::string d3 = argv[1];
     const std::string prefix = argv[2];
     const int target = (argc > 3) ? std::atoi(argv[3]) : 6000;
+    if (target < 1) {
+        std::printf("target_tris 가 비정상: %s (1 이상 필요)\n", argv[3]);
+        return 2;
+    }
+    // 복셀 해상도: 0 이면 cellIx 0 나눗셈, 과대값이면 VR^3 할당 폭발 — 범위 검증
+    if (argc > 4) {
+        const int vr = std::atoi(argv[4]);
+        if (vr < 2 || vr > 1024) {
+            std::printf("voxel_res 가 비정상: %s (2~1024 필요)\n", argv[4]);
+            return 2;
+        }
+    }
     // 5번째 인자: 파트 ID CSV — 지정하면 그 파트들만 (예: 임팩터 형상 추출)
+    // 파싱 불가 토큰을 삼키면 빈 필터 = 전체 모델로 둔갑하므로 정직하게 거부한다.
     std::vector<int32_t> only_parts;
     if (argc > 5) {
         std::string csv = argv[5];
         size_t pos = 0;
+        bool bad = false;
         while (pos < csv.size()) {
             size_t comma = csv.find(',', pos);
             if (comma == std::string::npos) comma = csv.size();
-            try { only_parts.push_back(std::stoi(csv.substr(pos, comma - pos))); }
-            catch (...) {}
+            const std::string tok = csv.substr(pos, comma - pos);
+            if (!tok.empty()) {
+                try {
+                    size_t used = 0;
+                    const int v = std::stoi(tok, &used);
+                    if (used != tok.size()) throw std::invalid_argument(tok);
+                    only_parts.push_back(v);
+                } catch (...) {
+                    std::printf("parts_csv 토큰 파싱 실패: '%s'\n", tok.c_str());
+                    bad = true;
+                }
+            }
             pos = comma + 1;
+        }
+        if (bad || only_parts.empty()) {
+            std::printf("parts_csv 가 비정상: '%s' — 전체 모델로 위장하지 않고 중단\n", csv.c_str());
+            return 2;
         }
     }
 
@@ -324,6 +352,10 @@ int main(int argc, char** argv) {
     // ---- 이진 STL ----
     {
         std::ofstream f(prefix + ".stl", std::ios::binary);
+        if (!f) {
+            std::printf("STL 열기 실패: %s.stl (경로/권한 확인)\n", prefix.c_str());
+            return 1;
+        }
         char header[80] = "KooD3plotReader approximate exterior";
         f.write(header, 80);
         uint32_t n = (uint32_t)out.tris.size();
@@ -350,6 +382,10 @@ int main(int argc, char** argv) {
     // ---- 경량 JSON (보고서 임베드용) ----
     {
         std::ofstream f(prefix + ".json");
+        if (!f) {
+            std::printf("JSON 열기 실패: %s.json (경로/권한 확인)\n", prefix.c_str());
+            return 1;
+        }
         f << "{\"v\":[";
         f.setf(std::ios::fixed);
         f.precision(2);
@@ -374,6 +410,14 @@ int main(int argc, char** argv) {
           << obmax.x << "," << obmax.y << "," << obmax.z << "]}";
     }
 
+    // 쓰기 실패(디스크 풀·권한)를 성공으로 위장하지 않는다 — flush 후 상태 확인
+    {
+        std::ifstream chk_s(prefix + ".stl"), chk_j(prefix + ".json");
+        if (!chk_s || !chk_j) {
+            std::printf("출력 파일 검증 실패: %s.{stl,json} 이 생성되지 않음\n", prefix.c_str());
+            return 1;
+        }
+    }
     std::printf("출력: %s.stl / %s.json\n", prefix.c_str(), prefix.c_str());
     return 0;
 }
