@@ -367,6 +367,7 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
                 std::ofstream mj(dir + "/metrics.json");
                 mj << "{\n  \"name\": \"" << sr.name << "\",\n";
                 mj << "  \"set_type\": \"" << sr.set_type << "\",\n";
+                mj << "  \"metric_source\": \"" << sr.metric_source << "\",\n";
                 mj << "  \"set_id\": " << sr.set_id << ",\n";
                 mj << "  \"title\": \"" << sr.title << "\",\n";
                 mj << "  \"resolved_parts\": [";
