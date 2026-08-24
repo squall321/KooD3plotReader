@@ -1171,17 +1171,38 @@ function impactDirBody(rollDeg, pitchDeg, yawDeg) {
   return [cr * sp * cy - sr * sy, -sr * cy - cr * sp * sy, -cr * cp];
 }
 
+// 차트 좌표: 자동화(KMM/KCR)의 명명 의미는 관찰자 기준이라 기기 좌표와
+// X·Y 가 반대다 (실측: F3_Right 덱방향 −X, F5_Top 덱방향 −Y). 지도 라벨
+// ('북극=Top, 동=Right')과 맞도록 (−x, −y, z) 로 뒤집어 투영한다.
+function chartDir(d) { return [-d[0], -d[1], d[2]]; }
+
 function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName, swap) {
-  // Use angle name to determine exact impact direction for Mollweide projection
-  // Name-based decoding produces correct cube geometry (faces/edges/corners)
-  // Euler angles alone cannot produce true cube corner directions (math limitation)
+  // 오일러 우선 — 덱의 *INITIAL_VELOCITY(실낙하 방향)와 1:1 로 검증된 값이다.
+  // 이름은 라벨일 뿐: 구세대 시나리오(Test_001)의 E09~E12/C1~C8 은 이름이
+  // 가리키는 모서리·꼭짓점과 다른 방향으로 실제 낙하했다 (짐벌 축퇴·45° 근사).
+  // 이름 위치에 그리면 실제와 다른 곳을 보여주게 되므로 물리를 그린다.
+  if (rollDeg !== undefined && rollDeg !== null && isFinite(rollDeg)) {
+    return directionToLonLat(chartDir(impactDirBody(rollDeg, pitchDeg, yawDeg)));
+  }
+  // 오일러가 없을 때만 이름으로 근사 (이름 토큰은 차트 좌표와 동일 의미)
   if (angleName) {
     const dir = angleNameToDirection(angleName);
     if (dir[0] !== 0 || dir[1] !== 0 || dir[2] !== 0) {
       return directionToLonLat(dir);
     }
   }
-  return directionToLonLat(impactDirBody(rollDeg, pitchDeg, yawDeg));
+  return [0, 0];
+}
+
+// 이름과 실낙하 방향의 각도 차 [deg] — 어긋난 데이터셋을 정직하게 표시하기 위함.
+// 이름에 방향 토큰이 없으면(P#### 등) null.
+function nameMismatchDeg(angleName, rollDeg, pitchDeg, yawDeg) {
+  if (!angleName) return null;
+  const nd = angleNameToDirection(angleName);
+  if (nd[0] === 0 && nd[1] === 0 && nd[2] === 0) return null;
+  const cd = chartDir(impactDirBody(rollDeg, pitchDeg, yawDeg));
+  const dot = Math.max(-1, Math.min(1, nd[0]*cd[0] + nd[1]*cd[1] + nd[2]*cd[2]));
+  return Math.acos(dot) * 180 / Math.PI;
 }
 
 function getPartGroups() {
@@ -2117,6 +2138,9 @@ function updateMollInfo(ri) {
   const pd = r.parts[pid] || {};
   el.innerHTML = `
     <div style="color:var(--cyan);font-weight:bold;word-break:break-word;">${r.angle.name}</div>
+    ${(() => { const m = nameMismatchDeg(r.angle.name, r.angle.roll, r.angle.pitch, r.angle.yaw);
+       return (m !== null && m > 15)
+         ? `<div style="margin-top:3px;color:#e0af68;font-size:11px">⚠ 이름 방향과 실제 낙하 방향이 ${m.toFixed(0)}° 어긋남 — 덱(실낙하) 기준으로 표시</div>` : ''; })()}
     <div style="margin-top:4px">Roll: ${r.angle.roll.toFixed(1)} | Pitch: ${r.angle.pitch.toFixed(1)}</div>
     <div style="margin-top:6px;color:var(--fg2)">
       Stress: <b>${(pd.peak_stress||0).toFixed(1)} MPa</b><br>
