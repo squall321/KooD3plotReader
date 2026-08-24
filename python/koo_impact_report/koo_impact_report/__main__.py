@@ -117,6 +117,14 @@ def main() -> None:
                   file=sys.stderr)
             sys.exit(2)
         payload = doc.get("payload") or {}
+        if not payload.get("faces"):
+            # save_json 요약본(report.json)도 schema_version 1 이라 버전 검사만으론
+            # 못 거른다 — 잘못된 파일 종류를 정직하게 알린다.
+            print("[main] ERROR: payload 가 없거나 faces 가 비어 있음 — --from-json 의 "
+                  "입력은 HTML 옆에 생성되는 impact_payload.json (재렌더 사이드카)입니다. "
+                  "impact_report.json 은 결과 요약 데이터라 재렌더 입력이 아닙니다.",
+                  file=sys.stderr)
+            sys.exit(2)
         html_path = args.output or str(json_in.parent / "report.html")
         if payload.get("chunks") and Path(html_path).parent != json_in.parent:
             print(f"[main] WARN: chunks 매니페스트 존재 — 청크 상대경로가 깨지지 "
