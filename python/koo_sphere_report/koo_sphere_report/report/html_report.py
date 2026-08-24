@@ -1155,6 +1155,22 @@ function directionToLonLat(dir) {
   return [lon, Math.max(-85, Math.min(85, lat))];
 }
 
+// 충격 방향(기기 좌표) — KMM/KooChainRun 규약의 단일 소스.
+// 최신 KooDynaAdvancedModification.DropAttitude 는 각도를 부호 반전해
+// Rz(-y)·Ry(-p)·Rx(-r) 로 (0,0,-1) 을 돌린다 = Rᵀ·(0,0,-1),
+// R = Rx(roll)·Ry(pitch)·Rz(yaw). 검증: Test_006 1144런 덱의
+// *INITIAL_VELOCITY 방향과 최악 내적 +1.0000. 3D 자세(update3DDevice)와
+// Mollweide 지도(eulerToLonLat)가 모두 이 함수를 쓴다.
+function impactDirBody(rollDeg, pitchDeg, yawDeg) {
+  const r = rollDeg * Math.PI / 180;
+  const p = pitchDeg * Math.PI / 180;
+  const y = (yawDeg || 0) * Math.PI / 180;
+  const cr = Math.cos(r), sr = Math.sin(r);
+  const cp = Math.cos(p), sp = Math.sin(p);
+  const cy = Math.cos(y), sy = Math.sin(y);
+  return [cr * sp * cy - sr * sy, -sr * cy - cr * sp * sy, -cr * cp];
+}
+
 function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName, swap) {
   // Use angle name to determine exact impact direction for Mollweide projection
   // Name-based decoding produces correct cube geometry (faces/edges/corners)
@@ -1165,25 +1181,7 @@ function eulerToLonLat(rollDeg, pitchDeg, yawDeg, angleName, swap) {
       return directionToLonLat(dir);
     }
   }
-  // Physical impact direction: Ry(pitch) * Rx(roll) * [0, 0, -1]
-  // This gives consistent mapping regardless of DOE generator convention:
-  //   roll → latitude (vertical), pitch → longitude (horizontal)
-  // Preserves fibonacci lattice uniformity (CoV ~3%)
-  if (mollweideState.swapRP) {
-    // User toggled swap: treat pitchDeg as roll, rollDeg as pitch
-    const tmp = rollDeg; rollDeg = pitchDeg; pitchDeg = tmp;
-  }
-  const r = rollDeg * Math.PI / 180;
-  const p = pitchDeg * Math.PI / 180;
-  // Rx(roll) * [0, 0, -1]
-  const x1 = 0, y1 = Math.sin(r), z1 = -Math.cos(r);
-  // Ry(pitch) * above
-  const x2 = x1 * Math.cos(p) + z1 * Math.sin(p);
-  const y2 = y1;
-  const z2 = -x1 * Math.sin(p) + z1 * Math.cos(p);
-  const lon = Math.atan2(x2, -z2) * 180 / Math.PI;
-  const lat = Math.asin(Math.max(-1, Math.min(1, y2))) * 180 / Math.PI;
-  return [lon, Math.max(-85, Math.min(85, lat))];
+  return directionToLonLat(impactDirBody(rollDeg, pitchDeg, yawDeg));
 }
 
 function getPartGroups() {
@@ -1200,7 +1198,7 @@ function getAllPartIds() {
   return Object.keys(DATA.parts).map(Number).sort((a,b)=>a-b);
 }
 
-let mollweideState = { quantity: 'peak_stress', partId: 0, hoveredAngle: null, viewMode: 'contour', showPoints: true, manualScale: false, scaleMin: 0, scaleMax: 0, swapRP: true };
+let mollweideState = { quantity: 'peak_stress', partId: 0, hoveredAngle: null, viewMode: 'contour', showPoints: true, manualScale: false, scaleMin: 0, scaleMax: 0 };
 let globeState = {
   viewLon: 0, viewLat: 0, targetLon: 0, targetLat: 0,
   rotating: false, animStart: 0, startLon: 0, startLat: 0,
@@ -1537,7 +1535,7 @@ function renderMollweide() {
       <input type="number" id="moll-scale-max" style="width:72px;background:#1a1b26;color:#c0caf5;border:1px solid #3b3d57;border-radius:3px;padding:2px 4px;font-size:11px;" placeholder="Max" step="any" onchange="mollweideState.scaleMax=parseFloat(this.value)||0">
       <button style="padding:2px 8px;font-size:11px;background:#24283b;color:#7aa2f7;border:1px solid #3b3d57;border-radius:3px;cursor:pointer;" onclick="mollweideState.manualScale=true;document.getElementById('moll-manual-scale').checked=true;mollweideState.scaleMin=parseFloat(document.getElementById('moll-scale-min').value)||0;mollweideState.scaleMax=parseFloat(document.getElementById('moll-scale-max').value)||0;drawMollweideAll()">Apply</button>
     </span>
-    <button id="btn-swap-rp" style="margin-left:12px;padding:2px 8px;font-size:11px;background:${mollweideState.swapRP?'#364a82':'#24283b'};color:${mollweideState.swapRP?'#7dcfff':'#565f89'};border:1px solid #3b3d57;border-radius:3px;cursor:pointer;" onclick="mollweideState.swapRP=!mollweideState.swapRP;drawMollweideAll();renderMollweide();" title="Swap Roll and Pitch axes (use when DOE generator uses opposite convention)">Swap R/P</button>
+
   </div>`;
 
   container.innerHTML = controlsHtml +
@@ -2410,15 +2408,7 @@ function update3DDevice(roll, pitch, yaw, angleName) {
   // 검증: Test_006 1144런 덱의 *INITIAL_VELOCITY 방향과 최악 내적 +1.0000.
   // (이전 수식 R·[0,0,-1] 은 최악 -1.0000 — 정반대 면을 아래로 그리던 버그)
   // Device body coords: X=Right, Y=Top(up), Z=Front
-  const r = roll * Math.PI / 180;
-  const p = pitch * Math.PI / 180;
-  const yw = yaw * Math.PI / 180;
-  const cr = Math.cos(r), sr = Math.sin(r);
-  const cp = Math.cos(p), sp = Math.sin(p);
-  const cy = Math.cos(yw), sy = Math.sin(yw);
-  const bx = cr * sp * cy - sr * sy;     // body X (Right)
-  const by = -sr * cy - cr * sp * sy;    // body Y (Top/up)
-  const bz = -cr * cp;                   // body Z (Front)
+  const [bx, by, bz] = impactDirBody(roll, pitch, yaw);   // 지도와 동일한 단일 소스
 
   // This vector points from device center toward the ground face (in sim body frame).
   // Sim body: Right=+X, Top=+Y, Front=+Z
