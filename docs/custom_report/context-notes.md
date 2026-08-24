@@ -142,3 +142,12 @@
 - 지도(eulerToLonLat)의 별도 공식 + Swap R/P 토글(기본 ON, 평균 33° 왜곡) 폐기 →
   impactDirBody() 단일 소스로 지도·3D 자세 통일. KVR 는 KooChainRun(1.4.0) 으로
   해석(체인: KooChainRun → StepConfigBuilder → KMM).
+
+## 2026-08-24 이름 기반(F/E/C) 각도 점검 → 지도 오일러 우선
+
+- 자동화 명명은 관찰자 기준 (Right=-X, Top=-Y 실측) — 차트를 (-x,-y,z) 투영으로 정렬.
+- Test_001(구세대): E09~E12 짐벌 축퇴(roll=±90 → pitch 무효)로 덱이 이름과 45° 다른
+  방향(±Y 면)으로 실낙하, C1~C8 은 45/45 근사로 9.7° 이탈. 최신 AngleSourceParser 는
+  모서리 수정·꼭짓점 근사 유지. → 지도는 오일러(덱 검증값) 우선, 이름은 라벨 +
+  15° 초과 어긋남 호버 경고. 자동화 쪽 보고 대상: 꼭짓점 정확각(35.26°) 미적용,
+  DropSet description 라벨 고정 버그(전 런 동일 접미사).
