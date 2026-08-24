@@ -134,3 +134,11 @@
   패널 height:auto 로 외관 정리.
 - 뒷면 선택 파트: 경계 변 외곽선은 데시메이션 메시에서 점박이로 흩어져 폐기, bbox 고스트
   + [뒷면] 로 통일 (가려짐 판정 = 주황 픽셀 < 칠해진 픽셀의 1.5%).
+
+## 2026-08-24 Mollweide 규약 통일 (사용자: "최신 KMM KVR에 맞게 후처리 정리")
+
+- 최신 KMM(KooDynaAdvancedModification.DropAttitude) 소스 확인: 각도 부호 반전 후
+  Rz(-y)·Ry(-p)·Rx(-r) 적용 = Rᵀ·(0,0,-1) — 1144런 덱 실측과 해석적으로 일치.
+- 지도(eulerToLonLat)의 별도 공식 + Swap R/P 토글(기본 ON, 평균 33° 왜곡) 폐기 →
+  impactDirBody() 단일 소스로 지도·3D 자세 통일. KVR 는 KooChainRun(1.4.0) 으로
+  해석(체인: KooChainRun → StepConfigBuilder → KMM).
