@@ -108,8 +108,14 @@ def unesc(m):
         return m.group(0)
 decoded = re.sub(r'(?:\\u[0-9a-fA-F]{4})+', unesc, html)
 # 확장자로 끝나는 것만 참조로 본다 (주석·산문 속 폴더명 언급 오탐 방지)
-pat = r'impact_report_data/[^"\'\\s<>]+?\.(?:png|jpg|jpeg|mp4|webm|svg|json|csv)'
+pat = r"""impact_report_data/[^\s"'<>]+?\.(?:png|jpg|jpeg|mp4|webm|svg|json|csv)"""
 refs = sorted(set(re.findall(pat, decoded)))
+# 자기 점검 — 참조가 있는데 0개로 잡히면 정규식이 깨진 것이다.
+# 검증이 조용히 '전부 정상' 을 내보내는 쪽이 결측보다 위험하다.
+if not refs and "impact_report_data/" in decoded:
+    print("   미디어 검증 실패: 참조 문자열은 있는데 패턴이 하나도 잡히지 않았습니다 "
+          "(검증기 결함)", file=sys.stderr)
+    sys.exit(1)
 missing = [r for r in refs if not (out / r).exists()]
 print(f"   세트 미디어 참조 {len(refs)}개 중 결측 {len(missing)}개")
 if missing:
