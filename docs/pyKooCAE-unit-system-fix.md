@@ -7,6 +7,27 @@
 
 ---
 
+## 📌 상태 (2026-08-28 재검증) — **종결. PR 제출 대상 아님**
+
+> 이 문서의 P0/P1 은 pyKooCAE `381ba31` (2026-06-03, "fix(vibration, units): …
+> IMPACT 단위계 silent miss 해결") 로 **이미 upstream 에 머지**되어 있다
+> (현 HEAD `837d647` 에 포함). 그대로 PR 을 내면 no-op 이거나 충돌한다.
+>
+> 실덱 확인 — `Test_Impact_A` 25 DOE 가 25/25 정상 `7.850e-09` / `2.010e+05`,
+> `/data` 의 `DropWeightImpactTestSet*.k` 81개 중 75개 정상.
+>
+> **아래 §1·§4·§8 의 줄번호(1227-1229)는 2026-06 기준이라 stale 하다.**
+> 현재 위치는 `Runner/CumulativeScenarioRunner.py:1557-1562`,
+> 함수명도 `_build_step_config` 가 아니라 `_create_step_config` (:1417) 다.
+>
+> 다만 §P2 로 닫아 둔 **KMM silent SI fallback 은 지금도 살아 있고 실제로 재발**했다.
+> `/data/koopark/Test_dtmin_e2e/out_imp/Run_20260711_091016_89548b/` (2026-07-11) 에서
+> 모델 파트는 ton-mm-s 인데 Impactor/Wall 만 SI 로 섞인 덱이 경고 없이 나왔다.
+> 폴백 위치: `KooDynaAdvancedModification.py:3287, 3295, 3300, 3308`.
+>
+> 상류에 전달한 현행 보고서는
+> `pyKooCAE/docs/UPSTREAM_ISSUES_FROM_KooD3plotReader.md` 다.
+
 ## 📌 상태 (2026-06-04 갱신)
 
 | 항목 | 상태 |
