@@ -34,9 +34,9 @@
 - [x] L3 def %environment 에 koo_custom_report → verify: 컨테이너 안 import 성공
 
 ## 마무리
-- [ ] 이전 강건성 11건 회귀 재생 (make_stl 인자 8종 등)
-- [ ] 실데이터 3종 산출물 동등성
-- [ ] 적대적 재공격 워크플로 (새 결함 유입 확인)
-- [ ] 커밋 분할 (G1~G6)
-- [ ] SIF 재빌드 → 배포 → standalone 동기화 → tar v29 → 알림
-- [ ] 번들 재생성 + RUN_TESTS 실검증
+- [x] 이전 강건성 11건 회귀 재생 — make_stl 인자 8종·설정경고·세트진단·stale정리·동시3/3 전부 통과
+- [x] 실데이터 3종 산출물 동등성 — 스피어 7.0M·임팩트 7.6M·딥 metrics/CSV/PNG, make_stl 5431tri/22파트 불변
+- [x] 적대적 재공격 워크플로 — 역전 45건 확인, 새 결함 15건 발견·수정·재검증
+- [x] 커밋 분할 (G1~G6 + 2차 수정) — eaffe54 까지 push
+- [x] SIF 재빌드 → 배포(eaffe54) → standalone 동기화 → tar v29(524M) → Drive·메일 완료
+- [x] 번들 재생성 + RUN_TESTS 실검증 — 20260828.tar.gz(89MB), 3/3 통과·미디어 16/16
