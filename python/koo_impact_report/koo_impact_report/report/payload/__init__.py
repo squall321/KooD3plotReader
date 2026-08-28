@@ -806,6 +806,24 @@ def _build_impactor_mesh(report) -> dict | None:
         return None
     cache = test_dir / "impactor_preview.json"
 
+    def _first_run_d3plot():
+        for positions in (report.positions_by_face or {}).values():
+            for pos in positions or []:
+                rd = _P(str(pos.run_dir))
+                for c in (rd / "Output" / "d3plot", rd / "d3plot"):
+                    if c.is_file():
+                        return c
+        return None
+
+    # 소스 d3plot 이 캐시보다 새로우면 stale — 지우고 재생성
+    if cache.is_file():
+        src0 = _first_run_d3plot()
+        try:
+            if src0 is not None and src0.stat().st_mtime > cache.stat().st_mtime:
+                cache.unlink()
+        except OSError:
+            pass
+
     if not cache.is_file():
         pid = getattr(getattr(report, "impactor", None), "part_id", None)
         # make_stl 탐색

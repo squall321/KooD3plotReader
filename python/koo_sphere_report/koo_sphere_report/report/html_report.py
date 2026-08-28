@@ -367,6 +367,15 @@ def _load_device_mesh(test_dir: str) -> dict | None:
     base = Path(test_dir)
     cache = base / "device_preview.json"
 
+    # 원본 모델이 캐시보다 새로우면 stale — 지우고 재생성 (옛 형상 무음 사용 방지)
+    if cache.is_file():
+        src0 = _scenario_model_file(base)
+        try:
+            if src0 is not None and src0.stat().st_mtime > cache.stat().st_mtime:
+                cache.unlink()
+        except OSError:
+            pass
+
     if not cache.is_file():
         # make_stl 탐색: unified_analyzer 옆 → 저장소 빌드 트리
         cands = []
