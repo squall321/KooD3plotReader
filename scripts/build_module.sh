@@ -372,7 +372,7 @@ cat > "${PREFIX}/activate.sh" << ACTIVATE
 
 export KOOD3PLOT_HOME="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 export PATH="\${KOOD3PLOT_HOME}/bin:\${PATH}"
-export PYTHONPATH="\${KOOD3PLOT_HOME}/python/koo_deep_report:\${KOOD3PLOT_HOME}/python/koo_sphere_report:\${PYTHONPATH:-}"
+export PYTHONPATH="\${KOOD3PLOT_HOME}/python/koo_deep_report:\${KOOD3PLOT_HOME}/python/koo_sphere_report:\${KOOD3PLOT_HOME}/python/koo_impact_report:\${KOOD3PLOT_HOME}/python/koo_federate_report:\${KOOD3PLOT_HOME}/python/koo_custom_report:\${PYTHONPATH:-}"
 
 # LSPrePost path (if bundled)
 if [ -d "\${KOOD3PLOT_HOME}/lsprepost" ]; then

@@ -146,7 +146,7 @@ From: ubuntu:22.04
 %environment
     export KOOD3PLOT_HOME=/opt/kood3plot
     export PATH=/opt/kood3plot/bin:$PATH
-    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report:/opt/kood3plot/python/koo_custom_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
     # VirtualGL EGL 백엔드 기본 GPU 디바이스(헤드리스). KOOD3PLOT_GPU_RENDER=1

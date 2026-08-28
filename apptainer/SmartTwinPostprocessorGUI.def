@@ -56,7 +56,7 @@ From: ubuntu:22.04
 %environment
     export KOOD3PLOT_HOME=/opt/kood3plot
     export PATH=/opt/kood3plot/bin:$PATH
-    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report:/opt/kood3plot/python/koo_custom_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
 
