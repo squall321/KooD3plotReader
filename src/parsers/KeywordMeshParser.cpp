@@ -137,11 +137,25 @@ void parseStream(std::istream& in, const std::string& self_path, Ctx& ctx) {
             // 뒤쪽 빈 필드 제거
             while (!f.empty() && f.back().empty()) f.pop_back();
             if (pending) {
-                // 2줄형 둘째 줄: 절점 8개
-                int nn = 0;
-                for (size_t k = 0; k < f.size() && nn < 8; ++k) {
+                // 2줄형 둘째 줄: LS-DYNA 는 여기에 절점을 최대 10개까지 담는다.
+                // 앞 8개만 읽으면 10절점 사면체(코너4+중간6)를 헥사로 오해해
+                // 표면 체적이 8배 틀어진다 — 10개까지 읽고 차수를 판정한다.
+                int32_t raw[10] = {0};
+                int rn = 0;
+                for (size_t k = 0; k < f.size() && rn < 10; ++k) {
                     int32_t v;
-                    if (toInt(f[k], v) && v > 0) pend.n[nn++] = v;
+                    if (toInt(f[k], v) && v > 0) raw[rn++] = v;
+                }
+                int nn = 0;
+                if (rn > 8) {
+                    // 10절점 사면체: 코너 4개만 쓰고 축퇴 헥사로 접는다 (중간절점은 형상에 불필요)
+                    for (int k = 0; k < 4; ++k) pend.n[k] = raw[k];
+                    for (int k = 4; k < 8; ++k) pend.n[k] = raw[3];
+                    nn = 8;
+                    ctx.m.warnings.push_back("10절점 솔리드를 코너 4절점 사면체로 축약 (" +
+                                             self_path + ":" + std::to_string(line_no) + ")");
+                } else {
+                    for (int k = 0; k < rn; ++k) pend.n[nn++] = raw[k];
                 }
                 pend.nn = nn;
                 if (nn >= 4) (blk == SOLID ? ctx.m.solids : ctx.m.tshells).push_back(pend);

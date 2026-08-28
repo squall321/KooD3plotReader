@@ -19,6 +19,9 @@
 #include "kood3plot/parsers/KeywordMeshParser.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 
+#include <iterator>
+#include <cstdlib>
+#include <cerrno>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -178,6 +181,20 @@ MeshOut clusterDecimate(const std::vector<V3>& pts,
 
 }  // namespace
 
+// parts_csv 로 요청한 파트가 모델에 없으면 조용히 무시하지 않고 알린다.
+// (전부 없으면 뒤에서 '외곽면이 없음' 으로 걸리지만, 일부만 없을 때가 위험하다)
+static void warnMissingParts(const std::map<int32_t, PartBB>& part_bbs,
+                             const std::vector<int32_t>& only_parts, bool device_mode) {
+    if (device_mode || only_parts.empty()) return;
+    std::vector<int32_t> missing;
+    for (int32_t pid : only_parts)
+        if (part_bbs.find(pid) == part_bbs.end()) missing.push_back(pid);
+    if (missing.empty()) return;
+    std::printf("경고: parts_csv 의 파트 ID 가 모델에 없음 —");
+    for (size_t i = 0; i < missing.size(); ++i) std::printf("%s %d", i ? "," : "", missing[i]);
+    std::printf(" (모델 파트 %zu개, 나머지만 추출)\n", part_bbs.size());
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::printf("사용: %s <d3plot|model.k> <out_prefix> [target_tris=6000] [voxel_res=128] [parts_csv | device]\n", argv[0]);
@@ -185,19 +202,29 @@ int main(int argc, char** argv) {
     }
     const std::string d3 = argv[1];
     const std::string prefix = argv[2];
-    const int target = (argc > 3) ? std::atoi(argv[3]) : 6000;
-    if (target < 1) {
-        std::printf("target_tris 가 비정상: %s (1 이상 필요)\n", argv[3]);
-        return 2;
-    }
-    // 복셀 해상도: 0 이면 cellIx 0 나눗셈, 과대값이면 VR^3 할당 폭발 — 범위 검증
-    if (argc > 4) {
-        const int vr = std::atoi(argv[4]);
-        if (vr < 2 || vr > 1024) {
-            std::printf("voxel_res 가 비정상: %s (2~1024 필요)\n", argv[4]);
-            return 2;
+    // atoi 는 오버플로·후행 문자를 조용히 삼켜 요청값을 다른 수로 둔갑시킨다.
+    // strtol 로 전체 토큰 소비와 범위를 확인한다.
+    auto parseInt = [](const char* tok, const char* what, long lo, long hi, long& out) -> bool {
+        errno = 0;
+        char* end = nullptr;
+        const long v = std::strtol(tok, &end, 10);
+        if (end == tok || (end && *end != '\0')) {
+            std::printf("%s 가 비정상: '%s' (정수만 허용 — 후행 문자 불가)\n", what, tok);
+            return false;
         }
-    }
+        if (errno == ERANGE || v < lo || v > hi) {
+            std::printf("%s 가 비정상: '%s' (%ld~%ld 필요)\n", what, tok, lo, hi);
+            return false;
+        }
+        out = v;
+        return true;
+    };
+    long target_l = 6000;
+    if (argc > 3 && !parseInt(argv[3], "target_tris", 1, 100000000L, target_l)) return 2;
+    const int target = (int)target_l;
+    // 복셀 해상도: 0 이면 cellIx 0 나눗셈, 과대값이면 VR^3 할당 폭발 — 범위 검증
+    long vr_l = 128;
+    if (argc > 4 && !parseInt(argv[4], "voxel_res", 2, 1024, vr_l)) return 2;
     // 5번째 인자: 파트 ID CSV — 지정하면 그 파트들만 (예: 임팩터 형상 추출)
     // 파싱 불가 토큰을 삼키면 빈 필터 = 전체 모델로 둔갑하므로 정직하게 거부한다.
     std::vector<int32_t> only_parts;
@@ -272,6 +299,7 @@ int main(int argc, char** argv) {
             };
             scanE(km.solids); scanE(km.shells); scanE(km.tshells);
             if (device_mode && !selectDeviceParts(part_bbs, only_parts)) return 2;
+            warnMissingParts(part_bbs, only_parts, device_mode);
         }
         auto keep = [&](int32_t pid) {
             return only_parts.empty() ||
@@ -370,6 +398,7 @@ int main(int argc, char** argv) {
             scan(mesh.shells, mesh.shell_parts);
             scan(mesh.thick_shells, mesh.thick_shell_parts);
             if (device_mode && !selectDeviceParts(part_bbs, only_parts)) return 2;
+            warnMissingParts(part_bbs, only_parts, device_mode);
         }
 
         SurfaceExtractor ex(reader);
@@ -442,7 +471,7 @@ int main(int argc, char** argv) {
     // 도달 불가라 떨어져 나간다. (통풍구 급 큰 구멍이 있으면 일부 새어
     // 들어올 수 있다 — 근사 목적상 허용.)
     {
-        const int VR = (argc > 4) ? std::atoi(argv[4]) : 128;  // 최장축 셀 수
+        const int VR = (int)vr_l;   // 최장축 셀 수 (위에서 strtol 로 2~1024 검증)
         // 실측(Test_006 스윕 24~256): 너무 낮으면 셀이 굵어 내부 셀까지
         // 바깥과 면접해 아무것도 안 걸러지고, 너무 높으면 미세 틈으로
         // 공기가 새어 들어간다. 128 이 최대 제거(27%) + 데시메이션 품질
@@ -559,6 +588,7 @@ int main(int argc, char** argv) {
                 res, out.verts.size(), out.tris.size());
 
     // ---- 이진 STL ----
+    unsigned long long expect_stl = 0;
     {
         std::ofstream f(prefix + ".stl", std::ios::binary);
         if (!f) {
@@ -586,6 +616,14 @@ int main(int argc, char** argv) {
             uint16_t attr = 0;
             f.write((char*)&attr, 2);
         }
+        // 디스크 풀(ENOSPC)·쿼터에서 write 는 실패하는데 소멸자는 조용하다.
+        // 명시적으로 닫고 스트림 상태를 본다.
+        f.close();
+        if (f.fail()) {
+            std::printf("STL 쓰기 실패: %s.stl (디스크 여유·쿼터 확인)\n", prefix.c_str());
+            return 1;
+        }
+        expect_stl = 84 + 50ull * (unsigned long long)out.tris.size();
     }
 
     // ---- 경량 JSON (보고서 임베드용) ----
@@ -639,13 +677,35 @@ int main(int argc, char** argv) {
               << b.hi[0] << "," << b.hi[1] << "," << b.hi[2] << "]";
         }
         f << "}}";
+        f.close();
+        if (f.fail()) {
+            std::printf("JSON 쓰기 실패: %s.json (디스크 여유·쿼터 확인)\n", prefix.c_str());
+            return 1;
+        }
     }
 
-    // 쓰기 실패(디스크 풀·권한)를 성공으로 위장하지 않는다 — flush 후 상태 확인
+    // 쓰기 실패(디스크 풀·권한)를 성공으로 위장하지 않는다.
+    // 존재 확인만으로는 절단된 파일을 잡지 못한다 — 기대 바이트 수와 대조한다.
     {
-        std::ifstream chk_s(prefix + ".stl"), chk_j(prefix + ".json");
+        std::ifstream chk_s(prefix + ".stl", std::ios::binary | std::ios::ate);
+        std::ifstream chk_j(prefix + ".json", std::ios::binary | std::ios::ate);
         if (!chk_s || !chk_j) {
             std::printf("출력 파일 검증 실패: %s.{stl,json} 이 생성되지 않음\n", prefix.c_str());
+            return 1;
+        }
+        const long long got_s = (long long)chk_s.tellg();
+        const long long got_j = (long long)chk_j.tellg();
+        if (got_s != (long long)expect_stl) {
+            std::printf("STL 이 절단됨: %s.stl — 기대 %llu 바이트, 실제 %lld 바이트 "
+                        "(디스크 여유·쿼터 확인)\n", prefix.c_str(), expect_stl, got_s);
+            return 1;
+        }
+        // JSON 은 최소한 닫는 괄호까지 있어야 한다
+        chk_j.seekg(0);
+        std::string all((std::istreambuf_iterator<char>(chk_j)), std::istreambuf_iterator<char>());
+        if (got_j <= 0 || all.size() < 2 || all.back() != '}') {
+            std::printf("JSON 이 절단됨: %s.json — %lld 바이트, 끝이 '}' 가 아님 "
+                        "(디스크 여유·쿼터 확인)\n", prefix.c_str(), got_j);
             return 1;
         }
     }
