@@ -360,6 +360,22 @@ function initImpactor() {
   const hasMesh = !!(DATA.impactor_mesh && DATA.impactor_mesh.v &&
                      DATA.impactor_mesh.f && DATA.impactor_mesh.f.length);
   if (hasMesh) renderImpactorMesh(svgRoot);
+
+  // 미리보기 신선도 안내 — payload 에만 담고 렌더하지 않으면 '무음 아님' 이 거짓말이 된다.
+  // 개략도로 조용히 폴백하거나 옛 형상을 최신인 양 보여 주는 것을 막는다.
+  (function () {
+    const note = DATA.impactor_mesh_note;
+    let el = document.getElementById('impactor-mesh-note');
+    if (!note) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'impactor-mesh-note';
+      el.style.cssText = 'margin:4px auto 0;color:#e0af68;font-size:10px;line-height:1.35;' +
+                         'max-width:260px;word-break:break-word;text-align:center';
+      svgRoot.parentNode.insertBefore(el, svgRoot.nextSibling);
+    }
+    el.textContent = '\u26a0 ' + note;    // textContent — 주입 불가
+  })();
   if (imp.type === 'Sphere') {
     sub.textContent = hasMesh ? 'Sphere · 실형상' : 'Sphere';
     svgRoot.appendChild(svg('circle', { cx: 100, cy: 55, r: 32, fill: 'none', stroke: '#4dd6ff', 'stroke-width': 1.2 }));

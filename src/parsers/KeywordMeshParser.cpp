@@ -76,10 +76,40 @@ void parseStream(std::istream& in, const std::string& self_path, Ctx& ctx) {
     // 2줄형 솔리드: 첫 줄 (eid,pid) 후 둘째 줄 절점
     bool pending = false;
     KeywordMesh::Elem pend{};
+    // 고차 요소(카드2 에 절점 9개 이상) 보류 — 10절점 사면체와 20절점 헥사를
+    // 구분하려면 다음 줄이 연속 카드인지 봐야 한다. 한 줄 예견으로 판정한다.
+    bool hi_pending = false;
+    KeywordMesh::Elem hi_e{};
+    int32_t hi_raw[10] = {0};
+    int hi_rn = 0;
+    Block hi_blk = SOLID;
+    size_t hi_line = 0;
 
     auto setWidths = [&](bool lf) {
         iw = lf ? 10 : 8;
         fw = lf ? 20 : 16;
+    };
+
+    // 보류된 고차 요소를 확정한다. is_cont=true 면 뒤에 연속 카드가 더 있다는
+    // 뜻이라 20절점 헥사 계열 — 앞 8개가 진짜 코너다. false 면 카드2 로 끝나는
+    // 10절점 사면체 — 앞 4개만 코너이고 5~10 은 중간절점이라 버려야 한다.
+    // (앞 8개를 헥사로 읽으면 표면 체적이 8배 틀어진다)
+    auto flushHi = [&](bool is_cont) {
+        if (!hi_pending) return;
+        hi_pending = false;
+        if (!is_cont && hi_rn == 10) {
+            for (int k = 0; k < 4; ++k) hi_e.n[k] = hi_raw[k];
+            for (int k = 4; k < 8; ++k) hi_e.n[k] = hi_raw[3];
+            hi_e.nn = 8;
+            ctx.m.warnings.push_back("10절점 사면체를 코너 4절점으로 축약 (" +
+                                     self_path + ":" + std::to_string(hi_line) + ")");
+        } else {
+            for (int k = 0; k < 8; ++k) hi_e.n[k] = hi_raw[k];
+            hi_e.nn = 8;
+            ctx.m.warnings.push_back("고차 솔리드의 앞 8절점을 코너로 사용 (" +
+                                     self_path + ":" + std::to_string(hi_line) + ")");
+        }
+        (hi_blk == SOLID ? ctx.m.solids : ctx.m.tshells).push_back(hi_e);
     };
 
     while (std::getline(in, line)) {
@@ -87,6 +117,19 @@ void parseStream(std::istream& in, const std::string& self_path, Ctx& ctx) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const std::string t = trim(line);
         if (t.empty() || t[0] == '$') continue;
+
+        if (hi_pending) {
+            bool is_cont = false;
+            if (t[0] != '*') {
+                auto fc = fields(line, iw);
+                while (!fc.empty() && fc.back().empty()) fc.pop_back();
+                int cnt = 0;
+                for (const auto& x : fc) { int32_t v; if (toInt(x, v) && v > 0) ++cnt; }
+                is_cont = (cnt >= 3);   // 새 요소의 카드1 은 (eid,pid) 2개뿐이다
+            }
+            flushHi(is_cont);
+            if (is_cont) continue;      // 연속 카드는 소비하고 넘어간다
+        }
 
         if (t[0] == '*') {
             const std::string kw = upper(t);
@@ -146,17 +189,15 @@ void parseStream(std::istream& in, const std::string& self_path, Ctx& ctx) {
                     int32_t v;
                     if (toInt(f[k], v) && v > 0) raw[rn++] = v;
                 }
-                int nn = 0;
                 if (rn > 8) {
-                    // 10절점 사면체: 코너 4개만 쓰고 축퇴 헥사로 접는다 (중간절점은 형상에 불필요)
-                    for (int k = 0; k < 4; ++k) pend.n[k] = raw[k];
-                    for (int k = 4; k < 8; ++k) pend.n[k] = raw[3];
-                    nn = 8;
-                    ctx.m.warnings.push_back("10절점 솔리드를 코너 4절점 사면체로 축약 (" +
-                                             self_path + ":" + std::to_string(line_no) + ")");
-                } else {
-                    for (int k = 0; k < rn; ++k) pend.n[nn++] = raw[k];
+                    hi_e = pend; hi_rn = rn; hi_blk = blk; hi_line = line_no;
+                    for (int k = 0; k < rn && k < 10; ++k) hi_raw[k] = raw[k];
+                    hi_pending = true;
+                    pending = false;
+                    break;                  // 다음 줄을 보고 차수를 판정한다
                 }
+                int nn = 0;
+                for (int k = 0; k < rn; ++k) pend.n[nn++] = raw[k];
                 pend.nn = nn;
                 if (nn >= 4) (blk == SOLID ? ctx.m.solids : ctx.m.tshells).push_back(pend);
                 else ctx.m.warnings.push_back("2줄형 요소의 절점 부족 (" + self_path + ":" + std::to_string(line_no) + ")");
@@ -212,6 +253,7 @@ void parseStream(std::istream& in, const std::string& self_path, Ctx& ctx) {
             break;
         }
     }
+    flushHi(false);   // 파일 끝(또는 *END)에 걸린 보류 요소 확정
 }
 
 void parseFile(const std::string& path, Ctx& ctx) {

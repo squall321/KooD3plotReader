@@ -21,6 +21,8 @@
 
 #include <iterator>
 #include <cstdlib>
+#include <filesystem>
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstdint>
@@ -208,7 +210,10 @@ int main(int argc, char** argv) {
         errno = 0;
         char* end = nullptr;
         const long v = std::strtol(tok, &end, 10);
-        if (end == tok || (end && *end != '\0')) {
+        // strtol 은 선행 공백을 조용히 건너뛴다. ' 6000' 은 통과하고 '6000 ' 은
+        // 거부되던 비대칭을 없앤다 — 양쪽 다 거부한다.
+        if (tok[0] == '\0' || std::isspace((unsigned char)tok[0]) ||
+            end == tok || (end && *end != '\0')) {
             std::printf("%s 가 비정상: '%s' (정수만 허용 — 후행 문자 불가)\n", what, tok);
             return false;
         }
@@ -589,6 +594,13 @@ int main(int argc, char** argv) {
 
     // ---- 이진 STL ----
     unsigned long long expect_stl = 0;
+    // 실패로 끝날 때 절단된 산출물을 남기지 않는다 — 남기면 다음 실행이
+    // '파일이 있으니 정상' 으로 오인한다.
+    auto drop_partial = [&]() {
+        std::error_code ec;
+        std::filesystem::remove(prefix + ".stl", ec);
+        std::filesystem::remove(prefix + ".json", ec);
+    };
     {
         std::ofstream f(prefix + ".stl", std::ios::binary);
         if (!f) {
@@ -621,9 +633,18 @@ int main(int argc, char** argv) {
         f.close();
         if (f.fail()) {
             std::printf("STL 쓰기 실패: %s.stl (디스크 여유·쿼터 확인)\n", prefix.c_str());
+            f.close(); drop_partial();
             return 1;
         }
         expect_stl = 84 + 50ull * (unsigned long long)out.tris.size();
+    }
+    // 데시메이션이 전부 축퇴시켜 삼각형이 0개면 84바이트 빈 STL 이 나온다.
+    // '출력 성공' 으로 위장하면 미리보기가 조용히 사라진다 — 정직하게 실패한다.
+    if (out.tris.empty()) {
+        std::printf("삼각형이 0개입니다 — 데시메이션(res=%d)이 형상을 모두 축퇴시켰습니다. "
+                    "voxel_res 를 낮추거나 target_tris 를 조정하세요\n", res);
+        drop_partial();
+        return 1;
     }
 
     // ---- 경량 JSON (보고서 임베드용) ----
@@ -680,6 +701,7 @@ int main(int argc, char** argv) {
         f.close();
         if (f.fail()) {
             std::printf("JSON 쓰기 실패: %s.json (디스크 여유·쿼터 확인)\n", prefix.c_str());
+            f.close(); drop_partial();
             return 1;
         }
     }
@@ -691,13 +713,17 @@ int main(int argc, char** argv) {
         std::ifstream chk_j(prefix + ".json", std::ios::binary | std::ios::ate);
         if (!chk_s || !chk_j) {
             std::printf("출력 파일 검증 실패: %s.{stl,json} 이 생성되지 않음\n", prefix.c_str());
+            drop_partial();
             return 1;
         }
         const long long got_s = (long long)chk_s.tellg();
         const long long got_j = (long long)chk_j.tellg();
         if (got_s != (long long)expect_stl) {
             std::printf("STL 이 절단됨: %s.stl — 기대 %llu 바이트, 실제 %lld 바이트 "
-                        "(디스크 여유·쿼터 확인)\n", prefix.c_str(), expect_stl, got_s);
+                        "(디스크 여유·쿼터 확인). 부분 산출물은 삭제했습니다\n",
+                        prefix.c_str(), expect_stl, got_s);
+            chk_s.close(); chk_j.close();
+            drop_partial();
             return 1;
         }
         // JSON 은 최소한 닫는 괄호까지 있어야 한다
@@ -705,7 +731,10 @@ int main(int argc, char** argv) {
         std::string all((std::istreambuf_iterator<char>(chk_j)), std::istreambuf_iterator<char>());
         if (got_j <= 0 || all.size() < 2 || all.back() != '}') {
             std::printf("JSON 이 절단됨: %s.json — %lld 바이트, 끝이 '}' 가 아님 "
-                        "(디스크 여유·쿼터 확인)\n", prefix.c_str(), got_j);
+                        "(디스크 여유·쿼터 확인). 부분 산출물은 삭제했습니다\n",
+                        prefix.c_str(), got_j);
+            chk_s.close(); chk_j.close();
+            drop_partial();
             return 1;
         }
     }

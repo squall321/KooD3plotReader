@@ -811,6 +811,17 @@ def _build_impactor_mesh(report) -> dict | None:
 
     cache = test_dir / "impactor_preview.json"
 
+    def _use_cache(reason: str):
+        """소스/파라미터를 못 구해도 기존 캐시가 있으면 쓴다 (버리면 회귀).
+        다만 신선도 확인 불가를 정직하게 알린다."""
+        if cache.is_file():
+            try:
+                return _json.loads(cache.read_text(encoding="utf-8",
+                                                   errors="replace")), reason
+            except (_json.JSONDecodeError, OSError):
+                pass
+        return None, reason
+
     # 미리보기 생성에 쓰는 d3plot — 감시 대상과 생성 입력이 같아야 한다
     d3 = None
     for positions in (report.positions_by_face or {}).values():
@@ -825,7 +836,8 @@ def _build_impactor_mesh(report) -> dict | None:
         if d3:
             break
     if d3 is None:
-        return None, "런 d3plot 을 찾지 못해 충격체 실형상을 만들 수 없습니다"
+        return _use_cache("런 d3plot 을 찾지 못해 충격체 미리보기가 현재 모델과 "
+                          "일치하는지 확인할 수 없습니다")
 
     # 임팩터 파트 — 캐시 서명에 반드시 넣는다. d3plot 이 그대로여도 파트가 바뀌면
     # 다른 형상이어야 하는데, mtime 만 보면 옛 파트 형상을 그대로 쓰게 된다.
@@ -837,7 +849,8 @@ def _build_impactor_mesh(report) -> dict | None:
         except Exception:
             pid = None
     if not pid:
-        return None, "충격체 파트 ID 를 알 수 없어 실형상을 만들 수 없습니다 (개략도로 표시)"
+        return _use_cache("충격체 파트 ID 를 알 수 없어 미리보기가 현재 파트와 "
+                          "일치하는지 확인할 수 없습니다")
 
     # make_stl 탐색
     cands = []

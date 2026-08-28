@@ -410,6 +410,16 @@ def _load_device_mesh(test_dir: str) -> dict | None:
                     d3 = cand
                     break
         if d3 is None:
+            # 소스를 못 찾았다고 멀쩡한 캐시를 버리면 구코드 대비 회귀다.
+            # 신선도는 확인 불가라고 정직하게 말하되, 있는 것은 쓴다.
+            if cache.is_file():
+                try:
+                    return json.loads(cache.read_text(encoding="utf-8",
+                                                      errors="replace")), \
+                        ("시나리오 원본 모델도 d3plot 도 찾지 못해 미리보기가 "
+                         "현재 모델과 일치하는지 확인할 수 없습니다")
+                except (json.JSONDecodeError, OSError):
+                    pass
             return None, ("시나리오 원본 모델도 d3plot 도 찾지 못해 실형상 "
                           "미리보기를 만들 수 없습니다")
         sources = [d3]
@@ -2056,8 +2066,8 @@ function _renderRiskVisible() {
       onmouseenter="onRiskRowHover(this, ${row.ri})" onmouseleave="onRiskRowLeave(this)">
       <td>${i+1}</td><td style="color:var(--cyan)">${row.name}</td><td>${row.category}</td>
       <td style="text-align:right;font-weight:bold">${formatValue(row.value, row.qty || mollweideState.quantity)}</td>
-      <td style="text-align:right">${row.roll.toFixed(1)}</td><td style="text-align:right">${row.pitch.toFixed(1)}</td>
-      <td style="text-align:right">${row.yaw.toFixed(1)}</td></tr>`;
+      <td style="text-align:right">${fixAng(row.roll)}</td><td style="text-align:right">${fixAng(row.pitch)}</td>
+      <td style="text-align:right">${fixAng(row.yaw)}</td></tr>`;
   }
   tbody.innerHTML = html;
 }
@@ -2453,10 +2463,29 @@ function dmRedraw() {
   if (DATA.device_mesh && DATA.device_mesh.v && DATA.device_mesh.f) drawDeviceMesh(inner, _dmCache.lastM);
 }
 
+// 미리보기 신선도 안내를 화면에 띄운다. payload 에만 담고 렌더하지 않으면
+// '무음 아님' 이 거짓말이 된다 — 사용자가 옛 형상을 최신인 줄 알고 본다.
+function renderPreviewNote() {
+  const note = (typeof DATA !== 'undefined' && DATA) ? DATA.device_mesh_note : null;
+  const host = document.getElementById('device-angles');
+  if (!host || !host.parentNode) return;
+  let el = document.getElementById('device-preview-note');
+  if (!note) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'device-preview-note';
+    el.style.cssText = 'margin-top:4px;color:#e0af68;font-size:10px;line-height:1.35;' +
+                       'word-break:break-word;max-width:100%';
+    host.parentNode.insertBefore(el, host.nextSibling);
+  }
+  el.textContent = '\u26a0 ' + note;      // textContent — 주입 불가
+}
+
 function update3DDevice(roll, pitch, yaw, angleName) {
   const inner = document.getElementById('device-inner');
   const anglesEl = document.getElementById('device-angles');
   if (!inner) return;
+  renderPreviewNote();
 
   // Compute impact direction in device body frame.
   // 기기 자세가 R = Rx(roll)·Ry(pitch)·Rz(yaw) (body→world) 이면, 세계의 아래
@@ -2507,7 +2536,7 @@ function update3DDevice(roll, pitch, yaw, angleName) {
     inner.style.transform = transform;
   }
   if (anglesEl) {
-    const label = angleName || `R:${roll.toFixed(0)} P:${pitch.toFixed(0)} Y:${yaw.toFixed(0)}`;
+    const label = angleName || `R:${fixAng(roll,0)} P:${fixAng(pitch,0)} Y:${fixAng(yaw,0)}`;
     anglesEl.textContent = label;
   }
 }
@@ -3018,7 +3047,7 @@ function renderDirectional() {
     rankRows += `<tr><td>${i+1}</td><td style="color:var(--cyan)">${a.name}</td><td>${a.category}</td>
       <td style="text-align:right">${a.avgStress.toFixed(1)}</td>
       <td style="text-align:right">${(a.avgG/1e6).toFixed(2)}</td>
-      <td>R:${a.roll.toFixed(0)}° P:${a.pitch.toFixed(0)}°</td></tr>`;
+      <td>R:${fixAng(a.roll,0)}° P:${fixAng(a.pitch,0)}°</td></tr>`;
   });
 
   // Category stats

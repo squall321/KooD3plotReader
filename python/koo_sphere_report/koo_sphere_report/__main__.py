@@ -73,6 +73,11 @@ def main():
             print(f"Error: {json_in} 을 읽지 못했습니다 ({type(e).__name__}: {e})",
                   file=sys.stderr)
             sys.exit(2)
+        except Exception as e:   # noqa: BLE001 — 생 트레이스백 대신 정직한 에러
+            print(f"Error: {json_in} 을 리포트로 해석하지 못했습니다 "
+                  f"({type(e).__name__}: {e}) — koo_sphere_report 의 report.json "
+                  f"인지 확인하세요.", file=sys.stderr)
+            sys.exit(2)
         base_dir = str(json_in.parent.resolve())
         print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
     else:

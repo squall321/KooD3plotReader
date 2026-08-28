@@ -56,7 +56,14 @@ def write_payload_sidecar(payload: dict, out_path: Path) -> Path:
     if sidecar.is_file():
         def _ident(meta) -> tuple:
             meta = meta if isinstance(meta, dict) else {}
-            return (str(meta.get("project_name", "")), str(meta.get("test_dir", "")))
+            # 페이로드의 실제 키는 'project' 다 ('project_name' 은 존재하지 않아
+            # 식별자가 항상 빈 문자열이 되어 비교가 무효화됐다).
+            td = str(meta.get("test_dir", "") or "")
+            try:
+                td = str(Path(td).resolve()) if td else ""
+            except OSError:
+                pass
+            return (str(meta.get("project", "") or ""), td)
         try:
             prev = json.loads(sidecar.read_text(encoding="utf-8"))
             prev_id = _ident((prev or {}).get("payload", {}).get("meta"))

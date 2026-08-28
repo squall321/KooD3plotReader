@@ -19,15 +19,19 @@ die() { echo "오류: $*" >&2; exit 1; }
 resolve() {           # resolve <이름> → 실행 가능한 경로를 stdout 으로
     local name="$1" p
     p="$POST/bin/$name"
-    if [ -x "$p" ]; then echo "$p"; return 0; fi
-    if p="$(command -v "$name" 2>/dev/null)"; then echo "$p"; return 0; fi
+    if [ -x "$p" ] && [ -f "$p" ]; then echo "$p"; return 0; fi
+    p="$(command -v "$name" 2>/dev/null || true)"
+    # command -v 는 실행권한을 보장하지 않는다 (디렉터리·깨진 링크도 나온다)
+    if [ -n "$p" ] && [ -x "$p" ] && [ -f "$p" ]; then echo "$p"; return 0; fi
     return 1
 }
-MISSING=()
-UA="$(resolve unified_analyzer)"   || MISSING+=("unified_analyzer")
-SPH="$(resolve koo_sphere_report)" || MISSING+=("koo_sphere_report")
-IMP="$(resolve koo_impact_report)" || MISSING+=("koo_impact_report")
-if [ ${#MISSING[@]} -gt 0 ]; then
+MISSING=()      # bash 4.2 에서 set -u + 빈 배열 참조가 죽으므로 아래에서 ${#..[@]} 대신 개수 변수를 쓴다
+N_MISSING=0
+UA=""; SPH=""; IMP=""
+UA="$(resolve unified_analyzer)"   || { MISSING+=("unified_analyzer");  N_MISSING=$((N_MISSING+1)); }
+SPH="$(resolve koo_sphere_report)" || { MISSING+=("koo_sphere_report"); N_MISSING=$((N_MISSING+1)); }
+IMP="$(resolve koo_impact_report)" || { MISSING+=("koo_impact_report"); N_MISSING=$((N_MISSING+1)); }
+if [ "$N_MISSING" -gt 0 ]; then
     die "다음 실행 파일을 찾지 못했습니다: ${MISSING[*]}
   찾아본 곳: $POST/bin/  그리고 PATH
   해결 방법:
@@ -37,8 +41,14 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   그런 다음 이 스크립트를 다시 실행하세요."
 fi
 
+echo "사용할 실행 파일:"
+echo "  unified_analyzer  : $UA"
+echo "  koo_sphere_report : $SPH"
+echo "  koo_impact_report : $IMP"
+
 OUT="$HERE/_test_out"
-rm -rf "$OUT"; mkdir -p "$OUT"
+rm -rf "$OUT" || die "이전 산출물 폴더를 지우지 못했습니다: $OUT (권한 확인)"
+mkdir -p "$OUT" || die "산출물 폴더를 만들지 못했습니다: $OUT (권한·디스크 확인)"
 
 # 경로 치환은 python 으로 한다. sed 는 치환문의 & 를 매치문자열로 확장하고
 # 구분자 | 가 든 경로에서 깨진다 — 'R&D' 같은 폴더에서 조용히 잘못된 경로가 됐다.
@@ -86,9 +96,20 @@ echo "   → $OUT/impact_report.html"
 
 # 세트 미디어가 실제로 참조 가능한지 확인 — 깨진 이미지를 성공으로 안내하지 않는다
 python3 - "$OUT/impact_report.html" "$OUT" <<'PY'
-import pathlib, re, sys
-html, out = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"), pathlib.Path(sys.argv[2])
-refs = sorted(set(re.findall(r'impact_report_data/[A-Za-z0-9_./-]+', html)))
+import codecs, pathlib, re, sys
+html = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+out = pathlib.Path(sys.argv[2])
+# 임베드 JSON 은 비ASCII 파일명을 \uXXXX 로 쓴다. 원문 그대로 정규식을 돌리면
+# 그런 참조를 통째로 놓쳐 '결측 0개' 로 통과시킨다 — 먼저 디코드한다.
+def unesc(m):
+    try:
+        return codecs.decode(m.group(0), "unicode_escape")
+    except Exception:
+        return m.group(0)
+decoded = re.sub(r'(?:\\u[0-9a-fA-F]{4})+', unesc, html)
+# 확장자로 끝나는 것만 참조로 본다 (주석·산문 속 폴더명 언급 오탐 방지)
+pat = r'impact_report_data/[^"\'\\s<>]+?\.(?:png|jpg|jpeg|mp4|webm|svg|json|csv)'
+refs = sorted(set(re.findall(pat, decoded)))
 missing = [r for r in refs if not (out / r).exists()]
 print(f"   세트 미디어 참조 {len(refs)}개 중 결측 {len(missing)}개")
 if missing:

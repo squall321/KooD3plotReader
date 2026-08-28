@@ -33,19 +33,26 @@ def keyword_source_files(root: Path, depth: int = INCLUDE_DEPTH) -> list[Path]:
     깊이 제한 8. 순환 참조는 방문 집합으로 끊는다.
     """
     out: list[Path] = []
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
 
     def walk(path: Path, d: int) -> None:
         try:
             rp = str(path.resolve())
         except OSError:
             return
-        if rp in seen or d > depth:
+        if d > depth:
             return
-        seen.add(rp)
+        # 얕은 경로로 다시 도달하면 더 깊이 파고들 수 있어야 한다.
+        # 깊이를 무시하고 방문만 기록하면, 먼저 깊게 도달한 파일의 하위
+        # *INCLUDE 가 감시 집합에서 통째로 빠진다 (무음 stale 의 통로).
+        prev = seen.get(rp)
+        if prev is not None and prev <= d:
+            return
+        seen[rp] = d
         if not path.is_file():
             return
-        out.append(path)
+        if prev is None:
+            out.append(path)
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -81,9 +88,10 @@ def make_stamp(sources: list[Path], params: dict) -> dict:
 
 
 def read_stamp(stamp_path: Path) -> dict | None:
+    """서명 읽기. 손상/비UTF-8 이면 None (= stale 취급) — 크래시시키지 않는다."""
     try:
-        return json.loads(stamp_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        return json.loads(stamp_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError, ValueError):
         return None
 
 
@@ -93,6 +101,25 @@ def regenerate(tool: Path, build_args, base: Path, name: str, stamp: dict,
 
     실패 시 기존 캐시는 손대지 않는다 — 대체물을 확보하기 전에 파괴하지 않는다.
     """
+    # 중단(SIGKILL 등)으로 남은 남의 고아 임시파일을 먼저 치운다.
+    # 살아있는 PID 의 것은 건드리지 않는다 (동시 실행 안전).
+    for old_tmp in base.glob(f".{name}.tmp*"):
+        try:
+            pid = int(str(old_tmp.name).split(".tmp")[1].split(".")[0])
+        except (ValueError, IndexError):
+            continue
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)      # 살아있으면 남의 작업 — 건드리지 않는다
+        except ProcessLookupError:
+            try:
+                old_tmp.unlink()
+            except OSError:
+                pass
+        except OSError:
+            pass
+
     tmp_prefix = base / f".{name}.tmp{os.getpid()}"
     tmp_json = Path(str(tmp_prefix) + ".json")
     tmp_stl = Path(str(tmp_prefix) + ".stl")
@@ -118,7 +145,7 @@ def regenerate(tool: Path, build_args, base: Path, name: str, stamp: dict,
         _cleanup()
         return "make_stl 이 JSON 을 남기지 않음"
     try:
-        json.loads(tmp_json.read_text(encoding="utf-8"))
+        json.loads(tmp_json.read_text(encoding="utf-8", errors="replace"))
     except (OSError, json.JSONDecodeError) as e:
         _cleanup()
         return f"생성된 JSON 이 손상됨 ({type(e).__name__})"
@@ -127,11 +154,17 @@ def regenerate(tool: Path, build_args, base: Path, name: str, stamp: dict,
         os.replace(tmp_json, base / f"{name}.json")
         if tmp_stl.is_file():
             os.replace(tmp_stl, base / f"{name}.stl")
-        (base / f".{name}.stamp.json").write_text(
-            json.dumps(stamp, ensure_ascii=False), encoding="utf-8")
     except OSError as e:
         _cleanup()
         return f"캐시 교체 실패 ({type(e).__name__}) — 기존 미리보기를 유지함"
+    # 여기부터는 캐시가 이미 새것으로 바뀐 뒤다. 서명 기록에 실패해도
+    # "옛 형상을 표시한다" 고 말하면 거짓말이 된다 — 사실대로 알린다.
+    try:
+        (base / f".{name}.stamp.json").write_text(
+            json.dumps(stamp, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        return (f"미리보기는 최신으로 갱신했지만 서명을 기록하지 못했습니다 "
+                f"({type(e).__name__}) — 다음 실행마다 재생성됩니다")
     return None
 
 

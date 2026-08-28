@@ -134,15 +134,14 @@ def main() -> None:
         bad = None
         if not isinstance(payload, dict):
             bad = f"payload 가 객체가 아님 ({type(payload).__name__})"
-        elif not isinstance(payload.get("faces"), (list, dict)):
-            bad = f"payload.faces 가 배열/객체가 아님 ({type(payload.get('faces')).__name__})"
+        elif not isinstance(payload.get("faces"), list):
+            # 렌더 JS 는 faces 를 배열로 순회한다. dict 를 통과시키면 검증은
+            # 지나가고 브라우저에서 리포트 전체가 죽는다 — 여기서 막는다.
+            bad = f"payload.faces 가 배열이 아님 ({type(payload.get('faces')).__name__})"
         elif len(payload["faces"]) == 0:
             bad = "payload.faces 가 비어 있음"
-        else:
-            _items = (payload["faces"].values() if isinstance(payload["faces"], dict)
-                      else payload["faces"])
-            if not all(isinstance(x, dict) and "code" in x for x in _items):
-                bad = "payload.faces 의 원소가 face 객체(code 필드 보유)가 아님"
+        elif not all(isinstance(x, dict) and "code" in x for x in payload["faces"]):
+            bad = "payload.faces 의 원소가 face 객체(code 필드 보유)가 아님"
         if bad:
             print(f"[main] ERROR: {bad} — --from-json 의 입력은 HTML 옆에 생성되는 "
                   "impact_payload.json (재렌더 사이드카)입니다. impact_report.json 은 "
@@ -150,10 +149,15 @@ def main() -> None:
             sys.exit(2)
         # --from-json 은 HTML 재렌더 전용이다. json/terminal 을 요청했다면
         # 조용히 무시하지 않고 무엇을 못 하는지 말한다.
-        _fmts = [f for f in (args.format or []) if f != "html"]
-        if _fmts or args.json:
+        # 기본값(["html","terminal"])은 사용자가 명시한 것이 아니므로 경고하지 않는다.
+        # 명시적으로 json 을 요구했을 때만 못 한다는 사실을 알린다.
+        _asked = set(args.format or [])
+        _explicit = _asked != {"html", "terminal"}
+        _unmet = sorted(f for f in _asked if f == "json") if _explicit else []
+        if _unmet or args.json:
+            _what = "/".join(_unmet) if _unmet else "--json"
             print(f"[main] WARN: --from-json 은 HTML 재렌더 전용입니다 — "
-                  f"{'/'.join(_fmts) if _fmts else '--json'} 요청은 수행하지 않습니다. "
+                  f"{_what} 요청은 수행하지 않습니다. "
                   f"요약 JSON 이 필요하면 --test-dir 로 실행하세요.", file=sys.stderr)
         html_path = args.output or str(json_in.parent / "report.html")
         if payload.get("chunks") and Path(html_path).parent != json_in.parent:

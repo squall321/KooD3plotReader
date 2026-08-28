@@ -169,7 +169,14 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/koo_sphere_report --help >/dev/null
     /opt/kood3plot/bin/koo_impact_report --help >/dev/null
     /opt/kood3plot/bin/koo_federate_report --help >/dev/null
+    /opt/kood3plot/bin/koo_custom_report --help >/dev/null
     /opt/kood3plot/bin/koo_dyna_diag --help >/dev/null
+    # make_stl 이 빠지면 실형상 미리보기가 개략도로 폴백한다 (과거 실제 사고)
+    test -x /opt/kood3plot/bin/make_stl
+    # %environment 의 PYTHONPATH 가 5개 패키지를 다 담는지 — python3 -m 직접 호출 경로
+    for _p in koo_deep_report koo_sphere_report koo_impact_report koo_federate_report koo_custom_report; do
+        python3 -c "import ${_p}" || exit 1
+    done
     # 상류 호환 심볼릭 검증
     /opt/kood3plot/bin/koodyna --help >/dev/null
     echo "All tools available"
