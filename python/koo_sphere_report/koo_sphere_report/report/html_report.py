@@ -351,6 +351,17 @@ def _scenario_model_file(base: Path) -> Path | None:
     return None
 
 
+def _script_safe(js_text: str) -> str:
+    """<script> 블록에 넣을 JSON 을 HTML 파서로부터 안전하게 만든다.
+
+    문자열 값 어디든 "</script>" 가 들어가면 브라우저가 그 지점에서 스크립트를
+    끊어 보고서 전체가 깨진다 (경로·파트명·note 등 무엇이든 통로가 된다).
+    "</" 를 "<\\/" 로 바꾼다 — JSON/JS 에서 동등한 문자열이고 HTML 파서는
+    더 이상 종료 태그로 보지 않는다.
+    """
+    return js_text.replace("</", "<\\/")
+
+
 def _load_device_mesh(test_dir: str) -> dict | None:
     """자세 미리보기용 근사 외곽 메시 (make_stl 산출 JSON).
 
@@ -6021,7 +6032,7 @@ function renderSetReport() {
 def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str = "") -> None:
     """Generate standalone interactive HTML report."""
     data = _build_report_data(report, ts_points=ts_points, test_dir=test_dir)
-    data_json = json.dumps(data, cls=_Encoder, ensure_ascii=False)
+    data_json = _script_safe(json.dumps(data, cls=_Encoder, ensure_ascii=False))
 
     # Findings HTML
     findings_html = ""

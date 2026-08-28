@@ -179,7 +179,7 @@ def emit_report(report, out_path: str | Path, mode: str | None = None,
                 bundle = build_position_bundle(
                     report, pid,
                     motion_pts=CHUNK_MOTION_PTS, traj_pts=CHUNK_TRAJ_PTS)
-                blob = json.dumps(bundle, cls=_Encoder, separators=(",", ":"))
+                blob = json.dumps(bundle, cls=_Encoder, separators=(",", ":")).replace("</", "<\\/")
                 blob = blob.replace("</", "<\\/")
                 (data_dir / f"{cid}.js").write_text(
                     'window.KOO_CHUNKS=window.KOO_CHUNKS||{};'
