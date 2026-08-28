@@ -1971,6 +1971,12 @@ let _riskRows = [];  // cached sorted rows
 const _RISK_ROW_H = 28;  // px per row
 const _RISK_VIRTUAL_THRESHOLD = 200;
 
+function fixAng(v, d) {
+  // 손상 payload(비수치 각도)가 toFixed 에서 uncaught TypeError 를 내면
+  // Risk Ranking 표와 hover 패널이 통째로 사라진다. 값 하나만 '—' 로 낮춘다.
+  // (1차 방어는 로더의 입력 검증. 여기는 그걸 통과한 옛 산출물용 2차 방어다)
+  return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d === undefined ? 1 : d) : '—';
+}
 function drawRiskTable() {
   const tableEl = document.getElementById('moll-risk-table');
   if (!tableEl) return;
@@ -2003,8 +2009,8 @@ function drawRiskTable() {
         onmouseenter="onRiskRowHover(this, ${row.ri})" onmouseleave="onRiskRowLeave(this)">
         <td>${i+1}</td><td style="color:var(--cyan)">${row.name}</td><td>${row.category}</td>
         <td style="text-align:right;font-weight:bold">${formatValue(row.value, qty)}</td>
-        <td style="text-align:right">${row.roll.toFixed(1)}</td><td style="text-align:right">${row.pitch.toFixed(1)}</td>
-        <td style="text-align:right">${row.yaw.toFixed(1)}</td></tr>`;
+        <td style="text-align:right">${fixAng(row.roll)}</td><td style="text-align:right">${fixAng(row.pitch)}</td>
+        <td style="text-align:right">${fixAng(row.yaw)}</td></tr>`;
     });
     html += '</tbody></table>';
     tableEl.innerHTML = html;
@@ -2154,9 +2160,9 @@ function updateMollInfo(ri) {
   el.innerHTML = `
     <div style="color:var(--cyan);font-weight:bold;word-break:break-word;">${r.angle.name}</div>
     ${(() => { const m = nameMismatchDeg(r.angle.name, r.angle.roll, r.angle.pitch, r.angle.yaw);
-       return (m !== null && m > 15)
+       return (m !== null && isFinite(m) && m > 15)
          ? `<div style="margin-top:3px;color:#e0af68;font-size:11px">⚠ 이름 방향과 실제 낙하 방향이 ${m.toFixed(0)}° 어긋남 — 덱(실낙하) 기준으로 표시</div>` : ''; })()}
-    <div style="margin-top:4px">Roll: ${r.angle.roll.toFixed(1)} | Pitch: ${r.angle.pitch.toFixed(1)}</div>
+    <div style="margin-top:4px">Roll: ${fixAng(r.angle.roll)} | Pitch: ${fixAng(r.angle.pitch)}</div>
     <div style="margin-top:6px;color:var(--fg2)">
       Stress: <b>${(pd.peak_stress||0).toFixed(1)} MPa</b><br>
       Strain: <b>${(pd.peak_strain||0).toFixed(4)}</b><br>
