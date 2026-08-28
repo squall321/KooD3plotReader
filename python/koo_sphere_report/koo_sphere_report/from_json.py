@@ -41,8 +41,21 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> R
     with open(json_path, encoding="utf-8") as f:
         d = json.load(f)
 
-    # Support both top-level key names
+    # 무관한 JSON 을 넣어도 '0/0 runs' 리포트를 exit 0 으로 만들어내던 문제 —
+    # 성공으로 위장하지 않고 무엇이 잘못됐는지 말한다.
+    if not isinstance(d, dict):
+        raise ValueError(
+            f"JSON 최상위가 객체가 아닙니다 ({type(d).__name__}) — --from-json 의 "
+            f"입력은 koo_sphere_report 가 낸 report.json 입니다.")
+    if "results_summary" not in d and "results" not in d:
+        raise ValueError(
+            "results_summary / results 키가 없습니다 — koo_sphere_report 의 "
+            "report.json 이 아닌 것 같습니다. "
+            f"(최상위 키: {', '.join(list(d)[:8]) or '없음'})")
     results_raw = d.get("results_summary") or d.get("results") or []
+    if not isinstance(results_raw, list) or not results_raw:
+        raise ValueError(
+            "각도 결과가 하나도 없습니다 — 빈 리포트를 성공으로 위장하지 않습니다.")
 
     sp_raw = d.get("simulation_params", {})
     sim_params = SimulationParams(
@@ -80,14 +93,37 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> R
         ))
 
     # Results
+    def _ang(ang: dict, key: str, where: str) -> float:
+        """각도값은 유한한 숫자여야 한다. null/문자열을 삼키면 지도와 표가 조용히 깨진다."""
+        if key not in ang:
+            return 0.0          # 키 부재 = 미지정. 기본값 0 은 정당하다.
+        v = ang[key]
+        if v is None:
+            # 명시적 null 은 손상 데이터다. 0 으로 채우면 허구 각도를 만들어낸다.
+            raise ValueError(
+                f"각도 {key} 가 null 입니다 — {where}. 0 으로 채우면 실제와 다른 "
+                f"낙하 방향을 지어내게 되므로 중단합니다.")
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"각도 {key} 가 숫자가 아닙니다 ({v!r}) — {where}. "
+                    f"손상된 report.json 을 정상으로 위장하지 않습니다.") from None
+        v = float(v)
+        if v != v or v in (float("inf"), float("-inf")):
+            raise ValueError(f"각도 {key} 가 유한한 수가 아닙니다 ({v!r}) — {where}")
+        return v
+
     results: list[SimulationResult] = []
     for r in results_raw:
-        ang = r.get("angle", {})
+        ang = r.get("angle", {}) or {}
+        _where = f"angle '{ang.get('name', '?')}'"
         angle = AngleCondition(
             angle_name=ang.get("name", ""),
-            roll=ang.get("roll", 0.0),
-            pitch=ang.get("pitch", 0.0),
-            yaw=ang.get("yaw", 0.0),
+            roll=_ang(ang, "roll", _where),
+            pitch=_ang(ang, "pitch", _where),
+            yaw=_ang(ang, "yaw", _where),
             category=ang.get("category", ""),
         )
 

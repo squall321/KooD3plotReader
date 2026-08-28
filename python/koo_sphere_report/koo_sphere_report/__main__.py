@@ -1,5 +1,6 @@
 """CLI entry point: python -m koo_sphere_report"""
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -63,7 +64,15 @@ def main():
             sys.exit(1)
         print(f"Loading from JSON: {json_in}")
         t0 = time.time()
-        report = load_report_from_json(json_in, yield_stress=args.yield_stress)
+        try:
+            report = load_report_from_json(json_in, yield_stress=args.yield_stress)
+        except (ValueError, json.JSONDecodeError) as e:
+            print(f"Error: {json_in} 을 리포트로 읽지 못했습니다 — {e}", file=sys.stderr)
+            sys.exit(2)
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"Error: {json_in} 을 읽지 못했습니다 ({type(e).__name__}: {e})",
+                  file=sys.stderr)
+            sys.exit(2)
         base_dir = str(json_in.parent.resolve())
         print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
     else:

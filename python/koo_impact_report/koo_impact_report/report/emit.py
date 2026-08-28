@@ -42,11 +42,32 @@ def _chunk_fname(pos_id: str) -> str:
 
 
 def write_payload_sidecar(payload: dict, out_path: Path) -> Path:
-    """impact_payload.json sidecar — --from-json 재렌더(~2s)의 입력."""
+    """impact_payload.json sidecar — --from-json 재렌더(~2s)의 입력.
+
+    이름이 고정이라 같은 폴더에 두 번째 리포트를 내면 첫 리포트의 사이드카를
+    덮어쓴다. 이후 --from-json 재렌더가 '다른 리포트' 를 만들어내므로,
+    다른 리포트의 사이드카를 지우게 되면 조용히 넘어가지 않고 알린다.
+    """
     sidecar = out_path.parent / "impact_payload.json"
     doc = {"schema_version": SCHEMA_VERSION,
            "generated_by": "koo_impact_report",
            "payload": payload}
+
+    if sidecar.is_file():
+        def _ident(meta) -> tuple:
+            meta = meta if isinstance(meta, dict) else {}
+            return (str(meta.get("project_name", "")), str(meta.get("test_dir", "")))
+        try:
+            prev = json.loads(sidecar.read_text(encoding="utf-8"))
+            prev_id = _ident((prev or {}).get("payload", {}).get("meta"))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            prev_id = None
+        new_id = _ident(payload.get("meta"))
+        if prev_id is not None and prev_id != new_id and any(prev_id):
+            print(f"[emit] WARN: {sidecar.name} 을 덮어씁니다 — 기존 사이드카는 "
+                  f"다른 리포트({prev_id[0] or '?'} / {prev_id[1] or '?'})의 것입니다. "
+                  f"이후 --from-json 재렌더는 새 리포트만 재현합니다.")
+
     sidecar.write_text(json.dumps(doc, cls=_Encoder, ensure_ascii=False),
                        encoding="utf-8")
     return sidecar

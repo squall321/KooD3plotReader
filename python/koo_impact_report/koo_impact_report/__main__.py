@@ -109,22 +109,52 @@ def main() -> None:
             sys.exit(1)
         from .report.emit import render_from_payload, SCHEMA_VERSION
         t0 = time.time()
-        doc = _json.loads(json_in.read_text(encoding="utf-8"))
+        try:
+            doc = _json.loads(json_in.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, _json.JSONDecodeError) as e:
+            print(f"[main] ERROR: {json_in} 을 JSON 으로 읽지 못했습니다 "
+                  f"({type(e).__name__}: {e}) — 사이드카 impact_payload.json 인지 "
+                  f"확인하세요.", file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(doc, dict):
+            print(f"[main] ERROR: JSON 최상위가 객체가 아닙니다 ({type(doc).__name__}) — "
+                  "--from-json 의 입력은 impact_payload.json (재렌더 사이드카)입니다.",
+                  file=sys.stderr)
+            sys.exit(2)
         got_ver = doc.get("schema_version")
         if got_ver != SCHEMA_VERSION:
             print(f"[main] ERROR: sidecar schema_version={got_ver!r} ≠ "
                   f"지원 버전 {SCHEMA_VERSION} — --test-dir 로 재생성하세요.",
                   file=sys.stderr)
             sys.exit(2)
-        payload = doc.get("payload") or {}
-        if not payload.get("faces"):
-            # save_json 요약본(report.json)도 schema_version 1 이라 버전 검사만으론
-            # 못 거른다 — 잘못된 파일 종류를 정직하게 알린다.
-            print("[main] ERROR: payload 가 없거나 faces 가 비어 있음 — --from-json 의 "
-                  "입력은 HTML 옆에 생성되는 impact_payload.json (재렌더 사이드카)입니다. "
-                  "impact_report.json 은 결과 요약 데이터라 재렌더 입력이 아닙니다.",
-                  file=sys.stderr)
+        payload = doc.get("payload")
+        # save_json 요약본(report.json)도 schema_version 1 이라 버전 검사만으론 못 거른다.
+        # 게다가 truthy 검사만 하면 faces="garbage" 같은 쓰레기가 통과해 문자열 길이를
+        # 면 개수로 지어낸다 — 구조까지 확인한다.
+        bad = None
+        if not isinstance(payload, dict):
+            bad = f"payload 가 객체가 아님 ({type(payload).__name__})"
+        elif not isinstance(payload.get("faces"), (list, dict)):
+            bad = f"payload.faces 가 배열/객체가 아님 ({type(payload.get('faces')).__name__})"
+        elif len(payload["faces"]) == 0:
+            bad = "payload.faces 가 비어 있음"
+        else:
+            _items = (payload["faces"].values() if isinstance(payload["faces"], dict)
+                      else payload["faces"])
+            if not all(isinstance(x, dict) and "code" in x for x in _items):
+                bad = "payload.faces 의 원소가 face 객체(code 필드 보유)가 아님"
+        if bad:
+            print(f"[main] ERROR: {bad} — --from-json 의 입력은 HTML 옆에 생성되는 "
+                  "impact_payload.json (재렌더 사이드카)입니다. impact_report.json 은 "
+                  "결과 요약 데이터라 재렌더 입력이 아닙니다.", file=sys.stderr)
             sys.exit(2)
+        # --from-json 은 HTML 재렌더 전용이다. json/terminal 을 요청했다면
+        # 조용히 무시하지 않고 무엇을 못 하는지 말한다.
+        _fmts = [f for f in (args.format or []) if f != "html"]
+        if _fmts or args.json:
+            print(f"[main] WARN: --from-json 은 HTML 재렌더 전용입니다 — "
+                  f"{'/'.join(_fmts) if _fmts else '--json'} 요청은 수행하지 않습니다. "
+                  f"요약 JSON 이 필요하면 --test-dir 로 실행하세요.", file=sys.stderr)
         html_path = args.output or str(json_in.parent / "report.html")
         if payload.get("chunks") and Path(html_path).parent != json_in.parent:
             print(f"[main] WARN: chunks 매니페스트 존재 — 청크 상대경로가 깨지지 "
