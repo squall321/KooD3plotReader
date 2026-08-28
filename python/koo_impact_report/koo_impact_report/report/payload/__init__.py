@@ -748,7 +748,7 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     if sq_median_diss is not None and kpi.get("diss_pct") is None:
         kpi["diss_pct"] = round(float(sq_median_diss), 1)
 
-    return {
+    payload = {
         "meta": meta,
         "kpi": kpi,
         "faces": faces,
@@ -784,17 +784,20 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "energy_conservation_tolerance": None,
         # Custom Report(세트 후처리) 연동 — 없으면 None (s10 은 스스로 숨는다)
         "set_report": _build_set_report_payload(report),
-        # 충격체 실형상 (없으면 개략도 폴백)
-        "impactor_mesh": _build_impactor_mesh(report),
+        # 충격체 실형상 (없으면 개략도 폴백). note 는 무음 폴백 방지용 사유.
+        "impactor_mesh": None,
+        "impactor_mesh_note": None,
     }
+    payload["impactor_mesh"], payload["impactor_mesh_note"] = _build_impactor_mesh(report)
+    return payload
 
 
 def _build_impactor_mesh(report) -> dict | None:
     """충격체 실형상 (근사 외곽 메시) — "뭐로 때렸는지" 눈으로 확인용.
 
     test_dir/impactor_preview.json 캐시. 없으면 make_stl 을 임팩터 파트로
-    실행해 생성한다. 파트 ID 미상·d3plot 부재·도구 부재면 None —
-    보고서는 종전 개략도(원/실린더)로 폴백한다.
+    실행해 생성한다. 반환은 (mesh|None, note|None) — 개략도로 폴백할 때도
+    사유를 note 로 전달해 무음으로 넘어가지 않는다.
     """
     import json as _json
     import os as _os
@@ -803,80 +806,64 @@ def _build_impactor_mesh(report) -> dict | None:
 
     test_dir = _P(str(report.test_dir)) if report.test_dir else None
     if test_dir is None:
-        return None
+        return None, None
+    from ..preview_cache import ensure_fresh
+
     cache = test_dir / "impactor_preview.json"
 
-    def _first_run_d3plot():
-        for positions in (report.positions_by_face or {}).values():
-            for pos in positions or []:
-                rd = _P(str(pos.run_dir))
-                for c in (rd / "Output" / "d3plot", rd / "d3plot"):
-                    if c.is_file():
-                        return c
-        return None
-
-    # 소스 d3plot 이 캐시보다 새로우면 stale — 지우고 재생성
-    if cache.is_file():
-        src0 = _first_run_d3plot()
-        try:
-            if src0 is not None and src0.stat().st_mtime > cache.stat().st_mtime:
-                cache.unlink()
-        except OSError:
-            pass
-
-    if not cache.is_file():
-        pid = getattr(getattr(report, "impactor", None), "part_id", None)
-        # make_stl 탐색
-        cands = []
-        env = _os.environ.get("KOOD3PLOT_HOME")
-        if env:
-            cands.append(_P(env) / "bin" / "make_stl")
-        # 저장소 루트를 조상 디렉터리에서 탐색 (payload/ 는 pkg 깊이가 달라질 수 있다)
-        for anc in _P(__file__).resolve().parents:
-            cands.append(anc / "build" / "examples" / "make_stl")
-        tool = next((c for c in cands if c.is_file()), None)
-        if tool is None:
-            return None
-        # 임팩터가 실린 d3plot 하나
-        d3 = None
-        for positions in (report.positions_by_face or {}).values():
-            for pos in positions or []:
-                rd = _P(str(pos.run_dir))
-                for c in (rd / "Output" / "d3plot", rd / "d3plot"):
-                    if c.is_file():
-                        d3 = c
-                        break
-                if d3:
+    # 미리보기 생성에 쓰는 d3plot — 감시 대상과 생성 입력이 같아야 한다
+    d3 = None
+    for positions in (report.positions_by_face or {}).values():
+        for pos in positions or []:
+            rd = _P(str(pos.run_dir))
+            for c in (rd / "Output" / "d3plot", rd / "d3plot"):
+                if c.is_file():
+                    d3 = c
                     break
             if d3:
                 break
-        if d3 is None:
-            return None
+        if d3:
+            break
+    if d3 is None:
+        return None, "런 d3plot 을 찾지 못해 충격체 실형상을 만들 수 없습니다"
 
-        # 스펙에 part_id 가 없으면 키워드 PART 제목 휴리스틱으로 탐지
-        if not pid:
-            try:
-                from ...loader import _find_impactor_part_id
-                pid = _find_impactor_part_id(d3)
-            except Exception:
-                pid = None
-        if not pid:
-            return None
+    # 임팩터 파트 — 캐시 서명에 반드시 넣는다. d3plot 이 그대로여도 파트가 바뀌면
+    # 다른 형상이어야 하는데, mtime 만 보면 옛 파트 형상을 그대로 쓰게 된다.
+    pid = getattr(getattr(report, "impactor", None), "part_id", None)
+    if not pid:
         try:
-            _sp.run([str(tool), str(d3), str(test_dir / "impactor_preview"),
-                     "15000", "32", str(pid)],
-                    capture_output=True, timeout=300)
-        except (OSError, _sp.TimeoutExpired):
-            return None
+            from ...loader import _find_impactor_part_id
+            pid = _find_impactor_part_id(d3)
+        except Exception:
+            pid = None
+    if not pid:
+        return None, "충격체 파트 ID 를 알 수 없어 실형상을 만들 수 없습니다 (개략도로 표시)"
+
+    # make_stl 탐색
+    cands = []
+    env = _os.environ.get("KOOD3PLOT_HOME")
+    if env:
+        cands.append(_P(env) / "bin" / "make_stl")
+    # 저장소 루트를 조상 디렉터리에서 탐색 (payload/ 는 pkg 깊이가 달라질 수 있다)
+    for anc in _P(__file__).resolve().parents:
+        cands.append(anc / "build" / "examples" / "make_stl")
+    tool = next((c for c in cands if c.is_file()), None)
+
+    params = {"part_id": int(pid), "target": 15000, "vr": 32}
+
+    def build_args(prefix: str) -> list:
+        return [str(d3), prefix, "15000", "32", str(pid)]
+
+    note = ensure_fresh(test_dir, "impactor_preview", [d3], params, tool, build_args)
 
     if not cache.is_file():
-        return None
+        return None, note
     try:
         if cache.stat().st_size > 1024 * 1024:
-            return None
-        return _json.loads(cache.read_text(encoding="utf-8"))
-    except (_json.JSONDecodeError, OSError):
-        return None
+            return None, "충격체 미리보기가 1MB 를 넘어 임베드하지 않았습니다"
+        return _json.loads(cache.read_text(encoding="utf-8")), note
+    except (_json.JSONDecodeError, OSError) as e:
+        return None, f"충격체 미리보기를 읽지 못했습니다 ({type(e).__name__})"
 
 
 def _build_set_report_payload(report) -> dict | None:

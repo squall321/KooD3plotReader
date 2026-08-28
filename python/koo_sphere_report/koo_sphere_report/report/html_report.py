@@ -223,8 +223,10 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     # Custom Report(세트 후처리) 연동 — per-run set_reports 산출물 스캔
     data["set_report"] = _set_report_payload(data["results"], test_dir)
     # 자세 미리보기용 근사 외곽 메시 (없으면 CSS 박스 폴백)
-    data["device_mesh"] = _load_device_mesh(test_dir)
-    if data["device_mesh"] is None:
+    data["device_mesh"], _dm_note = _load_device_mesh(test_dir)
+    if _dm_note:
+        data["device_mesh_note"] = _dm_note
+    elif data["device_mesh"] is None:
         data["device_mesh_note"] = ("device_preview.json 없음 — make_stl 로 생성하면 "
                                     "각도 미리보기가 실제 형상으로 바뀝니다")
     # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
@@ -362,56 +364,60 @@ def _load_device_mesh(test_dir: str) -> dict | None:
     import os
     import subprocess
 
+    from .preview_cache import ensure_fresh, keyword_source_files
+
     if not test_dir:
-        return None
+        return None, None
     base = Path(test_dir)
     cache = base / "device_preview.json"
 
-    # 원본 모델이 캐시보다 새로우면 stale — 지우고 재생성 (옛 형상 무음 사용 방지)
-    if cache.is_file():
-        src0 = _scenario_model_file(base)
-        try:
-            if src0 is not None and src0.stat().st_mtime > cache.stat().st_mtime:
-                cache.unlink()
-        except OSError:
-            pass
+    # make_stl 탐색: unified_analyzer 옆 → 저장소 빌드 트리
+    cands = []
+    env = os.environ.get("KOOD3PLOT_HOME")
+    if env:
+        cands.append(Path(env) / "bin" / "make_stl")
+    for anc in Path(__file__).resolve().parents:
+        cands.append(anc / "build" / "examples" / "make_stl")
+    tool = next((c for c in cands if c.is_file()), None)
+
+    # 소스 집합 — 원본 .k 는 *INCLUDE 로 끌어오는 파일까지 전부 감시해야 한다.
+    # (형상이 인클루드에 있고 마스터 덱은 안 바뀌는 것이 실무 표준이다)
+    src = _scenario_model_file(base)
+    if src is not None:
+        sources = keyword_source_files(src)
+        params = {"mode": "keyword", "target": 6000, "vr": 128}
+
+        def build_args(prefix: str) -> list:
+            return [str(src), prefix, "6000", "128"]
+    else:
+        d3 = None
+        out_dir = base / "output"
+        if out_dir.is_dir():
+            for run in sorted(out_dir.iterdir()):
+                cand = run / "d3plot"
+                if cand.is_file():
+                    d3 = cand
+                    break
+        if d3 is None:
+            return None, ("시나리오 원본 모델도 d3plot 도 찾지 못해 실형상 "
+                          "미리보기를 만들 수 없습니다")
+        sources = [d3]
+        params = {"mode": "device", "target": 6000, "vr": 128}
+
+        def build_args(prefix: str) -> list:
+            return [str(d3), prefix, "6000", "128", "device"]
+
+    note = ensure_fresh(base, "device_preview", sources, params, tool, build_args)
 
     if not cache.is_file():
-        # make_stl 탐색: unified_analyzer 옆 → 저장소 빌드 트리
-        cands = []
-        env = os.environ.get("KOOD3PLOT_HOME")
-        if env:
-            cands.append(Path(env) / "bin" / "make_stl")
-        for anc in Path(__file__).resolve().parents:
-            cands.append(anc / "build" / "examples" / "make_stl")
-        tool = next((c for c in cands if c.is_file()), None)
-
-        src = _scenario_model_file(base)
-        args = None
-        if src is not None:
-            args = [str(src), str(base / "device_preview"), "6000", "128"]
-        else:
-            out_dir = base / "output"
-            if out_dir.is_dir():
-                for run in sorted(out_dir.iterdir()):
-                    cand = run / "d3plot"
-                    if cand.is_file():
-                        args = [str(cand), str(base / "device_preview"), "6000", "128", "device"]
-                        break
-        if tool and args:
-            try:
-                subprocess.run([str(tool)] + args, capture_output=True, timeout=300)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-
-    if not cache.is_file():
-        return None
+        return None, note
     try:
         if cache.stat().st_size > 3 * 1024 * 1024:
-            return None    # 임베드 상한 — 형상 미리보기에 3MB 이상은 과하다
-        return json.loads(cache.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
+            # 임베드 상한 — 형상 미리보기에 3MB 이상은 과하다
+            return None, "미리보기가 3MB 를 넘어 임베드하지 않았습니다"
+        return json.loads(cache.read_text(encoding="utf-8")), note
+    except (json.JSONDecodeError, OSError) as e:
+        return None, f"미리보기 캐시를 읽지 못했습니다 ({type(e).__name__})"
 
 
 def _set_report_payload(results: list, test_dir: str) -> dict:
