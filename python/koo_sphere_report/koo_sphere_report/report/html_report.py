@@ -2167,6 +2167,45 @@ function getQtyValue(pd, qty) {
   return _MAG_QTYS[qty] ? Math.abs(v) : v;
 }
 
+// 시계열 탭 지표 정의 — [코드, 라벨, payload 키, 배율]
+// 배율은 표시 단위 환산용 (G-Force 만 1e-6). 없는 지표는 선택지에서 감춘다.
+const TH_QTYS = [
+  ['stress',            'Von Mises Stress',            'stress_ts',            1],
+  ['strain',            'Eff. Plastic Strain',         'strain_ts',            1],
+  ['vm_strain',         'ε_vm · von Mises Strain',     'vm_strain_ts',         1],
+  ['principal',         'σ1 · Max Principal Stress',   'principal_ts',         1],
+  ['principal_min',     'σ3 · Min Principal Stress',   'principal_min_ts',     1],
+  ['principal_strain',  'ε1 · Max Principal Strain',   'principal_strain_ts',  1],
+  ['principal_strain_min', 'ε3 · Min Principal Strain', 'principal_strain_min_ts', 1],
+  ['g',                 'G-Force (MG)',                'g_ts',                 1e-6],
+  ['disp',              'Displacement',                'disp_ts',              1],
+];
+
+// 그 시계열이 이 데이터셋에 실제로 있는가. hasQty 와 같은 규율 —
+// 없는 것을 선택지에 남겨 두면 고르는 순간 빈 차트만 나와 '데이터가 0' 으로 오독된다.
+function hasSeries(tsKey) {
+  for (const r of (DATA.results || [])) {
+    for (const k in (r.parts || {})) {
+      const pd = r.parts[k];
+      if (pd && pd[tsKey] && pd[tsKey].t && pd[tsKey].t.length) return true;
+    }
+  }
+  return false;
+}
+
+// 표 기반으로 바로 그릴 수 있는 지표 (성분 선택이 없는 것들)
+const TH_SIMPLE = {
+  vm_strain: 'vm_strain_ts',
+  principal: 'principal_ts',
+  principal_min: 'principal_min_ts',
+  principal_strain: 'principal_strain_ts',
+  principal_strain_min: 'principal_strain_min_ts',
+};
+
+function thAvailable() {
+  return TH_QTYS.filter(q => hasSeries(q[2]));
+}
+
 // 그 물리량이 이 데이터셋에 실제로 있는가. 없으면 선택지에서 감춘다.
 function hasQty(qty) {
   if (qty === 'safety_factor') return (DATA.yield_stress || 0) > 0;
@@ -2593,6 +2632,19 @@ function renderTimeHistory() {
   const parts = getAllPartIds();
   if (timeHistState.partId === 0 && parts.length > 0) timeHistState.partId = parts[0];
 
+  // 선택된 지표가 이 데이터셋에 없으면 있는 것으로 옮긴다.
+  // (기본값 'stress' 를 붙잡고 있으면 빈 차트만 나와 '값이 0' 으로 오독된다)
+  const _avail = thAvailable();
+  if (_avail.length === 0) {
+    container.innerHTML = '<div style="color:var(--dim);padding:20px">' +
+      '이 데이터셋에는 시계열 산출물이 없습니다 — 분석 시 CSV 출력을 켜야 합니다.</div>';
+    return;
+  }
+  if (!_avail.some(q => q[0] === timeHistState.quantity)) {
+    timeHistState.quantity = _avail[0][0];
+    timeHistState.component = 'mag';
+  }
+
   let html = `<div class="controls">
     <label>Part:</label>
     <select id="th-part" onchange="timeHistState.partId=parseInt(this.value);drawTimeHistory()">`;
@@ -2603,10 +2655,9 @@ function renderTimeHistory() {
   html += `</select>
     <label>Quantity:</label>
     <select id="th-qty" onchange="timeHistState.quantity=this.value;timeHistState.component='mag';renderTimeHistory()">
-      <option value="stress"${timeHistState.quantity==='stress'?' selected':''}>Von Mises Stress</option>
-      <option value="strain"${timeHistState.quantity==='strain'?' selected':''}>Eff. Plastic Strain</option>
-      <option value="g"${timeHistState.quantity==='g'?' selected':''}>G-Force (MG)</option>
-      <option value="disp"${timeHistState.quantity==='disp'?' selected':''}>Displacement</option>
+      ${thAvailable()
+        .map(q => `<option value="${q[0]}"${timeHistState.quantity===q[0]?' selected':''}>${q[1]}</option>`)
+        .join('')}
     </select>`;
   // Component selector for G-Force and Displacement
   if (timeHistState.quantity === 'g' || timeHistState.quantity === 'disp') {
@@ -2740,6 +2791,12 @@ function drawTimeHistory() {
       }
     } else if (qty === 'strain' && pd.strain_ts) {
       ts = { t: pd.strain_ts.t, v: pd.strain_ts.max };
+    } else if (TH_SIMPLE[qty] && pd[TH_SIMPLE[qty]]) {
+      // σ1/σ3/ε1/ε3/ε_vm — max 를 그리고, 압축측(σ3·ε3)은 min 이 있으면 그쪽을 쓴다
+      const src = pd[TH_SIMPLE[qty]];
+      const useMin = (qty === 'principal_min' || qty === 'principal_strain_min') && src.min;
+      const v = useMin ? src.min : src.max;
+      if (v) ts = { t: src.t, v: v };
     } else if (qty === 'g') {
       if (comp !== 'mag' && pd.acc_ts && pd.acc_ts[comp]) {
         ts = { t: pd.acc_ts.t, v: pd.acc_ts[comp].map(v => v/1e6) };
