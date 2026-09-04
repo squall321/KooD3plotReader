@@ -111,3 +111,143 @@ DynaForge 쪽은 값이 들어오면 자동으로 활성화된다.
 - principal/vm_strain 쿼리 키는 이미 등록. 소성만 화이트리스트 1줄 추가 예정.
 
 문의는 DynaForge / KooRemapper 측으로.
+
+
+---
+
+# 수신측 회신 — KooD3plotReader (2026-09-04)
+
+요청 4건을 현재 코드·실산출물로 전수 확인했습니다. 결론부터: **요청 항목 대부분은 이미
+나가고 있었고, 실제 문제는 키 이름이었습니다.** 새로 계산할 것은 없었습니다.
+
+| 항목 | 요청서 판단 | 실제 | 조치 |
+|---|---|---|---|
+| P1-A 소성 변형률 | 계산됨·미노출 | **이미 `peak_strain` 으로 노출 중** (그 값이 곧 eff_plastic) | `peak_plastic_strain` 명시 키 추가 |
+| P1-B strain/disp/g 시계열 | peak 만 노출 | **이미 전부 노출 중** (실측 각 17,160개) | `g_ts`·`disp_ts` 에 `max` 별칭 추가 |
+| P2-A principal | 계산됨·미노출 | export 는 이미 지원, **분석 잡을 안 돌려 데이터가 없음** | `peak_principal`·`min_principal` 별칭 추가 |
+| P2-B von Mises 변형률 | 계산됨·미노출 | export 이미 지원, 위와 동일 | (기존 `peak_vm_strain` 그대로) |
+| 에너지(matsum) | 범위 밖 | **이미 파트별로 노출 중** (실측 442/442 비0) | 조치 불요 |
+
+## 1. 소성 변형률은 이미 나가고 있었습니다 — 이름 문제
+
+`loader.py:413` 이 `part_<pid>_eff_plastic_strain.csv` 를 `pr.strain` 에 싣고,
+`peak_strain` 은 그 피크입니다. 즉 **`peak_strain` 이 곧 유효소성변형률**입니다.
+실산출물에서도 `strain_history` 의 `quantity` 가 `eff_plastic_strain` 하나뿐입니다.
+
+이름만으로 어떤 strain 인지 알 수 없어 생긴 오독으로 보입니다. 같은 값을 명시적 이름으로
+함께 내보내도록 `peak_plastic_strain` 을 추가했습니다(새 계산이 아니라 별칭).
+
+주의 — `peak_vm_strain` 은 **다른 양**입니다. von Mises 등가 변형률은 탄성분을 포함합니다
+(`models.py:203`). 둘을 같은 칸에 넣지 마십시오.
+
+## 2. strain/disp/g 시계열도 이미 나가고 있었습니다 — 내부 키 이름 문제
+
+`/data/Tests/Test_006_Fibonacci_6deg/report.json` (1,144각도) 전수 집계:
+
+| 키 | 보유 파트 인스턴스 |
+|---|---|
+| `stress_ts` | 19,448 |
+| `strain_ts` | 17,160 |
+| `g_ts` | 17,160 |
+| `disp_ts` | 17,160 |
+
+(총 파트 인스턴스 19,448. 차이 2,288 은 변형률·운동 데이터가 없는 파트 — 강체/바닥 계열)
+
+"stress_ts 만 흘러간다" 는 판단은 **파트 1** 만 보신 결과로 보입니다. 파트 1 은
+`peak_strain=0 / peak_g=0 / peak_disp=0` 인 파트라 ts 키가 붙지 않습니다.
+
+진짜 비호환은 **시계열 내부 키 이름**이었습니다.
+
+| 시계열 | 기존 값 키 | 요청 스키마 | 조치 |
+|---|---|---|---|
+| `stress_ts` | `max`, `avg`, (`min`, `elem`) | `max`… | 이미 일치 |
+| `strain_ts` | `max`, (`avg`) | `max`… | 이미 일치 |
+| `g_ts` | **`g`** | `max` | `max` 별칭 추가 |
+| `disp_ts` | **`mag`** | `max` | `max` 별칭 추가 |
+
+`g`/`mag` 는 본 리포트 JS 가 읽으므로 **유지**하고 `max` 를 나란히 넣었습니다.
+값은 동일한 배열입니다(실측 390 파트 전수 일치, 불일치 0건).
+
+## 3. principal / vm 변형률 — export 가 아니라 분석 설정 문제
+
+export 계층은 이미 지원합니다. `loader.py:396-410` 이 아래 CSV 가 있으면 싣고,
+`json_report.py`·`html_report.py` 가 있으면 내보냅니다.
+
+```
+stress/part_<pid>_max_principal_stress.csv
+stress/part_<pid>_min_principal_stress.csv
+strain/part_<pid>_max_principal_strain.csv
+strain/part_<pid>_min_principal_strain.csv
+strain/part_<pid>_von_mises_strain.csv
+```
+
+실데이터에 값이 없는 이유는 **그 잡을 안 돌렸기 때문**입니다. 확인한 산출물의
+`analysis_jobs` 는 `von_mises` + `eff_plastic_strain` 둘뿐입니다.
+
+- `/data/Tests/Test_006_Fibonacci_6deg` → `von_mises`, `eff_plastic_strain`
+- `/data/Tests/Test_001_Full26_1Step` → `von_mises`
+- `/data/koopark/Test_Impact_A` → `von_mises`, `eff_plastic_strain`
+
+또한 **주변형률은 덱에 `*DATABASE_EXTENT_BINARY` 의 `STRFLG=1` 이 있어야** d3plot 에
+변형률 텐서가 실립니다(`models.py:198-199`). 없으면 `None` 이고 0 이 아닙니다.
+
+따라서 이 두 항목은 export 보강으로 열리지 않습니다. **해석을 다시 돌릴 때 분석 잡에
+principal 계열을 넣고, 덱에 STRFLG 를 켜야** 합니다. 그렇게 하면 별도 작업 없이
+지금 코드로 바로 나갑니다(합성 CSV 주입으로 실동작 확인함).
+
+이름 호환만 미리 맞춰 두었습니다 — `peak_principal` / `min_principal` 을
+기존 `peak_principal_stress` / `min_principal_stress` 와 같은 값으로 함께 내보냅니다.
+
+## 4. 에너지는 이미 나가고 있습니다
+
+요청서는 범위 밖으로 두었지만, 파트별 에너지는 이미 나갑니다.
+`Test_001_Full26_1Step` 실측 — `energy` 키 보유 442 파트, 전부 비0.
+
+```json
+"energy": {"peak_ie": 874.139, "peak_ie_time": 0.0,
+           "peak_ke": 781.336, "peak_ke_time": 0.0,
+           "final_ie": 106.897, "final_ke": 377.29}
+```
+
+binout matsum 은 리포트 계층이 직접 읽습니다. 별도 요청이 필요 없습니다.
+
+## 5. 이번 변경으로 나가는 최종 스키마
+
+`results[].parts[<pid>]` — **굵게** 표시가 이번에 추가된 키입니다.
+
+```json
+{
+  "peak_stress": 247.3, "peak_strain": 50.942348,
+  "peak_disp": 49.474, "peak_g": 226154.5,
+  "peak_plastic_strain": 50.942348,            // 추가 (= peak_strain, 명시적 이름)
+  "peak_principal_stress": 92.5, "peak_principal": 92.5,      // 별칭 추가
+  "min_principal_stress": 0.0,  "min_principal": 0.0,         // 별칭 추가
+  "peak_principal_strain": 57.647522, "min_principal_strain": -32.841351,
+  "peak_vm_strain": 57.647522,
+  "stress_ts": {"t": [...], "max": [...], "avg": [...]},
+  "strain_ts": {"t": [...], "max": [...]},
+  "g_ts":      {"t": [...], "g": [...],   "max": [...]},      // max 별칭 추가
+  "disp_ts":   {"t": [...], "mag": [...], "max": [...]},      // max 별칭 추가
+  "energy":    {"peak_ie":..., "peak_ke":..., "final_ie":..., "final_ke":...}
+}
+```
+
+**결측 규약** — 요청대로 값이 없으면 **키 자체를 넣지 않습니다**. `null` 이나 `0` 으로
+채우지 않습니다. 0 으로 채우면 "측정했더니 0" 과 "측정 안 됨" 이 구분되지 않습니다.
+소비 측에서는 `key in part` 로 판단해 주십시오.
+
+## 6. 검증
+
+- 실데이터 1,144각도 재생성 — `peak_plastic_strain` 19,448 파트 전수 출력
+- `g_ts.max == g_ts.g`, `disp_ts.max == disp_ts.mag`, `peak_plastic_strain == peak_strain`
+  — 390 파트 전수 대조, **불일치 0건**
+- principal 별칭 — CSV 주입 후 `peak_principal == peak_principal_stress` 확인
+- HTML 리포트 8개 탭 렌더 — JS 예외 0건, 기존 `g`/`mag` 소비 정상
+- 적용 채널 — HTML 임베드(`html_report.py`)와 저장 JSON(`json_report.py`) 양쪽
+
+## 7. 남은 것 (DynaForge 측 확인 요청)
+
+1. `peak_strain` 을 이미 읽고 있다면 그게 소성 변형률입니다 — 중복 집계하지 마십시오.
+2. principal / vm 변형률이 필요하면 **해석 재실행이 필요**합니다. 대상 캠페인을 알려주시면
+   분석 잡 설정을 맞춰 드립니다.
+3. 에너지는 이미 있으니 화이트리스트에 `energy.*` 를 넣으시면 바로 쓰실 수 있습니다.

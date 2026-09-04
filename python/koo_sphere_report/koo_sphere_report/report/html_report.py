@@ -145,12 +145,21 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 "peak_g": round(pr.peak_g, 1),
                 "peak_disp": round(pr.peak_disp, s_prec),
             }
+            # peak_strain 의 소스는 part_<pid>_eff_plastic_strain.csv (loader.py) 라
+            # 이 값이 곧 유효소성변형률이다. 이름만으로는 어떤 strain 인지 알 수 없어
+            # 다운스트림이 '소성 변형률이 없다' 고 오독했다 — 명시적 키를 함께 낸다.
+            # (같은 값의 별칭이지 새로 계산한 양이 아니다)
+            if pr.strain is not None:
+                pd["peak_plastic_strain"] = round(pr.peak_strain, e_prec)
             # 최대 주응력 σ1 (있을 때만). von Mises 와 다른 물리량이라 별 칸.
             if pr.principal is not None:
                 pd["peak_principal_stress"] = round(pr.peak_principal, s_prec)
+                # 다운스트림 스키마 별칭 (접미사 없는 이름을 읽는 소비자용)
+                pd["peak_principal"] = pd["peak_principal_stress"]
                 pd["time_of_peak_principal"] = round(pr.principal.peak_time, t_prec)
             if pr.principal_min is not None and pr.min_principal is not None:
                 pd["min_principal_stress"] = round(pr.min_principal, s_prec)
+                pd["min_principal"] = pd["min_principal_stress"]
             if pr.peak_principal_strain is not None:
                 pd["peak_principal_strain"] = round(pr.peak_principal_strain, e_prec)
             if pr.min_principal_strain is not None:
@@ -189,14 +198,16 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
             if pr.motion and pr.motion.times:
                 step = max(1, len(pr.motion.times) // ts_pts)
                 g_factor = MotionData.G_FACTOR  # single source of truth
-                pd["g_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
-                    "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],
-                }
-                pd["disp_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
-                    "mag": [round(pr.motion.avg_disp_mag[i], s_prec) for i in range(0, len(pr.motion.avg_disp_mag), step)],
-                }
+                _t = [round(pr.motion.times[i], t_prec)
+                      for i in range(0, len(pr.motion.times), step)]
+                _g = [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1)
+                      for i in range(0, len(pr.motion.avg_acc_mag), step)]
+                _d = [round(pr.motion.avg_disp_mag[i], s_prec)
+                      for i in range(0, len(pr.motion.avg_disp_mag), step)]
+                # "max" 는 stress_ts/strain_ts 와 같은 이름 규약을 쓰는 소비자용
+                # 별칭이다. 기존 "g"/"mag" 도 유지한다 (이 리포트 JS 가 읽는다).
+                pd["g_ts"] = {"t": _t, "g": _g, "max": _g}
+                pd["disp_ts"] = {"t": _t, "mag": _d, "max": _d}
                 if include_components:
                     cs = max(1, len(pr.motion.times) // comp_pts)
                     pd["acc_ts"] = {
