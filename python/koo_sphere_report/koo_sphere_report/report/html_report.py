@@ -74,6 +74,25 @@ def _compact_energy_flows(energy_flows: dict, detail_folders=None) -> dict:
     return out
 
 
+def _series_payload(ts, prec: int, points: int, want_min: bool = False) -> dict | None:
+    """TimeSeriesData → 다운샘플 시계열 dict. 값이 없으면 None.
+
+    키 규약은 stress_ts 와 동일하다 — t / max / avg / (min).
+    σ3·ε3 처럼 압축측이 의미 있는 양은 want_min 으로 min 을 함께 싣는다.
+    """
+    if ts is None or not ts.times:
+        return None
+    step = max(1, len(ts.times) // max(1, points))
+    out = {"t": [round(ts.times[i], 7) for i in range(0, len(ts.times), step)]}
+    if ts.max_values:
+        out["max"] = [round(ts.max_values[i], prec) for i in range(0, len(ts.max_values), step)]
+    if ts.avg_values:
+        out["avg"] = [round(ts.avg_values[i], prec) for i in range(0, len(ts.avg_values), step)]
+    if want_min and ts.min_values:
+        out["min"] = [round(ts.min_values[i], prec) for i in range(0, len(ts.min_values), step)]
+    return out if len(out) > 1 else None
+
+
 def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -> dict:
     """Build JSON-serializable data object for embedding in HTML."""
     data = {
@@ -195,6 +214,18 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 }
                 if pr.strain.avg_values:
                     pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in range(0, len(pr.strain.avg_values), step)]
+            # σ1/σ3/ε1/ε3/ε_vm — 로더가 시계열을 통째로 읽어 두는데 종전에는
+            # peak 만 내보냈다. 값이 있는 것만 싣는다 (없으면 키 자체를 안 넣는다).
+            for _key, _src, _prec, _wmin in (
+                ("principal_ts",            pr.principal,            s_prec, False),
+                ("principal_min_ts",        pr.principal_min,        s_prec, True),
+                ("principal_strain_ts",     pr.principal_strain,     e_prec, False),
+                ("principal_strain_min_ts", pr.principal_strain_min, e_prec, True),
+                ("vm_strain_ts",            pr.vm_strain,            e_prec, False),
+            ):
+                _ser = _series_payload(_src, _prec, ts_pts, _wmin)
+                if _ser is not None:
+                    pd[_key] = _ser
             if pr.motion and pr.motion.times:
                 step = max(1, len(pr.motion.times) // ts_pts)
                 g_factor = MotionData.G_FACTOR  # single source of truth

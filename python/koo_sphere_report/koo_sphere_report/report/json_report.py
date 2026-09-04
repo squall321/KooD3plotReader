@@ -18,6 +18,25 @@ class ReportEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+def _series_payload(ts, prec: int, points: int, want_min: bool = False) -> dict | None:
+    """TimeSeriesData → 다운샘플 시계열 dict. 값이 없으면 None.
+
+    키 규약은 stress_ts 와 동일하다 — t / max / avg / (min).
+    σ3·ε3 처럼 압축측이 의미 있는 양은 want_min 으로 min 을 함께 싣는다.
+    """
+    if ts is None or not ts.times:
+        return None
+    step = max(1, len(ts.times) // max(1, points))
+    out = {"t": [round(ts.times[i], 7) for i in range(0, len(ts.times), step)]}
+    if ts.max_values:
+        out["max"] = [round(ts.max_values[i], prec) for i in range(0, len(ts.max_values), step)]
+    if ts.avg_values:
+        out["avg"] = [round(ts.avg_values[i], prec) for i in range(0, len(ts.avg_values), step)]
+    if want_min and ts.min_values:
+        out["min"] = [round(ts.min_values[i], prec) for i in range(0, len(ts.min_values), step)]
+    return out if len(out) > 1 else None
+
+
 def save_json(report: Report, path: str, include_timeseries: bool = True) -> None:
     # Build a summary dict
     summary = {
@@ -127,6 +146,17 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                         "t": [round(pr.strain.times[i], 7) for i in range(0, len(pr.strain.times), step)],
                         "max": [round(pr.strain.max_values[i], 6) for i in range(0, len(pr.strain.max_values), step)],
                     }
+                # σ1/σ3/ε1/ε3/ε_vm — peak 만 내보내던 것을 시계열까지 확장.
+                for _key, _src, _prec, _wmin in (
+                    ("principal_ts",            pr.principal,            2, False),
+                    ("principal_min_ts",        pr.principal_min,        2, True),
+                    ("principal_strain_ts",     pr.principal_strain,     6, False),
+                    ("principal_strain_min_ts", pr.principal_strain_min, 6, True),
+                    ("vm_strain_ts",            pr.vm_strain,            6, False),
+                ):
+                    _ser = _series_payload(_src, _prec, ts_pts, _wmin)
+                    if _ser is not None:
+                        pd[_key] = _ser
                 if pr.motion and pr.motion.times:
                     step = max(1, len(pr.motion.times) // ts_pts)
                     g_factor = MotionData.G_FACTOR  # single source of truth

@@ -251,3 +251,63 @@ binout matsum 은 리포트 계층이 직접 읽습니다. 별도 요청이 필�
 2. principal / vm 변형률이 필요하면 **해석 재실행이 필요**합니다. 대상 캠페인을 알려주시면
    분석 잡 설정을 맞춰 드립니다.
 3. 에너지는 이미 있으니 화이트리스트에 `energy.*` 를 넣으시면 바로 쓰실 수 있습니다.
+
+
+---
+
+## 8. 추가 — 변형률 전 종류 시계열까지 확장 (2026-09-04 후속)
+
+"일반 변형률(총 변형률)도 다 나가느냐" 는 확인 요청에 대한 답입니다.
+
+### 8-1. 이 파이프라인이 다루는 변형률은 두 종류입니다
+
+| 이름 | CSV | 의미 | 리포트 키 |
+|---|---|---|---|
+| 유효**소성**변형률 | `eff_plastic_strain` | 소성분만 | `peak_strain` = `peak_plastic_strain` |
+| von Mises 등가변형률 | `von_mises_strain` | **탄성분 포함 — 이것이 '일반 변형률'** | `peak_vm_strain` |
+
+`models.py:203` 이 둘의 차이를 명시합니다. 즉 **일반(총) 변형률은 `peak_vm_strain`** 이고,
+이미 export 됩니다. 별도 물리량을 새로 만들 필요가 없습니다.
+
+> 참고 — `effective_strain`·`strain_xx` 같은 이름이 소스에 보이지만 그건 **query/render
+> 계층**(`src/query/`, `src/render/`) 것이고, 리포트를 먹이는 분석 파이프라인
+> (`src/analysis/`) 의 `AnalysisJobType` 은 8종뿐입니다. 리포트로 오는 경로가 아닙니다.
+
+### 8-2. 분석기 ↔ 로더는 이미 7종 전부 대응합니다
+
+`examples/unified_analyzer.cpp:287-340` 이 파트별로 쓰고, `loader.py:390-420` 이 읽습니다.
+
+```
+stress/  von_mises · max_principal_stress · min_principal_stress
+strain/  eff_plastic_strain · von_mises_strain · max_principal_strain · min_principal_strain
+motion/  motion
+```
+
+export 갭은 없습니다. 실데이터에 값이 없는 것은 덱에 변형률 텐서가 없거나
+(`*DATABASE_EXTENT_BINARY STRFLG`) 그 잡을 안 돌렸기 때문입니다.
+`SinglePassAnalyzer.cpp:1456-1464` 는 전부 0이면 아예 비웁니다 — 허구 0 을 안 냅니다.
+
+### 8-3. 이번에 메운 진짜 갭 — 시계열
+
+로더가 σ1·σ3·ε1·ε3·ε_vm 의 **시계열을 통째로 읽어 두는데 peak 만 내보내고
+있었습니다.** 5종 전부 시계열을 추가했습니다.
+
+| 신규 키 | 물리량 | 내부 키 |
+|---|---|---|
+| `principal_ts` | σ1 최대주응력 | `t`, `max`, `avg` |
+| `principal_min_ts` | σ3 최소주응력 | `t`, `max`, `avg`, `min` |
+| `principal_strain_ts` | ε1 최대주변형률 | `t`, `max`, `avg` |
+| `principal_strain_min_ts` | ε3 최소주변형률 | `t`, `max`, `avg`, `min` |
+| `vm_strain_ts` | **ε_vm 일반 변형률** | `t`, `max`, `avg` |
+
+σ3·ε3 은 압축측이 의미 있어 `min` 을 함께 싣습니다. 다운샘플 규칙과 결측 규약
+(값 없으면 키 자체 생략)은 기존과 동일합니다.
+
+이로써 **로더가 읽는 모든 물리량이 peak + 시계열 양쪽으로 나갑니다.**
+
+### 8-4. 검증
+
+CSV 5종을 주입한 실런에서 시계열 11종 전부 출력 확인
+(`stress_ts` `strain_ts` `g_ts` `disp_ts` `acc_ts` `disp_comp_ts`
+ `principal_ts` `principal_min_ts` `principal_strain_ts` `principal_strain_min_ts` `vm_strain_ts`),
+각 124점. HTML 8개 탭 렌더 JS 예외 0건. 1,144각도 실데이터 회귀 정상(8.1MB).
