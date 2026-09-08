@@ -185,13 +185,21 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
             continue;
         }
 
+        // 변형률 6성분은 NEIPH 확장값의 **마지막 6개** — 0-based 시작 = base + NV3D - 6
+        const size_t eoff = base + static_cast<size_t>(nv3d) - 6;
+        if (eoff + 6 > state.solid_data.size()) {
+            continue;
+        }
+
         const StressTensor e(
-            state.solid_data[base + 7],   // exx
-            state.solid_data[base + 8],   // eyy
-            state.solid_data[base + 9],   // ezz
-            state.solid_data[base + 10],  // exy
-            state.solid_data[base + 11],  // eyz
-            state.solid_data[base + 12]   // ezx
+            // 변형률 위치 = base + NV3D - 6 (NEIPH 확장값의 마지막 6개).
+            // base+7 은 NV3D==13 일 때만 맞는다 — SinglePassAnalyzer::extractStrainTensor 주석 참조.
+            state.solid_data[eoff + 0],   // exx
+            state.solid_data[eoff + 1],   // eyy
+            state.solid_data[eoff + 2],   // ezz
+            state.solid_data[eoff + 3],   // exy
+            state.solid_data[eoff + 4],   // eyz
+            state.solid_data[eoff + 5]    // ezx
         );
 
         // 면 법선 기준 수직/전단 변형률 — 응력과 동일한 텐서 사영식을 쓴다.

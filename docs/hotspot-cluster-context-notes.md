@@ -253,3 +253,70 @@ YAML 블록은 `render_only=False` 인 1차 패스에만 방출한다. 2차 렌�
   같은 수준으로 두고 문서에 명시한다.
 - `deleted_solids` 는 파서가 한 번도 채우지 않아 침식 요소 필터가 무효다(기존 결함).
 - `real_node_ids` 역맵을 쓰는 3곳(UnifiedAnalyzer / NodalAverager / BoundingBox).
+
+
+---
+
+## 2026-09-08 · 적대적 검토가 잡은 확정 결함 2건
+
+4관점 검토 → 각 지적을 2명이 독립 반증. 12건 중 **2건 확정**(반증 0/2), 10건 기각.
+
+### 🔴 확정 1 (high) — d3plot 변형률 워드 위치가 틀렸다
+
+규격(`ls-dyna_database.txt:2981-2987`)은 solid 레이아웃을 이렇게 못박는다.
+
+```
+7.                     유효소성변형률
+8..                    NEIPH extra values
+7+NEIPH-5 .. 7+NEIPH   Epsilon-x .. Epsilon-zx        (1-based)
+```
+
+`NV3D = 7 + NEIPH` 이므로 0-based 시작은 **`base + NV3D - 6`**.
+`base + 7` 은 `NEIPH == 6`(`NV3D == 13`)일 때만 우연히 맞는다.
+
+**실덱 확인** — `/data/battery_study` 의 덱 10개 전부 어긋난다.
+
+| 덱 | NV3D | NEIPH | 올바른 오프셋 | 코드가 읽던 곳 |
+|---|---|---|---|---|
+| case_01/02 | 26 | 19 | base+20 | base+7 |
+| case_05\* | 29 | 22 | base+23 | base+7 |
+| case_05d~k | 30 | 23 | base+24 | base+7 |
+
+`base+7` 은 **이력변수 슬롯**이다. 값이 0 이면 변형률 0 으로, 손상변수가 들어
+있으면 그 값을 변형률로 보고한다. 경고는 없다.
+
+**같은 오류가 4곳에 있었다** — 이번 커밋이 만든 1곳과 기존 3곳.
+
+- `SinglePassAnalyzer::accumulateElementMaxVonMises` (이번)
+- `SinglePassAnalyzer::extractStrainTensor` (기존)
+- `SurfaceStrainAnalyzer` (기존)
+- `PartAnalyzer` (기존, 6개 case)
+
+전부 `base + NV3D - 6` 으로 고쳤다. `NV3D == 13` 인 덱에서는 값이 동일하므로
+기존 덱에 회귀가 없다(시험 [1] 이 이를 고정한다).
+
+### 🔴 확정 2 (medium) — 변형률 미기록을 '측정값 0' 으로 보고
+
+`has_strain_tensor_` 는 ISTRN 플래그만 본다. 슬롯은 있는데 솔버가 채우지 않은
+덱(예: `IDTDT=100`)에서 핫스팟이 `strain_available: true` + `strain_mean: 0` 을
+내보내, 소비 측이 "소성변형이 전혀 없음" 이라는 **반대 결론**을 낸다.
+
+같은 파일 `buildResult()` 가 주변형률에 대해 이미 전량-0 판정을 하고 있는데
+(`SinglePassAnalyzer.cpp:1536-1556`) 핫스팟 경로만 우회했다.
+같은 판정을 `accumulateElementMaxVonMises` 끝에 넣어 배열을 비운다 —
+비면 하류가 변형률 항목을 자연스럽게 건너뛴다.
+
+### 기각된 10건 중 기록할 것
+
+- "축퇴 유형별 분기가 필요 없다" 는 헤더 주석이 구현과 모순 → 실제로는 tet 분기를
+  추가하며 주석을 갱신했으므로 현재 코드에는 해당 없음
+- `max_clusters_per_part` 절단 후 `element_count_clustered` 불일치 →
+  의도된 값(절단 전 군집 총계)이며 문서에 정의돼 있음
+- 나머지는 계획서가 범위 밖으로 명시한 항목이거나 상위 가드로 방어됨
+
+### 남은 별건 (이번 범위 밖)
+
+- `real_node_ids` 역맵을 쓰는 3곳(UnifiedAnalyzer / NodalAverager / BoundingBox)
+- `deleted_solids` 를 파서가 채우지 않아 침식 요소 필터가 무효
+- `--config` YAML 의 hotspot 블록이 `_apply_config_to_args` 를 안 타는 문제
+  (CLI 인자로는 정상 동작. 사용법 문서 §2 와 불일치 — 별건으로 처리 필요)

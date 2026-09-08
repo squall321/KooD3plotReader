@@ -1273,19 +1273,28 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
     const std::vector<double>& solid_data,
     size_t elem_idx
 ) {
-    // Strain tensor at words 7-12 (after 6 stress + 1 eff_plastic_strain)
-    size_t base = elem_idx * nv3d_;
-    if (base + 13 > solid_data.size()) {
+// 🔴 d3plot solid 변형률은 **NEIPH 확장값의 마지막 6개**다. 규격 원문:
+//      7.         유효소성변형률
+//      8..        NEIPH extra values
+//      7+NEIPH-5 .. 7+NEIPH   Epsilon-x .. Epsilon-zx      (1-based)
+//    NV3D = 7 + NEIPH 이므로 0-based 시작은 base + NV3D - 6 이다.
+//    `base + 7` 은 NEIPH == 6 (NV3D == 13) 일 때만 우연히 맞는다.
+//    실덱 확인: /data/battery_study 의 덱 10개가 NV3D 26~30 이라
+//    올바른 위치는 base+20~24 인데 base+7 은 이력변수 슬롯을 읽는다.
+    if (nv3d_ < 13) return StressTensor(0, 0, 0, 0, 0, 0);
+    const size_t base = elem_idx * nv3d_;
+    const size_t off = base + static_cast<size_t>(nv3d_) - 6;
+    if (off + 6 > solid_data.size()) {
         return StressTensor(0, 0, 0, 0, 0, 0);
     }
 
     return StressTensor(
-        solid_data[base + 7],   // exx
-        solid_data[base + 8],   // eyy
-        solid_data[base + 9],   // ezz
-        solid_data[base + 10],  // exy
-        solid_data[base + 11],  // eyz
-        solid_data[base + 12]   // ezx
+        solid_data[off + 0],   // exx
+        solid_data[off + 1],   // eyy
+        solid_data[off + 2],   // ezz
+        solid_data[off + 3],   // exy
+        solid_data[off + 4],   // eyz
+        solid_data[off + 5]    // ezx
     );
 }
 
@@ -1342,9 +1351,14 @@ void SinglePassAnalyzer::accumulateElementMaxVonMises(
             if (vm > best) {
                 best = vm;
                 best_t = all_states[si].time;
-                if (has_strain_tensor_ && base + 13 <= sd.size()) {
-                    best_e = equivalentStrain(sd[base + 7], sd[base + 8], sd[base + 9],
-                                              sd[base + 10], sd[base + 11], sd[base + 12]);
+                // 변형률 위치는 base + nv3d_ - 6 (NEIPH 확장값의 마지막 6개).
+                // extractStrainTensor 와 같은 규약 — 자세한 근거는 그쪽 주석 참조.
+                if (has_strain_tensor_ && nv3d_ >= 13) {
+                    const size_t eo = base + static_cast<size_t>(nv3d_) - 6;
+                    if (eo + 6 <= sd.size()) {
+                        best_e = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
+                                                  sd[eo + 3], sd[eo + 4], sd[eo + 5]);
+                    }
                 }
             }
         }
@@ -1352,6 +1366,24 @@ void SinglePassAnalyzer::accumulateElementMaxVonMises(
         elem_max_vm_[ei] = best;
         elem_max_vm_time_[ei] = best_t;
         if (!elem_max_strain_.empty()) elem_max_strain_[ei] = best_e;
+    }
+
+    // 🔴 변형률 슬롯은 있는데 솔버가 채우지 않은 덱이 있다(예: IDTDT=100).
+    //    그대로 두면 핫스팟이 strain_available=true 로 '측정했고 0' 을 보고해,
+    //    소비 측이 "소성변형이 전혀 없음" 이라는 반대 결론을 낸다.
+    //    같은 파일 buildResult() 가 주변형률에 대해 이미 쓰는 판정을 그대로 적용해
+    //    배열을 비운다 — 비면 하류가 변형률 항목을 자연스럽게 건너뛴다.
+    if (!elem_max_strain_.empty()) {
+        bool all_zero = true;
+        for (double v : elem_max_strain_) {
+            if (v != 0.0) { all_zero = false; break; }
+        }
+        if (all_zero) {
+            std::cout << "  [hotspot] 변형률 텐서가 전부 0 — 솔버가 기록하지 않은 것으로 "
+                         "보고 핫스팟 변형률 통계를 생략합니다 "
+                         "(*DATABASE_EXTENT_BINARY STRFLG 확인).\n";
+            elem_max_strain_.clear();
+        }
     }
 }
 

@@ -163,19 +163,29 @@ double PartAnalyzer::extract_stress(const std::vector<double>& solid_data,
         case StressComponent::EFF_PLASTIC:
             return solid_data[base + 6];
 
-        // Strain components (only available when ISTRN != 0)
+        // 변형률 6성분 (ISTRN != 0 일 때만).
+        // 🔴 위치는 NEIPH 확장값의 **마지막 6개** — 0-based 시작 = base + NV3D - 6.
+        //    규격: 7=유효소성변형률, 8..=NEIPH extra, 7+NEIPH-5..7+NEIPH = Epsilon-x..zx.
+        //    base+7 은 NV3D==13 일 때만 우연히 맞고, 그 밖에서는 이력변수를 읽는다
+        //    (실덱 확인: /data/battery_study 덱 10개가 NV3D 26~30).
         case StressComponent::STRAIN_XX:
-            return (control_data_.ISTRN != 0 && base + 7 < solid_data.size()) ? solid_data[base + 7] : 0.0;
         case StressComponent::STRAIN_YY:
-            return (control_data_.ISTRN != 0 && base + 8 < solid_data.size()) ? solid_data[base + 8] : 0.0;
         case StressComponent::STRAIN_ZZ:
-            return (control_data_.ISTRN != 0 && base + 9 < solid_data.size()) ? solid_data[base + 9] : 0.0;
         case StressComponent::STRAIN_XY:
-            return (control_data_.ISTRN != 0 && base + 10 < solid_data.size()) ? solid_data[base + 10] : 0.0;
         case StressComponent::STRAIN_YZ:
-            return (control_data_.ISTRN != 0 && base + 11 < solid_data.size()) ? solid_data[base + 11] : 0.0;
-        case StressComponent::STRAIN_ZX:
-            return (control_data_.ISTRN != 0 && base + 12 < solid_data.size()) ? solid_data[base + 12] : 0.0;
+        case StressComponent::STRAIN_ZX: {
+            if (control_data_.ISTRN == 0 || control_data_.NV3D < 13) return 0.0;
+            const size_t eoff = base + static_cast<size_t>(control_data_.NV3D) - 6;
+            if (eoff + 6 > solid_data.size()) return 0.0;
+            switch (component) {
+                case StressComponent::STRAIN_XX: return solid_data[eoff + 0];
+                case StressComponent::STRAIN_YY: return solid_data[eoff + 1];
+                case StressComponent::STRAIN_ZZ: return solid_data[eoff + 2];
+                case StressComponent::STRAIN_XY: return solid_data[eoff + 3];
+                case StressComponent::STRAIN_YZ: return solid_data[eoff + 4];
+                default:                         return solid_data[eoff + 5];
+            }
+        }
 
         default:
             return 0.0;
