@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <array>
 #include <stdexcept>
@@ -458,8 +459,22 @@ public:
                   - xy * (xy * s_zz - yz * zx)
                   + zx * (xy * yz - s_yy * zx);
 
-        // Special case: J2 is zero (hydrostatic state)
-        if (J2 < 1e-20) {
+        // 정수압(편차부 0) 판정.
+        //
+        // 🔴 예전에는 `J2 < 1e-20` 이라는 **절대** 임계값을 썼다. J2 는 성분의
+        //    제곱 차원이라, 성분이 작은 텐서에서는 편차부가 멀쩡히 있어도
+        //    이 조건에 걸려 **주값 셋이 전부 평균으로 붕괴**했다.
+        //    실측: (1e-12, -4e-13, 2e-13) → 기대 {1e-12, 2e-13, -4e-13} 인데
+        //    셋 다 2.667e-13(평균) 을 반환.
+        //    이 함수는 응력뿐 아니라 **변형률 텐서에도 쓰이므로**
+        //    (SinglePassAnalyzer 의 etensor.maxPrincipal 등) 실제로 닿는 경로다.
+        //
+        // 성분 크기에 대한 상대 판정으로 바꾼다. r = sqrt(J2/3) 은 성분과 같은
+        // 차원이므로 최대 성분 대비 반올림 수준이면 정수압으로 본다.
+        const double scale = std::max(
+            std::max(std::max(std::abs(xx), std::abs(yy)), std::abs(zz)),
+            std::max(std::max(std::abs(xy), std::abs(yz)), std::abs(zx)));
+        if (scale <= 0.0 || std::sqrt(J2 / 3.0) <= 1e-14 * scale) {
             principals[0] = principals[1] = principals[2] = mean;
             return principals;
         }

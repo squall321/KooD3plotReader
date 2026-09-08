@@ -195,6 +195,7 @@ set(KOOD3PLOT_SOURCES
     src/analysis/UnifiedConfigParser.cpp
     src/analysis/MotionAnalyzer.cpp
     src/analysis/SurfaceStrainAnalyzer.cpp
+    src/analysis/HotspotClusterAnalyzer.cpp
     src/analysis/BeamAnalyzer.cpp
     src/parsers/KeywordSetParser.cpp
     src/parsers/KeywordMeshParser.cpp

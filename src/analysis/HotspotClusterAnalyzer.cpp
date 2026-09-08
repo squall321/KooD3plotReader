@@ -142,6 +142,40 @@ bool computeSolidVolumeAndCentroid(const Node* p,
     return true;
 }
 
+double isoparametricHexVolume(const double xyz[8][3]) {
+    // computeSolidVolumeAndCentroid 의 부피 항과 동일한 구적.
+    // det(J) 는 ξ,η,ζ 각각에 대해 2차이므로 2점 가우스로 정확하다.
+    double vol_acc = 0.0;
+    for (int gi = 0; gi < 2; ++gi) {
+        const double xi = (gi == 0) ? -kG : kG;
+        for (int gj = 0; gj < 2; ++gj) {
+            const double eta = (gj == 0) ? -kG : kG;
+            for (int gk = 0; gk < 2; ++gk) {
+                const double zeta = (gk == 0) ? -kG : kG;
+                double J[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+                for (int i = 0; i < 8; ++i) {
+                    const double a = 1.0 + kXi[i] * xi;
+                    const double b = 1.0 + kEta[i] * eta;
+                    const double c = 1.0 + kZeta[i] * zeta;
+                    const double dNdxi = 0.125 * kXi[i]   * b * c;
+                    const double dNdet = 0.125 * kEta[i]  * a * c;
+                    const double dNdze = 0.125 * kZeta[i] * a * b;
+                    for (int r = 0; r < 3; ++r) {
+                        J[r][0] += dNdxi * xyz[i][r];
+                        J[r][1] += dNdet * xyz[i][r];
+                        J[r][2] += dNdze * xyz[i][r];
+                    }
+                }
+                vol_acc +=
+                    J[0][0] * (J[1][1] * J[2][2] - J[1][2] * J[2][1]) -
+                    J[0][1] * (J[1][0] * J[2][2] - J[1][2] * J[2][0]) +
+                    J[0][2] * (J[1][0] * J[2][1] - J[1][1] * J[2][0]);
+            }
+        }
+    }
+    return vol_acc;
+}
+
 double equivalentStress(double xx, double yy, double zz,
                         double xy, double yz, double zx) {
     const double d1 = xx - yy;

@@ -118,6 +118,20 @@ bool computeSolidVolumeAndCentroid(const Node* p,
                                    double& cx, double& cy, double& cz);
 
 /**
+ * @brief 3선형 육면체의 부피 — 등매개 2×2×2 가우스 (좌표만 받는 저수준 판)
+ *
+ * 축퇴 판정(고유 절점 수)은 하지 않는다. 호출부가 4고유(tet)를 걸러낸 뒤
+ * 5/6/7/8 고유에 대해서만 부를 것.
+ *
+ * `computeSolidVolumeAndCentroid` 와 동일한 구적을 공유하므로 두 경로가
+ * 서로 다른 부피를 내는 일이 없다.
+ *
+ * @param xyz 8개 절점 좌표 (LS-DYNA hex8 순서), [i][0..2] = x,y,z
+ * @return 부호 있는 부피
+ */
+double isoparametricHexVolume(const double xyz[8][3]);
+
+/**
  * @brief 대칭 2계 텐서의 등가(von Mises) 값
  *
  * 응력: σ_eq = sqrt( 0.5·[(σxx−σyy)² + (σyy−σzz)² + (σzz−σxx)²] + 3·(σxy²+σyz²+σzx²) )
