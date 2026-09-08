@@ -377,6 +377,33 @@ def _parse_config_yaml(path: str) -> dict:
     cfg["no_render"] = "render_jobs:" not in text
 
     # section_view block
+    # 핫스팟 군집 블록. _extract_top_block 은 0열이고 콜론 뒤가 빈 줄인 키만
+    # 인식하므로, 스칼라(hotspot_clusters: true)로 쓰면 조용히 무시된다.
+    hs_block = _extract_top_block(text, "hotspot_clusters")
+    if hs_block is not None:
+        hs: dict = {}
+        for raw in hs_block.splitlines():
+            line = raw.split("#", 1)[0].rstrip()
+            if not line.strip() or ":" not in line:
+                continue
+            k, _, v = line.partition(":")
+            k = k.strip(); v = v.strip().strip('"').strip("'")
+            if not v:
+                continue
+            if k == "enabled":
+                hs["enabled"] = v.lower() in ("true", "yes", "1", "on")
+            elif k in ("top_percent", "distance_factor"):
+                try: hs[k] = float(v)
+                except ValueError: pass
+            elif k in ("min_elements", "max_clusters"):
+                try: hs[k] = int(v)
+                except ValueError: pass
+            else:
+                print(f"[koo_deep_report] hotspot_clusters: 알 수 없는 키 무시 — {k}",
+                      file=sys.stderr)
+        if hs:
+            cfg["hotspot_clusters"] = hs
+
     sv_block = _extract_top_block(text, "section_view")
     if sv_block is not None:
         sv_cfg = _parse_section_view_block(sv_block)
@@ -629,6 +656,21 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         args.material_overrides = cfg["material_overrides"]
     if not args.parts and "parts" in cfg:
         args.parts = cfg["parts"]
+
+    # 핫스팟 군집 — CLI 인자가 우선, 설정 파일은 '기본값 그대로일 때만' 채운다.
+    # 활성화는 store_true(2-상태)라 not-getattr 가드로 충분하다.
+    hs_cfg = cfg.get("hotspot_clusters") or {}
+    if hs_cfg:
+        if not getattr(args, "hotspot_clusters", False) and hs_cfg.get("enabled"):
+            args.hotspot_clusters = True
+        if getattr(args, "hotspot_top_percent", 5.0) == 5.0 and "top_percent" in hs_cfg:
+            args.hotspot_top_percent = hs_cfg["top_percent"]
+        if getattr(args, "hotspot_distance_factor", 1.5) == 1.5 and "distance_factor" in hs_cfg:
+            args.hotspot_distance_factor = hs_cfg["distance_factor"]
+        if getattr(args, "hotspot_min_elements", 5) == 5 and "min_elements" in hs_cfg:
+            args.hotspot_min_elements = hs_cfg["min_elements"]
+        if getattr(args, "hotspot_max_clusters", 20) == 20 and "max_clusters" in hs_cfg:
+            args.hotspot_max_clusters = hs_cfg["max_clusters"]
     if not getattr(args, "part_pattern", "") and "part_pattern" in cfg:
         args.part_pattern = cfg["part_pattern"]
     if not getattr(args, "install_dir", "") and "install_dir" in cfg:

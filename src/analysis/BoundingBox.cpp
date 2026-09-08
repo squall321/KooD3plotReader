@@ -134,19 +134,15 @@ BoundingBox BoundingBox::from_parts(
         for (size_t i = 0; i < mesh.solids.size(); ++i) {
             if (i < mesh.solid_parts.size() && part_set.count(mesh.solid_parts[i])) {
                 // Add all nodes of this element
-                for (int32_t nid : mesh.solids[i].node_ids) {
-                    // Convert node ID to index (0-based)
-                    // Node IDs are 1-based in the original model
-                    if (mesh.real_node_ids.empty()) {
-                        node_indices.insert(static_cast<size_t>(nid - 1));
-                    } else {
-                        // Search for node with this ID
-                        for (size_t j = 0; j < mesh.real_node_ids.size(); ++j) {
-                            if (mesh.real_node_ids[j] == nid) {
-                                node_indices.insert(j);
-                                break;
-                            }
-                        }
+                for (int32_t nref : mesh.solids[i].node_ids) {
+                    // 🔴 요소 연결성 값은 사용자 절점 ID 가 아니라 LS-DYNA 내부
+                    //    1-based 인덱스다. real_node_ids 로 역조회하면 그 배열이
+                    //    비항등인 덱에서 요소가 통째로 사라진다 — 실측(results/d3plot)
+                    //    으로 요소 1,000/44,657(2.24%) 가 8절점 전부 MISS 였다.
+                    //    (선형탐색이라 O(NE·8·NUMNP) 로 느리기도 했다.)
+                    const int64_t idx = static_cast<int64_t>(nref) - 1;
+                    if (idx >= 0 && static_cast<size_t>(idx) < mesh.nodes.size()) {
+                        node_indices.insert(static_cast<size_t>(idx));
                     }
                 }
             }
@@ -159,16 +155,11 @@ BoundingBox BoundingBox::from_parts(
             // Note: shell_parts would be needed here, currently using materials
             if (i < mesh.shell_materials.size()) {
                 // Add all nodes of this element
-                for (int32_t nid : mesh.shells[i].node_ids) {
-                    if (mesh.real_node_ids.empty()) {
-                        node_indices.insert(static_cast<size_t>(nid - 1));
-                    } else {
-                        for (size_t j = 0; j < mesh.real_node_ids.size(); ++j) {
-                            if (mesh.real_node_ids[j] == nid) {
-                                node_indices.insert(j);
-                                break;
-                            }
-                        }
+                for (int32_t nref : mesh.shells[i].node_ids) {
+                    // 솔리드와 동일 — 연결성은 내부 1-based 인덱스다
+                    const int64_t idx = static_cast<int64_t>(nref) - 1;
+                    if (idx >= 0 && static_cast<size_t>(idx) < mesh.nodes.size()) {
+                        node_indices.insert(static_cast<size_t>(idx));
                     }
                 }
             }

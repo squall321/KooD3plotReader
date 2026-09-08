@@ -290,13 +290,20 @@ NodalAverager::NodalAverager(const data::Mesh& mesh, const data::ControlData& co
 // Node-ID → array index
 // ============================================================
 
-int32_t NodalAverager::nodeIndex(int32_t node_id) const
+int32_t NodalAverager::nodeIndex(int32_t node_ref) const
 {
-    if (mesh_.real_node_ids.empty()) {
-        return node_id - 1;  // 1-based → 0-based
-    }
-    auto it = node_id_to_index_.find(node_id);
-    return (it != node_id_to_index_.end()) ? it->second : -1;
+    // 🔴 이 함수의 인자는 전부 elem.node_ids (요소 연결성) 에서 온다.
+    //    연결성 값은 사용자 절점 ID 가 아니라 **LS-DYNA 내부 1-based 인덱스**다
+    //    (규격: "the node numbers are the LS-DYNA internal numbers for nodes").
+    //    예전에는 real_node_ids 역맵을 태웠는데, 그 배열이 비항등인 덱에서는
+    //    조회가 -1 로 떨어져 요소가 통째로 렌더에서 빠진다.
+    //    실측(results/d3plot, NUMNP=29624): 연결성 값 집합은 정확히 {1..29624}
+    //    인데 real_node_ids 는 28293 번째부터 29625.. 로 비항등이라
+    //    요소 1,000/44,657(2.24%) 가 8절점 전부 MISS 였다.
+    //    real_node_ids 가 항등인 덱에서는 두 규약이 같은 답을 내 눈에 띄지 않는다.
+    const int64_t idx = static_cast<int64_t>(node_ref) - 1;
+    if (idx < 0 || static_cast<size_t>(idx) >= mesh_.nodes.size()) return -1;
+    return static_cast<int32_t>(idx);
 }
 
 // ============================================================

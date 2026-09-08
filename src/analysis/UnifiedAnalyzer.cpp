@@ -821,26 +821,38 @@ std::pair<double, bool> computeAspectRatio8(const Vec3Q* p) {
 } // anonymous namespace
 
 namespace {
-/// 요소 연결성의 절점 ID → 내부 인덱스.
+/// 요소 연결성의 절점 참조 → 내부 인덱스.
 ///
-/// real_node_ids 가 있으면 요소가 담은 값은 **실 절점 ID** 이므로 매핑해야
-/// 한다. 예전에는 무조건 id-1 로 깎아서, 실 ID 가 1..N 연속이 아닌 모델에서
-/// 엉뚱한 좌표를 읽었다 (실측 case_shell: t=0 면적비가 1.0 이어야 하는데
-/// [0.0, 1607] 이 나오고 뒤틀림이 158.6° 로 찍혔다).
-/// NodalAverager::nodeIndex 와 같은 규칙이다.
+/// 🔴 요소 연결성에 든 값은 **사용자 절점 ID 가 아니라 LS-DYNA 내부
+///    1-based 인덱스**다. 규격 원문(ls-dyna_database.txt):
+///      "the node numbers are the LS-DYNA internal numbers for nodes,
+///       these will be the same as the user's numbers if NARBS = 0"
+///    GeometryParser 도 IX8 워드를 아무 변환 없이 node_ids 에 담는다.
+///    따라서 유일하게 옳은 변환은 `mesh.nodes[nid - 1]` 이다.
+///
+///    예전에는 real_node_ids 로 역맵을 만들어 조회했는데, 그 배열이 비항등인
+///    덱에서 **요소가 통째로 사라진다.** 실측(results/d3plot, NUMNP=29624):
+///      · 연결성 값 집합 = 정확히 {1..29624}
+///      · real_node_ids 는 인덱스 28293 부터 29625..30955 로 비항등
+///      · 역맵 조회 시 요소 1,000 / 44,657 (2.24%) 가 8절점 전부 MISS
+///    real_node_ids 가 항등인 덱에서는 두 규약이 같은 답을 내므로
+///    테스트가 통과해 버린다 — 그래서 오래 살아남았다.
+///
+///    이전 주석은 case_shell 덱을 역맵의 근거로 들었으나 오귀인이다.
+///    그 덱은 real_node_ids 가 항등(1..3876)이라 두 규약이 동일하다
+///    (실측 확인). 당시 버그의 실제 원인은 같은 커밋의 기준상태 변경이다.
+///
+///    real_node_ids 는 **인덱스를 이미 아는 상태에서 사용자 ID 를 얻는**
+///    출력용 표로만 쓴다.
 struct NodeIndexResolver {
     const data::Mesh& mesh;
-    std::map<int32_t, int32_t> id_to_idx;
 
-    explicit NodeIndexResolver(const data::Mesh& m) : mesh(m) {
-        for (size_t i = 0; i < mesh.real_node_ids.size(); ++i) {
-            id_to_idx[mesh.real_node_ids[i]] = static_cast<int32_t>(i);
-        }
-    }
-    int32_t operator()(int32_t node_id) const {
-        if (mesh.real_node_ids.empty()) return node_id - 1;
-        auto it = id_to_idx.find(node_id);
-        return (it != id_to_idx.end()) ? it->second : -1;
+    explicit NodeIndexResolver(const data::Mesh& m) : mesh(m) {}
+
+    int32_t operator()(int32_t node_ref) const {
+        const int64_t idx = static_cast<int64_t>(node_ref) - 1;
+        if (idx < 0 || static_cast<size_t>(idx) >= mesh.nodes.size()) return -1;
+        return static_cast<int32_t>(idx);
     }
 };
 } // namespace
