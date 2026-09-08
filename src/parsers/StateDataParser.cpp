@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "kood3plot/parsers/StateDataParser.hpp"
 #include <stdexcept>
 #include <cmath>
@@ -156,8 +157,9 @@ data::StateData StateDataParser::parse_state_legacy(size_t offset) {
     parse_nodal_data_legacy(state, offset);
     parse_element_data_legacy(state, offset);
 
-    // Skip deletion data (if MDLOPT > 0)
+    // 삭제(침식) 테이블 — 내용을 읽은 뒤 오프셋을 진행시킨다
     if (control_data_.DELNN > 0) {
+        parse_deletion_data(state, offset);
         offset += control_data_.DELNN;
     }
 
@@ -183,8 +185,9 @@ data::StateData StateDataParser::parse_state_fast(size_t offset) {
     parse_nodal_data_fast(state, offset);
     parse_element_data_fast(state, offset);
 
-    // Skip deletion data (if MDLOPT > 0)
+    // 삭제(침식) 테이블 — 내용을 읽은 뒤 오프셋을 진행시킨다
     if (control_data_.DELNN > 0) {
+        parse_deletion_data(state, offset);
         offset += control_data_.DELNN;
     }
 
@@ -511,9 +514,76 @@ size_t StateDataParser::find_state_offset() {
 }
 
 void StateDataParser::parse_deletion_data(data::StateData& state, size_t& offset) {
-    // Element deletion data (if MDLOPT > 0)
-    // Not implemented in this phase - will be added later if needed
-    // ls-dyna_database.txt mentions deletion arrays but format varies
+    // 요소 삭제(침식) 테이블. 규격 원문(ls-dyna_database.txt "ELEMENT DELETION OPTION"):
+    //
+    //   MDLOPT == 0 : 이 절 자체가 없다
+    //   MDLOPT == 1 : 길이 NUMNP. 절점이 보이면 1, 안 보이면 0
+    //                 (vec-dyna3d 전용 — 요소 삭제 정보가 아니다)
+    //   MDLOPT == 2 : 길이 NEL8 + NELT + NEL4 + NEL2, **이 순서**.
+    //                 값이 요소의 재질 번호이고, **0 이면 삭제된 요소**다.
+    //
+    //   "All these numbers are output as floating point values and not integers."
+    //   → 정수로 읽으면 안 된다. 실수로 읽고 0 과 비교한다.
+    //
+    // 🔴 예전에는 이 함수가 비어 있어 deleted_solids 가 **항상 비었다.**
+    //    소비처(SectionClipper, NodalAverager)는 그 배열로 침식 요소를 거르므로,
+    //    침식이 있는 덱에서 죽은 요소가 살아 있는 것처럼 렌더·평균에 섞였다.
+    //    오프셋 자체는 DELNN 이 state_size 에 반영돼 있어 정상이었다(데이터 어긋남 없음).
+    //
+    // ⚠️ 검증 한계 — 현재 확보한 덱은 전부 MDLOPT=0 이라 이 경로를 실행으로
+    //    확인하지 못했다. 침식 덱이 생기면 반드시 실측할 것.
+    if (control_data_.DELNN <= 0) {
+        return;
+    }
+
+    const int mdlopt = control_data_.MDLOPT;
+
+    // 🔴 워드 단위 read_double 로 훑으면 안 된다. 실측(results/d3plot,
+    //    DELNN=44,657 × 992 상태): 상태당 2.57 ms → 14.64 ms 로 **5.7 배** 느려졌다.
+    //    이 절의 소비처는 SectionClipper·NodalAverager 두 곳뿐인데 전 상태에
+    //    그 비용을 물릴 수 없다. 대량 읽기(read_double_array)를 쓴다.
+    const std::vector<double> tbl =
+        reader_->read_double_array(offset, static_cast<size_t>(control_data_.DELNN));
+    if (tbl.size() < static_cast<size_t>(control_data_.DELNN)) {
+        return;   // 파일이 짧다 — 조용히 잘못된 목록을 만들지 않는다
+    }
+
+    if (mdlopt == 1) {
+        // 절점 가시성 목록 — 요소 삭제 정보가 아니므로 절점 쪽에만 기록한다.
+        state.deleted_nodes.clear();
+        for (int i = 0; i < control_data_.NUMNP; ++i) {
+            if (tbl[static_cast<size_t>(i)] == 0.0) {
+                state.deleted_nodes.push_back(i + 1);   // 내부 1-based 절점 번호
+            }
+        }
+        return;
+    }
+
+    if (mdlopt != 2) {
+        return;   // 규격에 없는 값 — 건너뛴다(오프셋은 호출부가 진행시킨다)
+    }
+
+    // MDLOPT == 2 : 요소 재질번호 목록. 0 = 삭제.
+    // 순서가 NEL8 → NELT → NEL4 → NEL2 로 고정돼 있다.
+    const int nel8 = std::abs(control_data_.NEL8);
+    const int nelt = control_data_.NELT;
+    const int nel4 = control_data_.NEL4;
+    const int nel2 = control_data_.NEL2;
+
+    size_t k = 0;
+    auto scan = [&](int count, std::vector<int32_t>& out) {
+        out.clear();
+        for (int i = 0; i < count; ++i, ++k) {
+            if (k < tbl.size() && tbl[k] == 0.0) {
+                out.push_back(i + 1);   // 해당 배열 내 1-based 순번
+            }
+        }
+    };
+
+    scan(nel8, state.deleted_solids);
+    scan(nelt, state.deleted_thick_shells);
+    scan(nel4, state.deleted_shells);
+    scan(nel2, state.deleted_beams);
 }
 
 } // namespace parsers
