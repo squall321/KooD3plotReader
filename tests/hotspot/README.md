@@ -53,3 +53,25 @@ g++ -std=c++17 -O2 -I include tests/hotspot/verify_node_id_convention.cpp \
 | `case_shell` | 항등 | 실패 0 | 실패 0 |
 
 **항등인 덱에서는 두 규약이 같은 답을 낸다** — 그래서 역맵 오류가 오래 살아남았다.
+
+## 실덱 e2e
+
+```bash
+cmake --build build -j$(nproc)
+g++ -std=c++17 -O2 -fopenmp -I include tests/hotspot/e2e_real_deck.cpp \
+    build/libkood3plot.a -lz -o /tmp/e2e && /tmp/e2e <d3plot> [top_percent]
+```
+
+건전성 단언(최대≥평균, 포함반경≥RMS반경, 부피>0, 최소크기 준수)을 걸고
+위반 건수를 종료 코드로 낸다.
+
+실측(2026-09-08):
+
+| 덱 | 요소 | 분석 | 군집 | 결과 |
+|---|---|---|---|---|
+| `case_01_phase1_stacked_tier-1` | 1,161 | 0.2 s | 0.000 s | 파트 3, 위반 0 |
+| `results/d3plot` | 44,657 | 3.6 s | **0.004 s** | 파트 23, 위반 0 |
+
+군집 계산은 분석 시간에 비해 무시할 수준이다(0.004 s / 3.6 s).
+`results/d3plot` 은 변형률이 전부 0 이라 전량-0 판정이 작동해
+핫스팟 변형률 통계를 생략했다(`strain_available: false`).
