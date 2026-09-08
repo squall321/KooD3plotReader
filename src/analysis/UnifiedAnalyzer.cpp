@@ -195,7 +195,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (has_solid_jobs) {
         current_step++;
         if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Solid analysis (" + std::to_string(all_states.size()) + " states, single pass)...");
-        processSolidJobs(reader, stress_jobs, strain_jobs, all_states, result, callback);
+        processSolidJobs(reader, stress_jobs, strain_jobs, all_states, result, callback, config);
     }
 
     // Custom Report 집계 (solid 이력이 준비된 직후) + 세트 뷰 렌더
@@ -264,6 +264,8 @@ void UnifiedAnalyzer::processSolidJobs(
     const std::vector<data::StateData>& all_states,
     ExtendedAnalysisResult& result,
     UnifiedProgressCallback callback
+,
+    const UnifiedConfig& config
 ) {
     bool do_stress = !stress_jobs.empty();
     bool do_strain = !strain_jobs.empty();
@@ -311,6 +313,12 @@ void UnifiedAnalyzer::processSolidJobs(
     sp_config.analyze_stress = do_stress;
     sp_config.analyze_strain = do_strain;
     sp_config.part_ids = want_all ? std::vector<int32_t>{} : requested_parts;
+    // 핫스팟 군집: 요소별 전 시간 최대 배열이 필요하므로 켤 때만 2차 패스가 돈다
+    sp_config.hotspot_enabled       = config.hotspot_enabled;
+    sp_config.hotspot_top_percent   = config.hotspot_top_percent;
+    sp_config.hotspot_distance_factor = config.hotspot_distance_factor;
+    sp_config.hotspot_min_elements  = config.hotspot_min_elements;
+    sp_config.hotspot_max_clusters  = config.hotspot_max_clusters;
 
     auto sp_result = sp_analyzer.analyzeWithStates(sp_config, all_states,
         [&callback](size_t current, size_t total, const std::string&) {
@@ -330,6 +338,44 @@ void UnifiedAnalyzer::processSolidJobs(
             callback("  Stress: " + std::to_string(result.stress_history.size()) + " parts, " +
                      "Principal: " + std::to_string(result.max_principal_history.size()) + " parts, " +
                      "Tensors: " + std::to_string(result.peak_element_tensors.size()) + " elements");
+        }
+    }
+
+    // ── 핫스팟 군집 ──
+    // 요소별 전 시간 최대 배열은 SinglePassAnalyzer 가 2차 패스로 채웠다.
+    // 도심은 초기 형상 기준(계획서 §5) — 설계 도면과 대조하기 위함.
+    if (config.hotspot_enabled) {
+        const auto& emax = sp_analyzer.elementMaxVonMises();
+        if (emax.empty()) {
+            if (callback) callback("  Hotspot: 요소별 최대 배열이 비어 건너뜀");
+        } else {
+            HotspotClusterConfig hc;
+            hc.enabled = true;
+            hc.top_percent = config.hotspot_top_percent;
+            hc.distance_factor = config.hotspot_distance_factor;
+            hc.min_cluster_elements = config.hotspot_min_elements;
+            hc.max_clusters_per_part = config.hotspot_max_clusters;
+
+            // 메시는 핫스팟이 켜졌을 때만 읽는다 — 기존 경로에 비용을 더하지 않는다
+            auto hs_mesh = reader.read_mesh();
+
+            std::map<int32_t, std::string> pnames;
+            for (int32_t pid : hs_mesh.solid_parts) {
+                if (!pnames.count(pid)) pnames[pid] = "Part_" + std::to_string(pid);
+            }
+
+            result.hotspot_clusters = computeHotspotClusters(
+                hs_mesh, emax,
+                sp_analyzer.elementMaxVonMisesTime(),
+                sp_analyzer.elementMaxStrain(),
+                pnames, hc);
+
+            if (callback) {
+                size_t nc = 0;
+                for (const auto& r : result.hotspot_clusters) nc += r.clusters.size();
+                callback("  Hotspot: " + std::to_string(result.hotspot_clusters.size()) +
+                         " parts, " + std::to_string(nc) + " clusters");
+            }
         }
     }
 

@@ -3,8 +3,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <functional>
+#include <limits>
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace kood3plot {
@@ -339,6 +343,258 @@ std::vector<int> clusterByDistance(const std::vector<ClusterElement>& elems,
     }
 
     return labels;
+}
+
+}  // namespace analysis
+}  // namespace kood3plot
+
+// ════════════════════════════════════════════════════════════════
+// 최상위 — 파트별 핫스팟 군집
+// ════════════════════════════════════════════════════════════════
+
+namespace kood3plot {
+namespace analysis {
+
+std::vector<PartHotspotResult> computeHotspotClusters(
+    const data::Mesh& mesh,
+    const std::vector<double>& elem_max_vm,
+    const std::vector<double>& elem_max_time,
+    const std::vector<double>& elem_strain,
+    const std::map<int32_t, std::string>& part_names,
+    const HotspotClusterConfig& cfg) {
+
+    std::vector<PartHotspotResult> out;
+    if (!cfg.enabled || elem_max_vm.empty() || mesh.solids.empty()) return out;
+
+    const bool have_strain = !elem_strain.empty();
+    const size_t n_nodes = mesh.nodes.size();
+
+    // ── 파트별 요소 인덱스 수집 ──
+    std::map<int32_t, std::vector<size_t>> part_elems;
+    for (size_t i = 0; i < mesh.solids.size() && i < elem_max_vm.size(); ++i) {
+        const int32_t pid = (i < mesh.solid_parts.size()) ? mesh.solid_parts[i] : 0;
+        part_elems[pid].push_back(i);
+    }
+
+    for (const auto& kv : part_elems) {
+        const int32_t pid = kv.first;
+        const std::vector<size_t>& idxs = kv.second;
+
+        PartHotspotResult res;
+        res.part_id = pid;
+        auto nit = part_names.find(pid);
+        if (nit != part_names.end()) res.part_name = nit->second;
+        res.criterion = cfg.criterion;
+        res.top_percent = cfg.top_percent;
+        res.element_count_total = static_cast<int>(idxs.size());
+        res.strain_available = have_strain;
+
+        // ── 1) 요소 기하: 부피·도심 ──
+        // 🔴 node_ids 는 내부 1-based 인덱스다. mesh.nodes[id-1] 로만 변환한다.
+        // 🔴 Node 를 통째로 복사해야 한다 — 축퇴 판정이 p[i].id 비교이므로
+        //    좌표만 채우면 8개 id 가 같아져 요소가 통째로 버려진다.
+        struct Geo { double x, y, z, v; bool ok; };
+        std::vector<Geo> geo(idxs.size(), Geo{0, 0, 0, 0, false});
+        std::vector<double> vols;
+        vols.reserve(idxs.size());
+        int bad_conn = 0, bad_vol = 0;
+
+        for (size_t k = 0; k < idxs.size(); ++k) {
+            const auto& elem = mesh.solids[idxs[k]];
+            if (elem.node_ids.size() < 8) { ++bad_conn; continue; }
+
+            Node p[8];
+            bool ok = true;
+            for (int n = 0; n < 8; ++n) {
+                const int64_t ni = static_cast<int64_t>(elem.node_ids[n]) - 1;
+                if (ni < 0 || static_cast<size_t>(ni) >= n_nodes) { ok = false; break; }
+                p[n] = mesh.nodes[static_cast<size_t>(ni)];   // id 포함 통째 복사
+            }
+            if (!ok) { ++bad_conn; continue; }
+
+            double V, cx, cy, cz;
+            if (!computeSolidVolumeAndCentroid(p, V, cx, cy, cz)) { ++bad_vol; continue; }
+
+            const double av = std::abs(V);
+            geo[k] = Geo{cx, cy, cz, av, true};
+            vols.push_back(av);
+        }
+
+        res.element_size_ref = representativeElementSize(vols);
+        res.distance_threshold = cfg.distance_factor * res.element_size_ref;
+
+        // ── 3) 상위 p% 선별 ──
+        //
+        // 🔴 "값이 컷 이상인 것 전부" 로 뽑으면 안 된다. 배경 응력이 균일한
+        //    모델에서는 N번째 큰 값이 배경값과 같아져 **전 요소가 통과**한다
+        //    (실측: 180 요소 중 상위 5% 를 뽑았더니 180개 전부 선별).
+        //    상위 5% 는 요소 수의 5% 를 뜻하므로 **정확히 N개**를 고른다.
+        //
+        // 동점 처리: 값이 같으면 요소 인덱스가 작은 쪽을 먼저 — 결정적이어야
+        // 같은 입력이 항상 같은 결과를 낸다.
+        const double frac = std::min(100.0, std::max(0.0, cfg.top_percent)) / 100.0;
+
+        // (값, 파트내 순번 k) 쌍으로 정렬 대상 구성
+        std::vector<std::pair<double, size_t>> rank;
+        rank.reserve(idxs.size());
+        for (size_t k = 0; k < idxs.size(); ++k) {
+            if (!geo[k].ok) continue;
+            const double v = elem_max_vm[idxs[k]];
+            if (v < 0.0) continue;
+            rank.emplace_back(v, k);
+        }
+
+        if (rank.size() < static_cast<size_t>(std::max(1, cfg.min_cluster_elements))) {
+            out.push_back(res);               // 유효 요소가 최소 덩어리 크기에도 못 미침
+            continue;
+        }
+
+        size_t want = static_cast<size_t>(std::floor(rank.size() * frac));
+        if (want < 1) want = 1;
+        if (want > rank.size()) want = rank.size();
+
+        auto desc = [](const std::pair<double, size_t>& a,
+                       const std::pair<double, size_t>& b) {
+            if (a.first != b.first) return a.first > b.first;
+            return a.second < b.second;          // 동점이면 인덱스 오름차순
+        };
+        std::nth_element(rank.begin(), rank.begin() + (want - 1), rank.end(), desc);
+        rank.resize(want);
+        res.threshold_value = rank.empty() ? 0.0
+                            : std::min_element(rank.begin(), rank.end(),
+                                  [](const std::pair<double,size_t>& a,
+                                     const std::pair<double,size_t>& b){ return a.first < b.first; })->first;
+
+        std::vector<ClusterElement> sel;
+        sel.reserve(rank.size());
+        for (const auto& rk : rank) {
+            const size_t k = rk.second;
+            const size_t ei = idxs[k];
+            const double v = rk.first;
+
+            ClusterElement ce;
+            ce.element_id = (ei < mesh.real_solid_ids.size())
+                          ? mesh.real_solid_ids[ei]
+                          : static_cast<int32_t>(ei + 1);
+            ce.element_idx = ei;
+            ce.x = geo[k].x; ce.y = geo[k].y; ce.z = geo[k].z;
+            ce.volume = geo[k].v;
+            ce.value = v;
+            ce.peak_time = (ei < elem_max_time.size()) ? elem_max_time[ei] : 0.0;
+            ce.has_strain = have_strain && ei < elem_strain.size();
+            ce.strain = ce.has_strain ? elem_strain[ei] : 0.0;
+            sel.push_back(ce);
+        }
+        res.element_count_selected = static_cast<int>(sel.size());
+        if (sel.empty() || !(res.distance_threshold > 0.0)) {
+            out.push_back(res);
+            continue;
+        }
+
+        // ── 4) 군집화 ──
+        const std::vector<int> labels = clusterByDistance(sel, res.distance_threshold);
+        int n_lab = 0;
+        for (int l : labels) n_lab = std::max(n_lab, l + 1);
+
+        std::vector<std::vector<size_t>> groups(static_cast<size_t>(n_lab));
+        for (size_t i = 0; i < labels.size(); ++i) {
+            if (labels[i] >= 0) groups[static_cast<size_t>(labels[i])].push_back(i);
+        }
+
+        // ── 5) 덩어리별 통계 (전부 부피 가중) ──
+        std::vector<HotspotCluster> clusters;
+        for (const auto& g : groups) {
+            if (static_cast<int>(g.size()) < cfg.min_cluster_elements) continue;
+
+            double sumV = 0.0, sumSV = 0.0;      // Σ V,  Σ σ·V
+            double wx = 0.0, wy = 0.0, wz = 0.0; // Σ σ·V·x
+            double s_max = -std::numeric_limits<double>::max();
+            double e_sum = 0.0, e_max = 0.0;
+            int32_t peak_id = 0;
+            double peak_t = 0.0;
+            bool any_strain = false;
+
+            for (size_t i : g) {
+                const ClusterElement& e = sel[i];
+                const double sv = e.value * e.volume;
+                sumV += e.volume;
+                sumSV += sv;
+                wx += sv * e.x; wy += sv * e.y; wz += sv * e.z;
+                if (e.value > s_max) { s_max = e.value; peak_id = e.element_id; peak_t = e.peak_time; }
+                if (e.has_strain) {
+                    any_strain = true;
+                    e_sum += e.strain * e.volume;
+                    if (e.strain > e_max) e_max = e.strain;
+                }
+            }
+            if (!(sumV > 0.0)) continue;
+
+            HotspotCluster c;
+            c.element_count = static_cast<int>(g.size());
+            c.volume = sumV;
+
+            // 중심 = 응력×부피 가중. 분모가 0 이면(전부 σ=0) 부피 가중으로 폴백.
+            if (sumSV > 0.0) {
+                c.center[0] = wx / sumSV; c.center[1] = wy / sumSV; c.center[2] = wz / sumSV;
+            } else {
+                double vx = 0, vy = 0, vz = 0;
+                for (size_t i : g) { vx += sel[i].x * sel[i].volume;
+                                     vy += sel[i].y * sel[i].volume;
+                                     vz += sel[i].z * sel[i].volume; }
+                c.center[0] = vx / sumV; c.center[1] = vy / sumV; c.center[2] = vz / sumV;
+            }
+
+            // 부피 가중 평균 — 산술평균은 작은 요소를 과대평가한다.
+            c.stress_mean = sumSV / sumV;
+            c.stress_max = s_max;
+            c.strain_available = any_strain;
+            if (any_strain) { c.strain_mean = e_sum / sumV; c.strain_max = e_max; }
+            c.peak_element_id = peak_id;
+            c.peak_time = peak_t;
+
+            // 포함 반경 = 중심에서 구성 요소의 **최원 절점**까지 (정확).
+            // 요소 도심까지의 거리로 재면 덩어리 가장자리 요소의 두께를 놓친다.
+            double r2max = 0.0, rms_acc = 0.0;
+            for (size_t i : g) {
+                const auto& elem = mesh.solids[sel[i].element_idx];
+                for (size_t n = 0; n < elem.node_ids.size() && n < 8; ++n) {
+                    const int64_t ni = static_cast<int64_t>(elem.node_ids[n]) - 1;
+                    if (ni < 0 || static_cast<size_t>(ni) >= n_nodes) continue;
+                    const Node& nd = mesh.nodes[static_cast<size_t>(ni)];
+                    const double dx = nd.x - c.center[0];
+                    const double dy = nd.y - c.center[1];
+                    const double dz = nd.z - c.center[2];
+                    r2max = std::max(r2max, dx * dx + dy * dy + dz * dz);
+                }
+                const double dx = sel[i].x - c.center[0];
+                const double dy = sel[i].y - c.center[1];
+                const double dz = sel[i].z - c.center[2];
+                rms_acc += sel[i].volume * (dx * dx + dy * dy + dz * dz);
+            }
+            c.radius_enclosing = std::sqrt(r2max);
+            c.radius_rms = std::sqrt(rms_acc / sumV);
+
+            clusters.push_back(c);
+            res.element_count_clustered += c.element_count;
+        }
+
+        // 최대 응력 내림차순 정렬 후 순위 부여
+        std::sort(clusters.begin(), clusters.end(),
+                  [](const HotspotCluster& a, const HotspotCluster& b) {
+                      return a.stress_max > b.stress_max;
+                  });
+        if (cfg.max_clusters_per_part > 0 &&
+            clusters.size() > static_cast<size_t>(cfg.max_clusters_per_part)) {
+            clusters.resize(static_cast<size_t>(cfg.max_clusters_per_part));
+        }
+        for (size_t i = 0; i < clusters.size(); ++i) {
+            clusters[i].rank = static_cast<int>(i) + 1;
+        }
+        res.clusters = std::move(clusters);
+        out.push_back(res);
+    }
+
+    return out;
 }
 
 }  // namespace analysis

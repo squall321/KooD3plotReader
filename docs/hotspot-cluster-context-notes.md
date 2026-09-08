@@ -170,3 +170,86 @@ g++ -std=c++17 -O2 -I include \
   공학전단 규약을 쓰면 안 된다. 단축 비압축에서 ε_eq = ε_axial 로 검증.
 - **군집화** = 균일 공간 격자(셀 = 임계값) + Union-Find. 임계 거리 이내 이웃은
   반드시 27셀 안에 있으므로 전쌍 비교(O(n²)) 없이 기대 O(n).
+
+
+---
+
+## 2026-09-08 · 통합 — 조사가 잡은 함정과 실측 결함
+
+병렬 조사(5개 에이전트)로 통합 지점을 훑고 순차 통합했다. 조사가 잡은 것 중
+**놓쳤으면 조용히 틀어졌을** 항목만 남긴다.
+
+### 🔴 요소 연결성은 절점 ID 가 아니라 내부 1-based 인덱스
+
+`Element::node_ids` 값은 d3plot IX8 워드를 무변환으로 담은 것이다
+(GeometryParser.cpp:105). 규격서도 "the node numbers are the LS-DYNA internal
+numbers" 라고 못박는다. 유일하게 옳은 변환은 `mesh.nodes[node_ids[n] - 1]`.
+
+**그런데 저장소에 두 관례가 공존한다.**
+
+- 옳음 — SurfaceExtractor / SectionClipper / SectionViewRenderer (`nid-1`)
+- 틀림 — UnifiedAnalyzer::NodeIndexResolver / NodalAverager / BoundingBox
+  (`real_node_ids` 역맵)
+
+실덱 `results/d3plot` 실측: 연결성 값 집합은 정확히 {1..29624} 인데
+`real_node_ids` 는 인덱스 28293 부터 29625..30955 로 비항등이라,
+역맵 관례는 **1000 요소(2.2%)의 8절점 전부를 MISS 로 떨궈 조용히 사라진다.**
+`real_node_ids` 가 항등인 덱에서는 두 관례가 같은 답을 내므로 테스트가 통과한다.
+
+→ 핫스팟은 `nid-1` 만 쓴다. **역맵 관례를 쓰는 기존 3곳은 별건 결함으로 남는다.**
+
+### 🔴 computeSolidVolumeAndCentroid 는 Node 통째 복사를 요구한다
+
+축퇴 판정이 좌표가 아니라 `p[i].id` 비교다. 좌표만 채운 Node 를 넘기면
+8개 id 가 같아져 nu=1 → false 반환 → 요소가 통계에서 사라진다.
+반드시 `p[n] = mesh.nodes[idx];` 로 복사하고, 변형 좌표를 쓸 때도 id 는 살린 채
+x/y/z 만 덮어쓴다.
+
+### 🔴 상위 X% 를 "컷 이상 전부" 로 뽑으면 안 된다
+
+처음엔 N번째 큰 값을 임계값으로 잡고 `v >= threshold` 로 걸렀는데,
+**배경 응력이 균일하면 N번째 값이 배경값과 같아져 전 요소가 통과한다.**
+실측: 180 요소에서 상위 5% 를 뽑았더니 180개 전부 선별.
+
+→ **정확히 N개**를 고른다(`nth_element` + 동점은 요소 인덱스 오름차순으로
+결정적 처리). 같은 입력이 항상 같은 결과를 내야 재현성이 성립한다.
+
+### 성질 — top_percent 는 실제 집중 범위에 맞춰야 한다
+
+N 이 진짜 핫한 요소 수보다 크면 배경 요소가 딸려 들어와 덩어리에 붙고
+평균이 희석된다. 이건 결함이 아니라 "상위 X%" 의 정의상 성질이다.
+시험 [7] 이 이 성질을 명시적으로 고정한다. 문서·CLI 도움말에 경고를 넣었다.
+
+### 요소별 시간축 최대 — 2차 패스로
+
+상태 루프에 이미 `#pragma omp parallel for` 가 걸려 있어(cpp:91, cpp:184),
+그 안에서 요소별 배열을 갱신하면 여러 상태가 같은 elem_idx 를 동시에 써
+데이터 경쟁이 된다. 이 빌드의 OpenMP 는 4.5 라 `omp atomic compare` 도 없다.
+
+→ 기존 `extractPeakElementTensors` 선례대로 **buildResult 이후 2차 패스**에서
+**elem_idx 로 병렬화**한다. 각 스레드가 자기 요소만 쓰므로 경쟁이 원천적으로 없다.
+세 진입점(analyzeParallel / analyzeWithStates / analyzeLegacy) 모두에 배선했다 —
+하나라도 빠지면 그 경로에서만 배열이 비는 무음 누락이 된다.
+
+미기록 요소는 **0 이 아니라 -DBL_MAX** 로 둔다. 0 으로 두면 '응력 0 인 요소' 와
+구분되지 않는다.
+
+### CLI — 중복 블록과 2차 패스 함정
+
+`run_single()` 과 `_run_one()`(batch) 에 설정 구성 블록이 복제돼 있어
+한쪽만 고치면 batch 에서 무음 무시된다 → `_build_hotspot_config()` 헬퍼로 뽑아
+양쪽에서 부른다.
+
+YAML 블록은 `render_only=False` 인 1차 패스에만 방출한다. 2차 렌더 패스에도
+넣으면 분석이 두 번 돌아 시간만 배가 되고 산출물은 갱신되지 않는다(무증상 낭비).
+
+키 이름에 `parts:` / `threads:` 를 쓰지 않는다 — 이 저장소의 일부 소비자가
+문서 전체를 정규식으로 훑어 전역 설정을 가로챈다. 실검증으로 충돌 없음 확인.
+
+### 범위 밖으로 남긴 것
+
+- **GUI(`gui/app.py` build_yaml`)는 핫스팟 블록을 생성하지 않는다.**
+  기존 `section_view` 도 같은 상태(파서에는 있으나 GUI 로는 못 만듦)라
+  같은 수준으로 두고 문서에 명시한다.
+- `deleted_solids` 는 파서가 한 번도 채우지 않아 침식 요소 필터가 무효다(기존 결함).
+- `real_node_ids` 역맵을 쓰는 3곳(UnifiedAnalyzer / NodalAverager / BoundingBox).

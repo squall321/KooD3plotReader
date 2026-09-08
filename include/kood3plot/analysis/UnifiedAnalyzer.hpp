@@ -106,7 +106,8 @@ private:
         const std::vector<AnalysisJob>& strain_jobs,
         const std::vector<data::StateData>& all_states,
         ExtendedAnalysisResult& result,
-        UnifiedProgressCallback callback
+        UnifiedProgressCallback callback,
+        const UnifiedConfig& config
     );
 
     void processMotionJobs(

@@ -5,6 +5,7 @@
 #include "kood3plot/data/Mesh.hpp"
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -189,6 +190,34 @@ std::vector<int> clusterByDistance(const std::vector<ClusterElement>& elems,
  * @return 유효한 부피가 없으면 0
  */
 double representativeElementSize(std::vector<double> volumes);
+
+// ────────────────────────────────────────────────────────────────
+// 최상위 진입점
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * @brief 파트별 핫스팟 군집 계산
+ *
+ * @param mesh          메시 (초기 형상 기준으로 도심을 낸다 — 계획서 §5)
+ * @param elem_max_vm   요소별 전 시간 최대 von Mises. 크기 = 솔리드 요소 수.
+ *                      음수는 '미기록' 이므로 제외한다.
+ * @param elem_max_time 그 최대가 난 시각 (크기 같음, 비어 있으면 0 으로 본다)
+ * @param elem_strain   같은 시점의 등가변형률 (비어 있으면 변형률 미보고)
+ * @param part_names    파트 ID → 이름 (없으면 빈 이름)
+ * @param cfg           설정
+ *
+ * 🔴 요소 연결성(`Element::node_ids`)에 든 값은 **사용자 절점 ID 가 아니라
+ *    LS-DYNA 내부 1-based 인덱스**다. 반드시 `mesh.nodes[node_ids[n] - 1]` 로
+ *    변환한다. `real_node_ids` 역맵을 쓰면 그 배열이 비항등인 덱에서
+ *    요소가 통째로 사라진다(실덱 실측 2.2%).
+ */
+std::vector<PartHotspotResult> computeHotspotClusters(
+    const data::Mesh& mesh,
+    const std::vector<double>& elem_max_vm,
+    const std::vector<double>& elem_max_time,
+    const std::vector<double>& elem_strain,
+    const std::map<int32_t, std::string>& part_names,
+    const HotspotClusterConfig& cfg);
 
 }  // namespace analysis
 }  // namespace kood3plot

@@ -19,6 +19,8 @@
 #include <iomanip>
 #include <ctime>
 #include <stdexcept>
+#include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include <cmath>
 
 namespace kood3plot {
 namespace analysis {
@@ -258,6 +260,9 @@ struct AnalysisResult {
     // Surface analysis
     std::vector<SurfaceAnalysisStats> surface_analysis;
 
+    /// 파트별 핫스팟 군집 (config.hotspot_enabled 일 때만 채워진다)
+    std::vector<PartHotspotResult> hotspot_clusters;
+
     // ============================================================
     // JSON Serialization
     // ============================================================
@@ -307,7 +312,10 @@ struct AnalysisResult {
         oss << indent << "\"acceleration_history\": " << partStatsArrayToJSON(acceleration_history, pretty, indent) << "," << nl;
 
         // Surface analysis
-        oss << indent << "\"surface_analysis\": " << surfaceStatsArrayToJSON(surface_analysis, pretty, indent) << nl;
+        oss << indent << "\"surface_analysis\": " << surfaceStatsArrayToJSON(surface_analysis, pretty, indent) << "," << nl;
+
+        // 핫스팟 군집 (비활성이면 빈 배열)
+        oss << indent << "\"hotspot_clusters\": " << hotspotArrayToJSON(hotspot_clusters, pretty, indent) << nl;
 
         oss << "}";
 
@@ -663,6 +671,88 @@ private:
         oss << ind2 << "\"syz\": " << doubleArrayToJSON(t.syz) << "," << nl;
         oss << ind2 << "\"szx\": " << doubleArrayToJSON(t.szx) << nl;
         oss << ind << "}";
+        return oss.str();
+    }
+
+    /// 유한하지 않은 값은 JSON 을 깨뜨린다(NaN/Infinity 는 JSON 리터럴이 아님).
+    /// 0 으로 치환하지 않고 null 로 내보내 "값 없음"과 "0"을 구분한다.
+    static std::string jnum(double v) {
+        if (!std::isfinite(v)) return "null";
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(8) << v;
+        return oss.str();
+    }
+
+    static std::string hotspotClusterToJSON(const HotspotCluster& c, bool pretty, const std::string& base_indent) {
+        std::ostringstream oss;
+        std::string nl = pretty ? "\n" : "";
+        std::string ind = base_indent;
+        std::string ind2 = base_indent + (pretty ? "  " : "");
+
+        oss << "{" << nl;
+        oss << ind2 << "\"rank\": " << c.rank << "," << nl;
+        oss << ind2 << "\"element_count\": " << c.element_count << "," << nl;
+        oss << ind2 << "\"center\": [" << jnum(c.center[0]) << ", "
+                                        << jnum(c.center[1]) << ", "
+                                        << jnum(c.center[2]) << "]," << nl;
+        oss << ind2 << "\"radius_enclosing\": " << jnum(c.radius_enclosing) << "," << nl;
+        oss << ind2 << "\"radius_rms\": " << jnum(c.radius_rms) << "," << nl;
+        oss << ind2 << "\"volume\": " << jnum(c.volume) << "," << nl;
+        oss << ind2 << "\"stress_mean\": " << jnum(c.stress_mean) << "," << nl;
+        oss << ind2 << "\"stress_max\": " << jnum(c.stress_max) << "," << nl;
+        oss << ind2 << "\"strain_available\": " << (c.strain_available ? "true" : "false") << "," << nl;
+        if (c.strain_available) {
+            oss << ind2 << "\"strain_mean\": " << jnum(c.strain_mean) << "," << nl;
+            oss << ind2 << "\"strain_max\": " << jnum(c.strain_max) << "," << nl;
+        }
+        oss << ind2 << "\"peak_element_id\": " << c.peak_element_id << "," << nl;
+        oss << ind2 << "\"peak_time\": " << jnum(c.peak_time) << nl;
+        oss << ind << "}";
+        return oss.str();
+    }
+
+    static std::string hotspotPartToJSON(const PartHotspotResult& r, bool pretty, const std::string& base_indent) {
+        std::ostringstream oss;
+        std::string nl = pretty ? "\n" : "";
+        std::string ind = base_indent;
+        std::string ind2 = base_indent + (pretty ? "  " : "");
+        std::string ind3 = ind2 + (pretty ? "  " : "");
+
+        oss << "{" << nl;
+        oss << ind2 << "\"part_id\": " << r.part_id << "," << nl;
+        oss << ind2 << "\"part_name\": \"" << escapeJSON(r.part_name) << "\"," << nl;
+        oss << ind2 << "\"criterion\": \"" << escapeJSON(r.criterion) << "\"," << nl;
+        oss << ind2 << "\"top_percent\": " << jnum(r.top_percent) << "," << nl;
+        oss << ind2 << "\"threshold_value\": " << jnum(r.threshold_value) << "," << nl;
+        oss << ind2 << "\"element_size_ref\": " << jnum(r.element_size_ref) << "," << nl;
+        oss << ind2 << "\"distance_threshold\": " << jnum(r.distance_threshold) << "," << nl;
+        oss << ind2 << "\"element_count_total\": " << r.element_count_total << "," << nl;
+        oss << ind2 << "\"element_count_selected\": " << r.element_count_selected << "," << nl;
+        oss << ind2 << "\"element_count_clustered\": " << r.element_count_clustered << "," << nl;
+        oss << ind2 << "\"strain_available\": " << (r.strain_available ? "true" : "false") << "," << nl;
+        oss << ind2 << "\"clusters\": [";
+        for (size_t i = 0; i < r.clusters.size(); ++i) {
+            if (i > 0) oss << ",";
+            if (pretty) oss << nl << ind3;
+            oss << hotspotClusterToJSON(r.clusters[i], pretty, ind3);
+        }
+        if (pretty && !r.clusters.empty()) oss << nl << ind2;
+        oss << "]" << nl;
+        oss << ind << "}";
+        return oss.str();
+    }
+
+    static std::string hotspotArrayToJSON(const std::vector<PartHotspotResult>& arr, bool pretty, const std::string& indent) {
+        std::ostringstream oss;
+        std::string nl = pretty ? "\n" : "";
+        oss << "[";
+        for (size_t i = 0; i < arr.size(); ++i) {
+            if (i > 0) oss << ",";
+            if (pretty) oss << nl << indent << "  ";
+            oss << hotspotPartToJSON(arr[i], pretty, indent + "  ");
+        }
+        if (pretty && !arr.empty()) oss << nl << indent;
+        oss << "]";
         return oss.str();
     }
 

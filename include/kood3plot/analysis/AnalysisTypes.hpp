@@ -1086,6 +1086,17 @@ struct UnifiedConfig {
     // Custom Report: 세트 후처리 사양
     std::vector<SetReportSpec> set_reports;
 
+    // ── 핫스팟 군집 (docs/hotspot-cluster-plan.md) ──
+    // 파트 내 상위 백분위 요소를 공간 군집화해 덩어리 단위로 보고.
+    // 🔴 키 이름 주의 — 이 저장소의 YAML 파서는 일부 값을 문서 전체 대상
+    //    정규식으로 훑으므로, 블록 안에 parts:/threads: 같은 흔한 키를 쓰면
+    //    전역 설정을 가로챈다. 접두사 있는 이름만 쓸 것.
+    bool   hotspot_enabled = false;
+    double hotspot_top_percent = 5.0;
+    double hotspot_distance_factor = 1.5;
+    int    hotspot_min_elements = 5;
+    int    hotspot_max_clusters = 20;
+
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;
 

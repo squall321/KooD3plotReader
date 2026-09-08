@@ -362,6 +362,13 @@ public:
      */
     AnalysisResult analyzeLegacy(const AnalysisConfig& config);
 
+    /// 요소별 전 시간 최대 von Mises (accumulateElementMaxVonMises 결과).
+    /// 값이 음수인 항목은 '미기록' 이다 — 0 과 구분해야 한다.
+    const std::vector<double>& elementMaxVonMises() const { return elem_max_vm_; }
+    const std::vector<double>& elementMaxVonMisesTime() const { return elem_max_vm_time_; }
+    const std::vector<double>& elementMaxStrain() const { return elem_max_strain_; }
+
+
     /**
      * @brief Run analysis with element-level parallelization with callback
      * @param config Analysis configuration
@@ -408,6 +415,14 @@ private:
     // Element to part mapping
     std::vector<int32_t> elem_to_part_;  // elem_index -> part_id
     std::unordered_map<int32_t, size_t> elem_id_to_index_;
+
+    // ── 요소별 전 시간 최대 von Mises (핫스팟 군집용) ──
+    // elem_index -> 값. config.hotspot_enabled 일 때만 채워진다.
+    // 🔴 미기록/범위밖을 0 으로 두면 '응력 0 인 요소' 와 구분이 안 되므로
+    //    -DBL_MAX 로 초기화하고 소비 측에서 음수를 걸러낸다.
+    std::vector<double> elem_max_vm_;
+    std::vector<double> elem_max_vm_time_;   // 그 최대가 난 시각
+    std::vector<double> elem_max_strain_;    // 같은 시점의 등가변형률 (없으면 비움)
 
     // Part information
     std::vector<int32_t> part_ids_;  // Unique part IDs
@@ -526,6 +541,7 @@ private:
                                       2.0 * (e.xy * e.xy + e.yz * e.yz + e.zx * e.zx)));
     }
 
+
     // ========================================
     // Peak element tensor extraction
     // ========================================
@@ -539,6 +555,18 @@ private:
     void extractPeakElementTensors(
         const std::vector<data::StateData>& all_states,
         AnalysisResult& result);
+
+    /**
+     * @brief 요소별 전 시간 최대 von Mises 누적 (2차 경량 패스)
+     *
+     * extractPeakElementTensors 와 같은 방식 — buildResult 이후 all_states 를
+     * 다시 훑는다. 🔴 상태 루프 안에서 누적하면 안 된다. 기본 경로가
+     * `#pragma omp parallel for` 를 **상태 루프**에 걸고 있어(cpp:91, cpp:184)
+     * 여러 상태가 같은 elem_idx 를 동시에 갱신하면 데이터 경쟁이 된다.
+     * 여기서는 **elem_idx 로 병렬화**하고 상태를 안쪽에서 돌므로
+     * 각 스레드가 자기 요소만 써서 경쟁이 원천적으로 없다.
+     */
+    void accumulateElementMaxVonMises(const std::vector<data::StateData>& all_states);
 
     // ========================================
     // Result finalization

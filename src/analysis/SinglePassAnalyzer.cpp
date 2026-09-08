@@ -4,6 +4,8 @@
  */
 
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
+#include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include <limits>
 #include "kood3plot/analysis/TimeHistoryAnalyzer.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
@@ -137,6 +139,11 @@ AnalysisResult SinglePassAnalyzer::analyzeParallel(
         extractPeakElementTensors(all_states, result);
     }
 
+    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    if (config.hotspot_enabled) {
+        accumulateElementMaxVonMises(all_states);
+    }
+
     return result;
 }
 
@@ -226,6 +233,11 @@ AnalysisResult SinglePassAnalyzer::analyzeWithStates(
         extractPeakElementTensors(all_states, result);
     }
 
+    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    if (config.hotspot_enabled) {
+        accumulateElementMaxVonMises(all_states);
+    }
+
     return result;
 }
 
@@ -301,6 +313,11 @@ AnalysisResult SinglePassAnalyzer::analyzeLegacy(
     // Extract peak element tensor histories (2nd lightweight pass over in-memory states)
     if (config.analyze_stress) {
         extractPeakElementTensors(all_states, result);
+    }
+
+    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    if (config.hotspot_enabled) {
+        accumulateElementMaxVonMises(all_states);
     }
 
     return result;
@@ -1275,6 +1292,68 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
 // ========================================
 // Peak element tensor extraction
 // ========================================
+
+void SinglePassAnalyzer::accumulateElementMaxVonMises(
+    const std::vector<data::StateData>& all_states
+) {
+    const size_t ne = num_solid_elements_;
+    if (ne == 0 || all_states.empty()) {
+        elem_max_vm_.clear();
+        elem_max_vm_time_.clear();
+        elem_max_strain_.clear();
+        return;
+    }
+
+    // 🔴 0 이 아니라 -DBL_MAX 로 초기화한다. 0 으로 두면 한 번도 기록되지
+    //    않은 요소(데이터 부족·범위 밖)가 '응력 0' 인 요소와 구분되지 않는다.
+    elem_max_vm_.assign(ne, -std::numeric_limits<double>::max());
+    elem_max_vm_time_.assign(ne, 0.0);
+    if (has_strain_tensor_) {
+        elem_max_strain_.assign(ne, 0.0);
+    } else {
+        elem_max_strain_.clear();
+    }
+
+    const size_t ns = all_states.size();
+
+    // 🔴 병렬화 축이 **요소**다. 기본 경로는 상태 루프에 omp 를 걸지만,
+    //    요소별 최대는 모든 상태가 같은 elem_idx 를 갱신하므로 그 축으로
+    //    병렬화하면 데이터 경쟁이 된다. 여기서는 각 스레드가 자기 요소만
+    //    쓰므로 경쟁이 원천적으로 없다(락·원자연산 불필요).
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int64_t ei = 0; ei < static_cast<int64_t>(ne); ++ei) {
+        double best = -std::numeric_limits<double>::max();
+        double best_t = 0.0;
+        double best_e = 0.0;
+
+        for (size_t si = 0; si < ns; ++si) {
+            const auto& sd = all_states[si].solid_data;
+            if (sd.empty()) continue;
+
+            const size_t base = static_cast<size_t>(ei) * nv3d_;
+            if (base + 6 > sd.size()) continue;   // 이 상태에는 이 요소가 없다
+
+            const double sxx = sd[base + 0], syy = sd[base + 1], szz = sd[base + 2];
+            const double sxy = sd[base + 3], syz = sd[base + 4], szx = sd[base + 5];
+            const double vm = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+
+            if (vm > best) {
+                best = vm;
+                best_t = all_states[si].time;
+                if (has_strain_tensor_ && base + 13 <= sd.size()) {
+                    best_e = equivalentStrain(sd[base + 7], sd[base + 8], sd[base + 9],
+                                              sd[base + 10], sd[base + 11], sd[base + 12]);
+                }
+            }
+        }
+
+        elem_max_vm_[ei] = best;
+        elem_max_vm_time_[ei] = best_t;
+        if (!elem_max_strain_.empty()) elem_max_strain_[ei] = best_e;
+    }
+}
 
 void SinglePassAnalyzer::extractPeakElementTensors(
     const std::vector<data::StateData>& all_states,

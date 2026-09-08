@@ -80,6 +80,15 @@ struct AnalysisConfig {
     // Performance options
     bool verbose = false;                ///< Print progress messages to stdout
 
+    // ── 핫스팟 군집 분석 (docs/hotspot-cluster-plan.md) ──
+    // 파트 내 상위 백분위 요소를 공간 군집화해 덩어리 단위로 보고한다.
+    // 기본 비활성 — 켜면 요소별 시간축 최대 배열을 유지하므로 메모리가 늘어난다.
+    bool   hotspot_enabled = false;          ///< 핫스팟 군집 분석 수행 여부
+    double hotspot_top_percent = 5.0;        ///< 파트별 상위 백분위 (%)
+    double hotspot_distance_factor = 1.5;    ///< 거리 임계 = 이 값 × 파트 대표 요소 크기
+    int    hotspot_min_elements = 5;         ///< 이 개수 미만 덩어리는 버림
+    int    hotspot_max_clusters = 20;        ///< 파트당 보고 최대 덩어리 수 (0 = 무제한)
+
     /**
      * @brief Add a surface analysis specification
      */

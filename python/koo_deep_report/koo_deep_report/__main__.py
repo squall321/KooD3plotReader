@@ -139,6 +139,21 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)")
     p.add_argument("--sv-threads", type=int, default=2, metavar="N",
                    help="병렬 단면뷰 렌더러 수 (default 2)")
+
+    # ── 핫스팟 군집 ──
+    # 활성화는 store_true(2-상태). 3-상태 dest 를 쓰면 명시적 OFF 를 설정파일이
+    # 덮어쓰는 기존 결함 패턴(section_view_per_part)을 그대로 물려받는다.
+    p.add_argument("--hotspot-clusters", dest="hotspot_clusters", action="store_true",
+                   help="파트 내 상위 백분위 요소를 공간 군집화해 덩어리별로 보고")
+    p.add_argument("--hotspot-top-percent", type=float, default=5.0, metavar="P",
+                   help="파트별 상위 백분위 %% (default 5.0). 실제 응력 집중 범위에 맞춰 잡을 것 — "
+                        "N 이 핫한 요소 수보다 크면 배경 요소가 딸려와 평균이 희석된다")
+    p.add_argument("--hotspot-distance-factor", type=float, default=1.5, metavar="F",
+                   help="군집 거리 임계 = F x 파트 대표 요소 크기 (default 1.5)")
+    p.add_argument("--hotspot-min-elements", type=int, default=5, metavar="N",
+                   help="이 개수 미만 덩어리는 노이즈로 버림 (default 5)")
+    p.add_argument("--hotspot-max-clusters", type=int, default=20, metavar="N",
+                   help="파트당 보고 최대 덩어리 수, 0=무제한 (default 20)")
     # ── per-part renderAllPartSections options (lsprepost backend) ──
     p.add_argument("--section-view-iso-clip", dest="section_view_iso_clip",
                    action="store_true",
@@ -724,6 +739,23 @@ def _resolve_install_dir(explicit: str) -> Path | None:
     return None
 
 
+def _build_hotspot_config(args: argparse.Namespace) -> dict | None:
+    """CLI 인자 -> 핫스팟 설정 dict.
+
+    🔴 run_single() 과 _run_one()(batch) 에 설정 구성 블록이 복제돼 있다.
+       한쪽만 고치면 batch 에서 옵션이 경고 없이 무시되므로 헬퍼로 뽑아 둘 다 부른다.
+    """
+    if not getattr(args, "hotspot_clusters", False):
+        return None
+    return {
+        "enabled": True,
+        "top_percent": getattr(args, "hotspot_top_percent", 5.0),
+        "distance_factor": getattr(args, "hotspot_distance_factor", 1.5),
+        "min_elements": getattr(args, "hotspot_min_elements", 5),
+        "max_clusters": getattr(args, "hotspot_max_clusters", 20),
+    }
+
+
 def run_single(args: argparse.Namespace) -> None:
     # Apply YAML config if provided (fills unset args)
     _apply_config_to_args(args)
@@ -839,6 +871,7 @@ def run_single(args: argparse.Namespace) -> None:
             element_quality=getattr(args, "element_quality", False),
             install_dir=install_dir,
             section_view_config=sv_cfg,
+            hotspot=_build_hotspot_config(args),
         )
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -1098,6 +1131,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         element_quality=getattr(args, "element_quality", False),
         install_dir=install_dir,
         section_view_config=sv_cfg,
+        hotspot=_build_hotspot_config(args),
     )
     result = _aggregate(
         sim_info=sim_info,

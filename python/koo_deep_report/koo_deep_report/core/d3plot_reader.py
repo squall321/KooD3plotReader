@@ -93,6 +93,7 @@ def run_analysis(
     section_view_config: "SectionViewRenderConfig | None" = None,
     parse_motion: bool = True,
     series: set[str] | None = None,
+    hotspot: dict | None = None,
 ) -> D3plotResult:
     """
     1. analysis_jobs + render_jobs 통합 YAML 생성
@@ -141,7 +142,7 @@ def run_analysis(
         rc_first = copy.copy(render_config)
         rc_first.per_part_render = False
 
-    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first)
+    yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first, hotspot=hotspot)
     _run_ua(ua, yaml_content, verbose)
 
     result = _parse_outputs(output_dir, parse_motion=parse_motion, series=series)
@@ -229,6 +230,7 @@ def _build_yaml(
     verbose: bool = False,
     render_only: bool = False,
     element_quality: bool = False,
+    hotspot: dict | None = None,
     install_dir: Path | None = None,
     section_view_config: "SectionViewRenderConfig | None" = None,
 ) -> str:
@@ -284,6 +286,20 @@ def _build_yaml(
                 "    type: element_quality",
                 f"    parts: {parts_str(parts_list)}",
                 '    output_prefix: "quality/all"',
+            ]
+
+        # 핫스팟 군집 — 루트 섹션. render_only 2차 패스에는 방출하지 않는다
+        # (분석이 두 번 돌아 시간만 배가 되고 산출물은 갱신되지 않는다).
+        # 🔴 키 이름에 parts/threads 를 쓰지 않는다 — 이 저장소의 일부 소비자가
+        #    문서 전체를 정규식으로 훑어 전역 설정을 가로챈다.
+        if hotspot and hotspot.get("enabled"):
+            lines += [
+                "hotspot_clusters:",
+                "  enabled: true",
+                f"  top_percent: {float(hotspot.get('top_percent', 5.0))}",
+                f"  distance_factor: {float(hotspot.get('distance_factor', 1.5))}",
+                f"  min_elements: {int(hotspot.get('min_elements', 5))}",
+                f"  max_clusters: {int(hotspot.get('max_clusters', 20))}",
             ]
 
     # Section view rendering — two backends:

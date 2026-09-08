@@ -807,6 +807,26 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 config.output_csv = parseBool(value);
             }
         }
+        // 핫스팟 군집 섹션.
+        // 🔴 키를 접두사 없이 top_percent 등으로 두면 다른 섹션 키와 겹쳐
+        //    읽기 어렵고, 문서 전체를 훑는 정규식 소비자와도 충돌한다.
+        //    값이 실제로 도달했음을 verbose 로 남겨 '설정이 조용히 무시됨' 을 막는다.
+        else if (current_section == "hotspot_clusters") {
+            if (key == "enabled") {
+                config.hotspot_enabled = parseBool(value);
+            } else if (key == "top_percent") {
+                try { config.hotspot_top_percent = std::stod(value); } catch (...) {}
+            } else if (key == "distance_factor") {
+                try { config.hotspot_distance_factor = std::stod(value); } catch (...) {}
+            } else if (key == "min_elements") {
+                try { config.hotspot_min_elements = std::stoi(value); } catch (...) {}
+            } else if (key == "max_clusters") {
+                try { config.hotspot_max_clusters = std::stoi(value); } catch (...) {}
+            } else {
+                std::cerr << "[UnifiedConfig] hotspot_clusters: 알 수 없는 키 무시 — "
+                          << key << std::endl;
+            }
+        }
         // Parse performance section
         else if (current_section == "performance") {
             if (key == "threads") {
