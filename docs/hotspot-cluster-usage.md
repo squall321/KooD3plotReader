@@ -133,6 +133,33 @@ apptainer exec <sif> python3 -m koo_deep_report --help | grep hotspot
 
 `clusters` 는 **뜨거운 순**(max 방향은 내림차순, `min_principal` 은 오름차순)이고 `rank` 는 1부터다.
 
+### 파트 항목의 추가 필드
+
+| 필드 | 뜻 |
+|---|---|
+| `element_type` | `solid` · `thick_shell` · `shell` — 기준 × 요소 종류마다 항목이 따로 나온다 |
+| `weight_measure` | 평균·중심 가중: `volume` · `area_x_thickness` · `area`(두께 없는 셸) |
+| `layer_scheme` | 셸 계열 `peak_layer` 해석: `mid_inner_outer`(0 중립·1 안쪽·2 바깥쪽) · `index` |
+| `bbox_min` / `bbox_max` | 파트 경계상자 (초기 형상) — 파트 내 상대 위치 계산용 |
+| `value_extreme` | 파트에서 가장 뜨거운 값 |
+| `cut_ties_unselected` | 컷값과 같은데 선별되지 못한 요소 수 — 경계가 동률 속에서 갈렸다 |
+| `uniform` | 🔴 **true 면 평탄 분포** — 선별 전체가 같은 값이고 경계 너머에도 같은 값이 있다. 상위 X% 는 동률 속 임의 부분집합이라 덩어리 위치·개수에 의미가 없다 |
+
+덩어리의 추가 필드: 셸은 `area`(면적), 두께가 있을 때만 `volume`(면적×두께). 셸 계열은 `peak_layer`.
+
+## 4-1. HTML 리포트
+
+`--hotspot-clusters` 로 돌리면 리포트에 **핫스팟 군집** 탭이 생긴다.
+
+- 기준량·요소 종류 선택, 상단 파트 필터와 연동
+- 파트별 1위 덩어리 표 — 행을 누르면 그 파트의 덩어리 전체 표와 그림
+- 그림 — 파트 평면(경계상자에서 가장 넓은 두 축) 투영이 기본. 원 반지름 = 포함 반경, 등축 비율.
+  XY·XZ·YZ·3D 선택 가능
+- 파트 내 위치 이름(좌상단 등) — 파트 평면의 첫 축 좌→우, 둘째 축 하→상. XY 면 +x 오른쪽 +y 위
+- `uniform` 파트는 순위표에서 빼고 "균일 — 핫스팟 없음" 으로 따로 적는다
+- Overview 에 1위 덩어리 상위 3개 카드. 🔴 셸 계열이 있는 덱이면 Overview 의 '피크 응력'·'응력 상위 부품'에
+  **(솔리드만)** 이 붙는다 — 응력 시간이력 집계가 솔리드 전용이기 때문이다.
+
 | 필드 | 뜻 |
 |---|---|
 | `direction` | `"max"` \| `"min"`. `min` 이면 `stress_max`·`strain_max`·`threshold_value` 가 **최솟값** |

@@ -207,6 +207,9 @@ class D3plotResult:
     vm_strain: list[PartTimeSeries] = field(default_factory=list)
     peak_element_tensors: list[ElementTensorHistory] = field(default_factory=list)
     element_quality: list[ElementQualityData] = field(default_factory=list)
+    #: 핫스팟 군집 — analysis_result.json 의 hotspot_clusters 원형(파트×기준 항목).
+    #: 필드 뜻은 docs/hotspot-cluster-usage.md. 비활성이면 빈 리스트.
+    hotspot_clusters: list[dict] = field(default_factory=list)
     render_files: list[Path] = field(default_factory=list)
     output_dir: Path | None = None
 

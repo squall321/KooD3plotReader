@@ -31,6 +31,8 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
     has_renders = dr is not None and bool(dr.render_files)
     has_quality = dr is not None and bool(dr.element_quality)
     has_tensors = dr is not None and bool(dr.peak_element_tensors)
+    # 덩어리가 하나도 없어도 항목이 있으면 탭을 연다 — "선별됐지만 흩어졌다" 도 정보다.
+    has_hotspot = dr is not None and bool(dr.hotspot_clusters)
 
     tabs = [("overview", "Overview")]
     if has_stress:
@@ -39,6 +41,8 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
         tabs.append(("motion", "운동"))
     if has_tensors:
         tabs.append(("tensor", "응력 텐서"))
+    if has_hotspot:
+        tabs.append(("hotspot", "핫스팟 군집"))
     if has_stress or has_motion:
         tabs.append(("deep_dive", "부품 Deep Dive"))
     if has_energy:
@@ -195,6 +199,7 @@ def _build_js_data(result: SingleResult) -> dict:
         "vm_strain": [],
         "min_principal_strain": [],
         "peak_element_tensors": [],
+        "hotspot": [],
         "motion": {},
         "glstat": None,
         "binout": None,
@@ -219,6 +224,7 @@ def _build_js_data(result: SingleResult) -> dict:
             "sxy": _downsample(t.sxy), "syz": _downsample(t.syz),
             "szx": _downsample(t.szx),
         } for t in dr.peak_element_tensors]
+        data["hotspot"] = dr.hotspot_clusters
         data["motion"] = {
             str(pid): {
                 "part_id": pid,
@@ -524,6 +530,12 @@ a { color: var(--accent2); }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .content { padding: 12px; }
 }
+/* 핫스팟 군집 탭 */
+.hs-note { color: var(--fg2); font-size: 0.85rem; margin: 0 0 12px; line-height: 1.55; }
+.hs-dim { color: var(--fg2); font-size: 0.78rem; }
+.hs-row { cursor: pointer; }
+.hs-row.hs-sel td { background: rgba(78,204,163,.14); }
+.hs-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.8rem; color: var(--fg2); margin: 0 0 10px; }
 """
 
 
@@ -637,6 +649,7 @@ function renderTab(tid) {
     case 'overview':   el.innerHTML = renderOverview(); break;
     case 'stress':     el.innerHTML = renderStress(); initStressCharts(); break;
     case 'tensor':     el.innerHTML = renderTensor(); initTensorCharts(); break;
+    case 'hotspot':    el.innerHTML = renderHotspot(); initHotspot(); break;
     case 'motion':     el.innerHTML = renderMotion(); initMotionCharts(); break;
     case 'deep_dive':  el.innerHTML = renderDeepDive(); initDeepDive(); break;
     case 'energy':     el.innerHTML = renderEnergy(); initEnergyCharts(); break;
@@ -661,9 +674,12 @@ function renderOverview() {
   // 에너지 생성(>1.1)만 오류. 소산(<1.0)은 물리적으로 정상 (고무·소성·감쇠 해석).
   const erClass = er === null ? '' : er > 1.1 ? 'kpi-err' : er > 1.05 ? 'kpi-warn' : 'kpi-ok';
 
+  // 🔴 응력 시간이력 집계(stress_history)는 솔리드 전용이다. 셸·두꺼운 셸이 있는 덱에서
+  //    '피크 응력' 을 모델 전체 최대로 읽으면 틀린다 → 있으면 명시한다.
+  const solidOnly = (DATA.hotspot || []).some(p => (p.element_type || 'solid') !== 'solid');
   let kpis = `
   <div class="kpi-card">
-    <div class="kpi-label">피크 Von Mises 응력</div>
+    <div class="kpi-label">피크 Von Mises 응력${solidOnly ? ' (솔리드만)' : ''}</div>
     <div class="kpi-value">${fmt(s.peak_stress)}</div>
     <div class="kpi-unit">MPa${s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : ''}</div>
   </div>
@@ -712,10 +728,36 @@ function renderOverview() {
     </div>`;
   }).join('');
 
+  // 핫스팟 군집 요약 — 첫 기준량의 1위 덩어리 상위 3개
+  let hsCard = '';
+  const hsAll = (DATA.hotspot || []);
+  if (hsAll.length) {
+    const crit0 = hsAll[0].criterion;
+    const isMin0 = hsAll[0].direction === 'min';
+    const top = hsAll.filter(p => p.criterion === crit0 && p.clusters && p.clusters.length && !p.uniform && hsMatchesFilter(p))
+      .sort((a, b) => isMin0 ? a.clusters[0].stress_max - b.clusters[0].stress_max
+                              : b.clusters[0].stress_max - a.clusters[0].stress_max).slice(0, 3);
+    const nC = hsAll.filter(p => p.criterion === crit0 && !p.uniform).reduce((n, p) => n + (p.clusters ? p.clusters.length : 0), 0);
+    const nFlat = hsAll.filter(p => p.criterion === crit0 && p.uniform).length;
+    const items = top.map(p => {
+      const c = p.clusters[0];
+      return `<div class="bar-row"><div class="bar-label">${partLabel(p.part_id, {name: hsPartName(p)})}</div>
+        <div style="flex:1;color:var(--fg2);font-size:0.82rem">${hsZoneLabel(p, hsRelPos(p, c))} · 요소 ${c.element_count} · 평균 ${fmt(c.stress_mean)}</div>
+        <div class="bar-val">${fmt(c.stress_max)}</div></div>`;
+    }).join('');
+    hsCard = `<div class="sec-title">핫스팟 군집 (${HS_CRIT_LABEL[crit0] || crit0}) — 덩어리 ${nC}개
+      <a href="#" onclick="switchTab('hotspot');return false" style="font-size:0.8rem;margin-left:8px;color:var(--accent2)">상세 →</a></div>
+      <div class="chart-box">${items || `<div style="color:var(--fg2);padding:8px">${nFlat && !nC
+        ? '응력이 파트 전체에 균일 — 핫스팟 없음'
+        : '덩어리 없음 — 핫스팟이 흩어져 있다'}</div>`}</div>`;
+  }
+
   return `
 <div class="kpi-grid">${kpis}</div>
-<div class="sec-title">응력 상위 부품</div>
-<div class="chart-box">${topBars || '<div style="color:var(--fg2);padding:8px">응력 데이터 없음</div>'}</div>`;
+<div class="sec-title">응력 상위 부품${solidOnly ? ' (솔리드만)' : ''}</div>
+<div class="chart-box">${topBars || '<div style="color:var(--fg2);padding:8px">응력 데이터 없음</div>'}
+${solidOnly ? '<div class="hs-dim" style="margin-top:6px">이 모델에는 셸·두꺼운 셸이 있다. 위 집계는 솔리드 요소만 본다 — 셸 계열 응력은 핫스팟 군집 탭에 있다.</div>' : ''}</div>
+${hsCard}`;
 }
 
 // ── Stress & Strain ──────────────────────────────────────────────────
@@ -2056,4 +2098,321 @@ function renderSysInfo() {
     });
   };
 })();
+
+// ── Hotspot clusters (analysis_result.json hotspot_clusters) ─────────
+// 항목 = 파트 × 기준량 × 요소종류. 필드 뜻: docs/hotspot-cluster-usage.md
+const HS_CRIT_LABEL = {
+  von_mises: 'Von Mises',
+  max_principal: 'σ₁ 최대주응력 (인장 집중)',
+  min_principal: 'σ₃ 최소주응력 (압축 집중)',
+};
+const HS_TYPE_LABEL = {solid: '솔리드', thick_shell: '두꺼운 셸', shell: '셸'};
+const HS_STRAIN_LABEL = {equivalent: '등가변형률', max_principal: 'ε₁', min_principal: 'ε₃'};
+const HS_WEIGHT_LABEL = {volume: '부피', area_x_thickness: '면적×두께', area: '면적'};
+let _hsState = {crit: null, type: 'all', key: null};
+
+function hsEntries() { return DATA.hotspot || []; }
+function hsKey(p) { return p.criterion + '|' + (p.element_type || 'solid') + '|' + p.part_id; }
+function hsPartName(p) {
+  const pi = DATA.parts[String(p.part_id)];
+  return (pi && pi.name) || p.part_name || '';
+}
+function hsMatchesFilter(p) { return partMatchesFilter(String(p.part_id), {name: hsPartName(p)}); }
+function hsLayerLabel(p, L) {
+  if (L === undefined || L === null || L < 0) return '—';
+  if (p.layer_scheme === 'mid_inner_outer') return ['중립면', '안쪽 면', '바깥쪽 면'][L] || ('IP ' + (L + 1));
+  return 'IP ' + (L + 1);
+}
+// 파트 경계상자 기준 백분율. 두께가 0 인 축은 null.
+function hsRelPos(p, c) {
+  if (!p.bbox_min || !p.bbox_max) return null;
+  return [0, 1, 2].map(i => {
+    const e = p.bbox_max[i] - p.bbox_min[i];
+    return e > 1e-12 ? (c.center[i] - p.bbox_min[i]) / e * 100 : null;
+  });
+}
+// 파트의 '평면' — 경계상자에서 가장 넓은 두 축 (x<y<z 순서 유지). 판재면 그 판의 면.
+function hsPlaneAxes(p) {
+  if (!p || !p.bbox_min || !p.bbox_max) return [0, 1];
+  const e = [0, 1, 2].map(i => p.bbox_max[i] - p.bbox_min[i]);
+  const drop = e.indexOf(Math.min(...e));
+  return [0, 1, 2].filter(i => i !== drop);
+}
+// 파트 평면 기준 9구역 이름 — 첫 축 좌→우, 둘째 축 하→상.
+// 🔴 얇은 방향의 % 로 이름을 붙이면 두께 0.4 mm 판의 '상단' 같은 오독이 난다 → 평면 두 축만 쓴다.
+function hsZoneLabel(p, rel) {
+  if (!rel) return '—';
+  const [a, b] = hsPlaneAxes(p);
+  if (rel[a] === null || rel[b] === null) return '—';
+  const bx = rel[a] < 33.3 ? 0 : rel[a] > 66.7 ? 2 : 1;
+  const by = rel[b] < 33.3 ? 0 : rel[b] > 66.7 ? 2 : 1;
+  const T = [['좌하단', '중앙 하단', '우하단'], ['좌측 중앙', '정중앙', '우측 중앙'], ['좌상단', '중앙 상단', '우상단']];
+  const ax = 'xyz';
+  return T[by][bx] + (a === 0 && b === 1 ? '' : ` (${ax[a]}·${ax[b]} 평면)`);
+}
+function hsXYLabel(rel) { return hsZoneLabel(null, rel); }
+function hsRelText(rel) {
+  if (!rel) return '—';
+  return ['x', 'y', 'z'].map((a, i) => rel[i] === null ? a + ' —' : a + ' ' + rel[i].toFixed(0) + '%').join(' · ');
+}
+
+function renderHotspot() {
+  const all = hsEntries();
+  if (!all.length) return '<div class="chart-box"><p>핫스팟 군집 결과가 없습니다. <code>--hotspot-clusters</code> 로 실행하세요.</p></div>';
+  const crits = [...new Set(all.map(p => p.criterion))];
+  const types = [...new Set(all.map(p => p.element_type || 'solid'))];
+  if (!_hsState.crit || !crits.includes(_hsState.crit)) _hsState.crit = crits[0];
+  if (_hsState.type !== 'all' && !types.includes(_hsState.type)) _hsState.type = 'all';
+  const critOpts = crits.map(c =>
+    `<option value="${c}" ${c === _hsState.crit ? 'selected' : ''}>${HS_CRIT_LABEL[c] || c}</option>`).join('');
+  const typeOpts = ['all', ...types].map(t =>
+    `<option value="${t}" ${t === _hsState.type ? 'selected' : ''}>${t === 'all' ? '전체' : (HS_TYPE_LABEL[t] || t)}</option>`).join('');
+  return `
+<div class="sec-title">핫스팟 군집 — 파트 내 상위 ${fmt(all[0].top_percent, 1)}% 요소를 공간 군집화</div>
+<p class="hs-note">최대 요소 하나로는 알 수 없는 것 — 응력이 <b>한 곳에 뭉쳤나 흩어졌나</b>, 파트의 <b>어디에</b>,
+<b>얼마나 넓게</b>, 그 범위의 <b>평균 수준</b>은 얼마인가 — 를 덩어리 단위로 보여준다.
+중심·경계상자는 <b>초기 형상</b> 기준. 파트 내 위치 이름은 파트의 평면(경계상자에서 가장 넓은 두 축) 기준 — 첫 축 왼쪽→오른쪽, 둘째 축 아래→위. XY 평면이면 +x 오른쪽, +y 위.</p>
+<div class="part-selector">
+  <label>기준량:</label><select id="hs-crit" onchange="hsSet('crit', this.value)">${critOpts}</select>
+  <label>요소:</label><select id="hs-type" onchange="hsSet('type', this.value)">${typeOpts}</select>
+</div>
+<div class="chart-box"><div class="chart-title">파트별 1위 덩어리 — 행을 누르면 아래에 상세</div><div id="hs-summary"></div></div>
+<div id="hs-detail"></div>`;
+}
+
+function initHotspot() { hsUpdate(); }
+function hsSet(k, v) {
+  _hsState[k] = v;
+  if (k !== 'key') _hsState.key = null;
+  hsUpdate();
+}
+function hsSelected() {
+  return hsEntries().filter(p => p.criterion === _hsState.crit &&
+    (_hsState.type === 'all' || (p.element_type || 'solid') === _hsState.type) && hsMatchesFilter(p));
+}
+
+function hsUpdate() {
+  const rows = hsSelected();
+  const isMin = rows.length > 0 && rows[0].direction === 'min';
+  // 평탄 분포(uniform)는 덩어리가 우연히 생겨도 위치에 의미가 없다 → 순위표에서 뺀다
+  const isFlat = p => p.uniform === true;
+  const withC = rows.filter(p => p.clusters && p.clusters.length && !isFlat(p));
+  withC.sort((a, b) => isMin ? a.clusters[0].stress_max - b.clusters[0].stress_max
+                             : b.clusters[0].stress_max - a.clusters[0].stress_max);
+  // 덩어리가 없는 파트를 둘로 나눈다 — 상위 값이 컷값과 같으면 평탄 분포(핫스팟 자체가 없음),
+  // 아니면 뜨거운 요소가 실제로 흩어져 있다.
+  const flat = rows.filter(isFlat);
+  const scattered = rows.filter(p => !isFlat(p) && !(p.clusters && p.clusters.length) && p.element_count_selected > 0);
+  if ((!_hsState.key || !withC.some(p => hsKey(p) === _hsState.key)) && withC.length) _hsState.key = hsKey(withC[0]);
+  if (!withC.length) _hsState.key = null;
+
+  const extLabel = isMin ? '1위 최솟값' : '1위 최댓값';
+  let html = `<table class="data-table hs-table"><thead><tr>
+    <th>파트</th><th>요소</th><th class="num">덩어리</th><th class="num">${extLabel}</th><th class="num">1위 평균</th>
+    <th>1위 위치 (파트 내)</th><th class="num">선별 / 전체</th><th>가중</th></tr></thead><tbody>`;
+  for (const p of withC) {
+    const c = p.clusters[0];
+    const rel = hsRelPos(p, c);
+    const sel = hsKey(p) === _hsState.key ? ' hs-sel' : '';
+    html += `<tr class="hs-row${sel}" onclick="hsSet('key','${hsKey(p)}')">
+      <td>${partLabel(p.part_id, {name: hsPartName(p)})}</td>
+      <td>${HS_TYPE_LABEL[p.element_type] || p.element_type || '솔리드'}</td>
+      <td class="num">${p.clusters.length}</td>
+      <td class="num">${fmt(c.stress_max)}</td>
+      <td class="num">${fmt(c.stress_mean)}</td>
+      <td>${hsZoneLabel(p, rel)} <span class="hs-dim">(${hsRelText(rel)})</span></td>
+      <td class="num">${p.element_count_selected} / ${p.element_count_total}</td>
+      <td>${HS_WEIGHT_LABEL[p.weight_measure] || p.weight_measure || '부피'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  if (!withC.length) html = '<p class="hs-dim">이 조건에 덩어리가 있는 파트가 없습니다.</p>';
+  if (flat.length) {
+    html += `<p class="hs-dim" style="margin-top:8px">상위 값이 파트 전체에 <b>균일</b>해 핫스팟이 없는 파트 — 상위 선별이 같은 값들 중 임의로 뽑혀 흩어져 보일 뿐이다: ` +
+      flat.map(p => `${partLabel(p.part_id, {name: hsPartName(p)})} (값 ${fmt(p.value_extreme, 4)})`).join(', ') + '</p>';
+  }
+  if (scattered.length) {
+    html += `<p class="hs-dim" style="margin-top:8px">선별은 됐지만 최소 크기 이상 뭉친 덩어리가 없는 파트 — 핫스팟이 흩어져 있다: ` +
+      scattered.map(p => `${partLabel(p.part_id, {name: hsPartName(p)})} (선별 ${p.element_count_selected})`).join(', ') + '</p>';
+  }
+  document.getElementById('hs-summary').innerHTML = html;
+  hsRenderDetail(rows.find(p => hsKey(p) === _hsState.key));
+}
+
+function hsRenderDetail(p) {
+  const el = document.getElementById('hs-detail');
+  if (!p) { el.innerHTML = ''; return; }
+  const isMin = p.direction === 'min';
+  const isShell = (p.element_type || 'solid') === 'shell';
+  const layered = (p.element_type || 'solid') !== 'solid';
+  const strainOn = p.strain_available && p.clusters.some(c => c.strain_available);
+  const sLab = HS_STRAIN_LABEL[p.strain_measure] || '변형률';
+  let rows = '';
+  for (const c of p.clusters) {
+    const rel = hsRelPos(p, c);
+    rows += `<tr>
+      <td class="num">${c.rank}</td><td class="num">${c.element_count}</td>
+      <td class="num">${c.center.map(v => fmt(v, 2)).join(', ')}</td>
+      <td>${hsZoneLabel(p, rel)}<br><span class="hs-dim">${hsRelText(rel)}</span></td>
+      <td class="num">${fmt(c.radius_enclosing, 3)}</td><td class="num">${fmt(c.radius_rms, 3)}</td>
+      <td class="num">${isShell ? fmt(c.area, 3) : fmt(c.volume, 3)}</td>
+      <td class="num">${fmt(c.stress_mean)}</td><td class="num">${fmt(c.stress_max)}</td>
+      ${strainOn ? `<td class="num">${c.strain_available ? fmt(c.strain_mean, 5) : '—'}</td><td class="num">${c.strain_available ? fmt(c.strain_max, 5) : '—'}</td>` : ''}
+      <td class="num">${c.peak_element_id}</td><td class="num">${fmt(c.peak_time, 5)}</td>
+      ${layered ? `<td>${hsLayerLabel(p, c.peak_layer)}</td>` : ''}</tr>`;
+  }
+  el.innerHTML = `
+<div class="chart-box">
+  <div class="chart-title">${partLabel(p.part_id, {name: hsPartName(p)})} — ${HS_TYPE_LABEL[p.element_type] || '솔리드'} ·
+    ${HS_CRIT_LABEL[p.criterion] || p.criterion}</div>
+  <div class="hs-meta">
+    <span>선별 ${p.element_count_selected} / 전체 ${p.element_count_total} · 덩어리 소속 ${p.element_count_clustered}</span>
+    <span>컷값 ${fmt(p.threshold_value)} (${isMin ? '이하' : '이상'} 선별)${p.cut_ties_unselected > 0 ? ` · 컷값 동률 미선별 ${p.cut_ties_unselected}개` : ''}</span>
+    <span>대표 요소 크기 ${fmt(p.element_size_ref, 3)} · 거리 임계 ${fmt(p.distance_threshold, 3)}</span>
+    <span>가중 ${HS_WEIGHT_LABEL[p.weight_measure] || p.weight_measure || '부피'}</span>
+  </div>
+  <div style="overflow-x:auto"><table class="data-table"><thead><tr>
+    <th class="num">순위</th><th class="num">요소</th><th class="num">중심 (x, y, z)</th><th>파트 내 위치</th>
+    <th class="num">포함 반경</th><th class="num">RMS 반경</th><th class="num">${isShell ? '면적' : '부피'}</th>
+    <th class="num">평균</th><th class="num">${isMin ? '최솟값' : '최댓값'}</th>
+    ${strainOn ? `<th class="num">${sLab} 평균</th><th class="num">${sLab} ${isMin ? '최솟값' : '최댓값'}</th>` : ''}
+    <th class="num">피크 요소</th><th class="num">피크 시각</th>${layered ? '<th>피크 층</th>' : ''}
+  </tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="hs-dim" style="margin:8px 0 0">평균은 ${HS_WEIGHT_LABEL[p.weight_measure] || '부피'} 가중(산술평균 아님).
+    포함 반경 = 중심에서 구성 요소의 가장 먼 절점까지, RMS 반경이 포함 반경보다 훨씬 작으면 한 점에 몰린 것.
+    ${isMin ? '압축 기준이라 값이 작을수록(더 음수일수록) 위험하다.' : ''}</p>
+</div>
+<div class="chart-box"><div class="chart-title">파트 경계상자 안의 덩어리 — 원(구) 반지름 = 포함 반경, 색 = ${isMin ? '최솟값' : '최댓값'}
+  <span class="part-selector" style="display:inline-flex;margin:0 0 0 12px">
+    <label>보기:</label>
+    <select id="hs-view" onchange="hsDraw(_hsCurrent)">
+      <option value="plane">파트 평면 (${'xyz'[hsPlaneAxes(p)[0]]}·${'xyz'[hsPlaneAxes(p)[1]]})</option>
+      <option value="xy">XY</option><option value="xz">XZ</option><option value="yz">YZ</option><option value="3d">3D</option>
+    </select></span></div>
+  <div id="hs-view-chart" style="height:560px"></div></div>`;
+  _hsCurrent = p;
+  hsDraw(p);
+}
+let _hsCurrent = null;
+
+// 뜨거운 쪽이 진하게: max 방향은 옅은 노랑→진한 빨강, min(압축) 방향은 진한 파랑→옅은 파랑
+const HS_SCALE_MAX = [[0, '#fff3c4'], [0.5, '#fc8d3c'], [1, '#b10026']];
+const HS_SCALE_MIN = [[0, '#08306b'], [0.5, '#4292c6'], [1, '#deebf7']];
+function hsColorAt(scale, t) {
+  t = Math.max(0, Math.min(1, t));
+  let i = 0; while (i < scale.length - 2 && t > scale[i + 1][0]) i++;
+  const [t0, c0] = scale[i], [t1, c1] = scale[i + 1];
+  const f = (t - t0) / ((t1 - t0) || 1);
+  const h = c => [1, 3, 5].map(k => parseInt(c.substr(k, 2), 16));
+  const a = h(c0), b = h(c1);
+  return 'rgb(' + a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(',') + ')';
+}
+
+function hsDraw(p) {
+  if (!p) return;
+  const sel = document.getElementById('hs-view');
+  const mode = sel ? sel.value : 'plane';
+  if (mode === '3d') { hsDraw3D(p); return; }
+  const ax = mode === 'xy' ? [0, 1] : mode === 'xz' ? [0, 2] : mode === 'yz' ? [1, 2] : hsPlaneAxes(p);
+  hsDraw2D(p, ax[0], ax[1]);
+}
+
+// 평면 투영 — 구의 투영은 같은 반지름의 원이다. 등축 비율로 실제 크기 관계를 지킨다.
+function hsDraw2D(p, a, b) {
+  const el = document.getElementById('hs-view-chart');
+  if (!el || !window.Plotly) return;
+  const isMin = p.direction === 'min';
+  const scale = isMin ? HS_SCALE_MIN : HS_SCALE_MAX;
+  const vals = p.clusters.map(c => c.stress_max);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const tOf = v => vmax === vmin ? 1 : (isMin ? (vmax - v) / (vmax - vmin) : (v - vmin) / (vmax - vmin));
+  const shapes = [];
+  if (p.bbox_min && p.bbox_max) {
+    shapes.push({type: 'rect', xref: 'x', yref: 'y', x0: p.bbox_min[a], x1: p.bbox_max[a], y0: p.bbox_min[b], y1: p.bbox_max[b],
+                 line: {color: '#a0a0b0', width: 1.5, dash: 'dot'}, fillcolor: 'rgba(160,160,176,0.06)', layer: 'below'});
+  }
+  // 순위가 낮은(덜 뜨거운) 것부터 그려 1위가 위에 오게
+  [...p.clusters].reverse().forEach(c => {
+    const r = Math.max(c.radius_enclosing, 1e-9);
+    const col = hsColorAt(scale, isMin ? 1 - tOf(c.stress_max) : tOf(c.stress_max));
+    shapes.push({type: 'circle', xref: 'x', yref: 'y', x0: c.center[a] - r, x1: c.center[a] + r, y0: c.center[b] - r, y1: c.center[b] + r,
+                 line: {color: col, width: 2}, fillcolor: col, opacity: 0.6});
+  });
+  const axn = 'xyz';
+  const traces = [{
+    type: 'scatter', mode: 'markers+text', x: p.clusters.map(c => c.center[a]), y: p.clusters.map(c => c.center[b]),
+    text: p.clusters.map(c => '#' + c.rank), textposition: 'middle center', textfont: {color: '#ffffff', size: 12},
+    marker: {size: 2, color: vals, colorscale: scale, cmin: vmin, cmax: vmax === vmin ? vmin + 1 : vmax, showscale: true,
+             colorbar: {title: {text: isMin ? '최솟값' : '최댓값', side: 'right'}, len: 0.8}},
+    hovertext: p.clusters.map(c => `#${c.rank} · 요소 ${c.element_count}<br>${isMin ? '최솟값' : '최댓값'} ${fmt(c.stress_max)} · 평균 ${fmt(c.stress_mean)}` +
+                                  `<br>중심 (${c.center.map(v => fmt(v, 2)).join(', ')})<br>포함 반경 ${fmt(c.radius_enclosing, 3)}`),
+    hoverinfo: 'text', showlegend: false,
+  }];
+  Plotly.newPlot(el, traces, {
+    ...PLOT_LAYOUT, margin: {l: 60, r: 20, t: 10, b: 50}, shapes,
+    xaxis: {...PLOT_LAYOUT.xaxis, title: axn[a], zeroline: false},
+    yaxis: {...PLOT_LAYOUT.yaxis, title: axn[b], zeroline: false, scaleanchor: 'x', scaleratio: 1},
+  }, PLOT_CONFIG);
+}
+
+// 단위 구 표본점 (위도·경도 격자) — mesh3d alphahull=0 이 볼록 껍질로 면을 만든다
+function hsSpherePts(cx, cy, cz, r) {
+  const x = [], y = [], z = [];
+  const NU = 10, NV = 16;
+  for (let i = 0; i <= NU; i++) {
+    const th = Math.PI * i / NU;
+    for (let j = 0; j < NV; j++) {
+      const ph = 2 * Math.PI * j / NV;
+      x.push(cx + r * Math.sin(th) * Math.cos(ph));
+      y.push(cy + r * Math.sin(th) * Math.sin(ph));
+      z.push(cz + r * Math.cos(th));
+    }
+  }
+  return {x, y, z};
+}
+
+function hsDraw3D(p) {
+  const el = document.getElementById('hs-view-chart');
+  if (!el || !window.Plotly) return;
+  const traces = [];
+  if (p.bbox_min && p.bbox_max) {
+    const a = p.bbox_min, b = p.bbox_max;
+    const C = [[a[0],a[1],a[2]],[b[0],a[1],a[2]],[b[0],b[1],a[2]],[a[0],b[1],a[2]],
+               [a[0],a[1],b[2]],[b[0],a[1],b[2]],[b[0],b[1],b[2]],[a[0],b[1],b[2]]];
+    const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+    const lx = [], ly = [], lz = [];
+    for (const [i, j] of E) { lx.push(C[i][0], C[j][0], null); ly.push(C[i][1], C[j][1], null); lz.push(C[i][2], C[j][2], null); }
+    traces.push({type: 'scatter3d', mode: 'lines', x: lx, y: ly, z: lz, name: '파트 경계상자',
+                 line: {color: '#a0a0b0', width: 2}, hoverinfo: 'skip'});
+  }
+  const vals = p.clusters.map(c => c.stress_max);
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const isMin = p.direction === 'min';
+  p.clusters.forEach((c, k) => {
+    const s = hsSpherePts(c.center[0], c.center[1], c.center[2], Math.max(c.radius_enclosing, 1e-9));
+    traces.push({type: 'mesh3d', x: s.x, y: s.y, z: s.z, alphahull: 0, opacity: 0.55,
+      intensity: s.x.map(() => c.stress_max), cmin: vmin, cmax: vmax === vmin ? vmin + 1 : vmax,
+      colorscale: isMin ? HS_SCALE_MIN : HS_SCALE_MAX, showscale: k === 0,
+      colorbar: {title: {text: isMin ? '최솟값' : '최댓값', side: 'right'}, len: 0.7},
+      name: '#' + c.rank,
+      hovertemplate: `#${c.rank} · 요소 ${c.element_count}<br>${isMin ? '최솟값' : '최댓값'} ${fmt(c.stress_max)} · 평균 ${fmt(c.stress_mean)}` +
+                     `<br>포함 반경 ${fmt(c.radius_enclosing, 3)}<extra></extra>`});
+  });
+  traces.push({type: 'scatter3d', mode: 'text', x: p.clusters.map(c => c.center[0]),
+               y: p.clusters.map(c => c.center[1]), z: p.clusters.map(c => c.center[2]),
+               text: p.clusters.map(c => '#' + c.rank), textfont: {color: '#ffffff', size: 12},
+               hoverinfo: 'skip', showlegend: false});
+  const ax = t => ({title: t, gridcolor: '#2a2a4a', zerolinecolor: '#2a2a4a', color: '#e0e0e0', backgroundcolor: 'rgba(15,52,96,0.25)', showbackground: true});
+  Plotly.newPlot(el, traces, {
+    paper_bgcolor: 'transparent', font: {color: '#e0e0e0', size: 11},
+    margin: {l: 0, r: 0, t: 10, b: 0}, showlegend: false,
+    scene: {aspectmode: 'data', xaxis: ax('x'), yaxis: ax('y'), zaxis: ax('z'),
+            camera: {projection: {type: 'orthographic'}}},
+  }, PLOT_CONFIG).then(() => {
+    // aspectmode 'data' 는 가장 긴 축을 1 이상으로 늘린다 — 카메라를 그 비율만큼 물려야 잘리지 않는다
+    const ar = el.layout.scene.aspectratio || {x: 1, y: 1, z: 1};
+    const m = Math.max(ar.x, ar.y, ar.z);
+    Plotly.relayout(el, {'scene.camera': {projection: {type: 'orthographic'},
+                                          eye: {x: 1.25 * m, y: -1.25 * m, z: 1.25 * m}, up: {x: 0, y: 0, z: 1}}});
+  });
+}
 """

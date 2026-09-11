@@ -552,6 +552,7 @@ def _parse_outputs(
         min_principal_strain=min_principal_strain,
         peak_element_tensors=tensor_list,
         element_quality=eq_list,
+        hotspot_clusters=[h for h in raw.get("hotspot_clusters", []) if isinstance(h, dict)],
         render_files=render_files,
         output_dir=output_dir,
     )
