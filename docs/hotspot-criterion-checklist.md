@@ -27,4 +27,4 @@
 
 ## E. 마감
 - [x] 문서 `hotspot-cluster-usage.md`
-- [ ] 커밋 · SIF v31 · node001
+- [x] 커밋(78b9a55 · pyKooCAE 20cb381) · 후처리 SIF v31 · 전처리 SIF v92 · node001 배포 + 배포 SIF e2e(case_01 3기준)
