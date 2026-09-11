@@ -4,13 +4,75 @@
 #include "kood3plot/Types.hpp"
 #include "kood3plot/data/Mesh.hpp"
 
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace kood3plot {
 namespace analysis {
+
+/**
+ * @brief 군집 선별 기준량
+ *
+ * 부호와 "뜨거운" 방향이 기준마다 다르다 (docs/hotspot-criterion-plan.md §2).
+ *
+ * | 기준          | 값 범위   | 뜨거운 방향        | 시간축 극값 |
+ * |---------------|-----------|--------------------|-------------|
+ * | VonMises      | ≥ 0       | 큰 값              | max         |
+ * | MaxPrincipal  | 부호 있음 | 큰 값 (인장)       | max         |
+ * | MinPrincipal  | 부호 있음 | **작은 값 (압축)** | **min**     |
+ */
+enum class HotspotCriterion {
+    VonMises = 0,
+    MaxPrincipal = 1,
+    MinPrincipal = 2,
+};
+
+/// 문자열 → 기준. "von_mises" / "max_principal" / "min_principal" (대소문자·'-' 무시).
+/// 모르는 이름이면 false 를 돌려주고 @p out 은 건드리지 않는다.
+bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out);
+
+/// 기준 → 정규 이름 (JSON `criterion` 필드에 쓰는 값)
+const char* hotspotCriterionName(HotspotCriterion c);
+
+/// 이름 목록 → 기준 목록. 순서 유지·중복 제거. 모르는 이름은 @p unknown 에 모은다.
+/// 비어 있거나 전부 모르는 이름이면 **빈 벡터** — 폴백은 호출부가 정한다.
+std::vector<HotspotCriterion> parseHotspotCriteria(const std::vector<std::string>& names,
+                                                   std::vector<std::string>* unknown = nullptr);
+
+/// 요소별 시간축 극값 묶음 (기준 하나분). 크기는 전부 솔리드 요소 수.
+struct ElementExtremes {
+    std::vector<double> value;   ///< 극값. NaN = 미기록
+    std::vector<double> time;    ///< 그 극값이 난 시각
+    std::vector<double> strain;  ///< 같은 시각의 짝 변형률. 비어 있으면 미보고
+};
+
+/// 뜨거운 방향이 '작은 값' 인 기준이면 true (현재 MinPrincipal 만)
+inline bool hotspotCriterionIsMin(HotspotCriterion c) {
+    return c == HotspotCriterion::MinPrincipal;
+}
+
+/// a 가 b 보다 뜨거운가 — 기준 방향을 반영한 비교
+inline bool hotspotHotter(HotspotCriterion c, double a, double b) {
+    return hotspotCriterionIsMin(c) ? (a < b) : (a > b);
+}
+
+/// 심각도 — 뜨거운 방향으로 양수화한 값. 가중 중심 계산에 쓴다.
+/// (σ3 = −500 → 500, σ3 = +20 → −20). 부호가 반대인 요소는 호출부가 0 으로 클램프한다.
+inline double hotspotSeverity(HotspotCriterion c, double v) {
+    return hotspotCriterionIsMin(c) ? -v : v;
+}
+
+/// 기준에 짝이 되는 변형률 측도 이름 (JSON `strain_measure`)
+const char* hotspotStrainMeasureName(HotspotCriterion c);
+
+/// 요소 값 배열의 '미기록' 표식. 🔴 음수 표식(−DBL_MAX)을 쓰면 안 된다 —
+/// σ1·σ3 은 정상값이 음수일 수 있어 `v < 0` 검사가 요소를 통째로 버린다.
+inline double hotspotUnrecorded() { return std::numeric_limits<double>::quiet_NaN(); }
+inline bool hotspotIsUnrecorded(double v) { return std::isnan(v); }
 
 /**
  * @brief 핫스팟 군집 분석 설정
@@ -29,8 +91,8 @@ struct HotspotClusterConfig {
     /// 이 개수 미만의 덩어리는 노이즈로 버린다
     int min_cluster_elements = 5;
 
-    /// 선별 기준량. 현재 "von_mises" 만 지원
-    std::string criterion = "von_mises";
+    /// 선별 기준량 (한 번 호출에 하나). 여러 기준은 호출부가 돌린다.
+    HotspotCriterion criterion = HotspotCriterion::VonMises;
 
     /// 파트당 보고할 최대 덩어리 수 (0 = 무제한)
     int max_clusters_per_part = 20;
@@ -51,12 +113,12 @@ struct HotspotCluster {
     double radius_rms = 0.0;            ///< 부피 가중 RMS 반경 (뭉침 정도)
     double volume = 0.0;                ///< 덩어리 총 부피
 
-    double stress_mean = 0.0;           ///< 부피 가중 평균 von Mises
-    double stress_max = 0.0;
+    double stress_mean = 0.0;           ///< 부피 가중 평균 (기준량 값, 부호 유지)
+    double stress_max = 0.0;            ///< 뜨거운 방향의 극값 — σ3 기준이면 **최솟값**
 
     bool strain_available = false;      ///< 덱에 변형률 텐서가 없으면 false
-    double strain_mean = 0.0;           ///< 부피 가중 평균 등가변형률
-    double strain_max = 0.0;
+    double strain_mean = 0.0;           ///< 부피 가중 평균 (기준에 짝인 변형률 측도)
+    double strain_max = 0.0;            ///< 뜨거운 방향의 극값 (σ3 기준이면 ε3 최솟값)
 
     int32_t peak_element_id = 0;        ///< 최대 응력 요소 (사용자 ID)
     double peak_time = 0.0;             ///< 그 최대가 발생한 시각
@@ -69,9 +131,11 @@ struct PartHotspotResult {
     int32_t part_id = 0;
     std::string part_name;
 
-    std::string criterion;              ///< 선별 기준량
+    std::string criterion;              ///< 선별 기준량 이름 (hotspotCriterionName)
+    std::string direction;              ///< "max" | "min" — stress_max/threshold 의 방향
+    std::string strain_measure;         ///< "equivalent" | "max_principal" | "min_principal"
     double top_percent = 0.0;
-    double threshold_value = 0.0;       ///< 상위 백분위 컷 값 (이 이상만 선별)
+    double threshold_value = 0.0;       ///< 상위 백분위 컷 값. max 방향이면 이 이상, min 방향이면 이 이하가 선별
 
     double element_size_ref = 0.0;      ///< 파트 대표 요소 크기 (부피 중앙값의 세제곱근)
     double distance_threshold = 0.0;    ///< 실제 적용된 거리 임계값
@@ -163,7 +227,7 @@ struct ClusterElement {
     size_t  element_idx = 0;   ///< 메시 내부 인덱스 (절점 조회용)
     double  x = 0, y = 0, z = 0;
     double  volume = 0.0;
-    double  value = 0.0;       ///< 선별 기준량 (전 시간 최대 von Mises)
+    double  value = 0.0;       ///< 선별 기준량의 시간축 극값 (부호 유지)
     double  peak_time = 0.0;
     double  strain = 0.0;
     bool    has_strain = false;
@@ -199,10 +263,11 @@ double representativeElementSize(std::vector<double> volumes);
  * @brief 파트별 핫스팟 군집 계산
  *
  * @param mesh          메시 (초기 형상 기준으로 도심을 낸다 — 계획서 §5)
- * @param elem_max_vm   요소별 전 시간 최대 von Mises. 크기 = 솔리드 요소 수.
- *                      음수는 '미기록' 이므로 제외한다.
- * @param elem_max_time 그 최대가 난 시각 (크기 같음, 비어 있으면 0 으로 본다)
- * @param elem_strain   같은 시점의 등가변형률 (비어 있으면 변형률 미보고)
+ * @param elem_max_vm   요소별 기준량의 시간축 극값 (cfg.criterion 기준). 크기 = 솔리드 요소 수.
+ *                      NaN(`hotspotUnrecorded()`) 은 '미기록' 이므로 제외한다.
+ *                      🔴 음수는 정상값이다 — σ1·σ3 에서 걸러내면 안 된다.
+ * @param elem_max_time 그 극값이 난 시각 (크기 같음, 비어 있으면 0 으로 본다)
+ * @param elem_strain   같은 시점의 짝 변형률 (VM→등가, σ1→ε1, σ3→ε3. 비어 있으면 미보고)
  * @param part_names    파트 ID → 이름 (없으면 빈 이름)
  * @param cfg           설정
  *

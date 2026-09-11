@@ -19,6 +19,8 @@
 #include "kood3plot/analysis/AnalysisResult.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 #include "kood3plot/analysis/VectorMath.hpp"
+#include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include <map>
 #include <vector>
 #include <unordered_map>
 #include <functional>
@@ -362,11 +364,16 @@ public:
      */
     AnalysisResult analyzeLegacy(const AnalysisConfig& config);
 
-    /// 요소별 전 시간 최대 von Mises (accumulateElementMaxVonMises 결과).
-    /// 값이 음수인 항목은 '미기록' 이다 — 0 과 구분해야 한다.
-    const std::vector<double>& elementMaxVonMises() const { return elem_max_vm_; }
-    const std::vector<double>& elementMaxVonMisesTime() const { return elem_max_vm_time_; }
-    const std::vector<double>& elementMaxStrain() const { return elem_max_strain_; }
+    /// 요소별 시간축 극값 (accumulateElementExtremes 결과), 기준별.
+    /// 값이 NaN 인 항목은 '미기록' 이다 — 0 이나 음수와 구분해야 한다.
+    /// 요청하지 않은 기준이면 빈 배열들이 든 정적 객체를 돌려준다.
+    const ElementExtremes& elementExtremes(HotspotCriterion c) const;
+    const std::map<HotspotCriterion, ElementExtremes>& allElementExtremes() const { return elem_extremes_; }
+
+    /// 설정의 이름 목록 → 기준 목록. 모르는 이름은 경고, 전부 무효면 von_mises 폴백.
+    /// 같은 설정을 여러 곳에서 해석하므로 경고는 한 곳(누적 패스)에서만 낸다 — @p warn.
+    static std::vector<HotspotCriterion> resolveHotspotCriteria(const std::vector<std::string>& names,
+                                                                bool warn = true);
 
 
     /**
@@ -416,13 +423,11 @@ private:
     std::vector<int32_t> elem_to_part_;  // elem_index -> part_id
     std::unordered_map<int32_t, size_t> elem_id_to_index_;
 
-    // ── 요소별 전 시간 최대 von Mises (핫스팟 군집용) ──
+    // ── 요소별 시간축 극값 (핫스팟 군집용), 기준별 ──
     // elem_index -> 값. config.hotspot_enabled 일 때만 채워진다.
-    // 🔴 미기록/범위밖을 0 으로 두면 '응력 0 인 요소' 와 구분이 안 되므로
-    //    -DBL_MAX 로 초기화하고 소비 측에서 음수를 걸러낸다.
-    std::vector<double> elem_max_vm_;
-    std::vector<double> elem_max_vm_time_;   // 그 최대가 난 시각
-    std::vector<double> elem_max_strain_;    // 같은 시점의 등가변형률 (없으면 비움)
+    // 🔴 미기록/범위밖은 NaN. 0 으로 두면 '응력 0' 과, 음수로 두면 σ1·σ3 의
+    //    정상 음수값과 구분이 안 된다.
+    std::map<HotspotCriterion, ElementExtremes> elem_extremes_;
 
     // Part information
     std::vector<int32_t> part_ids_;  // Unique part IDs
@@ -557,7 +562,7 @@ private:
         AnalysisResult& result);
 
     /**
-     * @brief 요소별 전 시간 최대 von Mises 누적 (2차 경량 패스)
+     * @brief 요소별 시간축 극값 누적 (2차 경량 패스), 요청한 기준 전부
      *
      * extractPeakElementTensors 와 같은 방식 — buildResult 이후 all_states 를
      * 다시 훑는다. 🔴 상태 루프 안에서 누적하면 안 된다. 기본 경로가
@@ -565,8 +570,13 @@ private:
      * 여러 상태가 같은 elem_idx 를 동시에 갱신하면 데이터 경쟁이 된다.
      * 여기서는 **elem_idx 로 병렬화**하고 상태를 안쪽에서 돌므로
      * 각 스레드가 자기 요소만 써서 경쟁이 원천적으로 없다.
+     *
+     * 기준별 극값 방향: von Mises·σ1 은 max, σ3 은 **min**.
+     * 주응력은 σ1·σ3 중 하나라도 요청됐을 때 (요소,상태)당 **한 번만** 분해한다.
+     * 짝 변형률: VM→등가변형률, σ1→ε1, σ3→ε3 — 모두 극값이 난 시각의 값.
      */
-    void accumulateElementMaxVonMises(const std::vector<data::StateData>& all_states);
+    void accumulateElementExtremes(const std::vector<data::StateData>& all_states,
+                                   const std::vector<HotspotCriterion>& criteria);
 
     // ========================================
     // Result finalization

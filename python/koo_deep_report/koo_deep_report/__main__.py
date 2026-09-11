@@ -154,6 +154,10 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="이 개수 미만 덩어리는 노이즈로 버림 (default 5)")
     p.add_argument("--hotspot-max-clusters", type=int, default=20, metavar="N",
                    help="파트당 보고 최대 덩어리 수, 0=무제한 (default 20)")
+    p.add_argument("--hotspot-criterion", dest="hotspot_criterion", default="von_mises", metavar="C[,C]",
+                   help="군집 선별 기준량. von_mises | max_principal | min_principal, 쉼표로 여러 개 "
+                        "(default von_mises). 여러 개면 파트x기준 항목이 각각 나온다. "
+                        "min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다")
     # ── per-part renderAllPartSections options (lsprepost backend) ──
     p.add_argument("--section-view-iso-clip", dest="section_view_iso_clip",
                    action="store_true",
@@ -398,6 +402,9 @@ def _parse_config_yaml(path: str) -> dict:
             elif k in ("min_elements", "max_clusters"):
                 try: hs[k] = int(v)
                 except ValueError: pass
+            elif k in ("criterion", "criteria"):
+                # "von_mises, max_principal" / "[von_mises, min_principal]" 둘 다
+                hs["criterion"] = _normalize_criteria(v)
             else:
                 print(f"[koo_deep_report] hotspot_clusters: 알 수 없는 키 무시 — {k}",
                       file=sys.stderr)
@@ -671,6 +678,8 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
             args.hotspot_min_elements = hs_cfg["min_elements"]
         if getattr(args, "hotspot_max_clusters", 20) == 20 and "max_clusters" in hs_cfg:
             args.hotspot_max_clusters = hs_cfg["max_clusters"]
+        if getattr(args, "hotspot_criterion", "von_mises") == "von_mises" and "criterion" in hs_cfg:
+            args.hotspot_criterion = hs_cfg["criterion"]
     if not getattr(args, "part_pattern", "") and "part_pattern" in cfg:
         args.part_pattern = cfg["part_pattern"]
     if not getattr(args, "install_dir", "") and "install_dir" in cfg:
@@ -781,6 +790,36 @@ def _resolve_install_dir(explicit: str) -> Path | None:
     return None
 
 
+_HOTSPOT_CRITERIA = ("von_mises", "max_principal", "min_principal")
+
+
+def _normalize_criteria(value) -> str:
+    """기준량 목록을 'a,b' 문자열로 정규화한다. 리스트·쉼표 문자열·대괄호 표기 허용.
+
+    모르는 이름은 여기서 걸러 즉시 알린다 — C++ 쪽도 무시하지만 그때는 이미
+    분석이 끝난 뒤라, 사용자는 "왜 min_principal 항목이 없지" 하고 한참 뒤에 안다.
+    """
+    if isinstance(value, (list, tuple)):
+        items = [str(x) for x in value]
+    else:
+        items = str(value).replace("[", "").replace("]", "").split(",")
+    out: list[str] = []
+    for it in items:
+        k = it.strip().strip('"').strip("'").lower().replace("-", "_").replace(" ", "_")
+        if not k:
+            continue
+        alias = {"vm": "von_mises", "vonmises": "von_mises",
+                 "sigma1": "max_principal", "s1": "max_principal", "maxprincipal": "max_principal",
+                 "sigma3": "min_principal", "s3": "min_principal", "minprincipal": "min_principal"}
+        k = alias.get(k, k)
+        if k not in _HOTSPOT_CRITERIA:
+            raise SystemExit(f"[koo_deep_report] --hotspot-criterion: 알 수 없는 기준량 '{it.strip()}' "
+                             f"(허용: {', '.join(_HOTSPOT_CRITERIA)})")
+        if k not in out:
+            out.append(k)
+    return ",".join(out) if out else "von_mises"
+
+
 def _build_hotspot_config(args: argparse.Namespace) -> dict | None:
     """CLI 인자 -> 핫스팟 설정 dict.
 
@@ -795,6 +834,7 @@ def _build_hotspot_config(args: argparse.Namespace) -> dict | None:
         "distance_factor": getattr(args, "hotspot_distance_factor", 1.5),
         "min_elements": getattr(args, "hotspot_min_elements", 5),
         "max_clusters": getattr(args, "hotspot_max_clusters", 20),
+        "criterion": _normalize_criteria(getattr(args, "hotspot_criterion", "von_mises")),
     }
 
 

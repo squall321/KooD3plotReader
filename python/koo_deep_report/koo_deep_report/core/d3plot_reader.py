@@ -300,6 +300,7 @@ def _build_yaml(
                 f"  distance_factor: {float(hotspot.get('distance_factor', 1.5))}",
                 f"  min_elements: {int(hotspot.get('min_elements', 5))}",
                 f"  max_clusters: {int(hotspot.get('max_clusters', 20))}",
+                f"  criterion: {hotspot.get('criterion', 'von_mises')}",
             ]
 
     # Section view rendering — two backends:

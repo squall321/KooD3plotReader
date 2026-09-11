@@ -2,6 +2,7 @@
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <functional>
@@ -13,6 +14,54 @@
 
 namespace kood3plot {
 namespace analysis {
+
+// ── 기준량 이름 왕복 ─────────────────────────────────────────
+bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out) {
+    std::string k;
+    k.reserve(name.size());
+    for (char ch : name) {
+        if (ch == '-' || ch == ' ') ch = '_';
+        k.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    if (k == "von_mises" || k == "vonmises" || k == "vm")            { out = HotspotCriterion::VonMises;     return true; }
+    if (k == "max_principal" || k == "maxprincipal" || k == "sigma1" || k == "s1" || k == "p1")
+                                                                       { out = HotspotCriterion::MaxPrincipal; return true; }
+    if (k == "min_principal" || k == "minprincipal" || k == "sigma3" || k == "s3" || k == "p3")
+                                                                       { out = HotspotCriterion::MinPrincipal; return true; }
+    return false;
+}
+
+const char* hotspotCriterionName(HotspotCriterion c) {
+    switch (c) {
+        case HotspotCriterion::VonMises:     return "von_mises";
+        case HotspotCriterion::MaxPrincipal: return "max_principal";
+        case HotspotCriterion::MinPrincipal: return "min_principal";
+    }
+    return "von_mises";
+}
+
+std::vector<HotspotCriterion> parseHotspotCriteria(const std::vector<std::string>& names,
+                                                   std::vector<std::string>* unknown) {
+    std::vector<HotspotCriterion> out;
+    for (const std::string& n : names) {
+        HotspotCriterion c;
+        if (!parseHotspotCriterion(n, c)) {
+            if (unknown) unknown->push_back(n);
+            continue;
+        }
+        if (std::find(out.begin(), out.end(), c) == out.end()) out.push_back(c);
+    }
+    return out;
+}
+
+const char* hotspotStrainMeasureName(HotspotCriterion c) {
+    switch (c) {
+        case HotspotCriterion::VonMises:     return "equivalent";
+        case HotspotCriterion::MaxPrincipal: return "max_principal";
+        case HotspotCriterion::MinPrincipal: return "min_principal";
+    }
+    return "equivalent";
+}
 
 namespace {
 
@@ -384,7 +433,9 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         res.part_id = pid;
         auto nit = part_names.find(pid);
         if (nit != part_names.end()) res.part_name = nit->second;
-        res.criterion = cfg.criterion;
+        res.criterion = hotspotCriterionName(cfg.criterion);
+        res.direction = hotspotCriterionIsMin(cfg.criterion) ? "min" : "max";
+        res.strain_measure = hotspotStrainMeasureName(cfg.criterion);
         res.top_percent = cfg.top_percent;
         res.element_count_total = static_cast<int>(idxs.size());
         res.strain_available = have_strain;
@@ -440,7 +491,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         for (size_t k = 0; k < idxs.size(); ++k) {
             if (!geo[k].ok) continue;
             const double v = elem_max_vm[idxs[k]];
-            if (v < 0.0) continue;
+            // 🔴 `v < 0` 로 거르면 안 된다 — σ1·σ3 은 음수가 정상값이다.
+            if (hotspotIsUnrecorded(v)) continue;
             rank.emplace_back(v, k);
         }
 
@@ -453,17 +505,18 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         if (want < 1) want = 1;
         if (want > rank.size()) want = rank.size();
 
-        auto desc = [](const std::pair<double, size_t>& a,
-                       const std::pair<double, size_t>& b) {
-            if (a.first != b.first) return a.first > b.first;
+        // "뜨거운 순" — von Mises·σ1 은 내림차순, σ3 은 오름차순(가장 압축인 것부터).
+        const HotspotCriterion crit = cfg.criterion;
+        auto hotter_first = [crit](const std::pair<double, size_t>& a,
+                                   const std::pair<double, size_t>& b) {
+            if (a.first != b.first) return hotspotHotter(crit, a.first, b.first);
             return a.second < b.second;          // 동점이면 인덱스 오름차순
         };
-        std::nth_element(rank.begin(), rank.begin() + (want - 1), rank.end(), desc);
+        std::nth_element(rank.begin(), rank.begin() + (want - 1), rank.end(), hotter_first);
         rank.resize(want);
+        // 컷값 = 선별된 것 중 가장 덜 뜨거운 값 (max 방향이면 최솟값, min 방향이면 최댓값)
         res.threshold_value = rank.empty() ? 0.0
-                            : std::min_element(rank.begin(), rank.end(),
-                                  [](const std::pair<double,size_t>& a,
-                                     const std::pair<double,size_t>& b){ return a.first < b.first; })->first;
+                            : std::max_element(rank.begin(), rank.end(), hotter_first)->first;
 
         std::vector<ClusterElement> sel;
         sel.reserve(rank.size());
@@ -506,25 +559,37 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         for (const auto& g : groups) {
             if (static_cast<int>(g.size()) < cfg.min_cluster_elements) continue;
 
-            double sumV = 0.0, sumSV = 0.0;      // Σ V,  Σ σ·V
-            double wx = 0.0, wy = 0.0, wz = 0.0; // Σ σ·V·x
-            double s_max = -std::numeric_limits<double>::max();
-            double e_sum = 0.0, e_max = 0.0;
+            // 가장 '차가운' 값으로 초기화 — max 방향은 −∞, min 방향은 +∞.
+            const bool is_min = hotspotCriterionIsMin(crit);
+            const double coldest = is_min ?  std::numeric_limits<double>::max()
+                                          : -std::numeric_limits<double>::max();
+
+            double sumV = 0.0, sumSV = 0.0;      // Σ V,  Σ σ·V (부호 유지 — 평균용)
+            double sumWV = 0.0;                  // Σ w·V (심각도 가중 — 중심용)
+            double wx = 0.0, wy = 0.0, wz = 0.0; // Σ w·V·x
+            double s_max = coldest;
+            double e_sum = 0.0, e_max = coldest;
             int32_t peak_id = 0;
             double peak_t = 0.0;
             bool any_strain = false;
 
             for (size_t i : g) {
                 const ClusterElement& e = sel[i];
-                const double sv = e.value * e.volume;
                 sumV += e.volume;
-                sumSV += sv;
-                wx += sv * e.x; wy += sv * e.y; wz += sv * e.z;
-                if (e.value > s_max) { s_max = e.value; peak_id = e.element_id; peak_t = e.peak_time; }
+                sumSV += e.value * e.volume;
+                // 🔴 중심 가중에 부호 있는 값을 그대로 쓰면 음수 가중이 중심을 덩어리
+                //    밖으로 튀게 한다. 뜨거운 방향으로 양수화하고 반대 부호는 0 으로.
+                //    von Mises(≥0)에서는 이 식이 기존 σ·V 와 정확히 같다.
+                const double wv = std::max(0.0, hotspotSeverity(crit, e.value)) * e.volume;
+                sumWV += wv;
+                wx += wv * e.x; wy += wv * e.y; wz += wv * e.z;
+                if (hotspotHotter(crit, e.value, s_max)) {
+                    s_max = e.value; peak_id = e.element_id; peak_t = e.peak_time;
+                }
                 if (e.has_strain) {
                     any_strain = true;
                     e_sum += e.strain * e.volume;
-                    if (e.strain > e_max) e_max = e.strain;
+                    if (hotspotHotter(crit, e.strain, e_max)) e_max = e.strain;
                 }
             }
             if (!(sumV > 0.0)) continue;
@@ -533,9 +598,9 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             c.element_count = static_cast<int>(g.size());
             c.volume = sumV;
 
-            // 중심 = 응력×부피 가중. 분모가 0 이면(전부 σ=0) 부피 가중으로 폴백.
-            if (sumSV > 0.0) {
-                c.center[0] = wx / sumSV; c.center[1] = wy / sumSV; c.center[2] = wz / sumSV;
+            // 중심 = 심각도×부피 가중. 분모가 0 이면(전부 0 또는 반대 부호) 부피 가중으로 폴백.
+            if (sumWV > 0.0) {
+                c.center[0] = wx / sumWV; c.center[1] = wy / sumWV; c.center[2] = wz / sumWV;
             } else {
                 double vx = 0, vy = 0, vz = 0;
                 for (size_t i : g) { vx += sel[i].x * sel[i].volume;
@@ -578,10 +643,10 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             res.element_count_clustered += c.element_count;
         }
 
-        // 최대 응력 내림차순 정렬 후 순위 부여
+        // 뜨거운 순 정렬 후 순위 부여 (σ3 이면 가장 음수인 덩어리가 1위)
         std::sort(clusters.begin(), clusters.end(),
-                  [](const HotspotCluster& a, const HotspotCluster& b) {
-                      return a.stress_max > b.stress_max;
+                  [crit](const HotspotCluster& a, const HotspotCluster& b) {
+                      return hotspotHotter(crit, a.stress_max, b.stress_max);
                   });
         if (cfg.max_clusters_per_part > 0 &&
             clusters.size() > static_cast<size_t>(cfg.max_clusters_per_part)) {

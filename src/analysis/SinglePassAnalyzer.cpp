@@ -139,9 +139,9 @@ AnalysisResult SinglePassAnalyzer::analyzeParallel(
         extractPeakElementTensors(all_states, result);
     }
 
-    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    // 요소별 시간축 극값 (핫스팟 군집 입력). 같은 2차 패스 그룹.
     if (config.hotspot_enabled) {
-        accumulateElementMaxVonMises(all_states);
+        accumulateElementExtremes(all_states, resolveHotspotCriteria(config.hotspot_criteria));
     }
 
     return result;
@@ -233,9 +233,9 @@ AnalysisResult SinglePassAnalyzer::analyzeWithStates(
         extractPeakElementTensors(all_states, result);
     }
 
-    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    // 요소별 시간축 극값 (핫스팟 군집 입력). 같은 2차 패스 그룹.
     if (config.hotspot_enabled) {
-        accumulateElementMaxVonMises(all_states);
+        accumulateElementExtremes(all_states, resolveHotspotCriteria(config.hotspot_criteria));
     }
 
     return result;
@@ -315,9 +315,9 @@ AnalysisResult SinglePassAnalyzer::analyzeLegacy(
         extractPeakElementTensors(all_states, result);
     }
 
-    // 요소별 전 시간 최대 von Mises (핫스팟 군집 입력). 같은 2차 패스 그룹.
+    // 요소별 시간축 극값 (핫스팟 군집 입력). 같은 2차 패스 그룹.
     if (config.hotspot_enabled) {
-        accumulateElementMaxVonMises(all_states);
+        accumulateElementExtremes(all_states, resolveHotspotCriteria(config.hotspot_criteria));
     }
 
     return result;
@@ -1302,40 +1302,78 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
 // Peak element tensor extraction
 // ========================================
 
-void SinglePassAnalyzer::accumulateElementMaxVonMises(
-    const std::vector<data::StateData>& all_states
-) {
-    const size_t ne = num_solid_elements_;
-    if (ne == 0 || all_states.empty()) {
-        elem_max_vm_.clear();
-        elem_max_vm_time_.clear();
-        elem_max_strain_.clear();
-        return;
-    }
+const ElementExtremes& SinglePassAnalyzer::elementExtremes(HotspotCriterion c) const {
+    static const ElementExtremes kEmpty;
+    auto it = elem_extremes_.find(c);
+    return (it == elem_extremes_.end()) ? kEmpty : it->second;
+}
 
-    // 🔴 0 이 아니라 -DBL_MAX 로 초기화한다. 0 으로 두면 한 번도 기록되지
-    //    않은 요소(데이터 부족·범위 밖)가 '응력 0' 인 요소와 구분되지 않는다.
-    elem_max_vm_.assign(ne, -std::numeric_limits<double>::max());
-    elem_max_vm_time_.assign(ne, 0.0);
-    if (has_strain_tensor_) {
-        elem_max_strain_.assign(ne, 0.0);
-    } else {
-        elem_max_strain_.clear();
+std::vector<HotspotCriterion> SinglePassAnalyzer::resolveHotspotCriteria(
+    const std::vector<std::string>& names,
+    bool warn
+) {
+    std::vector<std::string> unknown;
+    std::vector<HotspotCriterion> crits = parseHotspotCriteria(names, &unknown);
+    if (!warn) {
+        if (crits.empty()) crits.push_back(HotspotCriterion::VonMises);
+        return crits;
+    }
+    for (const std::string& u : unknown) {
+        std::cerr << "  [hotspot] 알 수 없는 기준량 무시 — '" << u
+                  << "' (von_mises | max_principal | min_principal)\n";
+    }
+    if (crits.empty()) {
+        // 전부 모르는 이름이거나 비었으면 기존 동작으로. 조용히 아무것도 안 내는 것보다 낫다.
+        std::cerr << "  [hotspot] 유효한 기준량이 없어 von_mises 로 진행합니다.\n";
+        crits.push_back(HotspotCriterion::VonMises);
+    }
+    return crits;
+}
+
+void SinglePassAnalyzer::accumulateElementExtremes(
+    const std::vector<data::StateData>& all_states,
+    const std::vector<HotspotCriterion>& criteria
+) {
+    elem_extremes_.clear();
+    const size_t ne = num_solid_elements_;
+    if (ne == 0 || all_states.empty() || criteria.empty()) return;
+
+    // 요청한 기준을 고정 슬롯(enum 값)으로 — 안쪽 루프에서 map 조회를 피한다.
+    bool want[3] = {false, false, false};
+    for (HotspotCriterion c : criteria) want[static_cast<int>(c)] = true;
+    const bool need_vm = want[0];
+    const bool need_pr = want[1] || want[2];
+
+    // 🔴 NaN 으로 초기화한다. 0 이면 '응력 0' 과, −DBL_MAX 면 σ1·σ3 의 정상 음수와
+    //    구분이 안 된다. 변형률은 0 으로 두고 아래 전량-0 판정을 그대로 쓴다.
+    ElementExtremes* slot[3] = {nullptr, nullptr, nullptr};
+    for (int k = 0; k < 3; ++k) {
+        if (!want[k]) continue;
+        ElementExtremes& ex = elem_extremes_[static_cast<HotspotCriterion>(k)];
+        ex.value.assign(ne, hotspotUnrecorded());
+        ex.time.assign(ne, 0.0);
+        if (has_strain_tensor_) ex.strain.assign(ne, 0.0); else ex.strain.clear();
+        slot[k] = &ex;
     }
 
     const size_t ns = all_states.size();
+    const bool strain_ok = has_strain_tensor_ && nv3d_ >= 13;
 
     // 🔴 병렬화 축이 **요소**다. 기본 경로는 상태 루프에 omp 를 걸지만,
-    //    요소별 최대는 모든 상태가 같은 elem_idx 를 갱신하므로 그 축으로
+    //    요소별 극값은 모든 상태가 같은 elem_idx 를 갱신하므로 그 축으로
     //    병렬화하면 데이터 경쟁이 된다. 여기서는 각 스레드가 자기 요소만
     //    쓰므로 경쟁이 원천적으로 없다(락·원자연산 불필요).
 #ifdef _OPENMP
     #pragma omp parallel for schedule(static)
 #endif
     for (int64_t ei = 0; ei < static_cast<int64_t>(ne); ++ei) {
-        double best = -std::numeric_limits<double>::max();
-        double best_t = 0.0;
-        double best_e = 0.0;
+        // k=0 VM(max), k=1 σ1(max), k=2 σ3(min)
+        double best[3]   = {-std::numeric_limits<double>::max(),
+                            -std::numeric_limits<double>::max(),
+                             std::numeric_limits<double>::max()};
+        double best_t[3] = {0.0, 0.0, 0.0};
+        double best_e[3] = {0.0, 0.0, 0.0};
+        bool   seen = false;
 
         for (size_t si = 0; si < ns; ++si) {
             const auto& sd = all_states[si].solid_data;
@@ -1343,29 +1381,65 @@ void SinglePassAnalyzer::accumulateElementMaxVonMises(
 
             const size_t base = static_cast<size_t>(ei) * nv3d_;
             if (base + 6 > sd.size()) continue;   // 이 상태에는 이 요소가 없다
+            seen = true;
 
             const double sxx = sd[base + 0], syy = sd[base + 1], szz = sd[base + 2];
             const double sxy = sd[base + 3], syz = sd[base + 4], szx = sd[base + 5];
-            const double vm = equivalentStress(sxx, syy, szz, sxy, syz, szx);
 
-            if (vm > best) {
-                best = vm;
-                best_t = all_states[si].time;
+            // 이 상태의 기준값들 — 필요한 것만, 주응력은 한 번만 분해
+            double cur[3] = {0.0, 0.0, 0.0};
+            if (need_vm) cur[0] = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+            if (need_pr) {
+                const StressTensor st{sxx, syy, szz, sxy, syz, szx};
+                const auto pr = st.principalStresses();   // 내림차순 [σ1, σ2, σ3]
+                cur[1] = pr[0];
+                cur[2] = pr[2];
+            }
+
+            // 갱신이 필요한 기준이 하나라도 있으면 짝 변형률을 그때 계산
+            bool upd[3] = {false, false, false};
+            if (want[0] && cur[0] > best[0]) upd[0] = true;
+            if (want[1] && cur[1] > best[1]) upd[1] = true;
+            if (want[2] && cur[2] < best[2]) upd[2] = true;
+            if (!(upd[0] || upd[1] || upd[2])) continue;
+
+            double eq_e = 0.0, e1 = 0.0, e3 = 0.0;
+            bool have_e = false;
+            if (strain_ok) {
                 // 변형률 위치는 base + nv3d_ - 6 (NEIPH 확장값의 마지막 6개).
                 // extractStrainTensor 와 같은 규약 — 자세한 근거는 그쪽 주석 참조.
-                if (has_strain_tensor_ && nv3d_ >= 13) {
-                    const size_t eo = base + static_cast<size_t>(nv3d_) - 6;
-                    if (eo + 6 <= sd.size()) {
-                        best_e = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
-                                                  sd[eo + 3], sd[eo + 4], sd[eo + 5]);
+                const size_t eo = base + static_cast<size_t>(nv3d_) - 6;
+                if (eo + 6 <= sd.size()) {
+                    have_e = true;
+                    if (upd[0]) {
+                        eq_e = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
+                                                sd[eo + 3], sd[eo + 4], sd[eo + 5]);
+                    }
+                    if (upd[1] || upd[2]) {
+                        // d3plot 변형률 성분은 **텐서 성분**이라 고유값이 곧 주변형률이다.
+                        const StressTensor et{sd[eo + 0], sd[eo + 1], sd[eo + 2],
+                                              sd[eo + 3], sd[eo + 4], sd[eo + 5]};
+                        const auto pe = et.principalStresses();
+                        e1 = pe[0];
+                        e3 = pe[2];
                     }
                 }
             }
+            const double t = all_states[si].time;
+            if (upd[0]) { best[0] = cur[0]; best_t[0] = t; if (have_e) best_e[0] = eq_e; }
+            if (upd[1]) { best[1] = cur[1]; best_t[1] = t; if (have_e) best_e[1] = e1; }
+            if (upd[2]) { best[2] = cur[2]; best_t[2] = t; if (have_e) best_e[2] = e3; }
         }
 
-        elem_max_vm_[ei] = best;
-        elem_max_vm_time_[ei] = best_t;
-        if (!elem_max_strain_.empty()) elem_max_strain_[ei] = best_e;
+        for (int k = 0; k < 3; ++k) {
+            if (!slot[k]) continue;
+            if (seen) {
+                slot[k]->value[ei] = best[k];
+                slot[k]->time[ei] = best_t[k];
+                if (!slot[k]->strain.empty()) slot[k]->strain[ei] = best_e[k];
+            }
+            // seen 이 아니면 NaN(미기록) 그대로
+        }
     }
 
     // 🔴 변형률 슬롯은 있는데 솔버가 채우지 않은 덱이 있다(예: IDTDT=100).
@@ -1373,16 +1447,22 @@ void SinglePassAnalyzer::accumulateElementMaxVonMises(
     //    소비 측이 "소성변형이 전혀 없음" 이라는 반대 결론을 낸다.
     //    같은 파일 buildResult() 가 주변형률에 대해 이미 쓰는 판정을 그대로 적용해
     //    배열을 비운다 — 비면 하류가 변형률 항목을 자연스럽게 건너뛴다.
-    if (!elem_max_strain_.empty()) {
+    //    기준별로 따로 본다 — 기준마다 다른 측도(등가/ε1/ε3)를 담기 때문.
+    bool warned = false;
+    for (int k = 0; k < 3; ++k) {
+        if (!slot[k] || slot[k]->strain.empty()) continue;
         bool all_zero = true;
-        for (double v : elem_max_strain_) {
+        for (double v : slot[k]->strain) {
             if (v != 0.0) { all_zero = false; break; }
         }
         if (all_zero) {
-            std::cout << "  [hotspot] 변형률 텐서가 전부 0 — 솔버가 기록하지 않은 것으로 "
-                         "보고 핫스팟 변형률 통계를 생략합니다 "
-                         "(*DATABASE_EXTENT_BINARY STRFLG 확인).\n";
-            elem_max_strain_.clear();
+            if (!warned) {
+                std::cout << "  [hotspot] 변형률 텐서가 전부 0 — 솔버가 기록하지 않은 것으로 "
+                             "보고 핫스팟 변형률 통계를 생략합니다 "
+                             "(*DATABASE_EXTENT_BINARY STRFLG 확인).\n";
+                warned = true;
+            }
+            slot[k]->strain.clear();
         }
     }
 }

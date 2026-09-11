@@ -822,6 +822,25 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                 try { config.hotspot_min_elements = std::stoi(value); } catch (...) {}
             } else if (key == "max_clusters") {
                 try { config.hotspot_max_clusters = std::stoi(value); } catch (...) {}
+            } else if (key == "criterion" || key == "criteria") {
+                // 쉼표 목록. "von_mises, max_principal" / "[von_mises, min_principal]" 둘 다 허용.
+                // 이름 검증은 분석기(resolveHotspotCriteria)가 한다 — 여기서는 나누기만.
+                std::vector<std::string> names;
+                std::string cur;
+                for (char ch : value) {
+                    if (ch == '[' || ch == ']' || ch == '"' || ch == '\'') continue;
+                    if (ch == ',') { names.push_back(cur); cur.clear(); continue; }
+                    cur.push_back(ch);
+                }
+                names.push_back(cur);
+                std::vector<std::string> cleaned;
+                for (std::string& n : names) {
+                    const size_t a = n.find_first_not_of(" \t");
+                    const size_t b = n.find_last_not_of(" \t");
+                    if (a == std::string::npos) continue;
+                    cleaned.push_back(n.substr(a, b - a + 1));
+                }
+                if (!cleaned.empty()) config.hotspot_criteria = cleaned;
             } else {
                 std::cerr << "[UnifiedConfig] hotspot_clusters: 알 수 없는 키 무시 — "
                           << key << std::endl;

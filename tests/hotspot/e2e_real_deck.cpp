@@ -24,7 +24,8 @@ int main(int argc,char**argv){
     auto res = sp.analyzeParallel(cfg);
     auto t1=std::chrono::steady_clock::now();
 
-    const auto& emax = sp.elementMaxVonMises();
+    const auto& ex = sp.elementExtremes(HotspotCriterion::VonMises);
+    const auto& emax = ex.value;
     printf("\n=== %s ===\n", path);
     printf("분석 %.1f s, 요소별 최대 배열 %zu\n",
            std::chrono::duration<double>(t1-t0).count(), emax.size());
@@ -32,7 +33,7 @@ int main(int argc,char**argv){
 
     // 배열 건전성
     size_t unrec=0; double mn=1e30,mx=-1e30;
-    for (double v : emax){ if(v<0) ++unrec; else { if(v<mn)mn=v; if(v>mx)mx=v; } }
+    for (double v : emax){ if(hotspotIsUnrecorded(v)) ++unrec; else { if(v<mn)mn=v; if(v>mx)mx=v; } }
     printf("미기록 %zu, 기록된 값 범위 %.4g ~ %.4g\n", unrec, mn, mx);
 
     auto mesh = r.read_mesh();
@@ -45,8 +46,7 @@ int main(int argc,char**argv){
     hc.min_cluster_elements=5; hc.max_clusters_per_part=5;
 
     auto t2=std::chrono::steady_clock::now();
-    auto hs = computeHotspotClusters(mesh, emax, sp.elementMaxVonMisesTime(),
-                                     sp.elementMaxStrain(), names, hc);
+    auto hs = computeHotspotClusters(mesh, emax, ex.time, ex.strain, names, hc);
     auto t3=std::chrono::steady_clock::now();
     printf("군집 %.3f s, 파트 %zu\n\n", std::chrono::duration<double>(t3-t2).count(), hs.size());
 

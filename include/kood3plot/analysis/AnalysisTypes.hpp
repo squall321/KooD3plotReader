@@ -1096,6 +1096,9 @@ struct UnifiedConfig {
     double hotspot_distance_factor = 1.5;
     int    hotspot_min_elements = 5;
     int    hotspot_max_clusters = 20;
+    /// 선별 기준량 이름 목록. "von_mises" | "max_principal" | "min_principal".
+    /// 여러 개면 파트×기준 항목이 각각 나온다. 기본은 von_mises 단독(기존 출력 불변).
+    std::vector<std::string> hotspot_criteria = {"von_mises"};
 
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;

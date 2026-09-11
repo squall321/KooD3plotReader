@@ -117,7 +117,7 @@ int main(){
     printf("[4] 미기록(-1) 요소는 제외된다\n");
     {
         Grid g(10,2,2);
-        std::vector<double> vm(g.mesh.solids.size(), -1.0);   // 전부 미기록
+        std::vector<double> vm(g.mesh.solids.size(), hotspotUnrecorded());   // 전부 미기록(NaN)
         for (int i=1;i<=3;++i) vm[g.idx(i,1,1)] = 500.0;
         HotspotClusterConfig cfg; cfg.enabled=true; cfg.top_percent=100.0;
         cfg.distance_factor=1.5; cfg.min_cluster_elements=3;

@@ -87,7 +87,10 @@ struct AnalysisConfig {
     double hotspot_top_percent = 5.0;        ///< 파트별 상위 백분위 (%)
     double hotspot_distance_factor = 1.5;    ///< 거리 임계 = 이 값 × 파트 대표 요소 크기
     int    hotspot_min_elements = 5;         ///< 이 개수 미만 덩어리는 버림
-    int    hotspot_max_clusters = 20;        ///< 파트당 보고 최대 덩어리 수 (0 = 무제한)
+    int    hotspot_max_clusters = 20;
+    /// 선별 기준량 이름 목록. "von_mises" | "max_principal" | "min_principal".
+    /// 여러 개면 파트×기준 항목이 각각 나온다. 기본은 von_mises 단독(기존 출력 불변).
+    std::vector<std::string> hotspot_criteria = {"von_mises"};        ///< 파트당 보고 최대 덩어리 수 (0 = 무제한)
 
     /**
      * @brief Add a surface analysis specification

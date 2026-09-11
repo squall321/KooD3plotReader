@@ -30,6 +30,7 @@ python3 -m koo_deep_report <run_dir> -o <report_dir> \
 | `--hotspot-distance-factor` | 1.5 | 거리 임계 = 이 값 × 파트 대표 요소 크기 |
 | `--hotspot-min-elements` | 5 | 이 개수 미만 덩어리는 노이즈로 버림 |
 | `--hotspot-max-clusters` | 20 | 파트당 보고 최대 덩어리 수 (0 = 무제한) |
+| `--hotspot-criterion` | `von_mises` | 선별 기준량. `von_mises` · `max_principal` · `min_principal`, 쉼표로 여러 개 |
 
 ## 2. 설정 파일로 쓰기
 
@@ -42,9 +43,23 @@ hotspot_clusters:
   distance_factor: 1.5
   min_elements: 5
   max_clusters: 20
+  criterion: [von_mises, min_principal]   # 쉼표 문자열도 됨
 ```
 
 CLI 인자가 설정 파일보다 우선한다.
+
+### 기준량
+
+| 기준 | 뽑는 것 | 뜨거운 방향 | `stress_max` |
+|---|---|---|---|
+| `von_mises` | 등가응력 집중 (연성 항복) | 큰 값 | 최댓값 |
+| `max_principal` | σ1 집중 = **인장** (취성 균열) | 큰 값 | 최댓값 (부호 있음) |
+| `min_principal` | σ3 집중 = **압축** (눌림·좌굴) | **작은 값** | **최솟값** (음수) |
+
+여러 개를 주면 결과 배열에 **파트×기준** 항목이 각각 들어간다. 항목의 `criterion`·`direction`
+으로 구분한다. 시간축 극값은 von Mises·σ1 이 max, σ3 이 **min** 이고, 짝 변형률도 같은 시각의
+등가변형률 / ε1 / ε3 이다(`strain_measure`). 주응력은 σ1·σ3 중 하나라도 요청되면 요소·상태당
+한 번만 분해하므로 둘 다 켜도 비용은 한 번이다.
 
 ## 3. pyKooCAE scenario.json 에서 쓰기
 
@@ -85,6 +100,8 @@ apptainer exec <sif> python3 -m koo_deep_report --help | grep hotspot
     "part_id": 23,
     "part_name": "Part_23",
     "criterion": "von_mises",
+    "direction": "max",
+    "strain_measure": "equivalent",
     "top_percent": 3.00000000,
     "threshold_value": 312.40000000,
     "element_size_ref": 0.28000000,
@@ -114,11 +131,12 @@ apptainer exec <sif> python3 -m koo_deep_report --help | grep hotspot
 ]
 ```
 
-`clusters` 는 **최대 응력 내림차순**이고 `rank` 는 1부터다.
+`clusters` 는 **뜨거운 순**(max 방향은 내림차순, `min_principal` 은 오름차순)이고 `rank` 는 1부터다.
 
 | 필드 | 뜻 |
 |---|---|
-| `center` | 응력×부피 가중 중심. **초기 형상 기준** (설계 도면과 대조하기 위함) |
+| `direction` | `"max"` \| `"min"`. `min` 이면 `stress_max`·`strain_max`·`threshold_value` 가 **최솟값** |
+| `center` | 심각도×부피 가중 중심(von Mises 는 응력×부피와 동일). **초기 형상 기준** (설계 도면과 대조하기 위함) |
 | `radius_enclosing` | 중심에서 구성 요소의 **최원 절점**까지. 덩어리의 실제 크기 |
 | `radius_rms` | 부피 가중 RMS 반경. **뭉침 정도** — 포함 반경보다 훨씬 작으면 한 점에 집중 |
 | `stress_mean` / `strain_mean` | **부피 가중** 평균. 산술평균이 아니다 |
@@ -168,7 +186,7 @@ N 이 진짜 집중된 요소 수보다 크면 **배경 요소가 딸려 들어�
 |---|---|
 | 솔리드 요소 | 지원 |
 | **셸 요소** | **미지원** — 1차 범위 밖 |
-| 기준량 | von Mises 고정 (변형률 기준 군집은 미지원) |
+| 기준량 | von Mises · σ1 · σ3 (변형률 기준 군집은 미지원) |
 | 시각별 군집 추적 | 미지원 — 전 시간 최대 기준 한 번만 |
 | **GUI YAML 생성** | **미지원** — `gui/app.py` 는 이 블록을 만들지 않는다 (기존 `section_view` 와 같은 수준) |
 | 자연어 구역 라벨 | 미지원 — 상대 좌표까지만 제공 |
@@ -181,6 +199,12 @@ g++ -std=c++17 -O2 -I include \
     tests/hotspot/test_hotspot_endtoend.cpp \
     src/analysis/HotspotClusterAnalyzer.cpp src/data/Mesh.cpp \
     -o /tmp/t && /tmp/t
+
+# 기준량(σ1·σ3) — 부호·방향·NaN 표식
+g++ -std=c++17 -O2 -I include \
+    tests/hotspot/test_hotspot_criterion.cpp \
+    src/analysis/HotspotClusterAnalyzer.cpp src/data/Mesh.cpp \
+    -o /tmp/tc && /tmp/tc
 ```
 
 나머지 시험은 [tests/hotspot/README.md](../tests/hotspot/README.md) 참조.

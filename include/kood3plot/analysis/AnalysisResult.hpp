@@ -722,6 +722,10 @@ private:
         oss << ind2 << "\"part_id\": " << r.part_id << "," << nl;
         oss << ind2 << "\"part_name\": \"" << escapeJSON(r.part_name) << "\"," << nl;
         oss << ind2 << "\"criterion\": \"" << escapeJSON(r.criterion) << "\"," << nl;
+        // direction: "max"|"min" — stress_max/threshold_value 가 어느 쪽 극값인지.
+        // 구버전 결과(필드 없음)는 전부 von_mises 였으므로 소비자는 없으면 "max" 로 본다.
+        oss << ind2 << "\"direction\": \"" << escapeJSON(r.direction.empty() ? "max" : r.direction) << "\"," << nl;
+        oss << ind2 << "\"strain_measure\": \"" << escapeJSON(r.strain_measure.empty() ? "equivalent" : r.strain_measure) << "\"," << nl;
         oss << ind2 << "\"top_percent\": " << jnum(r.top_percent) << "," << nl;
         oss << ind2 << "\"threshold_value\": " << jnum(r.threshold_value) << "," << nl;
         oss << ind2 << "\"element_size_ref\": " << jnum(r.element_size_ref) << "," << nl;
