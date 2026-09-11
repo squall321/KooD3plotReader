@@ -54,6 +54,15 @@ std::vector<HotspotCriterion> parseHotspotCriteria(const std::vector<std::string
     return out;
 }
 
+const char* hotspotElementKindName(HotspotElementKind k) {
+    switch (k) {
+        case HotspotElementKind::Solid:      return "solid";
+        case HotspotElementKind::ThickShell: return "thick_shell";
+        case HotspotElementKind::Shell:      return "shell";
+    }
+    return "solid";
+}
+
 const char* hotspotStrainMeasureName(HotspotCriterion c) {
     switch (c) {
         case HotspotCriterion::VonMises:     return "equivalent";
@@ -229,6 +238,111 @@ double isoparametricHexVolume(const double xyz[8][3]) {
     return vol_acc;
 }
 
+namespace {
+// 4점 가우스-르장드르 (±0.3399810436, ±0.8611363116)
+constexpr double kG4x[4] = {-0.8611363115940526, -0.3399810435848563,
+                             0.3399810435848563,  0.8611363115940526};
+constexpr double kG4w[4] = { 0.3478548451374538,  0.6521451548625461,
+                             0.6521451548625461,  0.3478548451374538};
+// 쌍선형 사각형 기준 좌표 (LS-DYNA shell 1-2-3-4 반시계)
+constexpr double kQXi[4]  = {-1, +1, +1, -1};
+constexpr double kQEta[4] = {-1, -1, +1, +1};
+}  // namespace
+
+bool computeShellAreaAndCentroid(const Node* p,
+                                 double& area,
+                                 double& cx, double& cy, double& cz) {
+    area = 0.0;
+    cx = cy = cz = 0.0;
+
+    int uniq[4];
+    int nu = 0;
+    for (int i = 0; i < 4; ++i) {
+        bool dup = false;
+        for (int j = 0; j < nu; ++j) {
+            if (p[uniq[j]].id == p[i].id) { dup = true; break; }
+        }
+        if (!dup) uniq[nu++] = i;
+    }
+    if (nu < 3) return false;
+
+    if (nu == 3) {
+        // 삼각형 — A = |(b−a)×(c−a)|/2, 도심 = 세 꼭짓점 평균. 정확.
+        const Node& a = p[uniq[0]];
+        const Node& b = p[uniq[1]];
+        const Node& c = p[uniq[2]];
+        const double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+        const double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+        const double nx = uy * vz - uz * vy;
+        const double ny = uz * vx - ux * vz;
+        const double nz = ux * vy - uy * vx;
+        area = 0.5 * std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (!(area > 1e-30)) return false;
+        cx = (a.x + b.x + c.x) / 3.0;
+        cy = (a.y + b.y + c.y) / 3.0;
+        cz = (a.z + b.z + c.z) / 3.0;
+        return true;
+    }
+
+    // 사각형 — 4×4 가우스. 평면이면 2점으로도 정확하므로 4점은 여유이고,
+    // 뒤틀린 경우의 오차를 떨어뜨린다.
+    double a_acc = 0.0, mx = 0.0, my = 0.0, mz = 0.0;
+    for (int gi = 0; gi < 4; ++gi) {
+        const double xi = kG4x[gi];
+        for (int gj = 0; gj < 4; ++gj) {
+            const double eta = kG4x[gj];
+            const double w = kG4w[gi] * kG4w[gj];
+            double px = 0, py = 0, pz = 0;
+            double tx = 0, ty = 0, tz = 0;   // x_ξ
+            double sx = 0, sy = 0, sz = 0;   // x_η
+            for (int i = 0; i < 4; ++i) {
+                const double a = 1.0 + kQXi[i] * xi;
+                const double b = 1.0 + kQEta[i] * eta;
+                const double N = 0.25 * a * b;
+                const double dNdxi = 0.25 * kQXi[i] * b;
+                const double dNdet = 0.25 * kQEta[i] * a;
+                px += N * p[i].x;      py += N * p[i].y;      pz += N * p[i].z;
+                tx += dNdxi * p[i].x;  ty += dNdxi * p[i].y;  tz += dNdxi * p[i].z;
+                sx += dNdet * p[i].x;  sy += dNdet * p[i].y;  sz += dNdet * p[i].z;
+            }
+            const double nx = ty * sz - tz * sy;
+            const double ny = tz * sx - tx * sz;
+            const double nz = tx * sy - ty * sx;
+            const double dA = std::sqrt(nx * nx + ny * ny + nz * nz) * w;
+            a_acc += dA;
+            mx += px * dA; my += py * dA; mz += pz * dA;
+        }
+    }
+    area = a_acc;
+    if (!(area > 1e-30)) return false;
+    cx = mx / area; cy = my / area; cz = mz / area;
+    return true;
+}
+
+double hexMinFaceSeparation(const Node* p) {
+    // 대면 세 쌍: (하 1234, 상 5678), (전 1265, 후 4378), (좌 1485, 우 2376)
+    static const int F[6][4] = {{0, 1, 2, 3}, {4, 5, 6, 7},
+                                {0, 1, 5, 4}, {3, 2, 6, 7},
+                                {0, 3, 7, 4}, {1, 2, 6, 5}};
+    double c[6][3];
+    for (int f = 0; f < 6; ++f) {
+        c[f][0] = c[f][1] = c[f][2] = 0.0;
+        for (int k = 0; k < 4; ++k) {
+            c[f][0] += 0.25 * p[F[f][k]].x;
+            c[f][1] += 0.25 * p[F[f][k]].y;
+            c[f][2] += 0.25 * p[F[f][k]].z;
+        }
+    }
+    double h = std::numeric_limits<double>::max();
+    for (int pr = 0; pr < 3; ++pr) {
+        const double dx = c[2 * pr][0] - c[2 * pr + 1][0];
+        const double dy = c[2 * pr][1] - c[2 * pr + 1][1];
+        const double dz = c[2 * pr][2] - c[2 * pr + 1][2];
+        h = std::min(h, std::sqrt(dx * dx + dy * dy + dz * dz));
+    }
+    return h;
+}
+
 double equivalentStress(double xx, double yy, double zz,
                         double xy, double yz, double zx) {
     const double d1 = xx - yy;
@@ -252,6 +366,22 @@ double equivalentStrain(double xx, double yy, double zz,
                        2.0 * (xy * xy + yz * yz + zx * zx);
     return std::sqrt((2.0 / 3.0) * sum);
 }
+
+namespace {
+/// 양수만 남긴 중앙값 (없으면 0). representativeElementSize 와 같은 규약.
+double medianPositive(std::vector<double> v) {
+    v.erase(std::remove_if(v.begin(), v.end(), [](double x) { return !(x > 0.0); }), v.end());
+    if (v.empty()) return 0.0;
+    const size_t mid = v.size() / 2;
+    std::nth_element(v.begin(), v.begin() + mid, v.end());
+    double median = v[mid];
+    if (v.size() % 2 == 0) {
+        const double lower = *std::max_element(v.begin(), v.begin() + mid);
+        median = 0.5 * (median + lower);
+    }
+    return median;
+}
+}  // namespace
 
 double representativeElementSize(std::vector<double> volumes) {
     // 유효한 양의 부피만 남긴다 (축퇴/뒤집힘 요소 제외)
@@ -411,17 +541,51 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const std::vector<double>& elem_strain,
     const std::map<int32_t, std::string>& part_names,
     const HotspotClusterConfig& cfg) {
+    // 솔리드 전용 기존 진입점 — 종류 일반판으로 위임한다(결과 동일).
+    ElementExtremes ex;
+    ex.value = elem_max_vm;
+    ex.time = elem_max_time;
+    ex.strain = elem_strain;
+    return computeHotspotClusters(mesh, HotspotElementKind::Solid, ex, {}, "", part_names, cfg);
+}
+
+std::vector<PartHotspotResult> computeHotspotClusters(
+    const data::Mesh& mesh,
+    HotspotElementKind kind,
+    const ElementExtremes& ex,
+    const std::vector<double>& shell_thickness,
+    const std::string& layer_scheme,
+    const std::map<int32_t, std::string>& part_names,
+    const HotspotClusterConfig& cfg) {
+
+    const std::vector<double>& elem_max_vm = ex.value;
+    const std::vector<double>& elem_max_time = ex.time;
+    const std::vector<double>& elem_strain = ex.strain;
+    const bool have_layer = !ex.layer.empty();
+
+    // 종류별 요소·파트·사용자 ID 배열
+    const std::vector<Element>& elems =
+        (kind == HotspotElementKind::Solid)      ? mesh.solids :
+        (kind == HotspotElementKind::ThickShell) ? mesh.thick_shells : mesh.shells;
+    const std::vector<int32_t>& elem_parts =
+        (kind == HotspotElementKind::Solid)      ? mesh.solid_parts :
+        (kind == HotspotElementKind::ThickShell) ? mesh.thick_shell_parts : mesh.shell_parts;
+    const std::vector<int32_t>& elem_uids =
+        (kind == HotspotElementKind::Solid)      ? mesh.real_solid_ids :
+        (kind == HotspotElementKind::ThickShell) ? mesh.real_thick_shell_ids : mesh.real_shell_ids;
+    const bool is_shell = (kind == HotspotElementKind::Shell);
+    const int need_nodes = is_shell ? 4 : 8;
 
     std::vector<PartHotspotResult> out;
-    if (!cfg.enabled || elem_max_vm.empty() || mesh.solids.empty()) return out;
+    if (!cfg.enabled || elem_max_vm.empty() || elems.empty()) return out;
 
     const bool have_strain = !elem_strain.empty();
     const size_t n_nodes = mesh.nodes.size();
 
     // ── 파트별 요소 인덱스 수집 ──
     std::map<int32_t, std::vector<size_t>> part_elems;
-    for (size_t i = 0; i < mesh.solids.size() && i < elem_max_vm.size(); ++i) {
-        const int32_t pid = (i < mesh.solid_parts.size()) ? mesh.solid_parts[i] : 0;
+    for (size_t i = 0; i < elems.size() && i < elem_max_vm.size(); ++i) {
+        const int32_t pid = (i < elem_parts.size()) ? elem_parts[i] : 0;
         part_elems[pid].push_back(i);
     }
 
@@ -439,39 +603,95 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         res.top_percent = cfg.top_percent;
         res.element_count_total = static_cast<int>(idxs.size());
         res.strain_available = have_strain;
+        res.element_type = hotspotElementKindName(kind);
+        res.layer_scheme = (kind == HotspotElementKind::Solid) ? "" : layer_scheme;
 
         // ── 1) 요소 기하: 부피·도심 ──
         // 🔴 node_ids 는 내부 1-based 인덱스다. mesh.nodes[id-1] 로만 변환한다.
         // 🔴 Node 를 통째로 복사해야 한다 — 축퇴 판정이 p[i].id 비교이므로
         //    좌표만 채우면 8개 id 가 같아져 요소가 통째로 버려진다.
-        struct Geo { double x, y, z, v; bool ok; };
-        std::vector<Geo> geo(idxs.size(), Geo{0, 0, 0, 0, false});
-        std::vector<double> vols;
-        vols.reserve(idxs.size());
+        // v = 가중 측도(부피 / 면적×두께 / 면적), a = 셸 면적, s = 대표 크기용 측도
+        struct Geo { double x, y, z, v, a; bool ok; };
+        std::vector<Geo> geo(idxs.size(), Geo{0, 0, 0, 0, 0, false});
+        std::vector<double> size_metric;     // Solid: 부피 · Shell: 면적 · ThickShell: 면내 크기
+        size_metric.reserve(idxs.size());
         int bad_conn = 0, bad_vol = 0;
 
+        // 셸 두께 가중은 파트 안 모든 유효 요소에 양의 두께가 있을 때만 쓴다.
+        // 섞이면(일부만 두께) 단위가 다른 가중이 한 평균에 섞인다.
+        bool part_thick_ok = is_shell && !shell_thickness.empty();
+
         for (size_t k = 0; k < idxs.size(); ++k) {
-            const auto& elem = mesh.solids[idxs[k]];
-            if (elem.node_ids.size() < 8) { ++bad_conn; continue; }
+            const auto& elem = elems[idxs[k]];
+            if (static_cast<int>(elem.node_ids.size()) < need_nodes) { ++bad_conn; continue; }
 
             Node p[8];
             bool ok = true;
-            for (int n = 0; n < 8; ++n) {
+            for (int n = 0; n < need_nodes; ++n) {
                 const int64_t ni = static_cast<int64_t>(elem.node_ids[n]) - 1;
                 if (ni < 0 || static_cast<size_t>(ni) >= n_nodes) { ok = false; break; }
                 p[n] = mesh.nodes[static_cast<size_t>(ni)];   // id 포함 통째 복사
             }
             if (!ok) { ++bad_conn; continue; }
 
-            double V, cx, cy, cz;
-            if (!computeSolidVolumeAndCentroid(p, V, cx, cy, cz)) { ++bad_vol; continue; }
+            // 경계상자 — 초기 형상, 연결성이 유효한 요소의 절점 전부
+            for (int n = 0; n < need_nodes; ++n) {
+                const double c3[3] = {p[n].x, p[n].y, p[n].z};
+                for (int r = 0; r < 3; ++r) {
+                    if (!res.bbox_valid) { res.bbox_min[r] = res.bbox_max[r] = c3[r]; }
+                    else {
+                        res.bbox_min[r] = std::min(res.bbox_min[r], c3[r]);
+                        res.bbox_max[r] = std::max(res.bbox_max[r], c3[r]);
+                    }
+                }
+                res.bbox_valid = true;
+            }
 
-            const double av = std::abs(V);
-            geo[k] = Geo{cx, cy, cz, av, true};
-            vols.push_back(av);
+            double cx, cy, cz;
+            if (is_shell) {
+                double A;
+                if (!computeShellAreaAndCentroid(p, A, cx, cy, cz)) { ++bad_vol; continue; }
+                const size_t ei = idxs[k];
+                if (part_thick_ok && !(ei < shell_thickness.size() && shell_thickness[ei] > 0.0)) {
+                    part_thick_ok = false;
+                }
+                geo[k] = Geo{cx, cy, cz, A, A, true};   // 가중은 아래에서 두께를 곱해 확정
+                size_metric.push_back(A);
+            } else {
+                double V;
+                if (!computeSolidVolumeAndCentroid(p, V, cx, cy, cz)) { ++bad_vol; continue; }
+                const double av = std::abs(V);
+                geo[k] = Geo{cx, cy, cz, av, 0.0, true};
+                if (kind == HotspotElementKind::ThickShell) {
+                    const double h = hexMinFaceSeparation(p);
+                    if (h > 0.0) size_metric.push_back(std::sqrt(av / h));
+                } else {
+                    size_metric.push_back(av);
+                }
+            }
         }
 
-        res.element_size_ref = representativeElementSize(vols);
+        if (is_shell) {
+            if (part_thick_ok) {
+                for (size_t k = 0; k < idxs.size(); ++k) {
+                    if (geo[k].ok) geo[k].v = geo[k].a * shell_thickness[idxs[k]];
+                }
+                res.weight_measure = "area_x_thickness";
+            } else {
+                res.weight_measure = "area";
+            }
+        } else {
+            res.weight_measure = "volume";
+        }
+
+        // 대표 요소 크기 — 종류별 정의 (헤더 표 참조). 솔리드는 기존과 동일.
+        if (kind == HotspotElementKind::Solid) {
+            res.element_size_ref = representativeElementSize(size_metric);
+        } else if (is_shell) {
+            res.element_size_ref = std::sqrt(medianPositive(size_metric));
+        } else {
+            res.element_size_ref = medianPositive(size_metric);
+        }
         res.distance_threshold = cfg.distance_factor * res.element_size_ref;
 
         // ── 3) 상위 p% 선별 ──
@@ -526,12 +746,14 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             const double v = rk.first;
 
             ClusterElement ce;
-            ce.element_id = (ei < mesh.real_solid_ids.size())
-                          ? mesh.real_solid_ids[ei]
+            ce.element_id = (ei < elem_uids.size())
+                          ? elem_uids[ei]
                           : static_cast<int32_t>(ei + 1);
             ce.element_idx = ei;
             ce.x = geo[k].x; ce.y = geo[k].y; ce.z = geo[k].z;
             ce.volume = geo[k].v;
+            ce.area = geo[k].a;
+            ce.layer = (have_layer && ei < ex.layer.size()) ? ex.layer[ei] : -1;
             ce.value = v;
             ce.peak_time = (ei < elem_max_time.size()) ? elem_max_time[ei] : 0.0;
             ce.has_strain = have_strain && ei < elem_strain.size();
@@ -571,6 +793,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             double e_sum = 0.0, e_max = coldest;
             int32_t peak_id = 0;
             double peak_t = 0.0;
+            int peak_layer = -1;
+            double sumA = 0.0;                   // 셸 면적 합 (보고용)
             bool any_strain = false;
 
             for (size_t i : g) {
@@ -583,8 +807,10 @@ std::vector<PartHotspotResult> computeHotspotClusters(
                 const double wv = std::max(0.0, hotspotSeverity(crit, e.value)) * e.volume;
                 sumWV += wv;
                 wx += wv * e.x; wy += wv * e.y; wz += wv * e.z;
+                sumA += e.area;
                 if (hotspotHotter(crit, e.value, s_max)) {
                     s_max = e.value; peak_id = e.element_id; peak_t = e.peak_time;
+                    peak_layer = e.layer;
                 }
                 if (e.has_strain) {
                     any_strain = true;
@@ -596,7 +822,15 @@ std::vector<PartHotspotResult> computeHotspotClusters(
 
             HotspotCluster c;
             c.element_count = static_cast<int>(g.size());
-            c.volume = sumV;
+            if (is_shell) {
+                // 셸: 면적은 항상, 부피(면적×두께)는 두께가 있을 때만
+                c.has_area = true;
+                c.area = sumA;
+                c.volume_valid = (res.weight_measure == "area_x_thickness");
+                c.volume = c.volume_valid ? sumV : 0.0;
+            } else {
+                c.volume = sumV;
+            }
 
             // 중심 = 심각도×부피 가중. 분모가 0 이면(전부 0 또는 반대 부호) 부피 가중으로 폴백.
             if (sumWV > 0.0) {
@@ -616,12 +850,13 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             if (any_strain) { c.strain_mean = e_sum / sumV; c.strain_max = e_max; }
             c.peak_element_id = peak_id;
             c.peak_time = peak_t;
+            c.peak_layer = peak_layer;
 
             // 포함 반경 = 중심에서 구성 요소의 **최원 절점**까지 (정확).
             // 요소 도심까지의 거리로 재면 덩어리 가장자리 요소의 두께를 놓친다.
             double r2max = 0.0, rms_acc = 0.0;
             for (size_t i : g) {
-                const auto& elem = mesh.solids[sel[i].element_idx];
+                const auto& elem = elems[sel[i].element_idx];
                 for (size_t n = 0; n < elem.node_ids.size() && n < 8; ++n) {
                     const int64_t ni = static_cast<int64_t>(elem.node_ids[n]) - 1;
                     if (ni < 0 || static_cast<size_t>(ni) >= n_nodes) continue;

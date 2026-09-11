@@ -367,8 +367,15 @@ public:
     /// 요소별 시간축 극값 (accumulateElementExtremes 결과), 기준별.
     /// 값이 NaN 인 항목은 '미기록' 이다 — 0 이나 음수와 구분해야 한다.
     /// 요청하지 않은 기준이면 빈 배열들이 든 정적 객체를 돌려준다.
-    const ElementExtremes& elementExtremes(HotspotCriterion c) const;
-    const std::map<HotspotCriterion, ElementExtremes>& allElementExtremes() const { return elem_extremes_; }
+    const ElementExtremes& elementExtremes(HotspotCriterion c) const;   // 솔리드
+    const ElementExtremes& elementExtremes(HotspotElementKind k, HotspotCriterion c) const;
+    using ExtremesKey = std::pair<HotspotElementKind, HotspotCriterion>;
+    const std::map<ExtremesKey, ElementExtremes>& allElementExtremes() const { return elem_extremes_; }
+
+    /// 셸 요소별 초기 두께 (첫 상태의 두께 워드, IOSHL(4)). 없으면 비움.
+    const std::vector<double>& shellThickness() const { return shell_thickness_; }
+    /// 셸 계열 층 번호 해석 — "mid_inner_outer" | "index"
+    const std::string& layerScheme() const { return layer_scheme_; }
 
     /// 설정의 이름 목록 → 기준 목록. 모르는 이름은 경고, 전부 무효면 von_mises 폴백.
     /// 같은 설정을 여러 곳에서 해석하므로 경고는 한 곳(누적 패스)에서만 낸다 — @p warn.
@@ -427,7 +434,16 @@ private:
     // elem_index -> 값. config.hotspot_enabled 일 때만 채워진다.
     // 🔴 미기록/범위밖은 NaN. 0 으로 두면 '응력 0' 과, 음수로 두면 σ1·σ3 의
     //    정상 음수값과 구분이 안 된다.
-    std::map<HotspotCriterion, ElementExtremes> elem_extremes_;
+    std::map<ExtremesKey, ElementExtremes> elem_extremes_;
+
+    // ── 셸·두꺼운 셸 (핫스팟 군집용 제어값, ls-dyna_database.txt 1918–2075) ──
+    size_t  num_shell_elements_ = 0;     ///< NEL4
+    size_t  num_tshell_elements_ = 0;    ///< NELT
+    int32_t nv2d_ = 0, nv3dt_ = 0;
+    int32_t maxint_ = 0, neips_ = 0, ndim_ = 0, numds_ = 0;
+    int32_t ioshl_[4] = {0, 0, 0, 0};
+    std::vector<double> shell_thickness_;
+    std::string layer_scheme_;
 
     // Part information
     std::vector<int32_t> part_ids_;  // Unique part IDs
@@ -577,6 +593,19 @@ private:
      */
     void accumulateElementExtremes(const std::vector<data::StateData>& all_states,
                                    const std::vector<HotspotCriterion>& criteria);
+
+    /**
+     * @brief 셸·두꺼운 셸의 요소별 시간축 극값 — 적분점 층 중 가장 뜨거운 층
+     *
+     * 층 k 의 응력은 요소 시작 + k·P (P = 6·IOSHL(1)+IOSHL(2)+NEIPS).
+     * 굽힘 최대는 표면 층이라 중립면만 보면 놓친다. 층 순서 해석에 결과가 좌우되지 않는다.
+     *
+     * 🔴 배치를 규격 공식으로 자기 검증한다. NV2D/NV3DT 가 공식과 맞지 않으면
+     *    추측해서 읽지 않고 건너뛴다(틀린 오프셋은 그럴듯한 숫자를 조용히 낸다).
+     */
+    void accumulateLayeredExtremes(const std::vector<data::StateData>& all_states,
+                                   const std::vector<HotspotCriterion>& criteria,
+                                   HotspotElementKind kind);
 
     // ========================================
     // Result finalization

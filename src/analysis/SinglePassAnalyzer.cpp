@@ -348,6 +348,16 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
     num_solid_elements_ = static_cast<size_t>(std::abs(control_data.NEL8));
     has_strain_tensor_ = (control_data.ISTRN != 0 && nv3d_ >= 13);
 
+    num_shell_elements_ = control_data.NEL4 > 0 ? static_cast<size_t>(control_data.NEL4) : 0;
+    num_tshell_elements_ = control_data.NELT > 0 ? static_cast<size_t>(control_data.NELT) : 0;
+    nv2d_ = control_data.NV2D;
+    nv3dt_ = control_data.NV3DT;
+    maxint_ = control_data.MAXINT;      // ControlData 가 MDLOPT 부호를 이미 벗겼다
+    neips_ = control_data.NEIPS;
+    ndim_ = control_data.NDIM;
+    numds_ = control_data.NUMDS;
+    for (int i = 0; i < 4; ++i) ioshl_[i] = control_data.IOSHL[i];
+
     // Read mesh
     mesh_ = reader_.read_mesh();
 
@@ -1305,8 +1315,12 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
 // ========================================
 
 const ElementExtremes& SinglePassAnalyzer::elementExtremes(HotspotCriterion c) const {
+    return elementExtremes(HotspotElementKind::Solid, c);
+}
+
+const ElementExtremes& SinglePassAnalyzer::elementExtremes(HotspotElementKind k, HotspotCriterion c) const {
     static const ElementExtremes kEmpty;
-    auto it = elem_extremes_.find(c);
+    auto it = elem_extremes_.find(ExtremesKey{k, c});
     return (it == elem_extremes_.end()) ? kEmpty : it->second;
 }
 
@@ -1337,8 +1351,15 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     const std::vector<HotspotCriterion>& criteria
 ) {
     elem_extremes_.clear();
+    shell_thickness_.clear();
+    if (all_states.empty() || criteria.empty()) return;
+
+    // 셸 계열 먼저 (솔리드 경로는 아래에서 기존 그대로)
+    accumulateLayeredExtremes(all_states, criteria, HotspotElementKind::ThickShell);
+    accumulateLayeredExtremes(all_states, criteria, HotspotElementKind::Shell);
+
     const size_t ne = num_solid_elements_;
-    if (ne == 0 || all_states.empty() || criteria.empty()) return;
+    if (ne == 0) return;
 
     // 요청한 기준을 고정 슬롯(enum 값)으로 — 안쪽 루프에서 map 조회를 피한다.
     bool want[3] = {false, false, false};
@@ -1351,7 +1372,8 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     ElementExtremes* slot[3] = {nullptr, nullptr, nullptr};
     for (int k = 0; k < 3; ++k) {
         if (!want[k]) continue;
-        ElementExtremes& ex = elem_extremes_[static_cast<HotspotCriterion>(k)];
+        ElementExtremes& ex = elem_extremes_[ExtremesKey{HotspotElementKind::Solid,
+                                                          static_cast<HotspotCriterion>(k)}];
         ex.value.assign(ne, hotspotUnrecorded());
         ex.time.assign(ne, 0.0);
         if (has_strain_tensor_) ex.strain.assign(ne, 0.0); else ex.strain.clear();
@@ -1466,6 +1488,177 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             }
             slot[k]->strain.clear();
         }
+    }
+}
+
+void SinglePassAnalyzer::accumulateLayeredExtremes(
+    const std::vector<data::StateData>& all_states,
+    const std::vector<HotspotCriterion>& criteria,
+    HotspotElementKind kind
+) {
+    const bool is_shell = (kind == HotspotElementKind::Shell);
+    const size_t ne = is_shell ? num_shell_elements_ : num_tshell_elements_;
+    const int nv = is_shell ? nv2d_ : nv3dt_;
+    const char* kname = is_shell ? "셸" : "두꺼운 셸";
+    if (ne == 0 || nv <= 0) return;
+
+    if (is_shell && (ndim_ == 5 || ndim_ == 7)) {
+        // DCOMP=2: 강체 셸 데이터가 빠진 채 압축돼 요소 인덱스가 어긋난다.
+        std::cerr << "  [hotspot] " << kname << ": 강체 셸 압축 덱(NDIM=" << ndim_
+                  << ", DCOMP=2) — 요소 인덱스를 신뢰할 수 없어 건너뜁니다.\n";
+        return;
+    }
+    if (ioshl_[0] == 0 || maxint_ <= 0) {
+        std::cerr << "  [hotspot] " << kname << ": 응력이 기록되지 않은 덱(IOSHL(1)=" << ioshl_[0]
+                  << ", MAXINT=" << maxint_ << ") — 건너뜁니다.\n";
+        return;
+    }
+
+    // ── 배치 자기 검증 ──
+    const int P = 6 * ioshl_[0] + ioshl_[1] + neips_;
+    const int lw = maxint_ * P;                    // 층 데이터 워드 수
+    int strain_off = -1;                           // 요소 시작 기준, 안쪽 면 6 + 바깥쪽 면 6
+    int thick_off = -1;
+    if (is_shell) {
+        const int fixed = lw + 8 * ioshl_[2] + 4 * ioshl_[3];
+        const int rem = nv - fixed;
+        if (rem == 12) {
+            // 두께·요소변수 2개 뒤, 내부에너지 앞 (규격 30–44 번)
+            strain_off = lw + 8 * ioshl_[2] + 3 * ioshl_[3];
+        } else if (rem != 0) {
+            std::cerr << "  [hotspot] " << kname << ": NV2D=" << nv << " 이 규격 공식("
+                      << fixed << " 또는 " << fixed + 12 << ")과 맞지 않아 건너뜁니다.\n";
+            return;
+        }
+        if (ioshl_[3]) thick_off = lw + 8 * ioshl_[2];
+    } else {
+        const int rem = nv - lw;                   // 12·ISTRN + (TSHENG ? 1 : 0)
+        if (rem == 12 || rem == 13) {
+            strain_off = lw;
+        } else if (rem != 0 && rem != 1) {
+            std::cerr << "  [hotspot] " << kname << ": NV3DT=" << nv << " 이 규격 공식("
+                      << lw << "+{0,1,12,13})과 맞지 않아 건너뜁니다.\n";
+            return;
+        }
+    }
+    const bool mio = (maxint_ >= 3 && numds_ >= 0);   // 0 중립·1 안쪽·2 바깥쪽
+    layer_scheme_ = mio ? "mid_inner_outer" : "index";
+    const bool strain_ok = (strain_off >= 0);
+
+    bool want[3] = {false, false, false};
+    for (HotspotCriterion c : criteria) want[static_cast<int>(c)] = true;
+    const bool need_vm = want[0];
+    const bool need_pr = want[1] || want[2];
+
+    ElementExtremes* slot[3] = {nullptr, nullptr, nullptr};
+    for (int k = 0; k < 3; ++k) {
+        if (!want[k]) continue;
+        ElementExtremes& ex = elem_extremes_[ExtremesKey{kind, static_cast<HotspotCriterion>(k)}];
+        ex.value.assign(ne, hotspotUnrecorded());
+        ex.time.assign(ne, 0.0);
+        ex.layer.assign(ne, static_cast<int8_t>(-1));
+        if (strain_ok) ex.strain.assign(ne, 0.0); else ex.strain.clear();
+        slot[k] = &ex;
+    }
+
+    // 셸 두께 — 초기 상태(첫 상태)의 두께 워드. 초기 형상 기준 도심과 짝을 맞춘다.
+    if (is_shell && thick_off >= 0) {
+        const auto& sd0 = all_states.front().shell_data;
+        if (sd0.size() >= ne * static_cast<size_t>(nv)) {
+            shell_thickness_.assign(ne, 0.0);
+            for (size_t e = 0; e < ne; ++e) shell_thickness_[e] = sd0[e * nv + thick_off];
+        }
+    }
+
+    // 짝 변형률: 극값 층의 면. 중립면이면 두 면 텐서 평균(Kirchhoff 선형 분포),
+    // 그 밖이면 두 면 중 기준 방향으로 뜨거운 쪽.
+    auto strain_measure = [](int k, const double* t) -> double {
+        if (k == 0) return equivalentStrain(t[0], t[1], t[2], t[3], t[4], t[5]);
+        const StressTensor et{t[0], t[1], t[2], t[3], t[4], t[5]};
+        const auto pe = et.principalStresses();
+        return (k == 1) ? pe[0] : pe[2];
+    };
+    auto paired = [&](int k, int layer, const double* ein, const double* eout) -> double {
+        if (mio && layer == 1) return strain_measure(k, ein);
+        if (mio && layer == 2) return strain_measure(k, eout);
+        if (mio && layer == 0) {
+            double m[6];
+            for (int q = 0; q < 6; ++q) m[q] = 0.5 * (ein[q] + eout[q]);
+            return strain_measure(k, m);
+        }
+        const double a = strain_measure(k, ein), b = strain_measure(k, eout);
+        return hotspotHotter(static_cast<HotspotCriterion>(k), a, b) ? a : b;
+    };
+
+    const size_t ns = all_states.size();
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int64_t ei = 0; ei < static_cast<int64_t>(ne); ++ei) {
+        double best[3]   = {-std::numeric_limits<double>::max(),
+                            -std::numeric_limits<double>::max(),
+                             std::numeric_limits<double>::max()};
+        double best_t[3] = {0.0, 0.0, 0.0};
+        double best_e[3] = {0.0, 0.0, 0.0};
+        int    best_l[3] = {-1, -1, -1};
+        bool   seen = false;
+
+        for (size_t si = 0; si < ns; ++si) {
+            const auto& sd = is_shell ? all_states[si].shell_data : all_states[si].thick_shell_data;
+            const size_t base = static_cast<size_t>(ei) * static_cast<size_t>(nv);
+            if (sd.empty() || base + static_cast<size_t>(nv) > sd.size()) continue;
+            seen = true;
+
+            // 층별 기준값 — 이 상태에서 가장 뜨거운 층
+            double cur[3] = {-std::numeric_limits<double>::max(),
+                             -std::numeric_limits<double>::max(),
+                              std::numeric_limits<double>::max()};
+            int cur_l[3] = {-1, -1, -1};
+            for (int L = 0; L < maxint_; ++L) {
+                const double* s6 = &sd[base + static_cast<size_t>(L) * P];
+                if (need_vm) {
+                    const double vm = equivalentStress(s6[0], s6[1], s6[2], s6[3], s6[4], s6[5]);
+                    if (vm > cur[0]) { cur[0] = vm; cur_l[0] = L; }
+                }
+                if (need_pr) {
+                    const StressTensor st{s6[0], s6[1], s6[2], s6[3], s6[4], s6[5]};
+                    const auto pr = st.principalStresses();
+                    if (pr[0] > cur[1]) { cur[1] = pr[0]; cur_l[1] = L; }
+                    if (pr[2] < cur[2]) { cur[2] = pr[2]; cur_l[2] = L; }
+                }
+            }
+
+            bool upd[3] = {false, false, false};
+            if (want[0] && cur[0] > best[0]) upd[0] = true;
+            if (want[1] && cur[1] > best[1]) upd[1] = true;
+            if (want[2] && cur[2] < best[2]) upd[2] = true;
+            if (!(upd[0] || upd[1] || upd[2])) continue;
+
+            const double t = all_states[si].time;
+            const double* ein = strain_ok ? &sd[base + strain_off] : nullptr;
+            const double* eout = strain_ok ? &sd[base + strain_off + 6] : nullptr;
+            for (int k = 0; k < 3; ++k) {
+                if (!upd[k]) continue;
+                best[k] = cur[k]; best_t[k] = t; best_l[k] = cur_l[k];
+                if (strain_ok) best_e[k] = paired(k, cur_l[k], ein, eout);
+            }
+        }
+
+        for (int k = 0; k < 3; ++k) {
+            if (!slot[k] || !seen) continue;          // seen 이 아니면 NaN(미기록)
+            slot[k]->value[ei] = best[k];
+            slot[k]->time[ei] = best_t[k];
+            slot[k]->layer[ei] = static_cast<int8_t>(best_l[k]);
+            if (!slot[k]->strain.empty()) slot[k]->strain[ei] = best_e[k];
+        }
+    }
+
+    // 변형률 슬롯은 있는데 전부 0 → 솔버가 안 채운 것 (솔리드 경로와 같은 판정)
+    for (int k = 0; k < 3; ++k) {
+        if (!slot[k] || slot[k]->strain.empty()) continue;
+        bool all_zero = true;
+        for (double v : slot[k]->strain) { if (v != 0.0) { all_zero = false; break; } }
+        if (all_zero) slot[k]->strain.clear();
     }
 }
 

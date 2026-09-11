@@ -31,6 +31,16 @@ enum class HotspotCriterion {
     MinPrincipal = 2,
 };
 
+/// 군집 대상 요소 종류. 기하(부피/면적)와 대표 크기 정의가 다르다.
+enum class HotspotElementKind {
+    Solid = 0,        ///< 8절점 솔리드 (tet/wedge/pyramid 축퇴 포함)
+    ThickShell = 1,   ///< 8절점 두꺼운 셸 — 적분점 층별 응력
+    Shell = 2,        ///< 4절점 셸 (삼각형 축퇴 포함) — 적분점 층별 응력
+};
+
+/// 종류 → JSON `element_type` 이름 ("solid" / "thick_shell" / "shell")
+const char* hotspotElementKindName(HotspotElementKind k);
+
 /// 문자열 → 기준. "von_mises" / "max_principal" / "min_principal" (대소문자·'-' 무시).
 /// 모르는 이름이면 false 를 돌려주고 @p out 은 건드리지 않는다.
 bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out);
@@ -48,6 +58,9 @@ struct ElementExtremes {
     std::vector<double> value;   ///< 극값. NaN = 미기록
     std::vector<double> time;    ///< 그 극값이 난 시각
     std::vector<double> strain;  ///< 같은 시각의 짝 변형률. 비어 있으면 미보고
+    /// 셸·두꺼운 셸: 극값이 난 적분점 층 (d3plot 저장 순서, 0부터). 솔리드는 비움.
+    /// MAXINT=3·NUMDS≥0 이면 0=중립면, 1=안쪽 면, 2=바깥쪽 면.
+    std::vector<int8_t> layer;
 };
 
 /// 뜨거운 방향이 '작은 값' 인 기준이면 true (현재 MinPrincipal 만)
@@ -111,7 +124,10 @@ struct HotspotCluster {
     double center[3] = {0, 0, 0};       ///< 응력×부피 가중 중심 (초기 형상 기준)
     double radius_enclosing = 0.0;      ///< 중심 → 구성 요소의 최원 절점 거리 (정확)
     double radius_rms = 0.0;            ///< 부피 가중 RMS 반경 (뭉침 정도)
-    double volume = 0.0;                ///< 덩어리 총 부피
+    double volume = 0.0;                ///< 덩어리 총 부피 (셸은 면적×두께 — 두께가 있을 때만 유효)
+    bool   has_area = false;            ///< 셸이면 true — area 를 출력한다
+    double area = 0.0;                  ///< 셸: 덩어리 총 면적
+    bool   volume_valid = true;         ///< false 면 volume 을 출력하지 않는다 (두께 없는 셸)
 
     double stress_mean = 0.0;           ///< 부피 가중 평균 (기준량 값, 부호 유지)
     double stress_max = 0.0;            ///< 뜨거운 방향의 극값 — σ3 기준이면 **최솟값**
@@ -122,6 +138,7 @@ struct HotspotCluster {
 
     int32_t peak_element_id = 0;        ///< 최대 응력 요소 (사용자 ID)
     double peak_time = 0.0;             ///< 그 최대가 발생한 시각
+    int    peak_layer = -1;             ///< 셸·두꺼운 셸: 피크 요소의 극값 층. 솔리드 −1
 };
 
 /**
@@ -134,6 +151,14 @@ struct PartHotspotResult {
     std::string criterion;              ///< 선별 기준량 이름 (hotspotCriterionName)
     std::string direction;              ///< "max" | "min" — stress_max/threshold 의 방향
     std::string strain_measure;         ///< "equivalent" | "max_principal" | "min_principal"
+    std::string element_type;           ///< "solid" | "thick_shell" | "shell"
+    /// 평균·중심 가중에 쓴 측도: "volume" | "area_x_thickness" | "area"
+    std::string weight_measure;
+    /// 셸 층 번호 해석: "mid_inner_outer"(0 중립·1 안쪽·2 바깥쪽) | "index" | "" (솔리드)
+    std::string layer_scheme;
+    bool   bbox_valid = false;          ///< 파트 경계상자 (초기 형상, 파트 요소의 절점 기준)
+    double bbox_min[3] = {0, 0, 0};
+    double bbox_max[3] = {0, 0, 0};
     double top_percent = 0.0;
     double threshold_value = 0.0;       ///< 상위 백분위 컷 값. max 방향이면 이 이상, min 방향이면 이 이하가 선별
 
@@ -197,6 +222,38 @@ bool computeSolidVolumeAndCentroid(const Node* p,
 double isoparametricHexVolume(const double xyz[8][3]);
 
 /**
+ * @brief 4절점 셸의 면적과 도심 — 쌍선형 등매개 곡면
+ *
+ * @code
+ *   A = ∫∫ |x_ξ × x_η| dξ dη            over [-1,1]^2
+ *   c = (1/A) ∫∫ x(ξ,η) |x_ξ × x_η| dξ dη
+ * @endcode
+ *
+ * 평면 사각형에서 |x_ξ × x_η| 는 ξ,η 에 대해 1차이고 x·|…| 는 각 변수 2차라
+ * **2점 가우스로 정확하다**. 뒤틀린(비평면) 사각형은 피적분함수에 제곱근이 들어가
+ * 다항식이 아니므로 정확한 구적이 없다 — 4점 가우스를 쓴다(수렴은 단위 시험에서 실측).
+ *
+ * 삼각형(LS-DYNA 는 4번 절점을 3번과 같게 싣는다)은 닫힌식으로 푼다.
+ * 고유 절점 판정은 솔리드와 같이 절점 id 로 한다.
+ *
+ * @param p      4개 절점 (LS-DYNA shell 순서)
+ * @param area   [out] 면적 (≥ 0)
+ * @return 면적이 유효(> 0)하면 true
+ */
+bool computeShellAreaAndCentroid(const Node* p,
+                                 double& area,
+                                 double& cx, double& cy, double& cz);
+
+/**
+ * @brief 육면체의 세 쌍 대면(對面) 도심 간 거리 중 최소값
+ *
+ * 두꺼운 셸의 **면내 크기** 추정에 쓴다: `√(V / h_min)`.
+ * 절점 순서(1-4 → 5-8 이 두께 방향이라는 가정)에 의존하지 않도록 세 방향 중 가장
+ * 짧은 쪽을 두께로 본다. 정육면체에서는 √(a³/a) = a 로 ∛V 와 같다.
+ */
+double hexMinFaceSeparation(const Node* p);
+
+/**
  * @brief 대칭 2계 텐서의 등가(von Mises) 값
  *
  * 응력: σ_eq = sqrt( 0.5·[(σxx−σyy)² + (σyy−σzz)² + (σzz−σxx)²] + 3·(σxy²+σyz²+σzx²) )
@@ -231,6 +288,8 @@ struct ClusterElement {
     double  peak_time = 0.0;
     double  strain = 0.0;
     bool    has_strain = false;
+    int     layer = -1;        ///< 셸·두꺼운 셸 극값 층
+    double  area = 0.0;        ///< 셸 면적 (가중 volume 과 별도로 보고용)
 };
 
 /**
@@ -281,6 +340,32 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const std::vector<double>& elem_max_vm,
     const std::vector<double>& elem_max_time,
     const std::vector<double>& elem_strain,
+    const std::map<int32_t, std::string>& part_names,
+    const HotspotClusterConfig& cfg);
+
+/**
+ * @brief 요소 종류별 핫스팟 군집 — 셸·두꺼운 셸 지원판
+ *
+ * | 종류 | 기하 | 가중 | 대표 크기 |
+ * |---|---|---|---|
+ * | Solid | 등매개 부피·도심 | 부피 | ∛(부피 중앙값) — 기존과 동일 |
+ * | ThickShell | 등매개 부피·도심 | 부피 | 중앙값 √(V / h_min) — 면내 크기 |
+ * | Shell | 쌍선형 곡면 면적·도심 | 면적×두께 (두께 없으면 면적) | √(면적 중앙값) |
+ *
+ * 🔴 얇은 요소에서 ∛V 를 쓰면 대표 크기가 면내 간격보다 작아져 거리 임계에 이웃이
+ *    걸리지 않는다 → 덩어리가 전부 흩어져 최소 크기 필터에 다 걸린다. 셸 계열은 면내 크기를 쓴다.
+ *
+ * @param ex               요소별 극값 (value/time/strain/layer). 크기 = 해당 종류 요소 수
+ * @param shell_thickness  Shell 전용 — 요소별 초기 두께. 비었거나 파트 안에 0 이하가 있으면
+ *                         그 파트는 면적 가중으로 떨어진다(`weight_measure="area"`).
+ * @param layer_scheme     셸 계열 층 번호 해석 ("mid_inner_outer" | "index")
+ */
+std::vector<PartHotspotResult> computeHotspotClusters(
+    const data::Mesh& mesh,
+    HotspotElementKind kind,
+    const ElementExtremes& ex,
+    const std::vector<double>& shell_thickness,
+    const std::string& layer_scheme,
     const std::map<int32_t, std::string>& part_names,
     const HotspotClusterConfig& cfg);
 

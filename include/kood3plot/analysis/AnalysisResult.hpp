@@ -697,7 +697,10 @@ private:
                                         << jnum(c.center[2]) << "]," << nl;
         oss << ind2 << "\"radius_enclosing\": " << jnum(c.radius_enclosing) << "," << nl;
         oss << ind2 << "\"radius_rms\": " << jnum(c.radius_rms) << "," << nl;
-        oss << ind2 << "\"volume\": " << jnum(c.volume) << "," << nl;
+        // 셸: area 는 항상, volume(면적×두께)은 두께가 있을 때만. 없는 값을 0 으로 내면
+        //     '부피 0' 으로 오독된다.
+        if (c.has_area) oss << ind2 << "\"area\": " << jnum(c.area) << "," << nl;
+        if (c.volume_valid) oss << ind2 << "\"volume\": " << jnum(c.volume) << "," << nl;
         oss << ind2 << "\"stress_mean\": " << jnum(c.stress_mean) << "," << nl;
         oss << ind2 << "\"stress_max\": " << jnum(c.stress_max) << "," << nl;
         oss << ind2 << "\"strain_available\": " << (c.strain_available ? "true" : "false") << "," << nl;
@@ -706,6 +709,7 @@ private:
             oss << ind2 << "\"strain_max\": " << jnum(c.strain_max) << "," << nl;
         }
         oss << ind2 << "\"peak_element_id\": " << c.peak_element_id << "," << nl;
+        if (c.peak_layer >= 0) oss << ind2 << "\"peak_layer\": " << c.peak_layer << "," << nl;
         oss << ind2 << "\"peak_time\": " << jnum(c.peak_time) << nl;
         oss << ind << "}";
         return oss.str();
@@ -726,6 +730,14 @@ private:
         // 구버전 결과(필드 없음)는 전부 von_mises 였으므로 소비자는 없으면 "max" 로 본다.
         oss << ind2 << "\"direction\": \"" << escapeJSON(r.direction.empty() ? "max" : r.direction) << "\"," << nl;
         oss << ind2 << "\"strain_measure\": \"" << escapeJSON(r.strain_measure.empty() ? "equivalent" : r.strain_measure) << "\"," << nl;
+        oss << ind2 << "\"element_type\": \"" << escapeJSON(r.element_type.empty() ? "solid" : r.element_type) << "\"," << nl;
+        oss << ind2 << "\"weight_measure\": \"" << escapeJSON(r.weight_measure.empty() ? "volume" : r.weight_measure) << "\"," << nl;
+        if (!r.layer_scheme.empty())
+            oss << ind2 << "\"layer_scheme\": \"" << escapeJSON(r.layer_scheme) << "\"," << nl;
+        if (r.bbox_valid) {
+            oss << ind2 << "\"bbox_min\": [" << jnum(r.bbox_min[0]) << ", " << jnum(r.bbox_min[1]) << ", " << jnum(r.bbox_min[2]) << "]," << nl;
+            oss << ind2 << "\"bbox_max\": [" << jnum(r.bbox_max[0]) << ", " << jnum(r.bbox_max[1]) << ", " << jnum(r.bbox_max[2]) << "]," << nl;
+        }
         oss << ind2 << "\"top_percent\": " << jnum(r.top_percent) << "," << nl;
         oss << ind2 << "\"threshold_value\": " << jnum(r.threshold_value) << "," << nl;
         oss << ind2 << "\"element_size_ref\": " << jnum(r.element_size_ref) << "," << nl;

@@ -355,30 +355,41 @@ void UnifiedAnalyzer::processSolidJobs(
             auto hs_mesh = reader.read_mesh();
 
             std::map<int32_t, std::string> pnames;
-            for (int32_t pid : hs_mesh.solid_parts) {
-                if (!pnames.count(pid)) pnames[pid] = "Part_" + std::to_string(pid);
+            for (const auto* parts : {&hs_mesh.solid_parts, &hs_mesh.thick_shell_parts, &hs_mesh.shell_parts}) {
+                for (int32_t pid : *parts) {
+                    if (!pnames.count(pid)) pnames[pid] = "Part_" + std::to_string(pid);
+                }
             }
 
-            // 기준별로 한 번씩 — 결과 배열에 파트×기준 항목이 쌓인다.
-            // 순서는 설정에 적힌 순서(resolveHotspotCriteria 가 보존)를 따른다.
+            // 기준 × 요소 종류마다 한 번씩 — 결과 배열에 파트×기준 항목이 쌓인다.
+            // 순서: 설정에 적힌 기준 순서, 그 안에서 솔리드 → 두꺼운 셸 → 셸.
+            // 셸이 없는 덱은 솔리드 항목만 나오므로 기존 출력과 같다.
             result.hotspot_clusters.clear();
             for (HotspotCriterion crit :
                  SinglePassAnalyzer::resolveHotspotCriteria(config.hotspot_criteria, /*warn=*/false)) {
-                const ElementExtremes& ex = sp_analyzer.elementExtremes(crit);
-                if (ex.value.empty()) continue;
+                for (HotspotElementKind kind : {HotspotElementKind::Solid,
+                                                HotspotElementKind::ThickShell,
+                                                HotspotElementKind::Shell}) {
+                    const ElementExtremes& ex = sp_analyzer.elementExtremes(kind, crit);
+                    if (ex.value.empty()) continue;
 
-                HotspotClusterConfig hc;
-                hc.enabled = true;
-                hc.criterion = crit;
-                hc.top_percent = config.hotspot_top_percent;
-                hc.distance_factor = config.hotspot_distance_factor;
-                hc.min_cluster_elements = config.hotspot_min_elements;
-                hc.max_clusters_per_part = config.hotspot_max_clusters;
+                    HotspotClusterConfig hc;
+                    hc.enabled = true;
+                    hc.criterion = crit;
+                    hc.top_percent = config.hotspot_top_percent;
+                    hc.distance_factor = config.hotspot_distance_factor;
+                    hc.min_cluster_elements = config.hotspot_min_elements;
+                    hc.max_clusters_per_part = config.hotspot_max_clusters;
 
-                auto part = computeHotspotClusters(hs_mesh, ex.value, ex.time, ex.strain, pnames, hc);
-                result.hotspot_clusters.insert(result.hotspot_clusters.end(),
-                                               std::make_move_iterator(part.begin()),
-                                               std::make_move_iterator(part.end()));
+                    auto part = computeHotspotClusters(
+                        hs_mesh, kind, ex,
+                        (kind == HotspotElementKind::Shell) ? sp_analyzer.shellThickness()
+                                                            : std::vector<double>{},
+                        sp_analyzer.layerScheme(), pnames, hc);
+                    result.hotspot_clusters.insert(result.hotspot_clusters.end(),
+                                                   std::make_move_iterator(part.begin()),
+                                                   std::make_move_iterator(part.end()));
+                }
             }
 
             if (callback) {
