@@ -161,6 +161,16 @@ struct PartHotspotResult {
     double bbox_max[3] = {0, 0, 0};
     double top_percent = 0.0;
     double threshold_value = 0.0;       ///< 상위 백분위 컷 값. max 방향이면 이 이상, min 방향이면 이 이하가 선별
+    /// 파트에서 가장 뜨거운 값 (선별 요소 중 극값). 컷값과 같으면 **평탄 분포** —
+    /// 상위 X% 가 동률 속 임의 부분집합이라 '흩어진 핫스팟' 으로 읽으면 안 된다.
+    bool   value_extreme_valid = false;
+    double value_extreme = 0.0;
+    /// 컷값과 같은 값(상대 1e-9)인데 선별되지 **못한** 요소 수. 0 보다 크면 선별 경계가
+    /// 동률 속에서 요소 순번으로 임의로 갈렸다.
+    int    cut_ties_unselected = 0;
+    /// 선별 값이 전부 같고(극값 = 컷값) 경계 너머에도 같은 값이 있다 — 평탄 분포.
+    /// 상위 선별 전체가 임의 부분집합이라 덩어리의 **위치·개수에 의미가 없다**.
+    bool   uniform = false;
 
     double element_size_ref = 0.0;      ///< 파트 대표 요소 크기 (부피 중앙값의 세제곱근)
     double distance_threshold = 0.0;    ///< 실제 적용된 거리 임계값

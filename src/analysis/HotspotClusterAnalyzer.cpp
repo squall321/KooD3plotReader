@@ -752,10 +752,27 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             return a.second < b.second;          // 동점이면 인덱스 오름차순
         };
         std::nth_element(rank.begin(), rank.begin() + (want - 1), rank.end(), hotter_first);
+        {
+            // 경계 동률 — 컷값과 같은 값인데 선별되지 못한 요소 (nth_element 뒤쪽 구간)
+            const double cutv = rank[want - 1].first;
+            const double tol = 1e-9 * std::max(std::abs(cutv), 1e-300);
+            int ties = 0;
+            for (size_t q = want; q < rank.size(); ++q) {
+                if (std::abs(rank[q].first - cutv) <= tol) ++ties;
+            }
+            res.cut_ties_unselected = ties;
+        }
         rank.resize(want);
         // 컷값 = 선별된 것 중 가장 덜 뜨거운 값 (max 방향이면 최솟값, min 방향이면 최댓값)
         res.threshold_value = rank.empty() ? 0.0
                             : std::max_element(rank.begin(), rank.end(), hotter_first)->first;
+        if (!rank.empty()) {
+            res.value_extreme = std::min_element(rank.begin(), rank.end(), hotter_first)->first;
+            res.value_extreme_valid = true;
+            const double tol = 1e-9 * std::max(std::abs(res.value_extreme), 1e-300);
+            res.uniform = (std::abs(res.value_extreme - res.threshold_value) <= tol) &&
+                          res.cut_ties_unselected > 0;
+        }
 
         std::vector<ClusterElement> sel;
         sel.reserve(rank.size());

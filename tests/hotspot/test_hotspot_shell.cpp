@@ -170,6 +170,25 @@ int main(){
         printf("     참고: 기존 ∛V = %.3f → 임계 %.3f < 면내 간격 1.75 (기존에는 덩어리 0)\n", old_ref, 1.5*old_ref);
     }
 
+    printf("\n[7] 평탄 분포 판정 — 동률 속 임의 선별을 핫스팟으로 오독하지 않게\n");
+    {
+        ShellGrid g(10,10,1.0);                 // 100 요소, 상위 10% = 10개
+        HotspotClusterConfig cfg; cfg.enabled=true; cfg.top_percent=10.0; cfg.distance_factor=1.5; cfg.min_cluster_elements=3;
+        ElementExtremes ex; ex.value.assign(100, 0.0925313);            // 전부 같은 값 (case_shell 실측 모양)
+        auto r = computeHotspotClusters(g.mesh, HotspotElementKind::Shell, ex, {}, "index", {}, cfg);
+        chkb("전부 같은 값 → uniform", !r.empty() && r[0].uniform);
+        chk ("경계 동률 미선별 90", r.empty()?0:r[0].cut_ties_unselected, 90, 0);
+        for (size_t i=0;i<100;++i) ex.value[i] = 1.0 + i;               // 전부 다른 값
+        r = computeHotspotClusters(g.mesh, HotspotElementKind::Shell, ex, {}, "index", {}, cfg);
+        chkb("서로 다른 값 → uniform 아님", !r.empty() && !r[0].uniform);
+        chk ("경계 동률 0", r.empty()?-1:r[0].cut_ties_unselected, 0, 0);
+        for (size_t i=0;i<100;++i) ex.value[i] = (i < 5) ? 100.0 + i : 50.0;   // 상위 5 개 뚜렷 + 나머지 평탄
+        r = computeHotspotClusters(g.mesh, HotspotElementKind::Shell, ex, {}, "index", {}, cfg);
+        chkb("경계에서만 동률 → uniform 아님 (상위 5 개는 진짜)", !r.empty() && !r[0].uniform);
+        chk ("경계 동률 미선별 90", r.empty()?0:r[0].cut_ties_unselected, 90, 0);
+        chk ("극값 104", r.empty()?0:r[0].value_extreme, 104, 0);
+    }
+
     printf("\n%s 실패 %d 건\n", fails?"[FAIL]":"[PASS]", fails);
     return fails?1:0;
 }

@@ -740,6 +740,10 @@ private:
         }
         oss << ind2 << "\"top_percent\": " << jnum(r.top_percent) << "," << nl;
         oss << ind2 << "\"threshold_value\": " << jnum(r.threshold_value) << "," << nl;
+        if (r.value_extreme_valid)
+            oss << ind2 << "\"value_extreme\": " << jnum(r.value_extreme) << "," << nl;
+        oss << ind2 << "\"cut_ties_unselected\": " << r.cut_ties_unselected << "," << nl;
+        oss << ind2 << "\"uniform\": " << (r.uniform ? "true" : "false") << "," << nl;
         oss << ind2 << "\"element_size_ref\": " << jnum(r.element_size_ref) << "," << nl;
         oss << ind2 << "\"distance_threshold\": " << jnum(r.distance_threshold) << "," << nl;
         oss << ind2 << "\"element_count_total\": " << r.element_count_total << "," << nl;
