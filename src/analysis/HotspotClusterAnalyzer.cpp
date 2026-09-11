@@ -666,7 +666,26 @@ std::vector<PartHotspotResult> computeHotspotClusters(
                     const double h = hexMinFaceSeparation(p);
                     if (h > 0.0) size_metric.push_back(std::sqrt(av / h));
                 } else {
-                    size_metric.push_back(av);
+                    // 솔리드 특성 길이 L 의 세제곱을 모은다 (대표 크기 = ∛median(L³)).
+                    //  · 육면체·쐐기(고유 절점 ≥ 6): L = √(V / h_min) — 면내 크기.
+                    //    🔴 ∛V 만 쓰면 한 층 벽돌로 메시한 얇은 판(PCB·인터포저)에서
+                    //       임계가 면내 간격보다 작아져 맞닿은 요소도 안 묶인다.
+                    //       실측: 0.4 mm 판 파트에서 인접 요소 11개가 덩어리 0 으로 사라짐.
+                    //  · 사면체·사각뿔: L = ∛V (등방 메시 가정, 기존과 동일).
+                    //  정육면체는 √(a³/a)³ = a³ = V 라 기존 값과 같다.
+                    int nu = 0;
+                    for (int a = 0; a < 8; ++a) {
+                        bool dup = false;
+                        for (int b = 0; b < a; ++b) if (p[b].id == p[a].id) { dup = true; break; }
+                        if (!dup) ++nu;
+                    }
+                    const double h = (nu >= 6) ? hexMinFaceSeparation(p) : 0.0;
+                    if (nu >= 6 && h > 0.0) {
+                        const double L = std::sqrt(av / h);
+                        size_metric.push_back(L * L * L);
+                    } else {
+                        size_metric.push_back(av);
+                    }
                 }
             }
         }

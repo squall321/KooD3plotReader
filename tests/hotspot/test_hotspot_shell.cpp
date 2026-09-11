@@ -155,6 +155,21 @@ int main(){
                   chkb("솔리드는 area·peak_layer 미출력", !a[0].clusters[0].has_area && a[0].clusters[0].peak_layer==-1); }
     }
 
+    printf("\n[6] 얇은 솔리드 판 (한 층 벽돌) — 면내 크기로 묶인다. 사면체·정육면체는 불변\n");
+    {
+        TShellGrid tg(20,4,1.75,0.4);           // 파트 15 실측 형상: 면내 1.75, 두께 0.4
+        data::Mesh m; m.nodes = tg.mesh.nodes; m.solids = tg.mesh.thick_shells;
+        m.solid_parts.assign(m.solids.size(), 15); m.num_solids = m.solids.size();
+        std::vector<double> v(m.solids.size(), 1.0);
+        for (int i=5;i<=8;++i) for (int j=1;j<=2;++j) v[tg.idx(i,j)] = 60.0 - i - j;   // 인접 8개
+        HotspotClusterConfig cfg; cfg.enabled=true; cfg.top_percent=10.0; cfg.distance_factor=1.5; cfg.min_cluster_elements=5;
+        auto r = computeHotspotClusters(m, v, {}, {}, {}, cfg);
+        chk ("대표 크기 = 면내 1.75", r.empty()?0:r[0].element_size_ref, 1.75, 1e-9);
+        chk ("인접 8개가 한 덩어리", (r.empty()||r[0].clusters.empty())?0:r[0].clusters[0].element_count, 8, 0);
+        const double old_ref = std::cbrt(1.75*1.75*0.4);
+        printf("     참고: 기존 ∛V = %.3f → 임계 %.3f < 면내 간격 1.75 (기존에는 덩어리 0)\n", old_ref, 1.5*old_ref);
+    }
+
     printf("\n%s 실패 %d 건\n", fails?"[FAIL]":"[PASS]", fails);
     return fails?1:0;
 }
