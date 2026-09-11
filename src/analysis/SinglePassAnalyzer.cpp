@@ -343,7 +343,9 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
     // Get control data
     const auto& control_data = reader_.get_control_data();
     nv3d_ = control_data.NV3D;
-    num_solid_elements_ = control_data.NEL8;
+    // 🔴 NEL8 < 0 은 10절점 솔리드 표시다(개수 = |NEL8|). 부호째 size_t 에 넣으면
+    //    1.8e19 가 되어 아래 resize 에서 죽는다. 형상·상태 파서는 이미 abs 를 쓴다.
+    num_solid_elements_ = static_cast<size_t>(std::abs(control_data.NEL8));
     has_strain_tensor_ = (control_data.ISTRN != 0 && nv3d_ >= 13);
 
     // Read mesh
