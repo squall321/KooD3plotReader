@@ -136,6 +136,13 @@ struct HotspotCluster {
     double strain_mean = 0.0;           ///< 부피 가중 평균 (기준에 짝인 변형률 측도)
     double strain_max = 0.0;            ///< 뜨거운 방향의 극값 (σ3 기준이면 ε3 최솟값)
 
+    /// 소성일 w_p = ∫σ_vm dε_p 를 시간 적분한 값. 짧게 튄 탄성 응력은
+    /// Δε_p = 0 이라 기여하지 않는다 — 실제 손상에 비례하는 리스크 척도.
+    bool   energy_available = false;    ///< false 면 적분 못 함 (출력에서 뺀다)
+    double energy_total = 0.0;          ///< Σ w_p·V — 덩어리 총 소성일 [에너지]
+    double energy_max = 0.0;            ///< 요소별 밀도 최댓값 [에너지/부피]
+    double energy_mean = 0.0;           ///< 부피 가중 평균 밀도 [에너지/부피]
+
     int32_t peak_element_id = 0;        ///< 최대 응력 요소 (사용자 ID)
     double peak_time = 0.0;             ///< 그 최대가 발생한 시각
     int    peak_layer = -1;             ///< 셸·두꺼운 셸: 피크 요소의 극값 층. 솔리드 −1
@@ -300,6 +307,8 @@ struct ClusterElement {
     bool    has_strain = false;
     int     layer = -1;        ///< 셸·두꺼운 셸 극값 층
     double  area = 0.0;        ///< 셸 면적 (가중 volume 과 별도로 보고용)
+    double  energy = 0.0;      ///< 누적 소성일 밀도 w_p = ∫σ_vm dε_p [에너지/부피]
+    bool    has_energy = false;///< false 면 적분 못 함 — 0 으로 쓰지 않는다
 };
 
 /**
@@ -377,7 +386,10 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const std::vector<double>& shell_thickness,
     const std::string& layer_scheme,
     const std::map<int32_t, std::string>& part_names,
-    const HotspotClusterConfig& cfg);
+    const HotspotClusterConfig& cfg,
+    /// 요소별 누적 소성일 밀도. 비어 있으면 에너지 미계산으로 보고한다.
+    /// 기준량과 무관한 양이라 ElementExtremes 와 따로 받는다(기준마다 복제 방지).
+    const std::vector<double>& elem_energy = {});
 
 }  // namespace analysis
 }  // namespace kood3plot

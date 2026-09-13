@@ -385,7 +385,8 @@ void UnifiedAnalyzer::processSolidJobs(
                         hs_mesh, kind, ex,
                         (kind == HotspotElementKind::Shell) ? sp_analyzer.shellThickness()
                                                             : std::vector<double>{},
-                        sp_analyzer.layerScheme(), pnames, hc);
+                        sp_analyzer.layerScheme(), pnames, hc,
+                        sp_analyzer.plasticWorkDensity(kind));
                     result.hotspot_clusters.insert(result.hotspot_clusters.end(),
                                                    std::make_move_iterator(part.begin()),
                                                    std::make_move_iterator(part.end()));

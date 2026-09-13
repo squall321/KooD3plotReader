@@ -374,6 +374,11 @@ public:
 
     /// 셸 요소별 초기 두께 (첫 상태의 두께 워드, IOSHL(4)). 없으면 비움.
     const std::vector<double>& shellThickness() const { return shell_thickness_; }
+
+    /// 요소별 누적 소성일 밀도 w_p = ∫σ_vm dε_p [응력 단위 = 에너지/부피].
+    /// 기준량(criterion)과 무관한 양이라 요소 종류별로 하나만 둔다.
+    /// 비어 있으면 미계산 — 0 으로 채우지 않는다(계산 못 함과 진짜 0 을 구분).
+    const std::vector<double>& plasticWorkDensity(HotspotElementKind k) const;
     /// 셸 계열 층 번호 해석 — "mid_inner_outer" | "index"
     const std::string& layerScheme() const { return layer_scheme_; }
 
@@ -443,6 +448,8 @@ private:
     int32_t maxint_ = 0, neips_ = 0, ndim_ = 0, numds_ = 0;
     int32_t ioshl_[4] = {0, 0, 0, 0};
     std::vector<double> shell_thickness_;
+    /// 요소 종류별 누적 소성일 밀도 (위 plasticWorkDensity 참조)
+    std::map<HotspotElementKind, std::vector<double>> elem_plastic_work_;
     std::string layer_scheme_;
 
     // Part information

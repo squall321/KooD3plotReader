@@ -1346,6 +1346,14 @@ std::vector<HotspotCriterion> SinglePassAnalyzer::resolveHotspotCriteria(
     return crits;
 }
 
+const std::vector<double>& SinglePassAnalyzer::plasticWorkDensity(
+    HotspotElementKind k
+) const {
+    static const std::vector<double> kEmpty;
+    auto it = elem_plastic_work_.find(k);
+    return (it == elem_plastic_work_.end()) ? kEmpty : it->second;
+}
+
 void SinglePassAnalyzer::accumulateElementExtremes(
     const std::vector<data::StateData>& all_states,
     const std::vector<HotspotCriterion>& criteria
@@ -1383,12 +1391,20 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     const size_t ns = all_states.size();
     const bool strain_ok = has_strain_tensor_ && nv3d_ >= 13;
 
+    // 소성일 밀도 w_p = ∫σ_vm dε_p.
+    // ε_p 는 word 6 이라 변형률 텐서(STRFLG)와 무관하게 거의 모든 덱에서 나온다.
+    // 상태가 1개뿐이면 증분이 없어 적분이 성립하지 않는다 — 배열을 비워 '미계산' 으로 둔다.
+    std::vector<double>& work = elem_plastic_work_[HotspotElementKind::Solid];
+    const bool work_ok = (nv3d_ >= 7) && (ns >= 2);
+    if (work_ok) work.assign(ne, hotspotUnrecorded()); else work.clear();
+    int64_t nonmono_total = 0;
+
     // 🔴 병렬화 축이 **요소**다. 기본 경로는 상태 루프에 omp 를 걸지만,
     //    요소별 극값은 모든 상태가 같은 elem_idx 를 갱신하므로 그 축으로
     //    병렬화하면 데이터 경쟁이 된다. 여기서는 각 스레드가 자기 요소만
     //    쓰므로 경쟁이 원천적으로 없다(락·원자연산 불필요).
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static) reduction(+:nonmono_total)
 #endif
     for (int64_t ei = 0; ei < static_cast<int64_t>(ne); ++ei) {
         // k=0 VM(max), k=1 σ1(max), k=2 σ3(min)
@@ -1398,6 +1414,13 @@ void SinglePassAnalyzer::accumulateElementExtremes(
         double best_t[3] = {0.0, 0.0, 0.0};
         double best_e[3] = {0.0, 0.0, 0.0};
         bool   seen = false;
+
+        // 소성일 적분용 직전 상태값 (사다리꼴) + 러닝맥스
+        double prev_vm = 0.0, prev_ep = 0.0, ep_run_max = 0.0;
+        bool   have_prev = false;
+        double w_acc = 0.0;
+        bool   w_any = false;
+        int    nonmono = 0;
 
         for (size_t si = 0; si < ns; ++si) {
             const auto& sd = all_states[si].solid_data;
@@ -1409,6 +1432,23 @@ void SinglePassAnalyzer::accumulateElementExtremes(
 
             const double sxx = sd[base + 0], syy = sd[base + 1], szz = sd[base + 2];
             const double sxy = sd[base + 3], syz = sd[base + 4], szx = sd[base + 5];
+
+            // ── 소성일 누적 — 극값 갱신 여부와 무관하게 **모든 상태**에서 해야 한다 ──
+            if (work_ok && base + 7 <= sd.size()) {
+                const double vm_now = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                const double ep_now = sd[base + 6];
+                if (have_prev) {
+                    // ε_p 는 이론상 단조증가지만 실덱에서 오르내리는 경우가 있다
+                    // (word 6 을 다른 이력변수로 쓰는 재료, 요소 소거 등).
+                    // '음수만 버리기' 는 그 오르내림을 정류해 잡음을 누적한다.
+                    // **지금까지의 최댓값을 넘어선 만큼만** 더해 중복 계산을 막는다.
+                    const double dep = ep_now - ep_run_max;
+                    if (dep > 0.0) { w_acc += 0.5 * (vm_now + prev_vm) * dep; w_any = true; }
+                    if (ep_now < prev_ep) ++nonmono;
+                }
+                if (ep_now > ep_run_max) ep_run_max = ep_now;
+                prev_vm = vm_now; prev_ep = ep_now; have_prev = true;
+            }
 
             // 이 상태의 기준값들 — 필요한 것만, 주응력은 한 번만 분해
             double cur[3] = {0.0, 0.0, 0.0};
@@ -1463,6 +1503,23 @@ void SinglePassAnalyzer::accumulateElementExtremes(
                 if (!slot[k]->strain.empty()) slot[k]->strain[ei] = best_e[k];
             }
             // seen 이 아니면 NaN(미기록) 그대로
+        }
+        // 증분을 한 번도 못 본 요소는 '적분 못 함'(NaN)으로 남긴다.
+        // 소성 증분이 실제로 0 이었던 요소(탄성만)는 w_any 로 구분해 0 을 기록한다.
+        if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
+        nonmono_total += nonmono;
+    }
+
+
+    // ε_p 가 오르내리면 word 6 이 유효소성변형률이 아닐 수 있다(다른 이력변수·요소 소거).
+    // 조용히 넘어가면 에너지를 실제 손상으로 오독한다 — 비율을 알린다.
+    if (work_ok && ne > 0) {
+        const int64_t trans = static_cast<int64_t>(ne) * (static_cast<int64_t>(ns) - 1);
+        if (trans > 0 && nonmono_total * 10 > trans) {
+            std::cerr << "  [hotspot] 소성일: ε_p 가 감소한 전이가 "
+                      << (100.0 * static_cast<double>(nonmono_total) / static_cast<double>(trans))
+                      << "% — word 6 이 유효소성변형률이 아닐 수 있습니다."
+                      << " 누적은 이력 최댓값 초과분만 더합니다.\n";
         }
     }
 
@@ -1591,8 +1648,17 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     };
 
     const size_t ns = all_states.size();
+
+    // 소성일 밀도 — 적분점(층) 평균 σ_vm·ε_p 로 두께 방향을 대표시킨다.
+    // ε_p 는 층 블록 안에서 응력 6워드 다음(ioshl_[1]) 이다.
+    const int ep_off = 6 * ioshl_[0];
+    const bool work_ok = (ioshl_[1] != 0) && (ns >= 2) && (P >= ep_off + 1);
+    std::vector<double>& work = elem_plastic_work_[kind];
+    if (work_ok) work.assign(ne, hotspotUnrecorded()); else work.clear();
+    int64_t nonmono_total = 0;
+
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static) reduction(+:nonmono_total)
 #endif
     for (int64_t ei = 0; ei < static_cast<int64_t>(ne); ++ei) {
         double best[3]   = {-std::numeric_limits<double>::max(),
@@ -1602,6 +1668,11 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
         double best_e[3] = {0.0, 0.0, 0.0};
         int    best_l[3] = {-1, -1, -1};
         bool   seen = false;
+        double prev_vm = 0.0, prev_ep = 0.0, ep_run_max = 0.0;
+        bool   have_prev = false;
+        double w_acc = 0.0;
+        bool   w_any = false;
+        int    nonmono = 0;
 
         for (size_t si = 0; si < ns; ++si) {
             const auto& sd = is_shell ? all_states[si].shell_data : all_states[si].thick_shell_data;
@@ -1628,6 +1699,26 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
                 }
             }
 
+            // ── 소성일 누적 — 극값 갱신과 무관하게 모든 상태에서 ──
+            if (work_ok) {
+                double vm_sum = 0.0, ep_sum = 0.0;
+                for (int L = 0; L < maxint_; ++L) {
+                    const double* s6 = &sd[base + static_cast<size_t>(L) * P];
+                    vm_sum += equivalentStress(s6[0], s6[1], s6[2], s6[3], s6[4], s6[5]);
+                    ep_sum += s6[ep_off];
+                }
+                const double inv = 1.0 / static_cast<double>(maxint_);
+                const double vm_now = vm_sum * inv, ep_now = ep_sum * inv;
+                if (have_prev) {
+                    // 솔리드와 같은 규칙 — 러닝맥스 초과분만 (정류 잡음 방지)
+                    const double dep = ep_now - ep_run_max;
+                    if (dep > 0.0) { w_acc += 0.5 * (vm_now + prev_vm) * dep; w_any = true; }
+                    if (ep_now < prev_ep) ++nonmono;
+                }
+                if (ep_now > ep_run_max) ep_run_max = ep_now;
+                prev_vm = vm_now; prev_ep = ep_now; have_prev = true;
+            }
+
             bool upd[3] = {false, false, false};
             if (want[0] && cur[0] > best[0]) upd[0] = true;
             if (want[1] && cur[1] > best[1]) upd[1] = true;
@@ -1651,6 +1742,8 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
             slot[k]->layer[ei] = static_cast<int8_t>(best_l[k]);
             if (!slot[k]->strain.empty()) slot[k]->strain[ei] = best_e[k];
         }
+        if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
+        nonmono_total += nonmono;
     }
 
     // 변형률 슬롯은 있는데 전부 0 → 솔버가 안 채운 것 (솔리드 경로와 같은 판정)

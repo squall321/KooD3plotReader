@@ -33,15 +33,17 @@
 ## G5. 리스크 척도 (색) — 참에너지 적분
 
 ### G5a. C++ — 소성일 적분 (w_p = ∫σ_vm dε_p)
-- [ ] `accumulateElementExtremes` 요소 루프에 사다리꼴 누적 추가
-      → verify: 단조 하중 합성 덱에서 해석해와 일치 (오차 < 1%)
-- [ ] `Δε_p < 0` 버림 → verify: 언로딩 포함 덱에서 에너지가 감소하지 않음
-- [ ] 상태 1개면 NaN(미기록) → verify: 0 으로 안 채움
-- [ ] `ElementExtremes.energy` 추가 + `computeHotspotClusters` 로 전달
-      → verify: 요소 수와 배열 길이 일치
-- [ ] 군집 집계 `energy_total`(Σw·V) · `energy_max` · `energy_mean` · `energy_available`
-      → verify: 단일 요소 군집에서 total == w·V
-- [ ] JSON 내보내기 → verify: analysis_result.json 에 필드 등장
+- [x] `accumulateElementExtremes` 요소 루프에 사다리꼴 누적 추가 (솔리드·셸·두꺼운셸)
+      → verify: 독립 프로그램 재계산과 일치 (1.29499e-05 == 1.295e-05)
+- [x] ~~Δε_p<0 버림~~ → **러닝맥스 초과분만** (실측으로 규칙 교체, context-notes 참조)
+      → verify: 상한 σ_max·ε_max 의 50.0% = 삼각형 적분과 일치
+- [x] ε_p 비단조 경고 (10% 초과 시) → verify: 실덱에서 42.9% 로 출력됨
+- [x] 상태 1개면 NaN(미기록) → verify: work_ok=(ns>=2) 로 배열 자체를 비움
+- [x] `plasticWorkDensity(kind)` 접근자 + `computeHotspotClusters` 인자로 전달
+      → verify: 기준량과 무관한 양이라 ElementExtremes 와 분리 (복제 방지)
+- [x] 군집 집계 `energy_total`(Σw·V) · `energy_max` · `energy_mean` · `energy_available`
+      → verify: mean×volume == total 일치, 40/40 군집에서 available
+- [x] JSON 내보내기 (미계산이면 키 생략) → verify: 실덱 40군집에 필드 등장, 기존 필드 회귀 0건
 
 ### G5b. 리포트 — 색 척도 선택
 - [ ] 응력 / 변형률 / **에너지(소성일)** 선택 → verify: 색 분포가 실제로 바뀜

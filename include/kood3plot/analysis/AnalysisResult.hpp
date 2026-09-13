@@ -708,6 +708,16 @@ private:
             oss << ind2 << "\"strain_mean\": " << jnum(c.strain_mean) << "," << nl;
             oss << ind2 << "\"strain_max\": " << jnum(c.strain_max) << "," << nl;
         }
+        // 소성일 w_p = ∫σ_vm dε_p. 적분 못 한 덱에서는 키 자체를 안 낸다 —
+        // 0 으로 내면 '에너지 0' 과 '계산 못 함' 이 구분되지 않는다.
+        oss << ind2 << "\"energy_available\": " << (c.energy_available ? "true" : "false") << "," << nl;
+        if (c.energy_available) {
+            oss << ind2 << "\"energy_mean\": " << jnum(c.energy_mean) << "," << nl;
+            oss << ind2 << "\"energy_max\": " << jnum(c.energy_max) << "," << nl;
+            // energy_total 은 부피 가중일 때만 에너지 단위다 (면적 가중 셸은 생략)
+            if (c.energy_total != 0.0 || c.volume_valid)
+                oss << ind2 << "\"energy_total\": " << jnum(c.energy_total) << "," << nl;
+        }
         oss << ind2 << "\"peak_element_id\": " << c.peak_element_id << "," << nl;
         if (c.peak_layer >= 0) oss << ind2 << "\"peak_layer\": " << c.peak_layer << "," << nl;
         oss << ind2 << "\"peak_time\": " << jnum(c.peak_time) << nl;

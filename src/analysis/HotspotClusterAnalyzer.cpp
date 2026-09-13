@@ -556,7 +556,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const std::vector<double>& shell_thickness,
     const std::string& layer_scheme,
     const std::map<int32_t, std::string>& part_names,
-    const HotspotClusterConfig& cfg) {
+    const HotspotClusterConfig& cfg,
+    const std::vector<double>& elem_energy) {
 
     const std::vector<double>& elem_max_vm = ex.value;
     const std::vector<double>& elem_max_time = ex.time;
@@ -794,6 +795,9 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             ce.peak_time = (ei < elem_max_time.size()) ? elem_max_time[ei] : 0.0;
             ce.has_strain = have_strain && ei < elem_strain.size();
             ce.strain = ce.has_strain ? elem_strain[ei] : 0.0;
+            // 적분 못 한 요소는 NaN 으로 들어온다 — 0 으로 쓰지 않는다
+            ce.has_energy = (ei < elem_energy.size()) && std::isfinite(elem_energy[ei]);
+            ce.energy = ce.has_energy ? elem_energy[ei] : 0.0;
             sel.push_back(ce);
         }
         res.element_count_selected = static_cast<int>(sel.size());
@@ -832,6 +836,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             int peak_layer = -1;
             double sumA = 0.0;                   // 셸 면적 합 (보고용)
             bool any_strain = false;
+            bool any_energy = false;
+            double w_sum = 0.0, w_max = 0.0;
 
             for (size_t i : g) {
                 const ClusterElement& e = sel[i];
@@ -852,6 +858,11 @@ std::vector<PartHotspotResult> computeHotspotClusters(
                     any_strain = true;
                     e_sum += e.strain * e.volume;
                     if (hotspotHotter(crit, e.strain, e_max)) e_max = e.strain;
+                }
+                if (e.has_energy) {
+                    any_energy = true;
+                    w_sum += e.energy * e.volume;   // Σ(밀도 × 부피)
+                    if (e.energy > w_max) w_max = e.energy;
                 }
             }
             if (!(sumV > 0.0)) continue;
@@ -884,6 +895,14 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             c.stress_max = s_max;
             c.strain_available = any_strain;
             if (any_strain) { c.strain_mean = e_sum / sumV; c.strain_max = e_max; }
+            c.energy_available = any_energy;
+            if (any_energy) {
+                // 셸에서 weight_measure 가 "area" 면 sumV 가 부피가 아니라 면적이라
+                // 총량이 에너지 단위가 아니다 — 그럴 땐 밀도만 낸다.
+                c.energy_mean = w_sum / sumV;
+                c.energy_max = w_max;
+                if (!is_shell || res.weight_measure == "area_x_thickness") c.energy_total = w_sum;
+            }
             c.peak_element_id = peak_id;
             c.peak_time = peak_t;
             c.peak_layer = peak_layer;
