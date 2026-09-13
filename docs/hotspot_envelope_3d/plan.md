@@ -38,8 +38,31 @@
 
 - **기본**: 자체 캔버스 3D. sphere 리포트의 오프라인 원칙(외부 스크립트 0)을 지킨다
 - **옵션**: `--viewer plotly` 로 Plotly 를 **번들**(CDN 아님)
-- **deep report 도 오프라인화** — 현재 `cdn.plot.ly` 참조를 번들로 교체.
-  866KB → 약 4.5MB. 용량이 문제인 배포에는 `--viewer canvas` 를 기본으로 둘 수 있게 한다
+- **deep report 도 오프라인화** — 현재 `cdn.plot.ly` 참조를 번들로 교체
+
+### 번들은 전체가 아니라 gl3d 부분 번들 (실측 2026-09-13)
+
+| 번들 | 크기 | mesh3d/scatter3d |
+|---|---|---|
+| `plotly.min.js` (전체) | 4.6 MB | 있음 |
+| **`plotly-gl3d.min.js`** | **1.6 MB** | **있음 (실렌더 확인)** |
+| `plotly-basic.min.js` | 1.0 MB | 없음 |
+
+로컬 사본 있음 — `/data/backup/projects_251004/claude/kooCAEWebComponent/node_modules/plotly.js/dist/`
+(`Plotly.version` = 3.1.0). CDN 2.27.0 을 받을 필요 없이 이걸 쓰면 된다.
+
+gl3d 번들로 기존 핫스팟 3D 뷰와 같은 구성(구 `mesh3d` + 문자 `scatter3d` +
+경계상자 `lines`, 직교 카메라)을 실제로 띄워 **4개 트레이스가 등록되고 WebGL 씬이
+생성되는 것까지 확인**했다. 따라서 deep report 오프라인화는 866KB → **약 2.5MB**.
+
+**단, 시각 확인은 못 했다** — 헤드리스 크로미움이 SwiftShader WebGL 캔버스를
+스크린샷으로 합성하지 못해 캡처가 빈 화면으로 나온다. 기능(트레이스 등록·씬 생성·
+컨텍스트 생존)은 확인했고 그림은 미확인이다. 실제 브라우저에서 눈으로 봐야 한다.
+
+### WebGL 의존성 — 캔버스를 기본으로 두는 또 하나의 이유
+Plotly gl3d 는 **WebGL 이 필수**다. 이 환경은 SwiftShader(소프트웨어 렌더)로 동작했다.
+VNC·원격 데스크톱처럼 GPU 가 없거나 제한된 환경에서는 느리거나 아예 안 뜰 수 있다.
+자체 캔버스 2D 렌더러는 그 의존성이 없다.
 
 ## 4. 각도 선택
 
