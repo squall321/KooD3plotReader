@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from koo_deep_report.core.campaign_metrics import (
-    collect_campaign, COLUMNS, CampaignTable,
+    collect_campaign, COLUMNS, RUN_COLUMNS, CampaignTable,
 )
 
 fails = []
@@ -79,6 +79,23 @@ try:
     chk("Run_B 면 = F2", faces["Run_B"], "F2")
     devs = {r[0]: r[5] for r in t.rows}
     chkb("기준자세라 편차 0", devs["Run_A"] == 0.0 and devs["Run_B"] == 0.0)
+
+    print("[1b] 런 표는 군집과 무관하게 채워진다")
+    # 🔴 각도 정보를 군집 줄에만 실으면, 핫스팟을 안 돌린 캠페인에서 각도
+    #    건전성을 아예 점검할 수 없다 (실제로 그 결함이 있었다).
+    root = tmp / "c1b"
+    _make(root, [("Run_A", (0.0, 0.0, 0.0), None),          # 군집 없음
+                 ("Run_B", (45.0, 45.0, 0.0), [])])         # 빈 배열
+    t = collect_campaign(root)
+    chk("군집이 없어도 런 2개", t.n_runs, 2)
+    chk("지표 줄은 0", len(t.rows), 0)
+    chk("런 표는 2줄", len(t.runs), 2)
+    lat = {r[0]: r[6] for r in t.runs}
+    chk("F1 기준자세는 face", lat["Run_A"], "face")
+    chk("옛 코너(45,45)는 off_lattice", lat["Run_B"], "off_lattice")
+    chk("n_items 기록", sorted(r[8] for r in t.runs), [0, 0])
+    out = tmp / "runs.tsv"
+    chkb("런 표 저장", t.runs_to_tsv(out) is None and out.is_file())
 
     print("[2] 없는 값은 줄을 만들지 않는다")
     root = tmp / "c2"
@@ -160,6 +177,9 @@ try:
         ("part_ids 문자열", lambda: collect_campaign(tmp / "c1", part_ids="7")),
         ("part_ids None 원소", lambda: collect_campaign(tmp / "c1", part_ids=[None, 7])),
         ("빈 테이블 TSV", lambda: CampaignTable().to_tsv(tmp / "e.tsv")),
+        ("빈 런 표 TSV", lambda: CampaignTable().runs_to_tsv(tmp / "e2.tsv")),
+        ("런 표: 쓸 수 없는 경로", lambda: CampaignTable().runs_to_tsv("/proc/x/y.tsv")),
+        ("런 표: None 경로", lambda: CampaignTable().runs_to_tsv(None)),
     ]
     (tmp / "c_empty_dir" / "analysis_results").mkdir(parents=True, exist_ok=True)
     for name, fn in cases:

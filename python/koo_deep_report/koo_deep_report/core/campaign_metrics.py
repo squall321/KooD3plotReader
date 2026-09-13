@@ -42,26 +42,43 @@ _CLUSTER_METRICS = (
 )
 
 
+#: 런 단위 정보 열 — 군집이 없는 캠페인에서도 각도 건전성을 점검할 수 있게
+#: `rows` 와 **따로** 보관한다. 각도를 군집 줄에만 실으면 핫스팟을 안 돌린
+#: 캠페인에서는 점검 자체가 불가능해진다.
+RUN_COLUMNS = ["run", "roll", "pitch", "yaw", "face", "dev_angle", "lattice",
+               "tool_commit", "n_items"]
+
+
 @dataclass
 class CampaignTable:
     rows: list = field(default_factory=list)      #: COLUMNS 순서의 튜플 목록
+    runs: list = field(default_factory=list)      #: RUN_COLUMNS 순서의 튜플 목록
     n_runs: int = 0
     skipped: list = field(default_factory=list)   #: (런 이름, 사유)
     tool_builds: dict = field(default_factory=dict)  #: {커밋: 런 수}
     note: str = ""
 
     def to_tsv(self, path) -> str | None:
-        """TSV 로 저장. 성공하면 None, 실패하면 사유 문자열."""
-        try:
-            p = Path(path)
+        """지표 롱포맷을 TSV 로 저장. 성공하면 None, 실패하면 사유 문자열."""
+        return _write_tsv(path, COLUMNS, self.rows)
+
+    def runs_to_tsv(self, path) -> str | None:
+        """런 단위 표(각도·면·격자·빌드)를 TSV 로 저장."""
+        return _write_tsv(path, RUN_COLUMNS, self.runs)
+
+
+def _write_tsv(path, columns, rows) -> str | None:
+    try:
+        p = Path(path)
+        if p.parent and str(p.parent):
             p.parent.mkdir(parents=True, exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                f.write("\t".join(COLUMNS) + "\n")
-                for r in self.rows:
-                    f.write("\t".join("" if v is None else str(v) for v in r) + "\n")
-        except OSError as e:
-            return f"TSV 저장 실패 ({type(e).__name__}: {e})"
-        return None
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("\t".join(columns) + "\n")
+            for r in rows:
+                f.write("\t".join("" if v is None else str(v) for v in r) + "\n")
+    except (OSError, TypeError) as e:
+        return f"TSV 저장 실패 ({type(e).__name__}: {e})"
+    return None
 
 
 def _angle_of(run_dir: Path):
@@ -146,6 +163,9 @@ def collect_campaign(test_dir, part_ids=None) -> CampaignTable:
             lat, _ = classify_direction(roll, pitch, yaw)
 
         hs = doc.get("hotspot_clusters")
+        n_items = len(hs) if isinstance(hs, list) else 0
+        tbl.runs.append((d.name, roll, pitch, yaw, face, dev, lat, commit, n_items))
+
         if not isinstance(hs, list):
             continue
         for item in hs:

@@ -1,3 +1,6 @@
+// 🔴 이 파일은 CMake 가 Version.hpp.in 에서 **생성**한다 (CMakeLists.txt
+//    configure_file). include/kood3plot/Version.hpp 를 직접 고치면 다음
+//    `cmake` 실행 때 조용히 덮어써진다 — 고칠 곳은 Version.hpp.in 이다.
 #pragma once
 
 #include <string>

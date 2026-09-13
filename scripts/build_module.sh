@@ -167,17 +167,37 @@ ok "CMake configured"
 
 log "Building C++ (${JOBS} jobs)..."
 
+# 🔴 `cmake --build … | tail -3` 로 쓰면 안 된다. 컴파일 에러가 마지막 3줄에
+#    잘려 나가 **실패 이유가 로그에 남지 않는다**. 컨테이너 빌드가 깨졌을 때
+#    실제로 원인을 못 찾아 로컬에서 clean 빌드로 재현해야 했다.
+#    성공하면 조용히, 실패하면 error: 줄을 모아 보여준 뒤 멈춘다.
+build_target() {                      # build_target <타깃>
+    local target="$1"
+    local blog="${BUILD_DIR}/build_${target}.log"
+    if cmake --build "${BUILD_DIR}" -j"${JOBS}" --target "${target}" > "${blog}" 2>&1; then
+        tail -2 "${blog}"
+        return 0
+    fi
+    echo ""
+    echo "  ✗ ${target} 빌드 실패 — 전체 로그: ${blog}"
+    echo "  ── 컴파일 에러 ──"
+    grep -E "error:|Error [0-9]+" "${blog}" | head -30 || true
+    echo "  ── 로그 끝부분 ──"
+    tail -15 "${blog}"
+    exit 1
+}
+
 # Always build unified_analyzer
-cmake --build "${BUILD_DIR}" -j"${JOBS}" --target unified_analyzer 2>&1 | tail -3
+build_target unified_analyzer
 ok "unified_analyzer built"
 
 # make_stl — 스피어/임팩트 보고서의 실형상 미리보기(device/impactor_preview)
 # 자동 생성이 KOOD3PLOT_HOME/bin/make_stl 을 찾는다. 없으면 개략도로 무음 폴백.
-cmake --build "${BUILD_DIR}" -j"${JOBS}" --target make_stl 2>&1 | tail -2
+build_target make_stl
 ok "make_stl built"
 
 if [ "$BUILD_VIEWER" = true ]; then
-    cmake --build "${BUILD_DIR}" -j"${JOBS}" --target koo_viewer 2>&1 | tail -3
+    build_target koo_viewer
     ok "koo_viewer built"
 fi
 

@@ -336,3 +336,33 @@ v = (−sin p,  sin r·cos p,  −cos r·cos p)
 
 (내가 처음 시험을 쓸 때 실제로 뒤바꿔 넣었고, 구현을 의심하기 전에 역산해서
 확인했다. 구현이 옳았다.)
+
+## 2026-09-13 — Version.hpp 는 생성 파일이었다 (SIF 빌드 실패의 진짜 원인)
+
+SIF 재빌드가 `no declaration matches 'Version::build_commit()'` 로 깨졌다.
+커밋에도 origin/main 에도 올바른 선언이 있는데 빌드만 실패했다.
+
+원인은 이것이다.
+
+```cmake
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/kood3plot/Version.hpp.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/kood3plot/Version.hpp   # ← 소스 트리에 생성
+    @ONLY)
+```
+
+`Version.hpp` 는 **CMake 가 생성하는 파일**인데 git 에 추적되고 있다. 내가 그
+파일을 직접 고쳤고, 그때는 증분 빌드라 통과했다. 이후 `cmake` 가 다시 돌 때마다
+`.in` 템플릿으로 조용히 덮어써졌다 — 커밋은 남았지만 작업 트리는 되돌아갔다.
+
+고칠 곳은 `Version.hpp.in` 이었다. 생성 파일 첫머리에 "직접 고치면 덮어써진다"
+는 경고를 넣어 다음 사람이 같은 데서 헤매지 않게 했다.
+
+**이 사건을 못 찾을 뻔한 이유가 따로 있다.** `build_module.sh` 가
+`cmake --build … | tail -3` 으로 빌드 출력을 잘라, 컴파일 에러가 로그에 **한 줄도
+남지 않았다**. 로컬에서 clean 빌드로 재현해서야 에러를 봤다. 실패 시 error: 줄을
+모아 보여주고 전체 로그 경로를 알려주도록 고쳤다 — P0 의 "진단이 거짓말하지
+않게" 와 같은 종류의 문제다.
+
+교훈 — "커밋에는 있는데 빌드는 실패한다" 면 그 파일이 생성물인지 의심할 것.
+그리고 빌드 로그를 자르는 파이프는 진단을 통째로 없앤다.
