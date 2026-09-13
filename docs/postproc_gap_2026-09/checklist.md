@@ -160,7 +160,12 @@
 - [ ] `runner_config.postprocess.auto_scatter` 훅
 
 ## P4. 나머지
-- [ ] A-4 `--hotspot-source {d3plot|elout}`
+- [ ] A-4 `--hotspot-source {d3plot|elout}` — **보류 (검증 데이터 없음)**
+      → 가진 실덱 두 개(case_01_phase1_stacked_tier-1, Test_001_Full26_1Step) 모두
+      binout 에 `elout` 분기가 없다(`*DATABASE_ELOUT` 미설정). 분기 목록은
+      JOBINFO/glstat/matsum/rcforc/sleout/spcforc 뿐이다.
+      → 검증할 데이터 없이 구현하면 "조용히 틀리는" 코드가 된다. 셸 층 stride 를
+      추측해 50배 틀린 것(P1-2)과 같은 패턴이다. elout 을 켠 덱이 생기면 진행
 - [x] A-5 구간 분할 — `core/segment_boxes.py`
       → 박스(축 정렬) + 부채꼴(중심·반지름·각도·축) 두 형태. 인터포저 볼이 1파트인
       과제(T3/T4/카메라)에서 파트 안을 쪼개 실물 크랙 위치와 대조하기 위한 것
@@ -182,7 +187,9 @@
       → `part_recall()` 이 P2 의 recall@k 를 실제로 쓴다 (적중·놓친 파트까지 반환)
       → verify: 열 순서 무관, 소문자 ng 인식, **verdict 를 모르면 줄을 버린다**
       (OK 로 치면 회수율이 부풀려진다), 경계 15종 예외 0
-- [ ] C 그림 9종
+- [ ] C 그림 9종 — 데이터 경로는 준비됨 (`campaign_metrics` 롱포맷 + 편차각 +
+      통계 유틸). 남은 것은 리포트 UI 이고, 어느 리포트에 붙일지(sphere 확장 vs
+      신규 `koo_scatter_report`) 결정이 필요하다
 
 ## 마무리
 - [ ] 갭 문서 작성자에게 A-1 정정 회신 (이미 구현·배포됨 + 원인)
