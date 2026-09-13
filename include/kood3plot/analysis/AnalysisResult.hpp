@@ -197,7 +197,12 @@ struct ElementTensorHistory {
 struct AnalysisMetadata {
     std::string d3plot_path;             ///< Path to d3plot file
     std::string analysis_date;           ///< Analysis date/time (ISO 8601)
-    std::string kood3plot_version;       ///< Library version
+    std::string kood3plot_version;       ///< Library version (MAJOR.MINOR.PATCH)
+    /// 빌드된 git 커밋. kood3plot_version 은 2026년 내내 "1.0.0" 이라 어느 판으로
+    /// 돌렸는지 구분하지 못한다 — 산출물만 보고 알 수 있게 따로 싣는다.
+    /// 빈 문자열이면 옛 산출물이라 기록이 없는 것이다(0 이나 가짜로 채우지 않는다).
+    std::string tool_commit;
+    std::string tool_built;              ///< 빌드 시각 (ISO 8601 UTC)
     int32_t num_states = 0;              ///< Number of states analyzed
     double start_time = 0.0;             ///< First state time
     double end_time = 0.0;               ///< Last state time
@@ -284,6 +289,11 @@ struct AnalysisResult {
         oss << indent << indent << "\"d3plot_path\": \"" << escapeJSON(metadata.d3plot_path) << "\"," << nl;
         oss << indent << indent << "\"analysis_date\": \"" << metadata.analysis_date << "\"," << nl;
         oss << indent << indent << "\"kood3plot_version\": \"" << metadata.kood3plot_version << "\"," << nl;
+        // 기록이 없으면 키를 만들지 않는다 — "unknown" 을 지어내지 않는다
+        if (!metadata.tool_commit.empty())
+            oss << indent << indent << "\"tool_commit\": \"" << escapeJSON(metadata.tool_commit) << "\"," << nl;
+        if (!metadata.tool_built.empty())
+            oss << indent << indent << "\"tool_built\": \"" << escapeJSON(metadata.tool_built) << "\"," << nl;
         oss << indent << indent << "\"num_states\": " << metadata.num_states << "," << nl;
         oss << indent << indent << "\"start_time\": " << std::fixed << std::setprecision(8) << metadata.start_time << "," << nl;
         oss << indent << indent << "\"end_time\": " << metadata.end_time << "," << nl;

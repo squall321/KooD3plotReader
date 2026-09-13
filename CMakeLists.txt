@@ -200,6 +200,7 @@ set(KOOD3PLOT_SOURCES
 
     # Public API
     src/D3plotReader.cpp
+    src/Version.cpp
 
     # Export utilities
     src/export/KeywordExporter.cpp
@@ -276,6 +277,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Create library target
 add_library(kood3plot ${KOOD3PLOT_SOURCES} ${KOOD3PLOT_HEADERS})
+# 빌드 정보 주입 — src/Version.cpp 만 쓴다 (헤더 인라인이 아니라 ODR 안전)
+target_compile_definitions(kood3plot PRIVATE
+    KOOD3PLOT_GIT_COMMIT="${KOOD3PLOT_GIT_COMMIT}"
+    KOOD3PLOT_BUILD_DATE="${KOOD3PLOT_BUILD_DATE}")
 
 # Set include directories
 target_include_directories(kood3plot

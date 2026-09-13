@@ -1828,6 +1828,8 @@ void UnifiedAnalyzer::fillMetadata(
     result.metadata.d3plot_path = config.d3plot_path;
     result.metadata.setCurrentDate();
     result.metadata.kood3plot_version = Version::get_version_string();
+    result.metadata.tool_commit = Version::build_commit();
+    result.metadata.tool_built  = Version::build_date();
     result.metadata.num_states = static_cast<int32_t>(all_states.size());
 
     if (!all_states.empty()) {

@@ -27,10 +27,18 @@
       바이너리로 파싱해 정규 이름이 그대로 돌아옴 (교차 확인)
 - [x] d3plot 없이 동작 → verify: 인자 없이 `--capabilities` exit 0
 
-### P0-3. 산출물 버전 각인
-- [ ] `analysis_result.json > metadata.tool_version {version, built, capabilities_hash}`
-- [ ] deep / sphere / impact HTML 푸터
-      → verify: 서로 다른 두 빌드 산출물에서 값이 다름
+### P0-3. 산출물 버전 각인 — 완료 (deep 까지)
+- [x] `Version::build_commit()` / `build_date()` — `src/Version.cpp` 로 분리
+      (헤더 인라인에 매크로를 걸면 ODR 위반)
+- [x] `analysis_result.json > metadata.tool_commit` / `tool_built`
+      → verify: 실해석에서 `v2.4.0-234-g7d8a75d-dirty` / `2026-09-13T11:31:33Z`,
+      `--capabilities` 의 version 과 **일치**
+- [x] 기존 `kood3plot_version` 은 그대로 둔다 — 계속 `1.0.0` 이라 구분이 안 되지만
+      읽는 쪽(HTML)이 있어 깨지 않는다. 새 필드를 병기
+- [x] 없으면 키를 만들지 않는다 → verify: 옛 산출물이면 JSON 키 없음
+- [x] deep report 푸터 → verify: 있으면 `빌드 | 커밋 · 시각`, 키를 지우면 줄 자체가
+      사라짐, `tool_built` 만 없으면 커밋만 표시 (3경우 확인)
+- [ ] sphere / impact / federate / custom 푸터 — P0-5 배포 전까지
 
 ### P0-4. 배포 검증 스크립트
 - [ ] `scripts/verify_deploy.sh <경로>` — VERSION ↔ `--capabilities` version 대조

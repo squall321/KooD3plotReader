@@ -2042,6 +2042,9 @@ function initQualityCharts() {
 }
 
 // ── System Info ────────────────────────────────────────────────────────
+// 시스템·파일 정보. '빌드' 줄은 어느 판으로 돌린 결과인지 알려준다 —
+// kood3plot_version 은 계속 1.0.0 이라 구분이 안 된다. 옛 산출물에는 tool_commit
+// 키가 없으므로 그때는 줄 자체를 내지 않는다 (없는 값을 지어내지 않는다).
 function renderSysInfo() {
   const s = DATA.sim;
   const files = [
@@ -2070,6 +2073,7 @@ function renderSysInfo() {
     <div class="file-item"><span style="width:140px;color:var(--fg2)">시간 범위</span><span>${fmt(meta.start_time,4)} ~ ${fmt(meta.end_time,4)}</span></div>
     <div class="file-item"><span style="width:140px;color:var(--fg2)">분석 부품 수</span><span>${(meta.analyzed_parts||[]).length}</span></div>
     <div class="file-item"><span style="width:140px;color:var(--fg2)">unified_analyzer</span><span>${meta.kood3plot_version||'—'}</span></div>
+    ${meta.tool_commit ? `<div class="file-item"><span style="width:140px;color:var(--fg2)">빌드</span><span>${meta.tool_commit}${meta.tool_built?` · ${meta.tool_built}`:''}</span></div>` : ''}
   </div>
 </div>
 <div class="sec-title">파일 목록</div>
