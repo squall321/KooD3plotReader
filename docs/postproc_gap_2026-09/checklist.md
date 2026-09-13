@@ -162,7 +162,13 @@
 ## P4. 나머지
 - [ ] A-4 `--hotspot-source {d3plot|elout}`
 - [ ] A-5 `--segment-boxes segments.json`
-- [ ] A-6 `metadata.coordinate_transform`
+- [x] A-6 좌표 정합 — `core/coordinate_transform.py` (Kabsch + 잔차 판정)
+      → 후처리는 변환을 전달받지 못한다(DropSet.json 에 기록 없음). **추정**하고
+      잔차를 함께 낸다. 잔차가 크면 "강체 변환이 아니다" 를 경고
+      → verify: 실제 사건 값(Δy≈−73.7, Δz≈+4.9) 복원 오차 1e-9, 회전각이 정확히 0
+      (acos 이었다면 1e-6 잡음), 대응 오류 1점에 경고, 회전 결정 불가 시 지어내지 않음
+      → 구현 중 IndexError·ValueError 2건을 시험이 잡아 수정
+- [ ] A-6 배선 — `metadata.coordinate_transform` 에 싣기 (원본 덱 경로 확보 필요)
 - [ ] B-1 면 기준 편차각 `dev_roll`/`dev_pitch`/`dev_angle`
 - [ ] B-5 ground truth 스키마
 - [ ] C 그림 9종

@@ -148,9 +148,22 @@ d = face_deviation(0, 0, 0, "f1")
 chkb("소문자 면 코드도 인식", d.dev_angle == 0.0)
 
 print()
-if fails:
-    print(f"[FAIL] 실패 {len(fails)} 건")
-    for f in fails:
-        print("   -", f)
-    sys.exit(1)
-print("[PASS] 실패 0 건")
+
+
+def test_all():
+    """pytest 진입점.
+
+    이 파일의 본문은 import 시점에 이미 실행된다(스크립트로도 돌릴 수 있게
+    그렇게 썼다). pytest 는 여기서 결과만 단언한다 — 이 함수가 없으면
+    `no tests ran` 으로 **조용히 지나가** CI 에서 무의미해진다.
+    """
+    assert not fails, "실패 %d 건:\n  - %s" % (len(fails), "\n  - ".join(fails))
+
+
+if __name__ == "__main__":
+    if fails:
+        print(f"[FAIL] 실패 {len(fails)} 건")
+        for f in fails:
+            print("   -", f)
+        sys.exit(1)
+    print("[PASS] 실패 0 건")

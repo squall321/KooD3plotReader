@@ -178,9 +178,17 @@ finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
 print()
-if fails:
-    print(f"[FAIL] 실패 {len(fails)} 건")
-    for f in fails:
-        print("   -", f)
-    sys.exit(1)
-print("[PASS] 실패 0 건")
+
+
+def test_all():
+    """pytest 진입점 — 이 함수가 없으면 `no tests ran` 으로 조용히 지나간다."""
+    assert not fails, "실패 %d 건:\n  - %s" % (len(fails), "\n  - ".join(fails))
+
+
+if __name__ == "__main__":
+    if fails:
+        print(f"[FAIL] 실패 {len(fails)} 건")
+        for f in fails:
+            print("   -", f)
+        sys.exit(1)
+    print("[PASS] 실패 0 건")
