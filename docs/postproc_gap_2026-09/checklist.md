@@ -149,9 +149,15 @@
 - [ ] 리포트 배선 — 캠페인 모듈(P3)이 생긴 뒤
 
 ## P3. 캠페인 그릇
-- [ ] `koo_scatter_report` 신설
+- [x] **B-1 면 기준 편차각** — `core/face_deviation.py`
+      → verify: 기준자세 6면 편차 정확히 0, 1e-7° 검출, 경계 15종 예외 0.
+      `classify_direction` 이 실캠페인에서 격자 벗어남 8건(9.7356°)을 잡음
+- [x] **B-2 롱포맷 캠페인 테이블** — `core/campaign_metrics.py`
+      → verify: 미니 캠페인 4런에서 4,453줄 · 16지표, 파트 필터 동작,
+      합성 시험 8절 전부 통과(깨진 런 건너뛰기·사유, TSV 저장 실패도 예외 대신 사유)
+- [x] 줄마다 `tool_commit` 을 실어 런별 빌드 혼재를 나중에 알 수 있게
+- [ ] `koo_scatter_report` CLI 신설 — 유틸이 준비됐으므로 필요 시
 - [ ] `runner_config.postprocess.auto_scatter` 훅
-- [ ] `campaign_metrics.parquet` 롱포맷
 
 ## P4. 나머지
 - [ ] A-4 `--hotspot-source {d3plot|elout}`
