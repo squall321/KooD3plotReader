@@ -1,0 +1,80 @@
+# 후처리 갭 대응 — 체크리스트
+
+계획: [plan.md](plan.md) · 결정 기록: [context-notes.md](context-notes.md)
+
+## P0. 진단이 거짓말하지 않게 ★먼저
+
+### P0-1. 배포 tar 패키징 스크립트화
+- [ ] `scripts/package_module.sh` — build_module.sh 산출물을 tar 로 묶음
+- [ ] 아카이브 자기검증 (`VERSION`/`env.sh`/`bin/unified_analyzer`/`lib/koo_*`)
+      → verify: `VERSION` 을 뺀 아카이브에서 exit≠0, 사유 출력
+- [ ] v29~v32 실물에 돌려 재현 → verify: v29 통과, v30~v32 **실패** (이번 사건 재현)
+
+### P0-2. `unified_analyzer --capabilities`
+- [ ] JSON 출력 (version/built/hotspot.criteria/element_kinds/energy/time_aggregate)
+- [ ] 목록을 enum·파서에서 유도 (손으로 적지 않음)
+      → verify: `parseHotspotCriteria` 수용 집합 == 출력 목록 (테스트 고정)
+- [ ] `--capabilities` 가 d3plot 없이도 동작 → verify: 인자 없이 exit 0
+
+### P0-3. 산출물 버전 각인
+- [ ] `analysis_result.json > metadata.tool_version {version, built, capabilities_hash}`
+- [ ] deep / sphere / impact HTML 푸터
+      → verify: 서로 다른 두 빌드 산출물에서 값이 다름
+
+### P0-4. 배포 검증 스크립트
+- [ ] `scripts/verify_deploy.sh <경로>` — VERSION ↔ `--capabilities` version 대조
+- [ ] 호스트 경로와 SIF 안을 둘 다 확인
+      → verify: 현재 `/data/SmartTwinPostprocessor` 에서 **실패** (eaffe54 vs 4815f55)
+
+### P0-5. 9/13 소성일 배포
+- [ ] SIF 재빌드 → node001 배포 → P0-4 통과
+
+## P1. 조용히 틀리는 물리 경로
+
+### P1-1. top_percent 독립 절대량
+- [ ] 파트 단위 `n_yield` / `vol_yield` / `sum_eps_vol` / `max_eps` / `plastic_work_total`
+- [ ] ε_p 는 이력 최댓값 사용 (단조 가정 금지 — 실덱에서 감소 확인됨)
+      → verify: `--hotspot-top-percent 3` vs `5` 에서 **파트 절대량 동일**,
+      클러스터 종속량(`volume`/`energy_total`)은 달라짐
+- [ ] `energy_total` 이 top_percent 종속임을 리포트에 명시 (또는 파트 절대량 병기)
+
+### P1-2. 시간 집계 옵션
+- [ ] `--hotspot-time-aggregate {elemmax_then_mean|mean_then_timemax|both}`
+      → verify: 모든 군집에서 `mean_then_timemax ≤ elemmax_then_mean`
+
+### P1-3. 기준량 잔여
+- [ ] `max_shear = (σ1−σ3)/2` → verify: 단축 인장에서 `σ_vm/2`
+- [ ] `x_tension` — 축 지정 방식 설계 후 구현
+- [ ] `--capabilities` 목록에 자동 반영 → verify: P0-2 테스트가 새 이름을 잡음
+
+## P2. 오보를 낸 통계 경로
+
+### P2-1. 공통 DOE 교집합
+- [ ] `--common-doe-only` 기본 ON
+- [ ] 표본수 · 제외 DOE · 미완주 과제 명시
+- [ ] 교집합 임계 미달이면 비교 거부
+      → verify: 33런 미완주 과제를 섞으면 거부 + 사유에 과제명
+
+### P2-2. 통계 검정 유틸
+- [ ] 평균순위 검정 — 귀무 `(N+1)/2` **코드 고정**
+- [ ] Spearman ρ → verify: `scipy.stats.spearmanr` 와 일치
+- [ ] recall@k, 편차각 구간 프로파일
+- [ ] 산출물에 사용한 귀무가설 명시
+      → verify: 균일난수 1000회에서 p 분포가 균일
+
+## P3. 캠페인 그릇
+- [ ] `koo_scatter_report` 신설
+- [ ] `runner_config.postprocess.auto_scatter` 훅
+- [ ] `campaign_metrics.parquet` 롱포맷
+
+## P4. 나머지
+- [ ] A-4 `--hotspot-source {d3plot|elout}`
+- [ ] A-5 `--segment-boxes segments.json`
+- [ ] A-6 `metadata.coordinate_transform`
+- [ ] B-1 면 기준 편차각 `dev_roll`/`dev_pitch`/`dev_angle`
+- [ ] B-5 ground truth 스키마
+- [ ] C 그림 9종
+
+## 마무리
+- [ ] 갭 문서 작성자에게 A-1 정정 회신 (이미 구현·배포됨 + 원인)
+- [ ] 회귀 — 기존 리포트 5종 JS 예외 0
