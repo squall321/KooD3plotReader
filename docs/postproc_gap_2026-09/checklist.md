@@ -4,11 +4,16 @@
 
 ## P0. 진단이 거짓말하지 않게 ★먼저
 
-### P0-1. 배포 tar 패키징 스크립트화
-- [ ] `scripts/package_module.sh` — build_module.sh 산출물을 tar 로 묶음
-- [ ] 아카이브 자기검증 (`VERSION`/`env.sh`/`bin/unified_analyzer`/`lib/koo_*`)
-      → verify: `VERSION` 을 뺀 아카이브에서 exit≠0, 사유 출력
-- [ ] v29~v32 실물에 돌려 재현 → verify: v29 통과, v30~v32 **실패** (이번 사건 재현)
+### P0-1. 배포 tar 패키징 스크립트화 — 완료
+- [x] `scripts/verify_package.sh` — 아카이브 독립 검증 도구 (기존 tar 에도 쓸 수 있게 분리)
+- [x] `scripts/package_module.sh` — 배포 디렉토리를 묶고 **반드시** 검증, 실패하면 삭제
+      → verify: VERSION 없는 디렉토리는 묶기 전에 거부, 아카이브 미생성
+- [x] `--version-from <sif>` — SIF 안 `/opt/kood3plot/VERSION` 을 가져와 덮음
+      → verify: 디렉토리 VERSION 이 `abc1234` 여도 아카이브는 `4815f55`
+- [x] 아카이브 자기검증 6종 → verify: 정상 통과 / `unknown` 버전 / VERSION 누락 /
+      lib 누락 / 최상위 2개 / 손상 tar — 6/6 의도대로
+- [x] v29~v32 실물 재현 → verify: **v29 통과(eaffe54), v30·v31·v32 실패(VERSION 누락)**
+      = 이번 사건의 재현 테스트
 
 ### P0-2. `unified_analyzer --capabilities`
 - [ ] JSON 출력 (version/built/hotspot.criteria/element_kinds/energy/time_aggregate)
