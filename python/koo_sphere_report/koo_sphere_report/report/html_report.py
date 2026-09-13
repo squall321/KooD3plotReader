@@ -74,6 +74,26 @@ def _compact_energy_flows(energy_flows: dict, detail_folders=None) -> dict:
     return out
 
 
+def _build_note(report: Report) -> str:
+    """헤더에 붙일 분석 빌드 표기.
+
+    런마다 다른 판으로 분석됐으면 그 사실이 보여야 한다 — 어느 빌드인지 모른 채
+    결과를 비교하다 이미 있는 기능을 "없다" 고 판단한 일이 있었다
+    (docs/postproc_gap_2026-09/plan.md §0). 기록이 아예 없으면 아무것도 적지 않는다.
+    """
+    builds = getattr(report, "tool_builds", None) or {}
+    if not builds:
+        return ""
+    n_known = sum(builds.values())
+    n_unknown = max(0, len(report.results) - n_known)
+    if len(builds) == 1 and not n_unknown:
+        return f" | build {_esc(next(iter(builds)))}"
+    items = [f"{_esc(k)}({v})" for k, v in sorted(builds.items())]
+    if n_unknown:
+        items.append(f"기록 없음({n_unknown})")
+    return " | ⚠ builds: " + ", ".join(items)
+
+
 def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -> dict:
     """Build JSON-serializable data object for embedding in HTML."""
     data = {
@@ -86,6 +106,9 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
         "angular_spacing_deg": report.angular_spacing_deg,
         "sphere_coverage": report.sphere_coverage,
         "yield_stress": report.yield_stress,
+        # 런들을 분석한 unified_analyzer 빌드 {커밋: 런 수}. 비었으면 키를 만들지
+        # 않는다 — 2026-09-13 이전 산출물에는 기록이 없다.
+        **({"tool_builds": report.tool_builds} if getattr(report, "tool_builds", None) else {}),
         "sim_params": {
             "drop_height": report.simulation_params.drop_height,
             "t_final": report.simulation_params.t_final,
@@ -6089,7 +6112,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
 <div class="header" style="display:flex;align-items:center;justify-content:space-between">
   <div>
     <h1>Sphere Report</h1>
-    <div class="meta">{_esc(report.project_name)} | {report.successful_runs}/{report.total_runs} runs | {report.doe_strategy}</div>
+    <div class="meta">{_esc(report.project_name)} | {report.successful_runs}/{report.total_runs} runs | {report.doe_strategy}{_build_note(report)}</div>
   </div>
   <button id="lang-toggle-btn" onclick="toggleLang()"
     style="background:var(--bg3);color:var(--cyan);border:1px solid var(--dim);border-radius:4px;padding:4px 12px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap">EN</button>

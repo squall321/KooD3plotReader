@@ -263,6 +263,8 @@ class SimulationResult:
     start_time: float = 0.0
     end_time: float = 0.0
     success: bool = True
+    #: 이 런을 분석한 unified_analyzer 빌드 커밋. 옛 산출물에는 없어서 빈 문자열이다.
+    tool_commit: str = ""
     #: 핫스팟 군집 — analysis_result.json 의 hotspot_clusters 원형(파트×기준×요소종류).
     #: unified_analyzer 를 --hotspot-clusters 없이 돌린 런에는 없다. 그때는 빈 리스트로
     #: 두고(0 이나 가짜 군집으로 채우지 않는다) 리포트가 탭 자체를 감춘다.
@@ -296,6 +298,10 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     yield_stress: float = 0.0  # User-defined yield stress for safety factor
     test_dir: str = ""         # Source test directory (for d3plot access)
+    #: 런들을 분석한 unified_analyzer 빌드 집계 {tool_commit: 런 수}.
+    #: 여러 개면 캠페인이 서로 다른 판으로 분석된 것이다 — 그 사실이 드러나야 한다.
+    #: 옛 산출물에는 tool_commit 이 없으므로 그런 런은 세지 않는다(빈 dict 가능).
+    tool_builds: dict = field(default_factory=dict)
     # 파트간 에너지 흐름: {run_folder: neutral flow dict from build_flow_graph}.
     # binout/keyword/lasso 부재 run 은 조용히 누락(키 없음) — 무음 실패 대신
     # 로그를 남기되 보고서는 정상 진행. 자유낙하라 impactor 노드 없이 최조기

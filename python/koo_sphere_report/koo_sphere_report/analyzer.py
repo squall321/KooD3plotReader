@@ -124,7 +124,8 @@ def analyze(test_dir: str | Path, yield_stress: float = 0.0,
     """
     test_dir = Path(test_dir)
     (project_name, doe_strategy, sim_params, part_info, results,
-     doe_angles, energy_flows) = load_all(test_dir, hotspot_part_ids=hotspot_part_ids)
+     doe_angles, energy_flows, tool_builds) = load_all(
+         test_dir, hotspot_part_ids=hotspot_part_ids)
 
     # Count output run folders to determine total expected
     output_dir = test_dir / "output"
@@ -153,6 +154,7 @@ def analyze(test_dir: str | Path, yield_stress: float = 0.0,
         yield_stress=yield_stress,
         test_dir=str(test_dir.resolve()),
         energy_flows=energy_flows,
+        tool_builds=tool_builds,
     )
 
     report.findings = _generate_findings(report)

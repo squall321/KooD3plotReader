@@ -407,6 +407,10 @@ def load_simulation_result(
     )
 
     sim_result.hotspot_clusters = _collect_hotspot_clusters(ar, hotspot_part_ids)
+    # 어느 빌드로 분석한 런인지. 없으면 담지 않는다 (2026-09-13 이전 산출물).
+    tc = meta.get("tool_commit")
+    if isinstance(tc, str) and tc:
+        sim_result.tool_commit = tc
 
     analyzed_parts = set(meta.get("analyzed_parts", []))
 
@@ -678,12 +682,15 @@ def _flow_cache_save(test_dir: Path, run_folder: str, fp: str, flow: dict) -> No
 
 def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     str, str, SimulationParams, dict[int, PartInfo],
-    list[SimulationResult], dict[str, AngleCondition], dict,
+    list[SimulationResult], dict[str, AngleCondition], dict, dict,
 ]:
     """Load all data for a test directory.
 
     Returns: (project_name, doe_strategy, sim_params, part_info, results,
-              doe_angles, energy_flows)
+              doe_angles, energy_flows, tool_builds)
+
+    tool_builds: {unified_analyzer 빌드 커밋: 런 수}. 여러 개면 캠페인이 서로 다른
+    판으로 분석된 것이다.
 
     energy_flows: {run_folder: neutral flow dict} — 파트간 접촉 에너지 전달.
     """
@@ -734,6 +741,30 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
             )
             if sr is not None:
                 results.append(sr)
+
+    # 분석에 쓰인 빌드 집계. 여러 개면 캠페인이 섞인 판으로 분석된 것이라
+    # 리포트에서 그 사실이 보여야 한다 (docs/postproc_gap_2026-09/plan.md §P0-3).
+    tool_builds: dict = {}
+    n_unknown = 0
+    for sr in results:
+        c = getattr(sr, "tool_commit", "")
+        if c:
+            tool_builds[c] = tool_builds.get(c, 0) + 1
+        else:
+            n_unknown += 1
+    if results:
+        parts = [f"{k}({v}런)" for k, v in sorted(tool_builds.items())]
+        # 기록이 없는 런도 세어 말한다. "1개 빌드" 로만 보고하면 나머지가 같은
+        # 판인 것처럼 읽힌다 — 실제로는 어느 판인지 모르는 것이다.
+        if n_unknown:
+            parts.append(f"기록 없음({n_unknown}런, 2026-09-13 이전 산출물)")
+        if len(tool_builds) > 1 or (tool_builds and n_unknown):
+            print("[sphere] ⚠ 런마다 분석 빌드가 다릅니다 — " + ", ".join(parts))
+        elif tool_builds:
+            print("[sphere] 분석 빌드: " + parts[0])
+        else:
+            print(f"[sphere] 분석 빌드: 기록 없음 ({n_unknown}런) — "
+                  "2026-09-13 이전 unified_analyzer 로 분석된 산출물입니다")
 
     # 핫스팟 군집 수집 결과를 사실대로 알린다. 0 이면 탭이 안 나오므로,
     # 왜 안 나오는지(군집 미산출 vs 파트 필터에 안 걸림)를 여기서만 말할 수 있다.
@@ -795,4 +826,4 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
               "flow tab will be empty (install koo_deep_report + lasso to enable)")
 
     return (project_name, doe_strategy, sim_params, part_info, results,
-            doe_angles, energy_flows)
+            doe_angles, energy_flows, tool_builds)

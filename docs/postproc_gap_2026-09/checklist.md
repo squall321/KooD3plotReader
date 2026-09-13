@@ -38,7 +38,10 @@
 - [x] 없으면 키를 만들지 않는다 → verify: 옛 산출물이면 JSON 키 없음
 - [x] deep report 푸터 → verify: 있으면 `빌드 | 커밋 · 시각`, 키를 지우면 줄 자체가
       사라짐, `tool_built` 만 없으면 커밋만 표시 (3경우 확인)
-- [ ] sphere / impact / federate / custom 푸터 — P0-5 배포 전까지
+- [x] sphere — 런마다 다른 빌드로 분석됐는지까지 드러낸다
+      → verify: 섞임 `⚠ builds: <커밋>(1), 기록 없음(3)` / 전부 같음 `build <커밋>` /
+      기록 전무 시 아무것도 적지 않음. 1144각도 기존 리포트 회귀 없음
+- [ ] impact / federate / custom 푸터 — 구조가 제각각이라 별도 (P0-6)
 
 ### P0-4. 배포 검증 스크립트 — 완료
 - [x] `scripts/verify_deploy.sh <경로|sif> [...]` — VERSION ↔ `--capabilities` 대조
