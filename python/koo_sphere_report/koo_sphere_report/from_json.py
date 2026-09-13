@@ -35,7 +35,25 @@ def _make_motion(peak_g: float, peak_disp: float, peak_g_time: float) -> MotionD
     return mo
 
 
-def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> Report:
+def _filter_clusters(items: list, part_ids: set[int] | None) -> list[dict]:
+    """report.json 에 실린 핫스팟 군집을 파트로 좁힌다 (loader 와 같은 규칙)."""
+    out = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("clusters"):
+            continue
+        if part_ids is not None:
+            try:
+                pid = int(item.get("part_id"))
+            except (TypeError, ValueError):
+                continue
+            if pid not in part_ids:
+                continue
+        out.append(item)
+    return out
+
+
+def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
+                          hotspot_part_ids: set[int] | None = None) -> Report:
     """Reconstruct a Report object from a saved report JSON file."""
     json_path = Path(json_path)
     with open(json_path, encoding="utf-8") as f:
@@ -164,12 +182,16 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0) -> R
             )
             parts[pid] = PartResult(part=pi, stress=stress, strain=strain, motion=motion)
 
+        hs = r.get("hotspot_clusters")
+        hs = _filter_clusters(hs, hotspot_part_ids) if isinstance(hs, list) else []
+
         results.append(SimulationResult(
             run_folder=r.get("run_folder", ""),
             angle=angle,
             parts=parts,
             num_states=r.get("num_states", 0),
             success=True,
+            hotspot_clusters=hs,
         ))
 
     return Report(

@@ -263,6 +263,10 @@ class SimulationResult:
     start_time: float = 0.0
     end_time: float = 0.0
     success: bool = True
+    #: 핫스팟 군집 — analysis_result.json 의 hotspot_clusters 원형(파트×기준×요소종류).
+    #: unified_analyzer 를 --hotspot-clusters 없이 돌린 런에는 없다. 그때는 빈 리스트로
+    #: 두고(0 이나 가짜 군집으로 채우지 않는다) 리포트가 탭 자체를 감춘다.
+    hotspot_clusters: list[dict] = field(default_factory=list)
 
 
 @dataclass

@@ -1,11 +1,21 @@
 # 핫스팟 군집 3D 인벨롭 — 체크리스트
 
 ## G0. 데이터 경로 (sphere 가 군집을 받게)
-- [ ] `loader.py` 가 런별 `analysis_result.json` 의 `hotspot_clusters` 수집
-      → verify: 군집 있는 캠페인에서 각도별 군집 수가 0 이 아님
-- [ ] 지정 파트 필터 (`--hotspot-part <pid>`) → verify: 다른 파트 군집이 안 섞임
-- [ ] 군집 없는 캠페인에서 탭 자체를 감춤 (있을때/없을때 규율)
-      → verify: Test_006 로 렌더 시 탭 미노출·경고 없음
+- [x] `loader.py` 가 런별 `analysis_result.json` 의 `hotspot_clusters` 수집
+      → verify: 미니 캠페인(Test_001 에서 4각도, 핫스팟 켜고 재분석)에서
+      원본 92항목 중 군집이 있는 27항목만 수집, `report.json` 과 정확히 일치
+- [x] 지정 파트 필터 (`--hotspot-part <pid>[,pid...]`)
+      → verify: `15` → 4항목/파트{15}, `1,21` → 8항목/파트{1,21} (다른 파트 0건).
+      값이 파트 ID 가 아니면 exit 2 + 사유 (조용히 무시하지 않음)
+- [x] `--from-json` 왕복 보존 + 필터 → verify: 군집 항목이 바이트 단위로 동일,
+      `--from-json --hotspot-part 15` 도 4항목/파트{15}
+- [x] 군집이 없으면 데이터를 싣지 않고 사유를 말한다 (있을때/없을때 규율)
+      → verify: `--hotspot-clusters` 없이 돌린 캠페인 → "산출물에 없습니다 …" 안내 후
+      `report.json` 에 키 없음(0/4). 존재하지 않는 파트 지정 → "파트 [99] 에 해당하는
+      군집이 없습니다" 안내 후 0건. 빈 배열로 채우지 않는다
+      (탭 자체를 감추는 UI 게이트는 G2 에서 `has_hotspot` 로 붙인다)
+- [x] 회귀 → verify: 군집 없는 기존 1144각도 report.json 재생성 정상(7.1MB, 1.7s),
+      브라우저 JS 예외 0
 
 ## G1. 파트 메쉬
 - [ ] `make_stl` 로 지정 파트만 추출 (`parts_csv`) → verify: p 배열 pid 집합 == {지정 pid}

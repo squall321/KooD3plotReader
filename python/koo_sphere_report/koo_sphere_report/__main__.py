@@ -53,7 +53,28 @@ def main():
         "--ts-points", type=int, default=0,
         help="Time series points per chart (0=auto)",
     )
+    parser.add_argument(
+        "--hotspot-part", default=None, metavar="PID[,PID...]",
+        help="핫스팟 군집을 이 파트로만 좁힌다 (쉼표 구분). 생략하면 전부 싣는다.",
+    )
     args = parser.parse_args()
+
+    hotspot_part_ids = None
+    if args.hotspot_part:
+        hotspot_part_ids = set()
+        for tok in args.hotspot_part.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                hotspot_part_ids.add(int(tok))
+            except ValueError:
+                print(f"Error: --hotspot-part 값이 파트 ID 가 아닙니다 — {tok!r}",
+                      file=sys.stderr)
+                sys.exit(2)
+        if not hotspot_part_ids:
+            print("Error: --hotspot-part 에 파트 ID 가 하나도 없습니다", file=sys.stderr)
+            sys.exit(2)
 
     # ── Load data ────────────────────────────────────────────
     if args.from_json:
@@ -65,7 +86,8 @@ def main():
         print(f"Loading from JSON: {json_in}")
         t0 = time.time()
         try:
-            report = load_report_from_json(json_in, yield_stress=args.yield_stress)
+            report = load_report_from_json(json_in, yield_stress=args.yield_stress,
+                                           hotspot_part_ids=hotspot_part_ids)
         except (ValueError, json.JSONDecodeError) as e:
             print(f"Error: {json_in} 을 리포트로 읽지 못했습니다 — {e}", file=sys.stderr)
             sys.exit(2)
@@ -91,7 +113,8 @@ def main():
             sys.exit(1)
         print(f"Loading data from {test_dir}...")
         t0 = time.time()
-        report = analyze(test_dir, yield_stress=args.yield_stress)
+        report = analyze(test_dir, yield_stress=args.yield_stress,
+                         hotspot_part_ids=hotspot_part_ids)
         base_dir = str(test_dir.resolve())
         print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
 

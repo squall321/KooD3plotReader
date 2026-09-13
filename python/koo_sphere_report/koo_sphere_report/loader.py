@@ -345,6 +345,31 @@ def _resolve_angle(
     )
 
 
+def _collect_hotspot_clusters(ar: dict, part_ids: set[int] | None) -> list[dict]:
+    """analysis_result.json 의 hotspot_clusters 를 (선택적으로) 파트로 걸러 반환.
+
+    항목은 파트 × 기준량 × 요소종류다. 군집 배열이 비어 있는 항목은 버린다 —
+    남겨 두면 리포트가 "군집 있음" 으로 판단해 빈 그림을 그린다.
+    구버전 산출물이나 --hotspot-clusters 없이 돌린 런에는 키 자체가 없다.
+    """
+    raw = ar.get("hotspot_clusters")
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict) or not item.get("clusters"):
+            continue
+        if part_ids is not None:
+            try:
+                pid = int(item.get("part_id"))
+            except (TypeError, ValueError):
+                continue
+            if pid not in part_ids:
+                continue
+        out.append(item)
+    return out
+
+
 def load_simulation_result(
     analysis_dir: Path,
     output_dir: Path,
@@ -352,6 +377,7 @@ def load_simulation_result(
     doe_angles: dict[str, AngleCondition],
     part_info: dict[int, PartInfo],
     target_points: int | None = None,
+    hotspot_part_ids: set[int] | None = None,
 ) -> SimulationResult | None:
     """Load complete analysis result for one run."""
     result_dir = analysis_dir / run_name
@@ -379,6 +405,8 @@ def load_simulation_result(
         start_time=meta.get("start_time", 0.0),
         end_time=meta.get("end_time", 0.0),
     )
+
+    sim_result.hotspot_clusters = _collect_hotspot_clusters(ar, hotspot_part_ids)
 
     analyzed_parts = set(meta.get("analyzed_parts", []))
 
@@ -648,7 +676,7 @@ def _flow_cache_save(test_dir: Path, run_folder: str, fp: str, flow: dict) -> No
         pass
 
 
-def load_all(test_dir: Path) -> tuple[
+def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     str, str, SimulationParams, dict[int, PartInfo],
     list[SimulationResult], dict[str, AngleCondition], dict,
 ]:
@@ -702,9 +730,25 @@ def load_all(test_dir: Path) -> tuple[
             sr = load_simulation_result(
                 analysis_dir, output_dir, result_folder.name, doe_angles, part_info,
                 target_points=load_target,
+                hotspot_part_ids=hotspot_part_ids,
             )
             if sr is not None:
                 results.append(sr)
+
+    # 핫스팟 군집 수집 결과를 사실대로 알린다. 0 이면 탭이 안 나오므로,
+    # 왜 안 나오는지(군집 미산출 vs 파트 필터에 안 걸림)를 여기서만 말할 수 있다.
+    if results:
+        n_hs = sum(1 for sr in results if sr.hotspot_clusters)
+        if n_hs:
+            n_items = sum(len(sr.hotspot_clusters) for sr in results)
+            print(f"[sphere] 핫스팟 군집: {n_hs}/{len(results)} run, {n_items}항목")
+        elif hotspot_part_ids is not None:
+            print(f"[sphere] 핫스팟 군집: 파트 {sorted(hotspot_part_ids)} 에 해당하는 "
+                  f"군집이 없습니다 — 핫스팟 탭을 내보내지 않습니다")
+        else:
+            print("[sphere] 핫스팟 군집: 산출물에 없습니다 "
+                  "(unified_analyzer 를 --hotspot-clusters 로 다시 돌리면 생깁니다) — "
+                  "핫스팟 탭을 내보내지 않습니다")
 
     # Auto-detect pitch/roll convention swap.
     # Standard: roll ∈ [-90, 90] (latitude), pitch ∈ [-180, 180] (longitude).

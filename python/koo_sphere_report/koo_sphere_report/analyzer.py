@@ -116,11 +116,15 @@ def _generate_findings(report: Report) -> list[Finding]:
     return findings
 
 
-def analyze(test_dir: str | Path, yield_stress: float = 0.0) -> Report:
-    """Main analysis entry point. Load data and produce Report."""
+def analyze(test_dir: str | Path, yield_stress: float = 0.0,
+            hotspot_part_ids: set[int] | None = None) -> Report:
+    """Main analysis entry point. Load data and produce Report.
+
+    hotspot_part_ids: 핫스팟 군집을 이 파트들로만 좁힌다. None 이면 전부 싣는다.
+    """
     test_dir = Path(test_dir)
     (project_name, doe_strategy, sim_params, part_info, results,
-     doe_angles, energy_flows) = load_all(test_dir)
+     doe_angles, energy_flows) = load_all(test_dir, hotspot_part_ids=hotspot_part_ids)
 
     # Count output run folders to determine total expected
     output_dir = test_dir / "output"

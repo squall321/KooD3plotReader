@@ -64,6 +64,9 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
             "num_states": sr.num_states,
             "parts": {},
         }
+        # 핫스팟 군집 — 없는 런에는 키를 만들지 않는다 (빈 배열도 '있다' 로 읽힌다)
+        if sr.hotspot_clusters:
+            run_summary["hotspot_clusters"] = sr.hotspot_clusters
         # Adaptive time series resolution
         n_results = len(report.results)
         ts_pts = 100 if n_results <= 50 else 30 if n_results <= 200 else 15 if n_results <= 500 else 10
