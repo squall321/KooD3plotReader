@@ -159,7 +159,15 @@ def test_from_json_reads_part_name_key(tmp_path):
         "simulation_params": {}, "findings": [],
         "parts": {"1": {"part_name": "Front\\Metal", "group": "Front"},
                   "2": {"name": "Legacy\\Old"}},          # 구 샘플 호환
-        "results_summary": [],
+        # 런이 하나도 없으면 from_json 이 "빈 리포트를 성공으로 위장하지 않습니다"
+        # 로 거부한다(의도된 방어). 파트명 검증이 목적이므로 최소 런 하나를 둔다.
+        "results_summary": [{
+            "run_folder": "Run_0001",
+            "angle": {"name": "A0", "roll": 0.0, "pitch": 0.0, "yaw": 0.0,
+                      "category": "face"},
+            "num_states": 2,
+            "parts": {},
+        }],
     }
     p = tmp_path / "r.json"
     p.write_text(json.dumps(doc), encoding="utf-8")
