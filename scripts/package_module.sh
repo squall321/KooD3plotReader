@@ -74,8 +74,23 @@ TMP_TAR="$(mktemp --suffix=.tar)"
 cleanup_tmp() { rm -f "$TMP_TAR"; }
 trap 'cleanup_tmp; [ -n "$VERSION_STAGE" ] && rm -rf "$VERSION_STAGE"' EXIT
 
+# 🔴 배포 디렉토리를 통째로 묶으면 안 된다. 그 폴더에는 지난 배포 tar 와 SIF 가
+#    함께 쌓여 있어서, 아카이브가 **자기 자신과 백업들을 삼킨다**
+#    (실제로 550MB 여야 할 것이 22GB 로 나왔다). 배포에 필요한 것만 명시한다.
+PACK_ITEMS=(VERSION env.sh bin lib)
+MISSING_ITEMS=()
+for it in "${PACK_ITEMS[@]}"; do
+    [ -e "$SRC/$it" ] || MISSING_ITEMS+=("$it")
+done
+if [ "${#MISSING_ITEMS[@]}" -gt 0 ] && [ -n "${MISSING_ITEMS[0]:-}" ]; then
+    die "배포 디렉토리에 다음이 없습니다: ${MISSING_ITEMS[*]}
+  ($SRC 가 배포본 폴더가 맞는지 확인하세요)"
+fi
+
 echo "묶는 중: $SRC → $OUT"
-tar cf "$TMP_TAR" -C "$PARENT" "$BASE"
+echo "  담는 것: ${PACK_ITEMS[*]}  (지난 tar·SIF 는 제외)"
+tar cf "$TMP_TAR" -C "$PARENT" \
+    $(for it in "${PACK_ITEMS[@]}"; do echo "$BASE/$it"; done)
 
 if [ -n "$VERSION_STAGE" ]; then
     # 디렉토리 안의 옛 VERSION 을 새것으로 덮는다. tar 는 뒤 항목이 이기므로

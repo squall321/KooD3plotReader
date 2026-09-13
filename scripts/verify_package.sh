@@ -74,6 +74,18 @@ for tarball in "$@"; do
         continue
     fi
 
+    # 🔴 아카이브가 지난 배포 tar 나 SIF 를 삼켰는지 본다. 배포 디렉토리를
+    #    통째로 묶으면 그렇게 되고, 필수 파일은 다 있으므로 위 검사는 통과한다
+    #    (550MB 여야 할 것이 22GB 로 나온 적이 있다).
+    selfpack="$(grep -cE '\.(tar\.gz|tgz|sif)$' <<< "$listing" || true)"
+    if [ "${selfpack:-0}" -gt 0 ]; then
+        echo "   ✗ 아카이브·이미지 파일 ${selfpack}개를 담고 있습니다 "
+        echo "     (배포 디렉토리를 통째로 묶어 지난 tar/SIF 까지 들어갔습니다)"
+        echo "     예: $(grep -E '\.(tar\.gz|tgz|sif)$' <<< "$listing" | head -2 | tr '\n' ' ')"
+        fail_total=$((fail_total + 1))
+        continue
+    fi
+
     # VERSION 내용까지 본다 — 파일만 있고 'unknown' 이면 추적이 안 된다
     ver="$(tar xzOf "$tarball" "${root}/VERSION" 2>/dev/null | sed -n 's/^Version:[[:space:]]*//p' | head -1)"
     built="$(tar xzOf "$tarball" "${root}/VERSION" 2>/dev/null | sed -n 's/^Built:[[:space:]]*//p' | head -1)"
