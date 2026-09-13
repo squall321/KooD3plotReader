@@ -63,7 +63,13 @@
 - [x] `verify_deploy.sh` → verify: 호스트·SIF 모두 `d8fe2bb`, **전부 일치 (exit 0)**
       (이전에는 실패 3건 — 호스트 `eaffe54` vs SIF `4815f55`)
 - [x] node001 확인 → verify: VERSION `d8fe2bb`, `--capabilities` 도 `d8fe2bb`
-- [ ] `package_module.sh` 로 v33 tar 생성 (진행 중)
+- [x] `package_module.sh` 로 v33 tar 생성 → `verify_package.sh` 통과
+      → verify: **522MB** (v32 550MB 와 같은 규모), 구조는 v32 와 동일한
+      `bin`/`lib`/`env.sh` 에 **`VERSION` 이 추가**됨 (1017 → 1046 항목)
+      → 첫 시도는 **22GB** 였다. 배포 디렉토리를 통째로 묶어 그 안에 쌓인 지난
+      tar 33개와 SIF 4개를 삼켰고, 검증기는 "빠진 것" 만 보느라 통과시켰다.
+      담을 것을 명시하고(`VERSION env.sh bin lib`), 검증기가 `*.tar.gz`/`*.sif`
+      자기포함을 잡도록 고쳤다
 
 ## P1. 조용히 틀리는 물리 경로
 
@@ -199,5 +205,9 @@
       신규 `koo_scatter_report`) 결정이 필요하다
 
 ## 마무리
+- [x] 검증 도구 자체 시험 — `tests/deploy/test_verify_package.sh` (9항목)
+      → 이번 작업에서 검증기가 자기 목적을 못 지킨 사례가 **세 번** 나왔다
+      (SIGPIPE 거짓실패 / 대상 간 대조 누락 / 자기포함 미검사). 셋 다 정상
+      케이스는 통과했으므로, 시험을 "막으려는 그 사건을 잡는가" 로 짰다
+- [x] 회귀 — Python 267개(40+27+31+169) + C++ 8종, 실패 0
 - [ ] 갭 문서 작성자에게 A-1 정정 회신 (이미 구현·배포됨 + 원인)
-- [ ] 회귀 — 기존 리포트 5종 JS 예외 0
