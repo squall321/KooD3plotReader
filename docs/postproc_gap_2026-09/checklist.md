@@ -15,11 +15,17 @@
 - [x] v29~v32 실물 재현 → verify: **v29 통과(eaffe54), v30·v31·v32 실패(VERSION 누락)**
       = 이번 사건의 재현 테스트
 
-### P0-2. `unified_analyzer --capabilities`
-- [ ] JSON 출력 (version/built/hotspot.criteria/element_kinds/energy/time_aggregate)
-- [ ] 목록을 enum·파서에서 유도 (손으로 적지 않음)
-      → verify: `parseHotspotCriteria` 수용 집합 == 출력 목록 (테스트 고정)
-- [ ] `--capabilities` 가 d3plot 없이도 동작 → verify: 인자 없이 exit 0
+### P0-2. `unified_analyzer --capabilities` — 완료
+- [x] JSON 출력 (tool/version/built/hotspot.{criteria,element_kinds,plastic_work,
+      time_aggregate}/render.{lsprepost,section_view})
+- [x] CMake 가 `git describe --tags --always --dirty` 를 빌드 시 주입
+      → verify: `v2.4.0-233-gb86fe75-dirty` 출력, git 없으면 `unknown`
+- [x] `allHotspotCriteria()` — 이름↔파서 **왕복으로 유도**, 손으로 적지 않음
+      → verify: `tests/hotspot/test_capabilities.cpp` 10항목 전부 통과.
+      목록 밖 enum 값(3..63)에 숨은 기준이 없음까지 확인
+- [x] 광고 목록 == 실제 수용 집합 → verify: 실행 파일 JSON 의 3개 이름을 별도
+      바이너리로 파싱해 정규 이름이 그대로 돌아옴 (교차 확인)
+- [x] d3plot 없이 동작 → verify: 인자 없이 `--capabilities` exit 0
 
 ### P0-3. 산출물 버전 각인
 - [ ] `analysis_result.json > metadata.tool_version {version, built, capabilities_hash}`

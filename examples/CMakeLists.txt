@@ -174,6 +174,10 @@ install(TARGETS comprehensive_example
 # ============================================================
 add_executable(unified_analyzer unified_analyzer.cpp)
 target_link_libraries(unified_analyzer PRIVATE kood3plot)
+# --capabilities 가 스스로 버전을 답할 수 있게 빌드 시 주입
+target_compile_definitions(unified_analyzer PRIVATE
+    KOOD3PLOT_GIT_COMMIT="${KOOD3PLOT_GIT_COMMIT}"
+    KOOD3PLOT_BUILD_DATE="${KOOD3PLOT_BUILD_DATE}")
 
 # Link with V4 render library if enabled (for render_jobs support)
 if(KOOD3PLOT_BUILD_V4_RENDER)

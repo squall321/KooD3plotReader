@@ -40,6 +40,21 @@ const char* hotspotCriterionName(HotspotCriterion c) {
     return "von_mises";
 }
 
+std::vector<HotspotCriterion> allHotspotCriteria() {
+    // enum class 의 기저 타입은 int 로 고정이라 범위 밖 캐스트 자체는 정의돼 있다.
+    // hotspotCriterionName 의 default 가 "von_mises" 를 주므로, 정의되지 않은 값은
+    // 되파싱하면 VonMises(0) 로 돌아와 자기 자신과 달라져 걸러진다.
+    std::vector<HotspotCriterion> out;
+    for (int i = 0; i < 64; ++i) {
+        const auto c = static_cast<HotspotCriterion>(i);
+        const char* nm = hotspotCriterionName(c);
+        if (!nm) continue;
+        HotspotCriterion back;
+        if (parseHotspotCriterion(nm, back) && back == c) out.push_back(c);
+    }
+    return out;
+}
+
 std::vector<HotspotCriterion> parseHotspotCriteria(const std::vector<std::string>& names,
                                                    std::vector<std::string>* unknown) {
     std::vector<HotspotCriterion> out;

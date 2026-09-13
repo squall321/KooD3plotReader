@@ -15,6 +15,7 @@
 
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include "kood3plot/analysis/UnifiedConfigParser.hpp"
+#include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -810,6 +811,7 @@ void printUsage(const char* prog_name) {
     std::cout << "  --analysis-only     Run only analysis jobs (skip rendering)\n";
     std::cout << "  --render-only       Run only render jobs (skip analysis)\n";
     std::cout << "  --generate-config   Print example YAML configuration\n";
+    std::cout << "  --capabilities      Print supported features as JSON (no input needed)\n";
     std::cout << "  --help              Show this help message\n\n";
 
     std::cout << "Single Analysis Mode:\n";
@@ -921,6 +923,60 @@ bool checkBuildExpiry() {
 } // anon
 #endif
 
+#ifndef KOOD3PLOT_GIT_COMMIT
+#define KOOD3PLOT_GIT_COMMIT "unknown"
+#endif
+#ifndef KOOD3PLOT_BUILD_DATE
+#define KOOD3PLOT_BUILD_DATE "unknown"
+#endif
+
+/// 이 실행 파일이 실제로 무엇을 할 수 있는지 JSON 으로 답한다.
+///
+/// 왜 있나 — 지금까지 "이 기능이 있나" 를 알려면 소스를 읽어야 했다. 배포본의
+/// VERSION 파일이 2주간 옛 커밋을 가리키는 바람에, 이미 있는 기능을 없다고
+/// 판단해 임시 스크립트로 다시 만든 일이 있었다
+/// (docs/postproc_gap_2026-09/plan.md §0). 실행 파일이 스스로 답하면 그런 오판이
+/// 생기지 않는다.
+///
+/// 목록은 **손으로 적지 않는다**. allHotspotCriteria() 가 이름↔파서 왕복으로
+/// 유도하므로, 배선을 빠뜨린 항목은 여기서 빠진 채로 드러난다.
+static void printCapabilities() {
+    using namespace kood3plot;
+    std::cout << "{\n";
+    std::cout << "  \"tool\": \"unified_analyzer\",\n";
+    std::cout << "  \"version\": \"" << KOOD3PLOT_GIT_COMMIT << "\",\n";
+    std::cout << "  \"built\": \"" << KOOD3PLOT_BUILD_DATE << "\",\n";
+
+    std::cout << "  \"hotspot\": {\n";
+    std::cout << "    \"criteria\": [";
+    {
+        const auto crits = allHotspotCriteria();
+        for (size_t i = 0; i < crits.size(); ++i) {
+            std::cout << (i ? ", " : "") << "\"" << hotspotCriterionName(crits[i]) << "\"";
+        }
+    }
+    std::cout << "],\n";
+    std::cout << "    \"element_kinds\": [\"solid\", \"thick_shell\", \"shell\"],\n";
+    // 소성일 w_p = ∫σ_vm dε_p (커밋 53dc93f). 이 빌드에 들어 있으면 true.
+    std::cout << "    \"plastic_work\": true,\n";
+    std::cout << "    \"time_aggregate\": [\"elemmax_then_mean\"]\n";
+    std::cout << "  },\n";
+
+    std::cout << "  \"render\": {\n";
+#ifdef KOOD3PLOT_HAS_RENDER
+    std::cout << "    \"lsprepost\": true,\n";
+#else
+    std::cout << "    \"lsprepost\": false,\n";
+#endif
+#ifdef KOOD3PLOT_HAS_SECTION_RENDER
+    std::cout << "    \"section_view\": true\n";
+#else
+    std::cout << "    \"section_view\": false\n";
+#endif
+    std::cout << "  }\n";
+    std::cout << "}\n";
+}
+
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     if (!checkBuildExpiry()) return 1;
@@ -941,6 +997,11 @@ int main(int argc, char* argv[]) {
 
         if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
+            return 0;
+        }
+        else if (arg == "--capabilities") {
+            // 입력 파일 없이도 답해야 한다 — 배포 검증이 이걸 쓴다
+            printCapabilities();
             return 0;
         }
         else if (arg == "--generate-config") {

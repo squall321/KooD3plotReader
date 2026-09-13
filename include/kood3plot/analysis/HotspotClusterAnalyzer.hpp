@@ -48,6 +48,12 @@ bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out);
 /// 기준 → 정규 이름 (JSON `criterion` 필드에 쓰는 값)
 const char* hotspotCriterionName(HotspotCriterion c);
 
+/// 지원하는 기준 전체. **목록을 손으로 적지 않는다** — 이름과 파서를 왕복시켜
+/// 유도한다(name → parse → 같은 값이면 지원). 그래서 enum 에 값만 추가하고
+/// 이름이나 파서 배선을 빠뜨리면 그 항목은 목록에서 **빠진 채로 드러난다**.
+/// `--capabilities` 가 이걸 쓰므로, 배선 누락이 조용히 숨지 않는다.
+std::vector<HotspotCriterion> allHotspotCriteria();
+
 /// 이름 목록 → 기준 목록. 순서 유지·중복 제거. 모르는 이름은 @p unknown 에 모은다.
 /// 비어 있거나 전부 모르는 이름이면 **빈 벡터** — 폴백은 호출부가 정한다.
 std::vector<HotspotCriterion> parseHotspotCriteria(const std::vector<std::string>& names,

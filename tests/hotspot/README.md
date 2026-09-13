@@ -18,9 +18,14 @@ g++ -std=c++17 -O2 -I include \
 # 3) principalStresses 감사 — 해석해 · numpy eigvalsh 대조
 g++ -std=c++17 -O2 -I include \
     tests/hotspot/test_principal_stress.cpp -o /tmp/t3 && /tmp/t3
+
+# 4) --capabilities 가 광고하는 기준 목록 == 실제 파서 수용 집합
+g++ -std=c++17 -O2 -I include \
+    tests/hotspot/test_capabilities.cpp src/analysis/HotspotClusterAnalyzer.cpp \
+    -o /tmp/t4 && /tmp/t4
 ```
 
-세 시험 모두 `[PASS] 실패 0 건` 이어야 한다.
+네 시험 모두 `[PASS] 실패 0 건` 이어야 한다.
 
 ## 무엇을 지키는 시험인가
 

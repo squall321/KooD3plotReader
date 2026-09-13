@@ -6,6 +6,28 @@ project(KooD3plotReader
     LANGUAGES CXX
 )
 
+# ── 빌드 시 git 커밋을 주입한다 ──────────────────────────────────────
+# 산출물만 보고 "어느 판으로 돌렸는지" 알 수 있어야 한다. VERSION 파일 하나에
+# 의존했더니 그게 배포에서 빠져 2주간 옛 커밋을 가리켰다
+# (docs/postproc_gap_2026-09/context-notes.md).
+# git 이 없거나 리포지토리가 아니면 "unknown" — 조용히 빈 문자열로 두지 않는다.
+find_package(Git QUIET)
+set(KOOD3PLOT_GIT_COMMIT "unknown")
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE KOOD3PLOT_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(KOOD3PLOT_GIT_COMMIT STREQUAL "")
+        set(KOOD3PLOT_GIT_COMMIT "unknown")
+    endif()
+endif()
+string(TIMESTAMP KOOD3PLOT_BUILD_DATE "%Y-%m-%dT%H:%M:%SZ" UTC)
+message(STATUS "KooD3plotReader version: ${KOOD3PLOT_GIT_COMMIT} (${KOOD3PLOT_BUILD_DATE})")
+
 # C++17 standard required
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
