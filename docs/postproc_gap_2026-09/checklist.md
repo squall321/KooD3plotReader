@@ -161,7 +161,14 @@
 
 ## P4. 나머지
 - [ ] A-4 `--hotspot-source {d3plot|elout}`
-- [ ] A-5 `--segment-boxes segments.json`
+- [x] A-5 구간 분할 — `core/segment_boxes.py`
+      → 박스(축 정렬) + 부채꼴(중심·반지름·각도·축) 두 형태. 인터포저 볼이 1파트인
+      과제(T3/T4/카메라)에서 파트 안을 쪼개 실물 크랙 위치와 대조하기 위한 것
+      → 겹치면 먼저 정의된 구간이 이긴다(결정적), 미배정 점은 버리지 않고 센다
+      (조용히 사라지면 합이 안 맞는 이유를 알 수 없다)
+      → verify: ±180° 감는 각도 구간, 뒤집힌 경계 자동 교정, 잘못된 정의 6종
+      건너뛰기+사유, 경계 16종 예외 0
+- [ ] A-5 CLI 배선 `--segment-boxes segments.json`
 - [x] A-6 좌표 정합 — `core/coordinate_transform.py` (Kabsch + 잔차 판정)
       → 후처리는 변환을 전달받지 못한다(DropSet.json 에 기록 없음). **추정**하고
       잔차를 함께 낸다. 잔차가 크면 "강체 변환이 아니다" 를 경고
