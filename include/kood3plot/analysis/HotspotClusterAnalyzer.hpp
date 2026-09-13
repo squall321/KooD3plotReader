@@ -29,7 +29,16 @@ enum class HotspotCriterion {
     VonMises = 0,
     MaxPrincipal = 1,
     MinPrincipal = 2,
+    /// 최대 전단 응력 τ_max = (σ1 − σ3)/2. 볼 전단처럼 전단으로 깨지는
+    /// 메커니즘은 von Mises 로 보이지 않는다 (정수압 성분에 가려진다).
+    /// 주응력에서 유도하므로 좌표계에 무관한 불변량이다.
+    MaxShear = 3,
 };
+
+/// 기준량 슬롯 수. 요소별 극값 배열이 이 크기로 잡히지만, **요청된 기준만**
+/// 실제로 할당된다(slot[k] == nullptr 이면 건너뜀). 새 기준을 enum 에 추가하면
+/// 여기도 늘려야 한다 — 안 늘리면 test_capabilities 가 잡는다.
+inline constexpr int kHotspotCritSlots = 4;
 
 /// 군집 대상 요소 종류. 기하(부피/면적)와 대표 크기 정의가 다르다.
 enum class HotspotElementKind {
@@ -71,6 +80,7 @@ struct ElementExtremes {
 
 /// 뜨거운 방향이 '작은 값' 인 기준이면 true (현재 MinPrincipal 만)
 inline bool hotspotCriterionIsMin(HotspotCriterion c) {
+    // τ_max = (σ1−σ3)/2 는 정의상 ≥ 0 이고 클수록 위험하다 — max 방향.
     return c == HotspotCriterion::MinPrincipal;
 }
 

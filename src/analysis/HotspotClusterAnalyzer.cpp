@@ -28,6 +28,8 @@ bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out) {
                                                                        { out = HotspotCriterion::MaxPrincipal; return true; }
     if (k == "min_principal" || k == "minprincipal" || k == "sigma3" || k == "s3" || k == "p3")
                                                                        { out = HotspotCriterion::MinPrincipal; return true; }
+    if (k == "max_shear" || k == "maxshear" || k == "tau_max" || k == "taumax" || k == "tresca")
+                                                                       { out = HotspotCriterion::MaxShear;     return true; }
     return false;
 }
 
@@ -36,6 +38,7 @@ const char* hotspotCriterionName(HotspotCriterion c) {
         case HotspotCriterion::VonMises:     return "von_mises";
         case HotspotCriterion::MaxPrincipal: return "max_principal";
         case HotspotCriterion::MinPrincipal: return "min_principal";
+        case HotspotCriterion::MaxShear:     return "max_shear";
     }
     return "von_mises";
 }
@@ -83,6 +86,8 @@ const char* hotspotStrainMeasureName(HotspotCriterion c) {
         case HotspotCriterion::VonMises:     return "equivalent";
         case HotspotCriterion::MaxPrincipal: return "max_principal";
         case HotspotCriterion::MinPrincipal: return "min_principal";
+        // 짝 변형률도 같은 정의 — γ_max/2 = (ε1 − ε3)/2
+        case HotspotCriterion::MaxShear:     return "max_shear";
     }
     return "equivalent";
 }
