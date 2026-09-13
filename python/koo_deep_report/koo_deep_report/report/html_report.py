@@ -2109,7 +2109,7 @@ const HS_CRIT_LABEL = {
 const HS_TYPE_LABEL = {solid: '솔리드', thick_shell: '두꺼운 셸', shell: '셸'};
 const HS_STRAIN_LABEL = {equivalent: '등가변형률', max_principal: 'ε₁', min_principal: 'ε₃'};
 const HS_WEIGHT_LABEL = {volume: '부피', area_x_thickness: '면적×두께', area: '면적'};
-let _hsState = {crit: null, type: 'all', key: null};
+let _hsState = {crit: null, type: 'all', key: null, metric: 'stress'};
 
 function hsEntries() { return DATA.hotspot || []; }
 function hsKey(p) { return p.criterion + '|' + (p.element_type || 'solid') + '|' + p.part_id; }
@@ -2287,6 +2287,11 @@ function hsRenderDetail(p) {
     <select id="hs-view" onchange="hsDraw(_hsCurrent)">
       <option value="plane">파트 평면 (${'xyz'[hsPlaneAxes(p)[0]]}·${'xyz'[hsPlaneAxes(p)[1]]})</option>
       <option value="xy">XY</option><option value="xz">XZ</option><option value="yz">YZ</option><option value="3d">3D</option>
+    </select>
+    <label style="margin-left:12px">색:</label>
+    <select id="hs-metric" onchange="_hsState.metric=this.value;hsDraw(_hsCurrent)">
+      ${HS_METRICS.filter(m => hsMetricAvailable(p, m[0]))
+        .map(m => `<option value="${m[0]}"${_hsState.metric === m[0] ? ' selected' : ''}>${m[1]}</option>`).join('')}
     </select></span></div>
   <div id="hs-view-chart" style="height:560px"></div></div>`;
   _hsCurrent = p;
@@ -2295,6 +2300,57 @@ function hsRenderDetail(p) {
 let _hsCurrent = null;
 
 // 뜨거운 쪽이 진하게: max 방향은 옅은 노랑→진한 빨강, min(압축) 방향은 진한 파랑→옅은 파랑
+// 색(리스크) 척도 — [코드, 라벨, 군집 필드, 가용성 플래그]
+// 응력 피크만 보면 '짧게 튄 응력' 과 '실제 손상' 이 구분되지 않는다.
+// 소성일 w_p=∫σ_vm dε_p 는 탄성 스파이크가 Δε_p=0 이라 기여하지 않는다.
+const HS_METRICS = [
+  ['stress', '응력 피크 [MPa]',            'stress_max',   null],
+  ['strain', '변형률 피크 [-]',             'strain_max',   'strain_available'],
+  ['energy', '소성일 ∫σ dε_p [mJ]',         'energy_total', 'energy_available'],
+  ['energy_density', '소성일 밀도 [mJ/mm³]', 'energy_max',   'energy_available'],
+];
+function hsMetricDef(code) { return HS_METRICS.find(m => m[0] === code) || HS_METRICS[0]; }
+// 그 척도가 이 파트의 군집에 실제로 있는가. 없으면 선택지에서 감춘다 —
+// 남겨 두면 고르는 순간 전부 같은 색이 되어 '값이 균일' 로 오독된다.
+function hsMetricAvailable(p, code) {
+  const d = hsMetricDef(code);
+  return (p.clusters || []).some(c =>
+    (d[3] === null || c[d[3]] === true) && typeof c[d[2]] === 'number');
+}
+function hsMetricValue(c, code) { const v = c[hsMetricDef(code)[2]]; return typeof v === 'number' ? v : 0; }
+// 에너지는 늘 '클수록 위험' 이다 — 압축 기준(σ3)이어도 방향이 뒤집히지 않는다.
+function hsMetricIsMin(p, code) { return code === 'stress' || code === 'strain' ? p.direction === 'min' : false; }
+// 척도 통계. uniform 이면 색으로 구분할 게 없다 — 이때 최대색(빨강)을 칠하면
+// '전부 0(탄성)' 인 파트가 가장 위험해 보인다. 중립색 + 주석으로 사실대로 말한다.
+function hsMetricStats(p, code) {
+  const vals = p.clusters.map(c => hsMetricValue(c, code));
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  return {vals, vmin, vmax, uniform: !(vmax > vmin)};
+}
+const HS_FLAT_COLOR = 'rgb(128,140,160)';
+// 소성일은 1e-5 mJ 수준까지 내려간다. 공용 fmt(소수 2자리)로 찍으면 전부 '0.00'
+// 이 되어 '값이 없다' 와 구분되지 않는다.
+function hsMetricFmt(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return '—';
+  if (v === 0) return '0';
+  return Math.abs(v) >= 0.01 ? fmt(v, 3) : v.toExponential(3);
+}
+function hsFlatAnnotation(p, code, st) {
+  const lab = hsMetricDef(code)[1];
+  const zero = !(st.vmin > 0 || st.vmin < 0);
+  const why = zero && (code === 'energy' || code === 'energy_density')
+    ? ' — 이 파트는 소성 변형이 없습니다 (탄성 거동)' : '';
+  return {xref: 'paper', yref: 'paper', x: 0, y: 1.03, xanchor: 'left', yanchor: 'bottom',
+          showarrow: false, font: {color: '#c8c8d8', size: 11},
+          text: `${lab} 이 덩어리마다 같습니다 (${hsMetricFmt(st.vmin)})${why}. 색 구분 없음.`};
+}
+// 색 척도가 응력이 아니면 그 값도 툴팁에 적는다 — 컬러바는 소성일인데
+// 툴팁은 응력만 보여 주면 색과 숫자가 어긋난 채로 읽힌다.
+function hsMetricHover(c, code) {
+  if (code === 'stress') return '';
+  return `<br>${hsMetricDef(code)[1]} ${hsMetricFmt(hsMetricValue(c, code))}`;
+}
+
 const HS_SCALE_MAX = [[0, '#fff3c4'], [0.5, '#fc8d3c'], [1, '#b10026']];
 const HS_SCALE_MIN = [[0, '#08306b'], [0.5, '#4292c6'], [1, '#deebf7']];
 function hsColorAt(scale, t) {
@@ -2320,11 +2376,15 @@ function hsDraw(p) {
 function hsDraw2D(p, a, b) {
   const el = document.getElementById('hs-view-chart');
   if (!el || !window.Plotly) return;
-  const isMin = p.direction === 'min';
+  // 선택한 척도가 이 파트에 없으면 응력으로 되돌린다 (빈/균일 색 방지)
+  let mcode = _hsState.metric;
+  if (!hsMetricAvailable(p, mcode)) mcode = 'stress';
+  const mdef = hsMetricDef(mcode);
+  const isMin = hsMetricIsMin(p, mcode);
   const scale = isMin ? HS_SCALE_MIN : HS_SCALE_MAX;
-  const vals = p.clusters.map(c => c.stress_max);
-  const vmin = Math.min(...vals), vmax = Math.max(...vals);
-  const tOf = v => vmax === vmin ? 1 : (isMin ? (vmax - v) / (vmax - vmin) : (v - vmin) / (vmax - vmin));
+  const st = hsMetricStats(p, mcode);
+  const vals = st.vals, vmin = st.vmin, vmax = st.vmax;
+  const tOf = v => st.uniform ? 0.5 : (isMin ? (vmax - v) / (vmax - vmin) : (v - vmin) / (vmax - vmin));
   const shapes = [];
   if (p.bbox_min && p.bbox_max) {
     shapes.push({type: 'rect', xref: 'x', yref: 'y', x0: p.bbox_min[a], x1: p.bbox_max[a], y0: p.bbox_min[b], y1: p.bbox_max[b],
@@ -2333,7 +2393,8 @@ function hsDraw2D(p, a, b) {
   // 순위가 낮은(덜 뜨거운) 것부터 그려 1위가 위에 오게
   [...p.clusters].reverse().forEach(c => {
     const r = Math.max(c.radius_enclosing, 1e-9);
-    const col = hsColorAt(scale, isMin ? 1 - tOf(c.stress_max) : tOf(c.stress_max));
+    const cv = hsMetricValue(c, mcode);
+    const col = st.uniform ? HS_FLAT_COLOR : hsColorAt(scale, isMin ? 1 - tOf(cv) : tOf(cv));
     shapes.push({type: 'circle', xref: 'x', yref: 'y', x0: c.center[a] - r, x1: c.center[a] + r, y0: c.center[b] - r, y1: c.center[b] + r,
                  line: {color: col, width: 2}, fillcolor: col, opacity: 0.6});
   });
@@ -2341,14 +2402,16 @@ function hsDraw2D(p, a, b) {
   const traces = [{
     type: 'scatter', mode: 'markers+text', x: p.clusters.map(c => c.center[a]), y: p.clusters.map(c => c.center[b]),
     text: p.clusters.map(c => '#' + c.rank), textposition: 'middle center', textfont: {color: '#ffffff', size: 12},
-    marker: {size: 2, color: vals, colorscale: scale, cmin: vmin, cmax: vmax === vmin ? vmin + 1 : vmax, showscale: true,
-             colorbar: {title: {text: isMin ? '최솟값' : '최댓값', side: 'right'}, len: 0.8}},
+    marker: {size: 2, color: vals, colorscale: scale, cmin: vmin, cmax: vmax === vmin ? vmin + 1 : vmax, showscale: !st.uniform,
+             colorbar: {title: {text: mdef[1], side: 'right'}, len: 0.8}},
     hovertext: p.clusters.map(c => `#${c.rank} · 요소 ${c.element_count}<br>${isMin ? '최솟값' : '최댓값'} ${fmt(c.stress_max)} · 평균 ${fmt(c.stress_mean)}` +
+                                  hsMetricHover(c, mcode) +
                                   `<br>중심 (${c.center.map(v => fmt(v, 2)).join(', ')})<br>포함 반경 ${fmt(c.radius_enclosing, 3)}`),
     hoverinfo: 'text', showlegend: false,
   }];
   Plotly.newPlot(el, traces, {
-    ...PLOT_LAYOUT, margin: {l: 60, r: 20, t: 10, b: 50}, shapes,
+    ...PLOT_LAYOUT, margin: {l: 60, r: 20, t: st.uniform ? 28 : 10, b: 50}, shapes,
+    annotations: st.uniform ? [hsFlatAnnotation(p, mcode, st)] : [],
     xaxis: {...PLOT_LAYOUT.xaxis, title: axn[a], zeroline: false},
     yaxis: {...PLOT_LAYOUT.yaxis, title: axn[b], zeroline: false, scaleanchor: 'x', scaleratio: 1},
   }, PLOT_CONFIG);
@@ -2384,18 +2447,29 @@ function hsDraw3D(p) {
     traces.push({type: 'scatter3d', mode: 'lines', x: lx, y: ly, z: lz, name: '파트 경계상자',
                  line: {color: '#a0a0b0', width: 2}, hoverinfo: 'skip'});
   }
-  const vals = p.clusters.map(c => c.stress_max);
-  const vmin = Math.min(...vals), vmax = Math.max(...vals);
-  const isMin = p.direction === 'min';
+  let mcode = _hsState.metric;
+  if (!hsMetricAvailable(p, mcode)) mcode = 'stress';
+  const mdef = hsMetricDef(mcode);
+  const st = hsMetricStats(p, mcode);
+  const vmin = st.vmin, vmax = st.vmax;
+  const isMin = hsMetricIsMin(p, mcode);
   p.clusters.forEach((c, k) => {
     const s = hsSpherePts(c.center[0], c.center[1], c.center[2], Math.max(c.radius_enclosing, 1e-9));
-    traces.push({type: 'mesh3d', x: s.x, y: s.y, z: s.z, alphahull: 0, opacity: 0.55,
-      intensity: s.x.map(() => c.stress_max), cmin: vmin, cmax: vmax === vmin ? vmin + 1 : vmax,
-      colorscale: isMin ? HS_SCALE_MIN : HS_SCALE_MAX, showscale: k === 0,
-      colorbar: {title: {text: isMin ? '최솟값' : '최댓값', side: 'right'}, len: 0.7},
+    const mesh = {type: 'mesh3d', x: s.x, y: s.y, z: s.z, alphahull: 0, opacity: 0.55,
       name: '#' + c.rank,
       hovertemplate: `#${c.rank} · 요소 ${c.element_count}<br>${isMin ? '최솟값' : '최댓값'} ${fmt(c.stress_max)} · 평균 ${fmt(c.stress_mean)}` +
-                     `<br>포함 반경 ${fmt(c.radius_enclosing, 3)}<extra></extra>`});
+                     hsMetricHover(c, mcode) +
+                     `<br>포함 반경 ${fmt(c.radius_enclosing, 3)}<extra></extra>`};
+    if (st.uniform) {
+      mesh.color = HS_FLAT_COLOR; mesh.showscale = false;
+    } else {
+      mesh.intensity = s.x.map(() => hsMetricValue(c, mcode));
+      mesh.cmin = vmin; mesh.cmax = vmax;
+      mesh.colorscale = isMin ? HS_SCALE_MIN : HS_SCALE_MAX;
+      mesh.showscale = k === 0;
+      mesh.colorbar = {title: {text: mdef[1], side: 'right'}, len: 0.7};
+    }
+    traces.push(mesh);
   });
   traces.push({type: 'scatter3d', mode: 'text', x: p.clusters.map(c => c.center[0]),
                y: p.clusters.map(c => c.center[1]), z: p.clusters.map(c => c.center[2]),
@@ -2404,10 +2478,13 @@ function hsDraw3D(p) {
   const ax = t => ({title: t, gridcolor: '#2a2a4a', zerolinecolor: '#2a2a4a', color: '#e0e0e0', backgroundcolor: 'rgba(15,52,96,0.25)', showbackground: true});
   Plotly.newPlot(el, traces, {
     paper_bgcolor: 'transparent', font: {color: '#e0e0e0', size: 11},
-    margin: {l: 0, r: 0, t: 10, b: 0}, showlegend: false,
+    margin: {l: 0, r: 0, t: st.uniform ? 28 : 10, b: 0}, showlegend: false,
+    annotations: st.uniform ? [hsFlatAnnotation(p, mcode, st)] : [],
     scene: {aspectmode: 'data', xaxis: ax('x'), yaxis: ax('y'), zaxis: ax('z'),
             camera: {projection: {type: 'orthographic'}}},
   }, PLOT_CONFIG).then(() => {
+    // 그리는 사이에 2D 로 바뀌었으면 scene 이 없다 — 카메라 조정은 건너뛴다
+    if (!el.layout || !el.layout.scene) return;
     // aspectmode 'data' 는 가장 긴 축을 1 이상으로 늘린다 — 카메라를 그 비율만큼 물려야 잘리지 않는다
     const ar = el.layout.scene.aspectratio || {x: 1, y: 1, z: 1};
     const m = Math.max(ar.x, ar.y, ar.z);
