@@ -170,7 +170,11 @@
       → 구현 중 IndexError·ValueError 2건을 시험이 잡아 수정
 - [ ] A-6 배선 — `metadata.coordinate_transform` 에 싣기 (원본 덱 경로 확보 필요)
 - [ ] B-1 면 기준 편차각 `dev_roll`/`dev_pitch`/`dev_angle`
-- [ ] B-5 ground truth 스키마
+- [x] B-5 ground truth 스키마 — `core/ground_truth.py`
+      → TSV 필수 열 `case`/`face`/`part_id`/`verdict` + 선택 `mechanism`/`location`/`note`
+      → `part_recall()` 이 P2 의 recall@k 를 실제로 쓴다 (적중·놓친 파트까지 반환)
+      → verify: 열 순서 무관, 소문자 ng 인식, **verdict 를 모르면 줄을 버린다**
+      (OK 로 치면 회수율이 부풀려진다), 경계 15종 예외 0
 - [ ] C 그림 9종
 
 ## 마무리
