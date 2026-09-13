@@ -52,11 +52,18 @@
       경로 없음 1 / 두 대상 같은 판 0
 - [x] `set -u` 빈 배열 참조 버그 수정 (카운터로 대체)
 
-### P0-5. 배포 — P1·P2 까지 쌓고 한 번에 (2026-09-13 사용자 결정)
-- [ ] main 에 push (SIF def 가 GitHub main 을 clone 하므로 필수)
-- [ ] SIF 재빌드 → node001 배포 → `verify_deploy.sh` 통과
-- [ ] `package_module.sh` 로 v33 tar 생성 → `verify_package.sh` 통과
-- 참고: P0 검증 도구는 리포지토리에서 바로 쓸 수 있어 배포 전에도 효력이 있다
+### P0-5. 배포 — 완료 (2026-09-13)
+- [x] main 에 push (SIF def 가 GitHub main 을 clone 하므로 필수) — `d8fe2bb`
+- [x] SIF 재빌드 (918MB, 23:03) → `/data/SmartTwinPostprocessor` 배포
+      → `/data` 가 NFS 공유이고 inode 가 같아 **node001 에 즉시 반영**된다
+      (복사 전 SIF + 호스트 디렉토리 백업)
+- [x] SIF `python/*`→`lib/*`, `bin/*`→`bin/*` 매핑. 호스트 고유 파일
+      (`env.sh`/`lsprepost`/`analyze_and_report`)은 보존
+- [x] **VERSION 배치** — 이번 사건의 핵심
+- [x] `verify_deploy.sh` → verify: 호스트·SIF 모두 `d8fe2bb`, **전부 일치 (exit 0)**
+      (이전에는 실패 3건 — 호스트 `eaffe54` vs SIF `4815f55`)
+- [x] node001 확인 → verify: VERSION `d8fe2bb`, `--capabilities` 도 `d8fe2bb`
+- [ ] `package_module.sh` 로 v33 tar 생성 (진행 중)
 
 ## P1. 조용히 틀리는 물리 경로
 
