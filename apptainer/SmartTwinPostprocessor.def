@@ -103,6 +103,10 @@ From: ubuntu:22.04
 
     # Cleanup: remove build artifacts and source (keep only /opt/kood3plot)
     rm -rf /opt/KooD3plotReader/build
+    # .git 을 지우면 남은 소스가 어느 판인지 알 수 없게 된다. 실제로 이 소스를
+    # 읽고 "기능이 없다" 고 판단한 오판이 있었다
+    # (docs/postproc_gap_2026-09/plan.md §0). 표식을 소스 트리에 남긴다.
+    cp /opt/kood3plot/VERSION /opt/KooD3plotReader/VERSION 2>/dev/null || true
     rm -rf /opt/KooD3plotReader/.git
 
     # Install runtime Python deps (for non-Nuitka wrapper mode).

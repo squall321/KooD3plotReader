@@ -392,7 +392,9 @@ ok "activate.sh created"
 # ============================================================
 # Version file
 # ============================================================
-VERSION=$(git -C "${PROJECT_ROOT}" describe --tags --always 2>/dev/null || echo "unknown")
+# 🔴 CMake(KOOD3PLOT_GIT_COMMIT) 와 **같은 옵션**이어야 한다. 다르면 VERSION 파일과
+#    `unified_analyzer --capabilities` 가 어긋나 verify_deploy.sh 가 거짓 불일치를 낸다.
+VERSION=$(git -C "${PROJECT_ROOT}" describe --tags --always --dirty 2>/dev/null || echo "unknown")
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 cat > "${PREFIX}/VERSION" << EOF
 KooD3plotReader Post-Processing Module
