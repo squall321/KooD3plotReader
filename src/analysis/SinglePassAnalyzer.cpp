@@ -1417,6 +1417,9 @@ void SinglePassAnalyzer::clusterTimeAggregate(
                     const double sxy = sd[base+3], syz = sd[base+4], szx = sd[base+5];
                     if (crit == HotspotCriterion::VonMises) {
                         val = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                    } else if (crit == HotspotCriterion::XTension) { val = sxx;
+                    } else if (crit == HotspotCriterion::YTension) { val = syy;
+                    } else if (crit == HotspotCriterion::ZTension) { val = szz;
                     } else {
                         const StressTensor st{sxx, syy, szz, sxy, syz, szx};
                         const auto pr = st.principalStresses();
@@ -1438,6 +1441,9 @@ void SinglePassAnalyzer::clusterTimeAggregate(
                     const double sxy = sd[off+3], syz = sd[off+4], szx = sd[off+5];
                     if (crit == HotspotCriterion::VonMises) {
                         acc += equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                    } else if (crit == HotspotCriterion::XTension) { acc += sxx;
+                    } else if (crit == HotspotCriterion::YTension) { acc += syy;
+                    } else if (crit == HotspotCriterion::ZTension) { acc += szz;
                     } else {
                         const StressTensor st{sxx, syy, szz, sxy, syz, szx};
                         const auto pr = st.principalStresses();
@@ -1602,6 +1608,10 @@ void SinglePassAnalyzer::accumulateElementExtremes(
                 // 전단 파괴(볼 전단)가 드러난다. 좌표계 무관한 불변량이다.
                 cur[3] = 0.5 * (pr[0] - pr[2]);
             }
+            // 축별 수직응력 — 전역 좌표계 성분 (주응력 분해 불필요)
+            if (want[4]) cur[4] = sxx;
+            if (want[5]) cur[5] = syy;
+            if (want[6]) cur[6] = szz;
 
             // 갱신이 필요한 기준이 하나라도 있으면 짝 변형률을 그때 계산
             bool upd[kHotspotCritSlots] = {};
@@ -1609,18 +1619,25 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             if (want[1] && cur[1] > best[1]) upd[1] = true;
             if (want[2] && cur[2] < best[2]) upd[2] = true;
             if (want[3] && cur[3] > best[3]) upd[3] = true;
+            for (int k = 4; k < kHotspotCritSlots; ++k)
+                if (want[k] && cur[k] > best[k]) upd[k] = true;
             bool any_upd = false;
             for (int k = 0; k < kHotspotCritSlots; ++k) any_upd |= upd[k];
             if (!any_upd) continue;
 
             double eq_e = 0.0, e1 = 0.0, e3 = 0.0;
-            bool have_e = false;
+            double axis_e[3] = {0.0, 0.0, 0.0};   // εxx, εyy, εzz
+            bool have_e = false, have_axis_e = false;
             if (strain_ok) {
                 // 변형률 위치는 base + nv3d_ - 6 (NEIPH 확장값의 마지막 6개).
                 // extractStrainTensor 와 같은 규약 — 자세한 근거는 그쪽 주석 참조.
                 const size_t eo = base + static_cast<size_t>(nv3d_) - 6;
                 if (eo + 6 <= sd.size()) {
                     have_e = true;
+                    axis_e[0] = sd[eo + 0];
+                    axis_e[1] = sd[eo + 1];
+                    axis_e[2] = sd[eo + 2];
+                    have_axis_e = true;
                     if (upd[0]) {
                         eq_e = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
                                                 sd[eo + 3], sd[eo + 4], sd[eo + 5]);
@@ -1641,6 +1658,11 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             if (upd[2]) { best[2] = cur[2]; best_t[2] = t; if (have_e) best_e[2] = e3; }
             if (upd[3]) { best[3] = cur[3]; best_t[3] = t;
                           if (have_e) best_e[3] = 0.5 * (e1 - e3); }
+            for (int k = 4; k < kHotspotCritSlots; ++k) {
+                if (!upd[k]) continue;
+                best[k] = cur[k]; best_t[k] = t;
+                if (have_axis_e) best_e[k] = axis_e[k - 4];
+            }
         }
 
         for (int k = 0; k < kHotspotCritSlots; ++k) {
@@ -1780,9 +1802,13 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     // 그 밖이면 두 면 중 기준 방향으로 뜨거운 쪽.
     auto strain_measure = [](int k, const double* t) -> double {
         if (k == 0) return equivalentStrain(t[0], t[1], t[2], t[3], t[4], t[5]);
+        // 축별 기준은 주변형률 분해 없이 성분을 그대로 쓴다 (εxx/εyy/εzz)
+        if (k >= 4) return t[k - 4];
         const StressTensor et{t[0], t[1], t[2], t[3], t[4], t[5]};
         const auto pe = et.principalStresses();
-        return (k == 1) ? pe[0] : pe[2];
+        if (k == 1) return pe[0];
+        if (k == 2) return pe[2];
+        return 0.5 * (pe[0] - pe[2]);       // MaxShear 의 짝 = (ε1−ε3)/2
     };
     auto paired = [&](int k, int layer, const double* ein, const double* eout) -> double {
         if (mio && layer == 1) return strain_measure(k, ein);
@@ -1863,6 +1889,12 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
                     const double tau = 0.5 * (pr[0] - pr[2]);
                     if (tau > cur[3]) { cur[3] = tau; cur_l[3] = L; }
                 }
+                // 축별 수직응력 — 전역 좌표계 성분 (층별로 가장 인장인 층)
+                for (int a = 0; a < 3; ++a) {
+                    const int k = 4 + a;
+                    if (!want[k]) continue;
+                    if (s6[a] > cur[k]) { cur[k] = s6[a]; cur_l[k] = L; }
+                }
             }
 
             // ── ε_p 이력 최댓값 — 소성일과 조건이 다르다 (상태 1개도 유효) ──
@@ -1900,6 +1932,8 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
             if (want[1] && cur[1] > best[1]) upd[1] = true;
             if (want[2] && cur[2] < best[2]) upd[2] = true;
             if (want[3] && cur[3] > best[3]) upd[3] = true;
+            for (int k = 4; k < kHotspotCritSlots; ++k)
+                if (want[k] && cur[k] > best[k]) upd[k] = true;
             bool any_upd = false;
             for (int k = 0; k < kHotspotCritSlots; ++k) any_upd |= upd[k];
             if (!any_upd) continue;

@@ -107,9 +107,16 @@
       시간집계 부등식 19/19
 - [x] `--capabilities` 자동 반영 → verify: 테스트가 `tresca`/`max_shear` 를 잡아
       기존 단언 2건이 깨졌다 (의도대로 기능 추가를 검출)
-- [ ] `x_tension` — **좌표계 문제 확인 후** 구현.
-      솔리드 응력은 전역 좌표계지만 셸 응력은 요소 좌표계라 같은 이름이 종류마다
-      다른 뜻이 된다. 조용히 틀리지 않게 명시 방법을 정한 뒤 진행
+- [x] `x_tension` / `y_tension` / `z_tension` (별칭 `sxx`/`sigma_yy`/…)
+      → 좌표계 확인 완료: `ls-dyna_database.txt` 가 셸 응력도
+      "true stress in the **global** system" 으로 규정한다. 요소 좌표계는 굽힘
+      모멘트 등 합력에만 해당 — 종류별로 뜻이 갈리지 않는다.
+      다만 `*DATABASE_EXTENT_BINARY` CMPFLG=1 덱은 이 리더가 구분하지 못하므로
+      enum 주석에 "그런 덱에서는 쓰지 말 것" 을 명시
+- [x] 이론 검증 → verify: 고유값 정리상 σ3 ≤ σaa ≤ σ1 —
+      실덱 **76,626 표본(요소×시각×3축)에서 위반 0건**
+- [x] 덩어리 수준 → verify: σaa_max ≤ σ1_max 성립 14 / 위반 0
+- [x] 기준 7종 동시 실행 → verify: 항목 34개씩 균일하게 산출
 
 ## P2. 오보를 낸 통계 경로
 

@@ -33,12 +33,24 @@ enum class HotspotCriterion {
     /// 메커니즘은 von Mises 로 보이지 않는다 (정수압 성분에 가려진다).
     /// 주응력에서 유도하므로 좌표계에 무관한 불변량이다.
     MaxShear = 3,
+    /// 축별 수직응력 σxx / σyy / σzz. 보드 굽힘처럼 **방향이 정해진** 인장으로
+    /// 깨지는 메커니즘용이다. 주응력은 방향을 잃어버려 "어느 축으로 당겨졌나" 를
+    /// 답하지 못한다.
+    ///
+    /// 🔴 **전역 좌표계** 성분이다. d3plot 규격상 솔리드·셸 모두 응력은
+    ///    "true stress in the global system" 으로 기록된다(요소 좌표계는 굽힘
+    ///    모멘트 등 합력에만 해당). 다만 `*DATABASE_EXTENT_BINARY` 의 CMPFLG=1 로
+    ///    재료 좌표계 출력을 켠 덱에서는 의미가 달라지는데, 이 리더는 CMPFLG 를
+    ///    읽지 않으므로 **구분하지 못한다**. 그런 덱에서는 쓰지 말 것.
+    XTension = 4,
+    YTension = 5,
+    ZTension = 6,
 };
 
 /// 기준량 슬롯 수. 요소별 극값 배열이 이 크기로 잡히지만, **요청된 기준만**
 /// 실제로 할당된다(slot[k] == nullptr 이면 건너뜀). 새 기준을 enum 에 추가하면
 /// 여기도 늘려야 한다 — 안 늘리면 test_capabilities 가 잡는다.
-inline constexpr int kHotspotCritSlots = 4;
+inline constexpr int kHotspotCritSlots = 7;
 
 /// 군집 대상 요소 종류. 기하(부피/면적)와 대표 크기 정의가 다르다.
 enum class HotspotElementKind {

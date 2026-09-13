@@ -63,6 +63,8 @@ int main() {
     chkb("max_principal 지원 (인장 — 인터포저/PPG 크랙)", has("max_principal"));
     chkb("min_principal 지원 (압축 — PCB 측면 찍힘)", has("min_principal"));
     chkb("max_shear 지원 (전단 — 볼 전단)", has("max_shear"));
+    chkb("x_tension 지원 (축별 인장 — 보드 굽힘)", has("x_tension"));
+    chkb("y_tension / z_tension 지원", has("y_tension") && has("z_tension"));
 
     // ⑤ 별칭도 정규 이름으로 매핑된다 (사용자가 s1/sigma3 로 써도 통한다)
     struct { const char* alias; const char* canon; } aliases[] = {
@@ -83,7 +85,7 @@ int main() {
 
     // ⑥ 모르는 이름은 거부한다 (조용히 von_mises 로 떨어지지 않는다)
     bool reject_ok = true;
-    for (const char* bad : {"x_tension", "", "vonmisses", "s2", "max_sheer"}) {
+    for (const char* bad : {"", "vonmisses", "s2", "max_sheer", "w_tension", "hydrostatic"}) {
         HotspotCriterion c;
         if (parseHotspotCriterion(bad, c)) { reject_ok = false; printf("     거부 실패: %s\n", bad); }
     }
@@ -91,7 +93,7 @@ int main() {
 
     // ⑦ parseHotspotCriteria 가 unknown 을 모아 돌려준다
     std::vector<std::string> unknown;
-    const auto parsed = parseHotspotCriteria({"von_mises", "x_tension", "s3", "nope"}, &unknown);
+    const auto parsed = parseHotspotCriteria({"von_mises", "hydrostatic", "s3", "nope"}, &unknown);
     chkb("복수 지정에서 아는 것만 통과 (2개)", parsed.size() == 2);
     chkb("모르는 것은 unknown 으로 보고 (2개)", unknown.size() == 2);
 

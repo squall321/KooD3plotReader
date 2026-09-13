@@ -44,7 +44,8 @@ int main(){
         chkb("Max-Principal 관용",  parseHotspotCriterion("Max-Principal", c) && c==HotspotCriterion::MaxPrincipal);
         chkb("sigma3 별칭",         parseHotspotCriterion("sigma3", c) && c==HotspotCriterion::MinPrincipal);
         chkb("tresca 는 max_shear 별칭", parseHotspotCriterion("tresca", c) && c==HotspotCriterion::MaxShear);
-        chkb("모르는 이름 거부",     !parseHotspotCriterion("x_tension", c));
+        chkb("x_tension 파싱",       parseHotspotCriterion("x_tension", c) && c==HotspotCriterion::XTension);
+        chkb("모르는 이름 거부",     !parseHotspotCriterion("hydrostatic", c));
         chkb("이름 왕복",           std::string(hotspotCriterionName(HotspotCriterion::MinPrincipal))=="min_principal");
         chkb("σ3 만 min 방향",      hotspotCriterionIsMin(HotspotCriterion::MinPrincipal)
                                   && !hotspotCriterionIsMin(HotspotCriterion::MaxPrincipal)
@@ -55,9 +56,9 @@ int main(){
         chk ("심각도(σ3, −500)",     hotspotSeverity(HotspotCriterion::MinPrincipal, -500), 500, 0);
         chk ("심각도(σ1, 300)",      hotspotSeverity(HotspotCriterion::MaxPrincipal, 300), 300, 0);
         std::vector<std::string> unk;
-        auto list = parseHotspotCriteria({"von_mises","x_tension","min_principal","von_mises"}, &unk);
+        auto list = parseHotspotCriteria({"von_mises","hydrostatic","min_principal","von_mises"}, &unk);
         chk ("목록: 중복 제거·순서 유지", (double)list.size(), 2, 0);
-        chkb("목록: 모르는 이름 수집",  unk.size()==1 && unk[0]=="x_tension");
+        chkb("목록: 모르는 이름 수집",  unk.size()==1 && unk[0]=="hydrostatic");
         chkb("목록: 순서",             list[0]==HotspotCriterion::VonMises && list[1]==HotspotCriterion::MinPrincipal);
         chkb("NaN 표식 판정",          hotspotIsUnrecorded(hotspotUnrecorded()) && !hotspotIsUnrecorded(-1e300));
     }

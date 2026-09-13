@@ -30,6 +30,12 @@ bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out) {
                                                                        { out = HotspotCriterion::MinPrincipal; return true; }
     if (k == "max_shear" || k == "maxshear" || k == "tau_max" || k == "taumax" || k == "tresca")
                                                                        { out = HotspotCriterion::MaxShear;     return true; }
+    if (k == "x_tension" || k == "xtension" || k == "sigma_xx" || k == "sxx")
+                                                                       { out = HotspotCriterion::XTension;     return true; }
+    if (k == "y_tension" || k == "ytension" || k == "sigma_yy" || k == "syy")
+                                                                       { out = HotspotCriterion::YTension;     return true; }
+    if (k == "z_tension" || k == "ztension" || k == "sigma_zz" || k == "szz")
+                                                                       { out = HotspotCriterion::ZTension;     return true; }
     return false;
 }
 
@@ -39,6 +45,9 @@ const char* hotspotCriterionName(HotspotCriterion c) {
         case HotspotCriterion::MaxPrincipal: return "max_principal";
         case HotspotCriterion::MinPrincipal: return "min_principal";
         case HotspotCriterion::MaxShear:     return "max_shear";
+        case HotspotCriterion::XTension:    return "x_tension";
+        case HotspotCriterion::YTension:    return "y_tension";
+        case HotspotCriterion::ZTension:    return "z_tension";
     }
     return "von_mises";
 }
@@ -88,6 +97,10 @@ const char* hotspotStrainMeasureName(HotspotCriterion c) {
         case HotspotCriterion::MinPrincipal: return "min_principal";
         // 짝 변형률도 같은 정의 — γ_max/2 = (ε1 − ε3)/2
         case HotspotCriterion::MaxShear:     return "max_shear";
+        // 짝 변형률도 같은 축의 수직변형률
+        case HotspotCriterion::XTension:    return "xx";
+        case HotspotCriterion::YTension:    return "yy";
+        case HotspotCriterion::ZTension:    return "zz";
     }
     return "equivalent";
 }
