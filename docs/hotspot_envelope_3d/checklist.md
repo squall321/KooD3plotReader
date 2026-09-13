@@ -30,12 +30,25 @@
 - [ ] 커스텀 각도 목록 → verify: 지정한 것만 나옴
 - [ ] 전체 → verify: 캠페인 전 각도
 
-## G5. 리스크 척도 (색)
-- [ ] 응력 / 변형률 / 에너지근사(`σ̄·ε̄·V`) 선택
-      → verify: 척도 바꾸면 색 분포가 실제로 바뀜
-- [ ] 에너지근사에 **"피크 순간 근사"** 라벨 명시 → verify: 화면에 문구 존재
-- [ ] `strain_available=false` 면 변형률·에너지 선택지 감춤 (허구 값 금지)
-      → verify: 해당 데이터셋에서 선택지 없음
+## G5. 리스크 척도 (색) — 참에너지 적분
+
+### G5a. C++ — 소성일 적분 (w_p = ∫σ_vm dε_p)
+- [ ] `accumulateElementExtremes` 요소 루프에 사다리꼴 누적 추가
+      → verify: 단조 하중 합성 덱에서 해석해와 일치 (오차 < 1%)
+- [ ] `Δε_p < 0` 버림 → verify: 언로딩 포함 덱에서 에너지가 감소하지 않음
+- [ ] 상태 1개면 NaN(미기록) → verify: 0 으로 안 채움
+- [ ] `ElementExtremes.energy` 추가 + `computeHotspotClusters` 로 전달
+      → verify: 요소 수와 배열 길이 일치
+- [ ] 군집 집계 `energy_total`(Σw·V) · `energy_max` · `energy_mean` · `energy_available`
+      → verify: 단일 요소 군집에서 total == w·V
+- [ ] JSON 내보내기 → verify: analysis_result.json 에 필드 등장
+
+### G5b. 리포트 — 색 척도 선택
+- [ ] 응력 / 변형률 / **에너지(소성일)** 선택 → verify: 색 분포가 실제로 바뀜
+- [ ] 단위 표기 — `energy_total` [mJ], `energy_max` [mJ/mm³]
+      → verify: 화면 라벨에 단위 존재
+- [ ] `energy_available=false` · `strain_available=false` 면 각각 선택지 감춤
+      → verify: 해당 데이터셋에서 선택지 없음 (허구 값 금지)
 
 ## G6. 컨투어(리스크 맵)
 - [ ] 군집 점·반경 → 커널 누적 격자 → verify: 단일 군집일 때 중심이 최대
