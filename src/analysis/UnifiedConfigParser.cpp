@@ -841,6 +841,18 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     cleaned.push_back(n.substr(a, b - a + 1));
                 }
                 if (!cleaned.empty()) config.hotspot_criteria = cleaned;
+            } else if (key == "time_aggregate") {
+                // 모르는 값은 조용히 기본으로 떨어뜨리지 않는다 — 사용자가 지정한
+                // 방식이 무시되면 과대평가 쪽 값을 보고 맞다고 여기게 된다.
+                if (value == "elemmax_then_mean" || value == "mean_then_timemax" ||
+                    value == "both") {
+                    config.hotspot_time_aggregate = value;
+                } else {
+                    std::cerr << "[UnifiedConfig] hotspot_clusters.time_aggregate: "
+                              << "알 수 없는 값 '" << value << "' — "
+                              << "elemmax_then_mean | mean_then_timemax | both 중 하나여야 합니다. "
+                              << "기본값(elemmax_then_mean)을 씁니다." << std::endl;
+                }
             } else {
                 std::cerr << "[UnifiedConfig] hotspot_clusters: 알 수 없는 키 무시 — "
                           << key << std::endl;

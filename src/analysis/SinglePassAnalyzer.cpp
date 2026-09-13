@@ -1354,6 +1354,118 @@ const std::vector<double>& SinglePassAnalyzer::plasticWorkDensity(
     return (it == elem_plastic_work_.end()) ? kEmpty : it->second;
 }
 
+void SinglePassAnalyzer::clusterTimeAggregate(
+    const std::vector<data::StateData>& all_states,
+    HotspotElementKind kind,
+    HotspotCriterion crit,
+    const std::vector<std::pair<std::vector<size_t>, std::vector<double>>>& members,
+    std::vector<double>& out_value,
+    std::vector<double>& out_time
+) const {
+    const size_t nc = members.size();
+    out_value.assign(nc, std::numeric_limits<double>::quiet_NaN());
+    out_time.assign(nc, 0.0);
+    if (nc == 0 || all_states.empty()) return;
+
+    const bool is_min = hotspotCriterionIsMin(crit);
+    const bool is_shell_like = (kind != HotspotElementKind::Solid);
+
+    // 요소 인덱스 → 이 요소가 속한 덩어리들. 한 요소는 한 덩어리에만 속하지만
+    // 방어적으로 목록으로 둔다(향후 겹치는 정의가 생겨도 조용히 틀리지 않게).
+    std::map<size_t, std::vector<std::pair<size_t, double>>> elem_to_cluster;
+    for (size_t c = 0; c < nc; ++c) {
+        const auto& idxs = members[c].first;
+        const auto& vols = members[c].second;
+        for (size_t k = 0; k < idxs.size(); ++k) {
+            const double v = (k < vols.size()) ? vols[k] : 0.0;
+            if (v > 0.0) elem_to_cluster[idxs[k]].emplace_back(c, v);
+        }
+    }
+    if (elem_to_cluster.empty()) return;
+
+    const int32_t nv = is_shell_like
+        ? ((kind == HotspotElementKind::Shell) ? nv2d_ : nv3dt_)
+        : nv3d_;
+    if (nv <= 0) return;
+    // 셸 계열 층 배치 — accumulateLayeredExtremes 와 **같은 공식**이어야 한다.
+    // 여기서 stride 를 다르게 추측했다가 엉뚱한 메모리를 읽어 값이 50배로 나왔다.
+    if (is_shell_like && (ioshl_[0] == 0 || maxint_ <= 0)) return;
+    const int P = is_shell_like ? (6 * ioshl_[0] + ioshl_[1] + neips_) : 0;
+
+    std::vector<double> sum_v(nc, 0.0), sum_w(nc, 0.0);
+    for (size_t si = 0; si < all_states.size(); ++si) {
+        const auto& sd = is_shell_like
+            ? ((kind == HotspotElementKind::Shell) ? all_states[si].shell_data
+                                                   : all_states[si].thick_shell_data)
+            : all_states[si].solid_data;
+        if (sd.empty()) continue;
+
+        std::fill(sum_v.begin(), sum_v.end(), 0.0);
+        std::fill(sum_w.begin(), sum_w.end(), 0.0);
+        bool any = false;
+
+        for (const auto& kv : elem_to_cluster) {
+            const size_t ei = kv.first;
+            const size_t base = ei * static_cast<size_t>(nv);
+            if (base + static_cast<size_t>(nv) > sd.size()) continue;
+
+            double val = 0.0;
+            bool ok = false;
+            if (!is_shell_like) {
+                if (base + 6 <= sd.size()) {
+                    const double sxx = sd[base+0], syy = sd[base+1], szz = sd[base+2];
+                    const double sxy = sd[base+3], syz = sd[base+4], szx = sd[base+5];
+                    if (crit == HotspotCriterion::VonMises) {
+                        val = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                    } else {
+                        const StressTensor st{sxx, syy, szz, sxy, syz, szx};
+                        const auto pr = st.principalStresses();
+                        val = (crit == HotspotCriterion::MaxPrincipal) ? pr[0] : pr[2];
+                    }
+                    ok = true;
+                }
+            } else if (P > 0 && maxint_ > 0) {
+                // 층 평균 — 1패스는 '가장 뜨거운 층' 을 쓰지만, 여기서는 같은 시각의
+                // 덩어리 하중을 보는 것이므로 두께 방향 평균이 물리적으로 맞다.
+                double acc = 0.0;
+                int n = 0;
+                for (int L = 0; L < maxint_; ++L) {
+                    const size_t off = base + static_cast<size_t>(L) * static_cast<size_t>(P);
+                    if (off + 6 > sd.size()) break;
+                    const double sxx = sd[off+0], syy = sd[off+1], szz = sd[off+2];
+                    const double sxy = sd[off+3], syz = sd[off+4], szx = sd[off+5];
+                    if (crit == HotspotCriterion::VonMises) {
+                        acc += equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                    } else {
+                        const StressTensor st{sxx, syy, szz, sxy, syz, szx};
+                        const auto pr = st.principalStresses();
+                        acc += (crit == HotspotCriterion::MaxPrincipal) ? pr[0] : pr[2];
+                    }
+                    ++n;
+                }
+                if (n > 0) { val = acc / n; ok = true; }
+            }
+            if (!ok) continue;
+
+            for (const auto& cv : kv.second) {
+                sum_v[cv.first] += val * cv.second;
+                sum_w[cv.first] += cv.second;
+                any = true;
+            }
+        }
+        if (!any) continue;
+
+        const double t = all_states[si].time;
+        for (size_t c = 0; c < nc; ++c) {
+            if (sum_w[c] <= 0.0) continue;
+            const double m = sum_v[c] / sum_w[c];
+            const double cur = out_value[c];
+            const bool better = !std::isfinite(cur) || (is_min ? (m < cur) : (m > cur));
+            if (better) { out_value[c] = m; out_time[c] = t; }
+        }
+    }
+}
+
 const std::vector<double>& SinglePassAnalyzer::plasticStrainMax(
     HotspotElementKind k
 ) const {

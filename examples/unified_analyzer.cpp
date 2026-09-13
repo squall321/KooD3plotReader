@@ -961,7 +961,7 @@ static void printCapabilities() {
     std::cout << "    \"plastic_work\": true,\n";
     // 파트 단위 소성역 절대량 (n_yield/vol_yield/sum_eps_vol/max_eps) — top_percent 무관
     std::cout << "    \"plastic_zone\": true,\n";
-    std::cout << "    \"time_aggregate\": [\"elemmax_then_mean\"]\n";
+    std::cout << "    \"time_aggregate\": [\"elemmax_then_mean\", \"mean_then_timemax\", \"both\"]\n";
     std::cout << "  },\n";
 
     std::cout << "  \"render\": {\n";

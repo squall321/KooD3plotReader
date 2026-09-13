@@ -80,9 +80,19 @@
       진짜 0 과 구분되지 않았다 → 유효숫자 10자리(defaultfloat)
       → verify: `4.347530478e-07` (이전 `0.00000043`), JSON 파싱 정상, 리포트 회귀 0
 
-### P1-2. 시간 집계 옵션
-- [ ] `--hotspot-time-aggregate {elemmax_then_mean|mean_then_timemax|both}`
-      → verify: 모든 군집에서 `mean_then_timemax ≤ elemmax_then_mean`
+### P1-2. 시간 집계 옵션 — 완료
+- [x] `HotspotCluster::member_idx/member_vol` — 2패스용 멤버십 (JSON 에는 안 냄)
+- [x] `SinglePassAnalyzer::clusterTimeAggregate()` — 상태 루프 **1회**로 모든 덩어리를
+      동시에 누적 (덩어리마다 따로 훑지 않는다)
+- [x] YAML `hotspot_clusters.time_aggregate` — 모르는 값은 경고 후 기본값
+      → verify: `bogus` 지정 시 사유 출력, 조용히 떨어지지 않음
+- [x] 부등식 → verify: **17/17 성립** (shell 5·solid 2·thick_shell 10, 위반 0).
+      비율 b/a 최소 0.6648 / 중앙 0.9906 / 최대 1.0000 — 기존 값이 최대 34% 과대평가
+- [x] 모드별 동작 → verify: `elemmax_then_mean` 0개 / `mean_then_timemax` 17개 /
+      `both` 17개 / `bogus` 0개+경고
+- [x] `--capabilities` 에 3종 반영
+- 주의: `mean_then_timemax` 와 `both` 는 **출력이 같다**. `stress_mean` 은 1패스
+  부산물이라 어차피 나온다 — 헤더에 명시
 
 ### P1-3. 기준량 잔여
 - [ ] `max_shear = (σ1−σ3)/2` → verify: 단축 인장에서 `σ_vm/2`

@@ -905,8 +905,15 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             bool any_energy = false;
             double w_sum = 0.0, w_max = 0.0;
 
+            std::vector<size_t> mem_idx;
+            std::vector<double> mem_vol;
+            mem_idx.reserve(g.size());
+            mem_vol.reserve(g.size());
+
             for (size_t i : g) {
                 const ClusterElement& e = sel[i];
+                mem_idx.push_back(e.element_idx);
+                mem_vol.push_back(e.volume);
                 sumV += e.volume;
                 sumSV += e.value * e.volume;
                 // 🔴 중심 가중에 부호 있는 값을 그대로 쓰면 음수 가중이 중심을 덩어리
@@ -935,6 +942,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
 
             HotspotCluster c;
             c.element_count = static_cast<int>(g.size());
+            c.member_idx = std::move(mem_idx);
+            c.member_vol = std::move(mem_vol);
             if (is_shell) {
                 // 셸: 면적은 항상, 부피(면적×두께)는 두께가 있을 때만
                 c.has_area = true;

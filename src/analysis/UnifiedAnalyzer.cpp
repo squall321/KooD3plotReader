@@ -388,6 +388,43 @@ void UnifiedAnalyzer::processSolidJobs(
                         sp_analyzer.layerScheme(), pnames, hc,
                         sp_analyzer.plasticWorkDensity(kind),
                         sp_analyzer.plasticStrainMax(kind));
+
+                    // ── 2패스: max_t(mean_e) ────────────────────────────
+                    // 기본 stress_mean 은 mean_e(max_t) 라 서로 다른 시각의 피크를
+                    // 합성한다(항상 과대평가). 같은 시각에 실제로 걸린 하중을
+                    // 알려면 덩어리가 확정된 뒤 상태를 한 번 더 훑어야 한다.
+                    if (config.hotspot_time_aggregate != "elemmax_then_mean") {
+                        std::vector<std::pair<std::vector<size_t>, std::vector<double>>> mem;
+                        std::vector<std::pair<size_t, size_t>> where;  // (파트 idx, 덩어리 idx)
+                        for (size_t pi = 0; pi < part.size(); ++pi) {
+                            for (size_t ci = 0; ci < part[pi].clusters.size(); ++ci) {
+                                const auto& c = part[pi].clusters[ci];
+                                if (c.member_idx.empty()) continue;
+                                mem.emplace_back(c.member_idx, c.member_vol);
+                                where.emplace_back(pi, ci);
+                            }
+                        }
+                        if (!mem.empty()) {
+                            std::vector<double> vals, times;
+                            sp_analyzer.clusterTimeAggregate(all_states, kind, crit,
+                                                             mem, vals, times);
+                            for (size_t m = 0; m < where.size(); ++m) {
+                                auto& c = part[where[m].first].clusters[where[m].second];
+                                if (std::isfinite(vals[m])) {
+                                    c.mean_timemax_available = true;
+                                    c.mean_timemax = vals[m];
+                                    c.mean_timemax_time = times[m];
+                                }
+                            }
+                        }
+                    }
+                    // 멤버 목록은 2패스용 부산물이라 결과에 남기지 않는다 (크기)
+                    for (auto& pr : part)
+                        for (auto& c : pr.clusters) {
+                            c.member_idx.clear(); c.member_idx.shrink_to_fit();
+                            c.member_vol.clear(); c.member_vol.shrink_to_fit();
+                        }
+
                     result.hotspot_clusters.insert(result.hotspot_clusters.end(),
                                                    std::make_move_iterator(part.begin()),
                                                    std::make_move_iterator(part.end()));

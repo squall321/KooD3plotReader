@@ -388,6 +388,28 @@ public:
     /// 마지막 프레임이 아니라 이력 최댓값을 쓴다. ε_p 가 이론상 단조라지만 실덱에서
     /// 감소하는 전이를 확인했다 (docs/hotspot_envelope_3d/context-notes.md).
     const std::vector<double>& plasticStrainMax(HotspotElementKind k) const;
+
+    /// 덩어리별 `max_t(mean_e)` — 매 시각 가중평균을 구하고 그 시간축 극값.
+    ///
+    /// 기본 보고값 `stress_mean` 은 `mean_e(max_t)` 라 서로 다른 시각의 피크를
+    /// 한 덩어리로 합성한다(항상 과대평가 쪽). 이쪽은 같은 시각에 실제로 걸린
+    /// 하중이다. 상태를 한 번 더 훑으므로 2패스다.
+    ///
+    /// @param all_states  1패스와 같은 상태 배열
+    /// @param kind        요소 종류
+    /// @param crit        기준량 (min 방향이면 시간축 최소를 찾는다)
+    /// @param members     덩어리별 (요소 인덱스, 가중 측도) — HotspotCluster 의 member_*
+    /// @param out_value   [출력] 덩어리별 극값. 구하지 못하면 NaN
+    /// @param out_time    [출력] 그 극값이 난 시각
+    ///
+    /// 상태 루프는 **한 번만** 돈다 — 덩어리마다 따로 훑지 않는다.
+    void clusterTimeAggregate(
+        const std::vector<data::StateData>& all_states,
+        HotspotElementKind kind,
+        HotspotCriterion crit,
+        const std::vector<std::pair<std::vector<size_t>, std::vector<double>>>& members,
+        std::vector<double>& out_value,
+        std::vector<double>& out_time) const;
     /// 셸 계열 층 번호 해석 — "mid_inner_outer" | "index"
     const std::string& layerScheme() const { return layer_scheme_; }
 

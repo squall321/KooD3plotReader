@@ -149,6 +149,22 @@ struct HotspotCluster {
 
     /// 소성일 w_p = ∫σ_vm dε_p 를 시간 적분한 값. 짧게 튄 탄성 응력은
     /// Δε_p = 0 이라 기여하지 않는다 — 실제 손상에 비례하는 리스크 척도.
+    // ── 시간 집계 (2패스로 채움) ────────────────────────────────────
+    // stress_mean 은 `mean_e(max_t)` 다 — 요소별 **시간축 극값**을 먼저 구하고
+    // 공간 평균한다. 서로 다른 시각의 피크를 한 덩어리로 합성하므로, 실제로
+    // 동시에 그만큼 버틴 적이 없는 상태다. 정의상 항상 과대평가 쪽이다.
+    //
+    // mean_timemax 는 `max_t(mean_e)` — 매 시각 덩어리 평균을 구하고 그 시간 극값.
+    // 같은 시각에 실제로 걸린 하중이다. 항상 mean_timemax ≤ stress_mean 이다
+    // (min 방향이면 부등호가 뒤집힌다 = 덜 극단적).
+    bool   mean_timemax_available = false;
+    double mean_timemax = 0.0;          ///< max_t( Σv_i(t)·V_i / ΣV_i )
+    double mean_timemax_time = 0.0;     ///< 그 극값이 난 시각
+
+    /// 2패스 시간집계용 구성 요소 — JSON 으로 내보내지 않는다 (크기).
+    std::vector<size_t> member_idx;     ///< 해당 요소 종류 배열 내 인덱스
+    std::vector<double> member_vol;     ///< 같은 순서의 가중 측도 (부피/면적×두께)
+
     bool   energy_available = false;    ///< false 면 적분 못 함 (출력에서 뺀다)
     double energy_total = 0.0;          ///< Σ w_p·V — 덩어리 총 소성일 [에너지]
     double energy_max = 0.0;            ///< 요소별 밀도 최댓값 [에너지/부피]

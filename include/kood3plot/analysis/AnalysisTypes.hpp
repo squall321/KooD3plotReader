@@ -1100,6 +1100,20 @@ struct UnifiedConfig {
     /// 여러 개면 파트×기준 항목이 각각 나온다. 기본은 von_mises 단독(기존 출력 불변).
     std::vector<std::string> hotspot_criteria = {"von_mises"};
 
+    /// 덩어리 평균의 시간 집계 방식.
+    ///  - "elemmax_then_mean"  (기본) `mean_e(max_t)` — 요소별 시간 극값의 공간 평균.
+    ///                         서로 다른 시각의 피크를 합성하므로 **항상 과대평가** 쪽.
+    ///  - "mean_then_timemax"  `max_t(mean_e)` — 같은 시각에 실제로 걸린 하중.
+    ///  - "both"               둘 다 보고.
+    ///
+    /// 🔴 "mean_then_timemax" 와 "both" 는 **출력이 같다**. `stress_mean`(=mean_e(max_t))
+    ///    은 1패스의 부산물이라 어차피 나오고, 둘 다 `mean_timemax` 를 추가한다.
+    ///    이름을 갈라 둔 것은 의도를 적기 위해서지 동작이 다르기 때문이 아니다 —
+    ///    "mean_then_timemax 를 골랐는데 왜 stress_mean 도 있나" 로 헷갈리지 않도록
+    ///    여기 적어 둔다.
+    /// 기본을 바꾸지 않는 이유: 기존 산출물과의 비교가 깨지면 안 되기 때문이다.
+    std::string hotspot_time_aggregate = "elemmax_then_mean";
+
     // Analysis jobs
     std::vector<AnalysisJob> analysis_jobs;
 

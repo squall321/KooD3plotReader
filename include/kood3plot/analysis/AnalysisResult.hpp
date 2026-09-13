@@ -725,6 +725,11 @@ private:
         }
         // 소성일 w_p = ∫σ_vm dε_p. 적분 못 한 덱에서는 키 자체를 안 낸다 —
         // 0 으로 내면 '에너지 0' 과 '계산 못 함' 이 구분되지 않는다.
+        // max_t(mean_e) — 계산하지 않았으면 키를 만들지 않는다
+        if (c.mean_timemax_available) {
+            oss << ind2 << "\"mean_timemax\": " << jnum(c.mean_timemax) << "," << nl;
+            oss << ind2 << "\"mean_timemax_time\": " << jnum(c.mean_timemax_time) << "," << nl;
+        }
         oss << ind2 << "\"energy_available\": " << (c.energy_available ? "true" : "false") << "," << nl;
         if (c.energy_available) {
             oss << ind2 << "\"energy_mean\": " << jnum(c.energy_mean) << "," << nl;
