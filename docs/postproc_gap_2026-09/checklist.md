@@ -40,10 +40,14 @@
       사라짐, `tool_built` 만 없으면 커밋만 표시 (3경우 확인)
 - [ ] sphere / impact / federate / custom 푸터 — P0-5 배포 전까지
 
-### P0-4. 배포 검증 스크립트
-- [ ] `scripts/verify_deploy.sh <경로>` — VERSION ↔ `--capabilities` version 대조
-- [ ] 호스트 경로와 SIF 안을 둘 다 확인
-      → verify: 현재 `/data/SmartTwinPostprocessor` 에서 **실패** (eaffe54 vs 4815f55)
+### P0-4. 배포 검증 스크립트 — 완료
+- [x] `scripts/verify_deploy.sh <경로|sif> [...]` — VERSION ↔ `--capabilities` 대조
+- [x] 디렉토리와 SIF 를 둘 다 받고, **대상 간에도** 대조 (호스트 vs SIF 가 이번 사건 형태)
+- [x] 재현 테스트 → verify: 현재 배포본에서 **실패 3건** —
+      호스트 `eaffe54` / SIF `4815f55` 불일치가 자동으로 드러남
+- [x] 통과·실패 5경우 → verify: 일치 0 / VERSION 만 낡음 1 / VERSION 없음 1 /
+      경로 없음 1 / 두 대상 같은 판 0
+- [x] `set -u` 빈 배열 참조 버그 수정 (카운터로 대체)
 
 ### P0-5. 9/13 소성일 배포
 - [ ] SIF 재빌드 → node001 배포 → P0-4 통과
