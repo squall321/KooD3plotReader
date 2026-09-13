@@ -23,9 +23,24 @@ g++ -std=c++17 -O2 -I include \
 g++ -std=c++17 -O2 -I include \
     tests/hotspot/test_capabilities.cpp src/analysis/HotspotClusterAnalyzer.cpp \
     -o /tmp/t4 && /tmp/t4
+
+# 5) 기준량 확장(σ1·σ3) · 셸 군집 — Mesh 구현이 필요해 src/data/Mesh.cpp 를 함께 준다
+for t in test_hotspot_criterion test_hotspot_shell; do
+    g++ -std=c++17 -O2 -I include \
+        tests/hotspot/$t.cpp src/analysis/HotspotClusterAnalyzer.cpp src/data/Mesh.cpp \
+        -o /tmp/t_$t && /tmp/t_$t
+done
+
+# 6) 셸 기하 · 변형률 오프셋
+g++ -std=c++17 -O2 -I include \
+    tests/hotspot/test_shell_geometry.cpp src/analysis/HotspotClusterAnalyzer.cpp \
+    -o /tmp/t6 && /tmp/t6
+g++ -std=c++17 -O2 -I include \
+    tests/hotspot/test_strain_offset.cpp src/analysis/HotspotClusterAnalyzer.cpp \
+    -o /tmp/t7 && /tmp/t7
 ```
 
-네 시험 모두 `[PASS] 실패 0 건` 이어야 한다.
+모든 시험이 `[PASS] 실패 0 건` 이어야 한다 (2026-09-13 기준 7종 통과).
 
 ## 무엇을 지키는 시험인가
 
