@@ -110,6 +110,11 @@ struct HotspotClusterConfig {
     /// 이 개수 미만의 덩어리는 노이즈로 버린다
     int min_cluster_elements = 5;
 
+    /// 소성역으로 셀 ε_p 임계. 기본 0 은 "0 보다 크면 소성" 이라는 뜻이다.
+    /// d3plot 의 ε_p 는 이미 소성분만 담으므로 0 초과가 곧 항복 이후다.
+    /// 수치 잡음을 걸러내려면 1e-6 같은 값을 준다.
+    double yield_eps_threshold = 0.0;
+
     /// 선별 기준량 (한 번 호출에 하나). 여러 기준은 호출부가 돌린다.
     HotspotCriterion criterion = HotspotCriterion::VonMises;
 
@@ -193,6 +198,23 @@ struct PartHotspotResult {
     int element_count_clustered = 0;    ///< 최소 크기 필터 통과 후 덩어리에 속한 요소 수
 
     bool strain_available = false;
+
+    // ── 소성역 절대량 — top_percent 와 무관하다 ─────────────────────
+    // 클러스터의 volume·energy_total 은 상위 top_percent **개수컷**으로 고른
+    // 요소들만 합한 값이라 3%→5% 로 바꾸면 따라 변한다. 물리량이 아니다.
+    // 판정에 필요한 건 "항복을 넘은 영역이 얼마나 넓은가" 이고, 그건 파트 전체를
+    // 대상으로 세야 한다 (docs/postproc_gap_2026-09/plan.md §P1-1).
+    //
+    // ε_p 가 없는 덱에서는 plastic_zone_available = false 이고 나머지는 쓰지 않는다.
+    bool   plastic_zone_available = false;
+    double yield_eps_threshold = 0.0;   ///< ε_p 가 이 값을 넘으면 소성으로 센다
+    int    n_yield = 0;                 ///< ε_p > 임계 인 요소 수 (파트 전체 기준)
+    double vol_yield = 0.0;             ///< 그 요소들의 부피(셸이면 면적×두께) 합
+    double vol_total = 0.0;             ///< 파트 전체 요소의 같은 측도 합
+    double sum_eps_vol = 0.0;           ///< Σ ε_p·V — 소성 변형의 총량
+    double max_eps = 0.0;               ///< 파트 전체 ε_p 이력 최댓값
+    double plastic_work_total = 0.0;    ///< Σ w_p·V — 파트 전체 소성일 [에너지]
+    bool   plastic_work_available = false;
 
     std::vector<HotspotCluster> clusters;
 };
@@ -395,7 +417,9 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const HotspotClusterConfig& cfg,
     /// 요소별 누적 소성일 밀도. 비어 있으면 에너지 미계산으로 보고한다.
     /// 기준량과 무관한 양이라 ElementExtremes 와 따로 받는다(기준마다 복제 방지).
-    const std::vector<double>& elem_energy = {});
+    const std::vector<double>& elem_energy = {},
+    /// 요소별 ε_p 이력 최댓값. 비어 있으면 소성역 절대량을 보고하지 않는다.
+    const std::vector<double>& elem_eps = {});
 
 }  // namespace analysis
 }  // namespace kood3plot

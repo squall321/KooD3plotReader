@@ -689,7 +689,12 @@ private:
     static std::string jnum(double v) {
         if (!std::isfinite(v)) return "null";
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(8) << v;
+        // 🔴 `std::fixed << setprecision(8)` 을 쓰면 안 된다. 소수점 이하 8자리에서
+        //    잘리므로 ε_p(1e-6) 는 유효숫자 3자리만 남고, 소성일 밀도(1e-9)는
+        //    "0.00000000" 이 되어 **진짜 0 과 구분되지 않는다** — 값이 조용히 사라진다.
+        //    유효숫자 기준(defaultfloat)으로 쓰면 필요할 때 지수 표기가 되고,
+        //    지수 표기는 JSON 에서 유효한 숫자다.
+        oss << std::setprecision(10) << v;
         return oss.str();
     }
 
@@ -770,6 +775,24 @@ private:
         oss << ind2 << "\"element_count_selected\": " << r.element_count_selected << "," << nl;
         oss << ind2 << "\"element_count_clustered\": " << r.element_count_clustered << "," << nl;
         oss << ind2 << "\"strain_available\": " << (r.strain_available ? "true" : "false") << "," << nl;
+        // 소성역 절대량 — top_percent 와 무관한 파트 전체 값.
+        // 클러스터의 volume·energy_total 은 상위 백분위로 자른 뒤의 값이라 설정을
+        // 바꾸면 따라 변한다. 판정에는 이쪽을 쓴다.
+        oss << ind2 << "\"vol_total\": " << jnum(r.vol_total) << "," << nl;
+        oss << ind2 << "\"plastic_zone_available\": "
+            << (r.plastic_zone_available ? "true" : "false") << "," << nl;
+        if (r.plastic_zone_available) {
+            oss << ind2 << "\"yield_eps_threshold\": " << jnum(r.yield_eps_threshold) << "," << nl;
+            oss << ind2 << "\"n_yield\": " << r.n_yield << "," << nl;
+            oss << ind2 << "\"vol_yield\": " << jnum(r.vol_yield) << "," << nl;
+            oss << ind2 << "\"sum_eps_vol\": " << jnum(r.sum_eps_vol) << "," << nl;
+            oss << ind2 << "\"max_eps\": " << jnum(r.max_eps) << "," << nl;
+        }
+        oss << ind2 << "\"plastic_work_available\": "
+            << (r.plastic_work_available ? "true" : "false") << "," << nl;
+        if (r.plastic_work_available) {
+            oss << ind2 << "\"plastic_work_total\": " << jnum(r.plastic_work_total) << "," << nl;
+        }
         oss << ind2 << "\"clusters\": [";
         for (size_t i = 0; i < r.clusters.size(); ++i) {
             if (i > 0) oss << ",";

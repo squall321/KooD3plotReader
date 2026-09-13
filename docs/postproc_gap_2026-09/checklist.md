@@ -52,17 +52,33 @@
       경로 없음 1 / 두 대상 같은 판 0
 - [x] `set -u` 빈 배열 참조 버그 수정 (카운터로 대체)
 
-### P0-5. 9/13 소성일 배포
-- [ ] SIF 재빌드 → node001 배포 → P0-4 통과
+### P0-5. 배포 — P1·P2 까지 쌓고 한 번에 (2026-09-13 사용자 결정)
+- [ ] main 에 push (SIF def 가 GitHub main 을 clone 하므로 필수)
+- [ ] SIF 재빌드 → node001 배포 → `verify_deploy.sh` 통과
+- [ ] `package_module.sh` 로 v33 tar 생성 → `verify_package.sh` 통과
+- 참고: P0 검증 도구는 리포지토리에서 바로 쓸 수 있어 배포 전에도 효력이 있다
 
 ## P1. 조용히 틀리는 물리 경로
 
-### P1-1. top_percent 독립 절대량
-- [ ] 파트 단위 `n_yield` / `vol_yield` / `sum_eps_vol` / `max_eps` / `plastic_work_total`
-- [ ] ε_p 는 이력 최댓값 사용 (단조 가정 금지 — 실덱에서 감소 확인됨)
-      → verify: `--hotspot-top-percent 3` vs `5` 에서 **파트 절대량 동일**,
-      클러스터 종속량(`volume`/`energy_total`)은 달라짐
-- [ ] `energy_total` 이 top_percent 종속임을 리포트에 명시 (또는 파트 절대량 병기)
+### P1-1. top_percent 독립 절대량 — 완료
+- [x] `SinglePassAnalyzer::plasticStrainMax()` — 요소별 ε_p **이력 최댓값**
+      (솔리드·셸·두꺼운 셸). 소성일과 조건이 달라 상태 1개짜리 덱에서도 기록
+- [x] 파트 단위 `n_yield` / `vol_yield` / `vol_total` / `sum_eps_vol` / `max_eps` /
+      `plastic_work_total` — **상위 백분위로 자르기 전에** 파트 전체로 집계
+- [x] `yield_eps_threshold` 설정 (기본 0 = ε_p>0 이면 소성)
+- [x] 없으면 키를 만들지 않는다 (`plastic_zone_available` / `plastic_work_available`)
+- [x] 셸이 면적 가중이면 `plastic_work_total` 을 내지 않는다 (단위 불일치)
+- [x] top_percent 독립성 → verify: `3%` vs `5%` 에서 **파트 절대량 34/34 동일**,
+      선별 요소 수 30/34·클러스터 volume 합 21/34 달라짐
+- [x] 독립 검증 → verify: d3plot 을 직접 읽는 별도 프로그램과 **5/5 항목 상대오차 0**
+      (part 100: n_yield 1150, vol_yield 13089.06761, sum_eps_vol 0.01029100171,
+      max_eps 8.689126844e-06)
+- [x] 항등식 → verify: `vol_yield ≤ vol_total`, `n_yield ≤ element_count_total` 위반 0건
+- [x] `--capabilities` 에 `plastic_zone: true` 반영
+- [x] **기존 결함 동반 수정** — `jnum` 이 `fixed<<setprecision(8)` 이라 소수점 8자리에서
+      잘렸다. ε_p(1e-6)는 유효숫자 3자리만 남고 1e-9 이하는 `0.00000000` 이 되어
+      진짜 0 과 구분되지 않았다 → 유효숫자 10자리(defaultfloat)
+      → verify: `4.347530478e-07` (이전 `0.00000043`), JSON 파싱 정상, 리포트 회귀 0
 
 ### P1-2. 시간 집계 옵션
 - [ ] `--hotspot-time-aggregate {elemmax_then_mean|mean_then_timemax|both}`

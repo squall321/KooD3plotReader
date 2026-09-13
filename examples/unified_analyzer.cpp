@@ -959,6 +959,8 @@ static void printCapabilities() {
     std::cout << "    \"element_kinds\": [\"solid\", \"thick_shell\", \"shell\"],\n";
     // 소성일 w_p = ∫σ_vm dε_p (커밋 53dc93f). 이 빌드에 들어 있으면 true.
     std::cout << "    \"plastic_work\": true,\n";
+    // 파트 단위 소성역 절대량 (n_yield/vol_yield/sum_eps_vol/max_eps) — top_percent 무관
+    std::cout << "    \"plastic_zone\": true,\n";
     std::cout << "    \"time_aggregate\": [\"elemmax_then_mean\"]\n";
     std::cout << "  },\n";
 

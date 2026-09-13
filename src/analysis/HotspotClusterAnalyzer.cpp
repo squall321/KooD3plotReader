@@ -572,7 +572,8 @@ std::vector<PartHotspotResult> computeHotspotClusters(
     const std::string& layer_scheme,
     const std::map<int32_t, std::string>& part_names,
     const HotspotClusterConfig& cfg,
-    const std::vector<double>& elem_energy) {
+    const std::vector<double>& elem_energy,
+    const std::vector<double>& elem_eps) {
 
     const std::vector<double>& elem_max_vm = ex.value;
     const std::vector<double>& elem_max_time = ex.time;
@@ -728,6 +729,56 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             res.element_size_ref = medianPositive(size_metric);
         }
         res.distance_threshold = cfg.distance_factor * res.element_size_ref;
+
+        // ── 소성역 절대량 — 파트 전체, top_percent 와 무관 ──────────────
+        // 여기서 세는 이유: 아래의 상위 백분위 컷은 **요소 개수 비율**이라
+        // 3%→5% 로 바꾸면 클러스터의 volume·energy_total 이 따라 변한다.
+        // 물리 판정("항복을 넘은 영역이 얼마나 넓은가")은 그것과 무관해야 한다.
+        {
+            const bool have_eps = !elem_eps.empty();
+            const bool have_w   = !elem_energy.empty();
+            res.plastic_zone_available = have_eps;
+            res.plastic_work_available = have_w;
+            res.yield_eps_threshold = cfg.yield_eps_threshold;
+            double vsum = 0.0, vy = 0.0, sev = 0.0, wv = 0.0, emax = 0.0;
+            int ny = 0;
+            bool any_eps = false, any_w = false;
+            for (size_t k = 0; k < idxs.size(); ++k) {
+                if (!geo[k].ok) continue;
+                const double v = geo[k].v;
+                vsum += v;
+                const size_t ei = idxs[k];
+                if (have_eps && ei < elem_eps.size()) {
+                    const double e = elem_eps[ei];
+                    if (std::isfinite(e)) {
+                        any_eps = true;
+                        if (e > emax) emax = e;
+                        if (e > cfg.yield_eps_threshold) { ++ny; vy += v; }
+                        sev += e * v;
+                    }
+                }
+                if (have_w && ei < elem_energy.size()) {
+                    const double w = elem_energy[ei];
+                    if (std::isfinite(w)) { any_w = true; wv += w * v; }
+                }
+            }
+            res.vol_total = vsum;
+            if (any_eps) {
+                res.n_yield = ny;
+                res.vol_yield = vy;
+                res.sum_eps_vol = sev;
+                res.max_eps = emax;
+            } else {
+                res.plastic_zone_available = false;
+            }
+            if (any_w) res.plastic_work_total = wv; else res.plastic_work_available = false;
+            // 셸이 면적 가중이면 부피가 아니라 면적이다 — 에너지 총합은 단위가 맞지
+            // 않으므로 보고하지 않는다 (클러스터 energy_total 과 같은 규칙).
+            if (is_shell && res.weight_measure != "area_x_thickness") {
+                res.plastic_work_available = false;
+                res.plastic_work_total = 0.0;
+            }
+        }
 
         // ── 3) 상위 p% 선별 ──
         //

@@ -1354,6 +1354,14 @@ const std::vector<double>& SinglePassAnalyzer::plasticWorkDensity(
     return (it == elem_plastic_work_.end()) ? kEmpty : it->second;
 }
 
+const std::vector<double>& SinglePassAnalyzer::plasticStrainMax(
+    HotspotElementKind k
+) const {
+    static const std::vector<double> kEmpty;
+    auto it = elem_eps_max_.find(k);
+    return (it == elem_eps_max_.end()) ? kEmpty : it->second;
+}
+
 void SinglePassAnalyzer::accumulateElementExtremes(
     const std::vector<data::StateData>& all_states,
     const std::vector<HotspotCriterion>& criteria
@@ -1397,6 +1405,11 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     std::vector<double>& work = elem_plastic_work_[HotspotElementKind::Solid];
     const bool work_ok = (nv3d_ >= 7) && (ns >= 2);
     if (work_ok) work.assign(ne, hotspotUnrecorded()); else work.clear();
+    // 요소별 ε_p 이력 최댓값. 소성일과 달리 상태가 1개뿐이어도 의미가 있다
+    // (그 시점까지의 소성 변형량). 소성역 절대량(n_yield/vol_yield)이 이걸 쓴다.
+    std::vector<double>& epmax = elem_eps_max_[HotspotElementKind::Solid];
+    const bool eps_ok = (nv3d_ >= 7);
+    if (eps_ok) epmax.assign(ne, hotspotUnrecorded()); else epmax.clear();
     int64_t nonmono_total = 0;
 
     // 🔴 병렬화 축이 **요소**다. 기본 경로는 상태 루프에 omp 를 걸지만,
@@ -1421,6 +1434,9 @@ void SinglePassAnalyzer::accumulateElementExtremes(
         double w_acc = 0.0;
         bool   w_any = false;
         int    nonmono = 0;
+        // ε_p 이력 최댓값은 상태 1개짜리 덱에서도 기록한다 (work 와 조건이 다르다)
+        double ep_run_max_all = 0.0;
+        bool   seen_ep = false;
 
         for (size_t si = 0; si < ns; ++si) {
             const auto& sd = all_states[si].solid_data;
@@ -1434,6 +1450,11 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             const double sxy = sd[base + 3], syz = sd[base + 4], szx = sd[base + 5];
 
             // ── 소성일 누적 — 극값 갱신 여부와 무관하게 **모든 상태**에서 해야 한다 ──
+            if (eps_ok && base + 7 <= sd.size()) {
+                const double ep_here = sd[base + 6];
+                if (ep_here > ep_run_max_all) ep_run_max_all = ep_here;
+                seen_ep = true;
+            }
             if (work_ok && base + 7 <= sd.size()) {
                 const double vm_now = equivalentStress(sxx, syy, szz, sxy, syz, szx);
                 const double ep_now = sd[base + 6];
@@ -1507,6 +1528,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
         // 증분을 한 번도 못 본 요소는 '적분 못 함'(NaN)으로 남긴다.
         // 소성 증분이 실제로 0 이었던 요소(탄성만)는 w_any 로 구분해 0 을 기록한다.
         if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
+        if (eps_ok && seen_ep) epmax[ei] = ep_run_max_all;
         nonmono_total += nonmono;
     }
 
@@ -1655,6 +1677,10 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     const bool work_ok = (ioshl_[1] != 0) && (ns >= 2) && (P >= ep_off + 1);
     std::vector<double>& work = elem_plastic_work_[kind];
     if (work_ok) work.assign(ne, hotspotUnrecorded()); else work.clear();
+    // ε_p 이력 최댓값 — 상태 1개짜리 덱에서도 기록한다 (work 와 조건이 다르다)
+    const bool eps_ok = (ioshl_[1] != 0) && (P >= ep_off + 1);
+    std::vector<double>& epmax = elem_eps_max_[kind];
+    if (eps_ok) epmax.assign(ne, hotspotUnrecorded()); else epmax.clear();
     int64_t nonmono_total = 0;
 
 #ifdef _OPENMP
@@ -1673,6 +1699,8 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
         double w_acc = 0.0;
         bool   w_any = false;
         int    nonmono = 0;
+        double ep_run_max_all = 0.0;
+        bool   seen_ep = false;
 
         for (size_t si = 0; si < ns; ++si) {
             const auto& sd = is_shell ? all_states[si].shell_data : all_states[si].thick_shell_data;
@@ -1697,6 +1725,16 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
                     if (pr[0] > cur[1]) { cur[1] = pr[0]; cur_l[1] = L; }
                     if (pr[2] < cur[2]) { cur[2] = pr[2]; cur_l[2] = L; }
                 }
+            }
+
+            // ── ε_p 이력 최댓값 — 소성일과 조건이 다르다 (상태 1개도 유효) ──
+            if (eps_ok) {
+                double ep_only = 0.0;
+                for (int L = 0; L < maxint_; ++L)
+                    ep_only += sd[base + static_cast<size_t>(L) * P + ep_off];
+                ep_only /= static_cast<double>(maxint_);
+                if (ep_only > ep_run_max_all) ep_run_max_all = ep_only;
+                seen_ep = true;
             }
 
             // ── 소성일 누적 — 극값 갱신과 무관하게 모든 상태에서 ──
@@ -1743,6 +1781,7 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
             if (!slot[k]->strain.empty()) slot[k]->strain[ei] = best_e[k];
         }
         if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
+        if (eps_ok && seen_ep) epmax[ei] = ep_run_max_all;
         nonmono_total += nonmono;
     }
 

@@ -379,6 +379,15 @@ public:
     /// 기준량(criterion)과 무관한 양이라 요소 종류별로 하나만 둔다.
     /// 비어 있으면 미계산 — 0 으로 채우지 않는다(계산 못 함과 진짜 0 을 구분).
     const std::vector<double>& plasticWorkDensity(HotspotElementKind k) const;
+
+    /// 요소별 유효소성변형률 ε_p 의 **이력 최댓값** [무차원].
+    /// 소성역 절대량(항복을 넘은 요소 수·부피)의 재료다. 클러스터 선별(top_percent)과
+    /// 무관하게 파트 전체를 대상으로 집계해야 물리량이 된다.
+    /// 비어 있으면 미계산 — 0 으로 채우지 않는다.
+    ///
+    /// 마지막 프레임이 아니라 이력 최댓값을 쓴다. ε_p 가 이론상 단조라지만 실덱에서
+    /// 감소하는 전이를 확인했다 (docs/hotspot_envelope_3d/context-notes.md).
+    const std::vector<double>& plasticStrainMax(HotspotElementKind k) const;
     /// 셸 계열 층 번호 해석 — "mid_inner_outer" | "index"
     const std::string& layerScheme() const { return layer_scheme_; }
 
@@ -450,6 +459,9 @@ private:
     std::vector<double> shell_thickness_;
     /// 요소 종류별 누적 소성일 밀도 (위 plasticWorkDensity 참조)
     std::map<HotspotElementKind, std::vector<double>> elem_plastic_work_;
+    /// 요소별 ε_p 이력 최댓값. 소성역 절대량(n_yield/vol_yield/max_eps)의 재료.
+    /// 소성일과 달리 상태가 1개뿐인 덱에서도 채워진다.
+    std::map<HotspotElementKind, std::vector<double>> elem_eps_max_;
     std::string layer_scheme_;
 
     // Part information
