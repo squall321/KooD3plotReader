@@ -169,8 +169,9 @@
       → verify: 미니 캠페인 4런에서 4,453줄 · 16지표, 파트 필터 동작,
       합성 시험 8절 전부 통과(깨진 런 건너뛰기·사유, TSV 저장 실패도 예외 대신 사유)
 - [x] 줄마다 `tool_commit` 을 실어 런별 빌드 혼재를 나중에 알 수 있게
-- [ ] `koo_scatter_report` CLI 신설 — 유틸이 준비됐으므로 필요 시
-- [ ] `runner_config.postprocess.auto_scatter` 훅
+- [x] `koo_scatter_report` CLI 신설 — `python3 -m koo_scatter_report <dir> -o r.html`
+      (`--part` / `--criterion` / `--metric` / `--ground-truth` / `--segments`)
+- [ ] `runner_config.postprocess.auto_scatter` 훅 — 캠페인 러너 쪽 변경이라 별도
 
 ## P4. 나머지
 - [ ] A-4 `--hotspot-source {d3plot|elout}` — **보류 (검증 데이터 없음)**
@@ -200,9 +201,18 @@
       → `part_recall()` 이 P2 의 recall@k 를 실제로 쓴다 (적중·놓친 파트까지 반환)
       → verify: 열 순서 무관, 소문자 ng 인식, **verdict 를 모르면 줄을 버린다**
       (OK 로 치면 회수율이 부풀려진다), 경계 15종 예외 0
-- [ ] C 그림 9종 — 데이터 경로는 준비됨 (`campaign_metrics` 롱포맷 + 편차각 +
-      통계 유틸). 남은 것은 리포트 UI 이고, 어느 리포트에 붙일지(sphere 확장 vs
-      신규 `koo_scatter_report`) 결정이 필요하다
+- [x] **C 그림 9종 — `koo_scatter_report` 신설 (B-0 도 함께 충족)**
+      → ① 편차각 산포 ② 방향도 ③ 면×편차각 히트맵 ④ 회수율 recall@k
+        ⑤ 편차각 구간 프로파일 ⑥ 리스크맵(전 각도 중첩) ⑦ 구간도
+        ⑧ 둘레 전개도 ⑨ 실물 불량 오버레이
+      → **외부 라이브러리 없이 SVG** 로 그린다. 기존 리포트는 Plotly 를 CDN 에서
+        받는데, 망이 막히면 그림이 통째로 사라지고 아무 말도 남지 않는다
+      → 있을 때/없을 때: 데이터 없는 그림은 **자리를 남기고 사유를 적는다**.
+        섹션을 지우면 "원래 없는 것" 과 "못 그린 것" 이 구분되지 않는다
+      → verify: 실캠페인에서 SVG 9개 생성(외부 요청 0), 불량 좌표를 주면 ⑥·⑨ 에
+        ✕ 가 뜨거운 자리에 겹침. 차트 시험 60여 항목 + 통합 시험 9절, 예외 0
+- [x] B-5 확장: ground truth 스키마에 선택 열 `x`/`y`/`z` — **셋 다** 있을 때만
+      위치로 쓴다(두 축만 맞춰 그리면 엉뚱한 자리에 표시된다)
 
 ## 마무리
 - [x] 검증 도구 자체 시험 — `tests/deploy/test_verify_package.sh` (9항목)

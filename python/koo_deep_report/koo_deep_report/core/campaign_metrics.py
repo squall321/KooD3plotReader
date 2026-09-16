@@ -53,6 +53,11 @@ RUN_COLUMNS = ["run", "roll", "pitch", "yaw", "face", "dev_angle", "lattice",
 class CampaignTable:
     rows: list = field(default_factory=list)      #: COLUMNS 순서의 튜플 목록
     runs: list = field(default_factory=list)      #: RUN_COLUMNS 순서의 튜플 목록
+    #: 클러스터 원형 (keep_clusters=True 일 때만). 그림이 기하를 쓰려면 필요하다 —
+    #: 롱포맷은 스칼라 지표용이라 center·bbox 같은 벡터를 담지 못한다.
+    #: [{run, roll, pitch, yaw, face, dev_angle, part_id, element_type,
+    #:   criterion, bbox_min, bbox_max, clusters:[...]}, ...]
+    items: list = field(default_factory=list)
     n_runs: int = 0
     skipped: list = field(default_factory=list)   #: (런 이름, 사유)
     tool_builds: dict = field(default_factory=dict)  #: {커밋: 런 수}
@@ -94,13 +99,15 @@ def _angle_of(run_dir: Path):
         return None
 
 
-def collect_campaign(test_dir, part_ids=None) -> CampaignTable:
+def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> CampaignTable:
     """캠페인 디렉토리를 훑어 롱포맷 지표를 모은다.
 
     Args:
         test_dir: `analysis_results/Run_*/analysis_result.json` 와
                   `output/Run_*/DropSet.json` 를 가진 캠페인 폴더
         part_ids: 이 파트들만. None 이면 전부.
+        keep_clusters: True 면 클러스터 원형을 `items` 에 보관한다(그림용).
+            메모리를 쓰므로 기본은 False.
 
     Returns:
         CampaignTable. 읽지 못한 런은 `skipped` 에 사유와 함께 남는다.
@@ -195,7 +202,22 @@ def collect_campaign(test_dir, part_ids=None) -> CampaignTable:
                 if isinstance(c0, dict):
                     for m in _CLUSTER_METRICS:
                         emit(f"c1_{m}", c0.get(m))
+                    # 중심 좌표는 벡터라 지표 3개로 펼친다 (리스크맵이 쓴다)
+                    ctr = c0.get("center")
+                    if isinstance(ctr, list) and len(ctr) == 3:
+                        for ax, v in zip("xyz", ctr):
+                            emit(f"c1_center_{ax}", v)
                 emit("n_clusters", len(clusters))
+
+            if keep_clusters and isinstance(clusters, list) and clusters:
+                tbl.items.append({
+                    "run": d.name, "roll": roll, "pitch": pitch, "yaw": yaw,
+                    "face": face, "dev_angle": dev, "lattice": lat,
+                    "part_id": pid, "element_type": etype, "criterion": crit,
+                    "bbox_min": item.get("bbox_min"), "bbox_max": item.get("bbox_max"),
+                    "direction": item.get("direction"),
+                    "clusters": clusters,
+                })
 
     if tbl.n_runs == 0:
         tbl.note = f"런을 하나도 읽지 못했습니다 (건너뜀 {len(tbl.skipped)}건)"

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koo_scatter_report"
+version = "0.1.0"
+description = "Angle-scatter campaign report: deviation-angle scatter, direction map, recall curves"
+requires-python = ">=3.10"
+authors = [{ name = "KooD3plotReader" }]
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+koo_scatter_report = "koo_scatter_report.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["koo_scatter_report*"]

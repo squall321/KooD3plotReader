@@ -17,7 +17,11 @@
 | `verdict` | `NG`(불량) / `OK`(양호) | `NG` |
 | `mechanism` | 선택 — 불량 메커니즘 | `crack` |
 | `location` | 선택 — 위치 설명 | `INP_03` |
+| `x` `y` `z` | 선택 — 실물 불량 좌표 (해석 좌표계) | `12.5` |
 | `note` | 선택 — 비고 | |
+
+좌표 세 개가 **모두** 있어야 위치로 쓴다. 하나라도 빠지면 위치 없음으로 둔다 —
+두 축만 맞춰 그리면 엉뚱한 자리에 표시된다.
 
 **설계 규칙.** 예외를 던지지 않는다. 읽지 못한 줄은 건너뛰고 사유를 남긴다.
 `verdict` 를 해석하지 못하면 그 줄을 **버린다** — 모르는 것을 OK 로 치면
@@ -32,7 +36,7 @@ from pathlib import Path
 from .stats_ranking import recall_at_k
 
 REQUIRED_COLUMNS = ("case", "face", "part_id", "verdict")
-OPTIONAL_COLUMNS = ("mechanism", "location", "note")
+OPTIONAL_COLUMNS = ("mechanism", "location", "note", "x", "y", "z")
 
 #: verdict 로 인정하는 표기. 대소문자·공백은 무시한다.
 _NG = {"ng", "fail", "failed", "defect", "crack", "불량", "1", "true"}
@@ -48,6 +52,8 @@ class GroundTruthRow:
     mechanism: str = ""
     location: str = ""
     note: str = ""
+    #: 실물 불량 좌표 (해석 좌표계). 셋 다 있을 때만 채운다.
+    xyz: tuple | None = None
 
 
 @dataclass
@@ -62,6 +68,20 @@ class GroundTruth:
 
     def cases(self) -> list:
         return sorted({r.case for r in self.rows if r.case})
+
+    def ng_points(self, case: str = "", face: str = "") -> list:
+        """좌표가 있는 불량 위치 [(x, y, z, 라벨)]. 없으면 빈 목록."""
+        out = []
+        for r in self.rows:
+            if not r.is_ng or not r.xyz:
+                continue
+            if case and r.case != case:
+                continue
+            if face and r.face != face:
+                continue
+            lab = r.location or r.mechanism or (f"part {r.part_id}" if r.part_id else "")
+            out.append((r.xyz[0], r.xyz[1], r.xyz[2], lab))
+        return out
 
     def ng_parts(self, case: str = "", face: str = "") -> set:
         """조건에 맞는 불량 파트 ID 집합. 빈 조건은 전체를 뜻한다."""
@@ -134,6 +154,15 @@ def load_ground_truth(path) -> GroundTruth:
             location=cell(parts, "location"),
             note=cell(parts, "note"),
         )
+        # 좌표 — 셋 다 있고 셋 다 숫자일 때만 쓴다
+        cs = [cell(parts, k) for k in ("x", "y", "z")]
+        if all(c for c in cs):
+            try:
+                row.xyz = tuple(float(c) for c in cs)
+            except (TypeError, ValueError):
+                gt.skipped.append((lineno, f"좌표가 숫자가 아닙니다: {cs}"))
+                continue
+
         pid = cell(parts, "part_id")
         if pid:
             try:
