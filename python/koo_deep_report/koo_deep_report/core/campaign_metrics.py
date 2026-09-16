@@ -47,7 +47,11 @@ _CLUSTER_METRICS = (
 #: 캠페인에서는 점검 자체가 불가능해진다.
 RUN_COLUMNS = ["run", "roll", "pitch", "yaw", "face", "dev_angle",
                "dev_roll", "dev_pitch", "dev_yaw", "lattice",
-               "tool_commit", "n_items"]
+               "tool_commit", "n_items",
+               # 원본(도면) → 런 덱 좌표 변환 (coord_transform=True 일 때만 채움).
+               # 뜻: run = R·src + t. 끝에만 추가한다 — 앞 열 인덱스를 쓰는 곳이 있다.
+               "ct_method", "ct_dx", "ct_dy", "ct_dz", "ct_rot_deg",
+               "ct_max_residual", "ct_pairs"]
 
 
 @dataclass
@@ -59,6 +63,11 @@ class CampaignTable:
     #: [{run, roll, pitch, yaw, face, dev_angle, part_id, element_type,
     #:   criterion, bbox_min, bbox_max, clusters:[...]}, ...]
     items: list = field(default_factory=list)
+    #: 좌표 변환을 요청했을 때의 원본 모델 경로와 사유 (못 구했으면 사유만)
+    source_model: str = ""
+    coord_note: str = ""
+    #: 원본 모델에 없어 도면 좌표를 내지 않은 파트 (전처리가 붙인 바닥·벽 등)
+    coord_skipped_parts: set = field(default_factory=set)
     n_runs: int = 0
     skipped: list = field(default_factory=list)   #: (런 이름, 사유)
     tool_builds: dict = field(default_factory=dict)  #: {커밋: 런 수}
@@ -100,7 +109,8 @@ def _angle_of(run_dir: Path):
         return None
 
 
-def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> CampaignTable:
+def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False,
+                     coord_transform: bool = False) -> CampaignTable:
     """캠페인 디렉토리를 훑어 롱포맷 지표를 모은다.
 
     Args:
@@ -109,6 +119,10 @@ def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> Ca
         part_ids: 이 파트들만. None 이면 전부.
         keep_clusters: True 면 클러스터 원형을 `items` 에 보관한다(그림용).
             메모리를 쓰므로 기본은 False.
+        coord_transform: True 면 원본 모델(runner_config.json 의 model_file)과
+            런 덱(output/<run>/DropSet.k)의 노드를 ID 로 대응시켜 좌표 변환을
+            추정하고, 런 표에 싣고, 덩어리 중심을 **도면 좌표**로도 낸다
+            (`c1_center_src_x/y/z`). 런마다 덱을 읽으므로 기본은 False.
 
     Returns:
         CampaignTable. 읽지 못한 런은 `skipped` 에 사유와 함께 남는다.
@@ -124,6 +138,26 @@ def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> Ca
     if not adir.is_dir():
         tbl.note = f"analysis_results 가 없습니다: {adir}"
         return tbl
+
+    # 원본 노드는 캠페인 안에서 같다 — 한 번만 읽는다
+    src_nodes = None
+    if coord_transform:
+        from .keyword_nodes import find_scenario_model, read_nodes
+        sm = find_scenario_model(root)
+        if sm is None:
+            tbl.coord_note = ("원본 모델을 찾지 못했습니다 — runner_config.json 등에 "
+                              "model_file 이 없습니다. 좌표 변환을 건너뜁니다")
+        else:
+            src_nodes = read_nodes(sm)
+            tbl.source_model = str(sm)
+            if not src_nodes.nodes:
+                tbl.coord_note = f"원본 모델에서 노드를 읽지 못했습니다: {src_nodes.note}"
+                src_nodes = None
+            elif src_nodes.note:
+                tbl.coord_note = f"원본 모델 경고: {src_nodes.note}"
+            if src_nodes is not None and not src_nodes.parts:
+                tbl.coord_note = (tbl.coord_note + " / 원본 모델에서 *PART 를 읽지 못해 "
+                                  "덩어리 중심의 도면 좌표는 내지 않습니다").strip(" /")
 
     want = None
     if part_ids is not None:
@@ -174,8 +208,22 @@ def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> Ca
 
         hs = doc.get("hotspot_clusters")
         n_items = len(hs) if isinstance(hs, list) else 0
+
+        tr = None
+        ct = (None,) * 7
+        if src_nodes is not None:
+            from .keyword_nodes import find_run_deck, deck_transform
+            rdeck = find_run_deck(odir / d.name)
+            if rdeck is not None:
+                tr, _why = deck_transform(None, rdeck, source_nodes=src_nodes)
+                if tr.ok:
+                    ct = (tr.method, tr.translation[0], tr.translation[1],
+                          tr.translation[2], tr.rotation_angle_deg,
+                          tr.max_residual, tr.n_pairs)
+                else:
+                    tr = None
         tbl.runs.append((d.name, roll, pitch, yaw, face, dev,
-                         dev_r, dev_p, dev_y, lat, commit, n_items))
+                         dev_r, dev_p, dev_y, lat, commit, n_items) + ct)
 
         if not isinstance(hs, list):
             continue
@@ -211,6 +259,18 @@ def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> Ca
                     if isinstance(ctr, list) and len(ctr) == 3:
                         for ax, v in zip("xyz", ctr):
                             emit(f"c1_center_{ax}", v)
+                        # 도면 좌표 — 변환을 구한 런에서, **원본 모델에 있는 파트**만.
+                        # 전처리가 붙인 바닥·벽(런 덱에만 있는 파트)은 도면에 없으므로
+                        # 좌표를 되돌려도 거짓 정보다. 원본 파트 목록을 못 읽었으면 내지 않는다.
+                        if tr is None:
+                            pass
+                        elif not src_nodes.parts or pid not in src_nodes.parts:
+                            tbl.coord_skipped_parts.add(pid)
+                        else:
+                            sp = tr.to_source(ctr)
+                            if sp is not None:
+                                for ax, v in zip("xyz", sp):
+                                    emit(f"c1_center_src_{ax}", v)
                 emit("n_clusters", len(clusters))
 
             if keep_clusters and isinstance(clusters, list) and clusters:

@@ -34,6 +34,9 @@ def main(argv=None) -> int:
                     help="이 파트만 (여러 번 지정 가능)")
     ap.add_argument("--check-only", action="store_true",
                     help="건전성 점검만 하고 표를 만들지 않는다")
+    ap.add_argument("--coord-transform", action="store_true",
+                    help="원본 모델(runner_config 의 model_file)과 런 덱을 노드 ID 로 "
+                         "대응시켜 좌표 변환을 추정한다. 덩어리 중심을 도면 좌표로도 낸다")
     ap.add_argument("--segment-boxes", default=None, metavar="JSON",
                     help="파트 구간 정의. 군집 중심을 구간에 배정해 구간별 통계를 낸다 "
                          "(인터포저가 한 파트로 묶인 과제용)")
@@ -45,7 +48,8 @@ def main(argv=None) -> int:
     # elout 교차 확인은 클러스터 원형(peak_element_id)이 필요하다.
     # keep_clusters 를 안 켜면 순회할 항목이 없어 **아무 말 없이** 지나간다.
     tbl = collect_campaign(args.test_dir, part_ids=args.part,
-                           keep_clusters=bool(args.elout_check or args.segment_boxes))
+                           keep_clusters=bool(args.elout_check or args.segment_boxes),
+                           coord_transform=bool(args.coord_transform))
 
     if tbl.note:
         print(f"[campaign] {tbl.note}", file=sys.stderr)
@@ -55,6 +59,12 @@ def main(argv=None) -> int:
         print(f"           건너뜀 {name}: {why}", file=sys.stderr)
     if len(tbl.skipped) > 5:
         print(f"           … 외 {len(tbl.skipped) - 5}건", file=sys.stderr)
+
+    # 🔴 읽은 런이 없으면 여기서 끝낸다. 계속 가면 -o 로 준 경로에 머리글만 있는
+    #    빈 표를 써서, 기존 결과 파일을 **조용히 덮어쓴다** (경로를 잘못 줬을 때).
+    if tbl.n_runs == 0:
+        print("[campaign] 읽은 런이 없어 아무것도 저장하지 않습니다", file=sys.stderr)
+        return 1
 
     # ── 빌드 혼재 ──
     if len(tbl.tool_builds) > 1:
@@ -95,6 +105,10 @@ def main(argv=None) -> int:
               "unified_analyzer 를 --hotspot-clusters 로 돌리면 지표가 채워집니다",
               file=sys.stderr)
 
+    # ── 좌표 변환 ──
+    if args.coord_transform:
+        _report_coord(tbl)
+
     # ── 구간별 통계 ──
     if args.segment_boxes:
         _segment_stats(args.segment_boxes, tbl)
@@ -126,6 +140,42 @@ def main(argv=None) -> int:
             print(f"             {k:24s} {v}")
         print("[campaign] -o 로 TSV 경로를 주면 저장합니다.")
     return 0 if tbl.n_runs else 1
+
+
+def _report_coord(tbl) -> None:
+    """런별 좌표 변환을 묶어 보여 준다. 대부분 같으므로 서로 다른 것만 센다."""
+    from .core.campaign_metrics import RUN_COLUMNS
+    i0 = RUN_COLUMNS.index("ct_method")
+    if tbl.coord_note:
+        print(f"[campaign] 좌표 변환: {tbl.coord_note}", file=sys.stderr)
+    if tbl.source_model:
+        print(f"[campaign] 원본 모델: {tbl.source_model}")
+    groups: dict = {}
+    missing = 0
+    worst_res = 0.0
+    for r in tbl.runs:
+        m, dx, dy, dz, rot, res, n = r[i0:i0 + 7]
+        if m is None:
+            missing += 1
+            continue
+        key = (m, round(dx, 4), round(dy, 4), round(dz, 4), round(rot or 0.0, 4))
+        groups[key] = groups.get(key, 0) + 1
+        worst_res = max(worst_res, res or 0.0)
+    for (m, dx, dy, dz, rot), cnt in sorted(groups.items(), key=lambda kv: -kv[1]):
+        print(f"[campaign] 좌표 변환 [{m}] 평행이동 ({dx:g}, {dy:g}, {dz:g}), "
+              f"회전 {rot:g}° — {cnt}런")
+    if groups:
+        print(f"[campaign]   뜻: 결과 = R·도면 + t. 최대 잔차 {worst_res:.3g} "
+              f"(덩어리 중심의 도면 좌표는 c1_center_src_x/y/z 지표로 실립니다)")
+    if len(groups) > 1:
+        print(f"[campaign] ⚠ 런마다 좌표 변환이 {len(groups)}가지입니다 — "
+              f"도면과 비교할 때 런별 변환을 써야 합니다", file=sys.stderr)
+    if tbl.coord_skipped_parts:
+        print(f"[campaign] 원본 모델에 없는 파트 {sorted(tbl.coord_skipped_parts)} 는 "
+              f"도면 좌표를 내지 않았습니다 (전처리가 붙인 바닥·벽 등)")
+    if missing:
+        print(f"[campaign] 좌표 변환을 구하지 못한 런 {missing}개 "
+              f"(런 덱 DropSet.k 없음 또는 공통 노드 없음)", file=sys.stderr)
 
 
 def _segment_stats(seg_path, tbl) -> None:

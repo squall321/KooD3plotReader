@@ -140,18 +140,36 @@ stride 를 추측해 썼다가 **50배 틀린** 적이 있습니다(정의상 �
 **elout 을 켠 덱을 하나 주시면** 파싱부까지 실데이터로 맞추고, 필요하면 소스
 전환도 진행하겠습니다.
 
-### A-6 배선은 보류했습니다
+### A-6 은 구현했습니다 (처음 회신의 "보류" 를 정정합니다)
 
-역추정 유틸(`estimate_transform`)은 완성했습니다 — 파트 중심 대응에서 평행이동·
-회전을 구하고 **잔차를 함께** 냅니다(잔차가 크면 "강체 변환이 아니다" 를 경고).
+처음에 "원본 덱 경로를 얻을 규약이 없어 보류" 라고 적었는데 **틀렸습니다.**
+runner_config.json 의 `model_file` 을 따라가는 규칙이 sphere 리포트에 이미 있었습니다.
 
-문서는 "PP 가 변환을 알고 있으니 기록만 해주면 된다" 고 하셨는데, 확인해 보니
-**KMM(전처리)이 변환하고 후처리는 전달받지 못합니다.** `DropSet.json` 에 기록이
-없습니다. 후처리가 할 수 있는 건 원본 덱과 대조해 역추정하는 것인데, **원본 덱
-경로를 얻을 규약이 없습니다.** 추측으로 찾으면 엉뚱한 덱을 물게 됩니다.
+```bash
+python3 -m koo_deep_report.campaign_cli <test_dir> --coord-transform -o metrics.tsv
+```
 
-**시나리오가 원본 .k 경로를 넘겨주는 규약**이 생기면 바로 연결하겠습니다.
-(또는 KMM 이 변환을 `DropSet.json` 에 적어 주시면 추정 자체가 불필요합니다.)
+- KMM 이 노드 ID 를 보존하므로, 원본 모델과 런 덱(`DropSet.k`)의 `*NODE` 를 같은
+  ID 끼리 대응시켜 변환을 추정합니다. 런 표(`*_runs.tsv`)에 `ct_dx/ct_dy/ct_dz/
+  ct_rot_deg/ct_max_residual` 이 실리고, 덩어리 중심의 **도면 좌표**가
+  `c1_center_src_x/y/z` 지표로 실립니다 — 역추적이 필요 없습니다
+- Test_001 실측: 평행이동 (−35.5, −73.5, −4.5), 회전 0°, 최대잔차 7.2e-08.
+  자세는 모델을 돌리지 않고 중력 방향으로 줍니다
+- **원본 모델에 없는 파트(KMM 이 붙인 바닥·벽)는 도면 좌표를 내지 않습니다**
+- `DropSet.k` 좌표가 d3plot 초기 형상과 ID 전부·좌표 5.4e-06 이내로 일치함을
+  확인했습니다(런 덱 좌표계 = 결과 좌표계)
+
+`analysis_result.json > metadata` 에 직접 넣지 않은 이유 — 그 파일은 C++ 해석기가
+쓰고, 키워드 덱 파싱을 C++ 에 넣는 비용에 비해 얻는 게 없습니다. 캠페인 표에 런별로
+실리므로 후단이 할 일은 같습니다.
+
+### ⚠ 9/13~9/16 사이 CLI 래퍼 결함 (저희 배포 실수)
+
+9/13 배포에서 호스트의 `koo_*_report` 래퍼를 잘못된 형식으로 덮어써,
+**env.sh 를 source 하지 않고 실행하면** `No module named …` 로 실패했습니다
+(source 하면 동작했습니다). 9/16 배포로 복구했고, 이제 배포 검증기가 래퍼를
+환경변수 없이 실제로 실행해 봅니다. 그 기간에 이상한 실패가 있었다면 이것입니다.
+v33 아카이브에도 같은 결함이 있으니 **v34 이상**을 쓰세요.
 
 ---
 
@@ -179,7 +197,7 @@ stride 를 추측해 썼다가 **50배 틀린** 적이 있습니다(정의상 �
 
 ## 5. 지금 쓰실 수 있는 것
 
-배포는 끝났습니다(호스트·SIF·node001 모두 `d8fe2bb`).
+배포는 끝났습니다(호스트·SIF·node001 모두 같은 판 — `unified_analyzer --capabilities` 로 확인).
 
 ```bash
 source /data/SmartTwinPostprocessor/env.sh
@@ -192,6 +210,7 @@ python3 -m koo_deep_report.campaign_cli <test_dir> -o metrics.tsv
 python3 -m koo_deep_report.campaign_cli <test_dir> --check-only     # 각도·빌드 건전성
 python3 -m koo_deep_report.campaign_cli <test_dir> --segment-boxes seg.json
 python3 -m koo_deep_report.campaign_cli <test_dir> --elout-check
+python3 -m koo_deep_report.campaign_cli <test_dir> --coord-transform   # 도면 좌표
 
 # 각도 산포 리포트 (그림 9종)
 koo_scatter_report <test_dir> -o scatter.html --ground-truth ng.tsv

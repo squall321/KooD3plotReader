@@ -39,6 +39,21 @@ class RigidTransform:
     scale_hint: float | None = None                     #: 점군 크기 (잔차 해석용)
     note: str = ""
 
+    def to_source(self, point):
+        """결과(런 덱) 좌표 → 원본(도면) 좌표. 추정이 `run = R·src + t` 이므로
+        `src = Rᵀ·(run − t)`. 계산할 수 없으면 None."""
+        if not self.ok or len(self.translation) != 3:
+            return None
+        try:
+            q = [float(point[i]) - float(self.translation[i]) for i in range(3)]
+        except (TypeError, ValueError, IndexError):
+            return None
+        R = self.rotation
+        if R and len(R) == 3:
+            # Rᵀ·q — 회전행렬의 전치 = 역행렬
+            return tuple(sum(R[k][i] * q[k] for k in range(3)) for i in range(3))
+        return tuple(q)
+
     def as_metadata(self) -> dict:
         """`analysis_result.json > metadata.coordinate_transform` 에 넣을 형태.
 

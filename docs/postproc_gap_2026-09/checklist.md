@@ -219,10 +219,24 @@
       → verify: 실제 사건 값(Δy≈−73.7, Δz≈+4.9) 복원 오차 1e-9, 회전각이 정확히 0
       (acos 이었다면 1e-6 잡음), 대응 오류 1점에 경고, 회전 결정 불가 시 지어내지 않음
       → 구현 중 IndexError·ValueError 2건을 시험이 잡아 수정
-- [ ] A-6 배선 — `metadata.coordinate_transform` 에 싣기.
-      유틸(`estimate_transform`)은 완성됐으나 **원본 덱 경로를 얻는 경로가 없다**.
-      후처리는 결과 좌표만 보고 원본 도면을 모른다 — 시나리오가 원본 .k 경로를
-      넘겨주는 규약이 생기면 그때 연결한다 (추측으로 찾으면 엉뚱한 덱을 문다)
+- [x] A-6 배선 — `campaign_cli --coord-transform`
+      → **정정**: "원본 덱 경로를 얻을 규약이 없다" 고 적었는데 틀렸다. sphere 리포트의
+        `_scenario_model_file()` 이 이미 runner_config.json 의 `model_file` 을 따라간다.
+        같은 규칙을 `keyword_nodes.find_scenario_model()` 로 옮겨 썼다
+      → KMM 은 **노드 ID 를 보존**한다. 파트 중심을 만들 필요 없이 `*NODE` 만 읽어
+        같은 ID 끼리 대응시켜 강체 변환을 추정한다
+      → 런 표에 `ct_method/ct_dx/ct_dy/ct_dz/ct_rot_deg/ct_max_residual/ct_pairs`,
+        덩어리 중심의 **도면 좌표** `c1_center_src_x/y/z`
+      → **원본 모델에 없는 파트(전처리가 붙인 바닥·벽)는 도면 좌표를 내지 않는다** —
+        처음엔 냈다가 파트 23(바닥)이 도면 범위 밖으로 나와 발견했다
+      → verify: ① `DropSet.k` 노드 31,176개가 **d3plot 초기 형상과 ID 전부 일치,
+        좌표 최대 차이 5.4e-06**(단정밀도) — 리더 정확성과 "런 덱 = 결과 좌표계" 를
+        독립 경로로 확인 ② 실캠페인 변환 (−35.5, −73.5, −4.5)·회전 0°·최대잔차 7.2e-08
+        (2만 점) ③ 도면 좌표 13개 중 바닥 2개 제외 후 **전부 원본 bbox 안**
+        ④ 합성 시험 — 고정폭·%·+·쉼표·공백·붙은 과학표기·CRLF·*INCLUDE 순환·
+        재번호(지어내지 않음)·30° 회전 복원·역변환 왕복
+      → 부수 수정: `campaign_cli` 가 런 0개일 때도 `-o` 경로에 빈 표를 써서
+        **기존 결과 파일을 덮어쓰던** 결함
 - [x] B-1 완료 — `RUN_COLUMNS` 에 `dev_angle`/`dev_roll`/`dev_pitch`/`dev_yaw`
       → verify: 기준자세는 전부 0, 옛 코너(45,45)는 성분 편차가 0 이 아니다
 - [x] B-5 ground truth 스키마 — `core/ground_truth.py`
