@@ -174,12 +174,18 @@
 - [ ] `runner_config.postprocess.auto_scatter` 훅 — 캠페인 러너 쪽 변경이라 별도
 
 ## P4. 나머지
-- [ ] A-4 `--hotspot-source {d3plot|elout}` — **보류 (검증 데이터 없음)**
-      → 가진 실덱 두 개(case_01_phase1_stacked_tier-1, Test_001_Full26_1Step) 모두
-      binout 에 `elout` 분기가 없다(`*DATABASE_ELOUT` 미설정). 분기 목록은
-      JOBINFO/glstat/matsum/rcforc/sleout/spcforc 뿐이다.
-      → 검증할 데이터 없이 구현하면 "조용히 틀리는" 코드가 된다. 셸 층 stride 를
-      추측해 50배 틀린 것(P1-2)과 같은 패턴이다. elout 을 켠 덱이 생기면 진행
+- [x] **A-4 elout — 소스 전환 대신 '피크를 놓쳤는지' 교차 확인으로 구현**
+      → `core/elout_peaks.py` + `campaign_cli --elout-check`
+      → 소스를 elout 으로 바꾸면 요소 선별·군집까지 다시 맞춰야 하고, 검증할
+        덱이 없다(가진 실덱 둘 다 `*DATABASE_ELOUT` 미설정). 더 작고 안전한 것을
+        한다 — d3plot 피크와 elout 피크를 견주어 **"놓쳤을 수 있다" 를 알린다**
+      → **파싱부와 계산부를 분리**했다. 계산부는 순수 함수라 합성 데이터로 완전히
+        검증하고, 파싱부는 얇게 두고 못 읽으면 사유를 남긴다
+      → verify: 합성 데이터로 피크 추출·비율·임계·경계 11종 전부 통과.
+        실덱에서 "elout 분기가 없습니다 (*DATABASE_ELOUT 미설정). 있는 분기: …"
+        를 정확히 말한다. d3plot 피크가 0 이면 비율을 지어내지 않는다
+      → 부수 수정: lasso `Lsda.__del__` 이 읽기 모드에서 없는 `self.fw` 를 참조해
+        GC 경고를 내던 것과, 디렉토리를 넘기면 Binout 내부 객체가 새던 것을 막았다
 - [x] A-5 구간 분할 — `core/segment_boxes.py`
       → 박스(축 정렬) + 부채꼴(중심·반지름·각도·축) 두 형태. 인터포저 볼이 1파트인
       과제(T3/T4/카메라)에서 파트 안을 쪼개 실물 크랙 위치와 대조하기 위한 것

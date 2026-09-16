@@ -34,9 +34,15 @@ def main(argv=None) -> int:
                     help="이 파트만 (여러 번 지정 가능)")
     ap.add_argument("--check-only", action="store_true",
                     help="건전성 점검만 하고 표를 만들지 않는다")
+    ap.add_argument("--elout-check", action="store_true",
+                    help="elout(촘촘한 요소 이력)과 견주어 d3plot 이 피크를 "
+                         "놓쳤는지 확인한다 (*DATABASE_ELOUT 이 켜진 덱에서만)")
     args = ap.parse_args(argv)
 
-    tbl = collect_campaign(args.test_dir, part_ids=args.part)
+    # elout 교차 확인은 클러스터 원형(peak_element_id)이 필요하다.
+    # keep_clusters 를 안 켜면 순회할 항목이 없어 **아무 말 없이** 지나간다.
+    tbl = collect_campaign(args.test_dir, part_ids=args.part,
+                           keep_clusters=bool(args.elout_check))
 
     if tbl.note:
         print(f"[campaign] {tbl.note}", file=sys.stderr)
@@ -86,6 +92,10 @@ def main(argv=None) -> int:
               "unified_analyzer 를 --hotspot-clusters 로 돌리면 지표가 채워집니다",
               file=sys.stderr)
 
+    # ── elout 교차 확인 ──
+    if args.elout_check:
+        _elout_check(args.test_dir, tbl)
+
     if args.check_only:
         return 0 if tbl.n_runs else 1
 
@@ -109,6 +119,56 @@ def main(argv=None) -> int:
             print(f"             {k:24s} {v}")
         print("[campaign] -o 로 TSV 경로를 주면 저장합니다.")
     return 0 if tbl.n_runs else 1
+
+
+def _elout_check(test_dir, tbl) -> None:
+    """런별로 elout 과 d3plot 피크를 견준다. 없으면 없다고 말하고 끝낸다."""
+    from pathlib import Path
+    from .core.elout_peaks import read_elout, compare_peaks
+
+    root = Path(test_dir)
+    checked = missing = 0
+    if not (tbl.items or []):
+        print("[campaign] elout 확인: 군집 항목이 없습니다 "
+              "(unified_analyzer --hotspot-clusters 로 돌린 산출물이 필요합니다)",
+              file=sys.stderr)
+        return
+    for it in (tbl.items or []):
+        run = it.get("run")
+        # binout 은 output/<run>/ 아래에 있다 (binout0000, binout* 등)
+        cands = sorted((root / "output" / str(run)).glob("binout*")) \
+            if run else []
+        if not cands:
+            missing += 1
+            continue
+        ed = read_elout(cands[0])
+        if not ed.ok:
+            if missing == 0:      # 첫 번째만 사유를 보여 준다 (같은 이유가 반복된다)
+                print(f"[campaign] elout 없음 — {ed.note}", file=sys.stderr)
+            missing += 1
+            continue
+        # d3plot 피크: 덩어리의 peak_element_id / stress_max / peak_time
+        d3 = {}
+        for c in it.get("clusters") or []:
+            eid = c.get("peak_element_id")
+            v = c.get("stress_max")
+            if isinstance(eid, int) and isinstance(v, (int, float)):
+                d3[eid] = (float(v), c.get("peak_time"))
+        if not d3:
+            continue
+        kind = {"solid": "solid", "shell": "shell",
+                "thick_shell": "thick_shell"}.get(it.get("element_type"), "solid")
+        cmp = compare_peaks(d3, ed, kind=kind)
+        checked += 1
+        if cmp.n_missed:
+            print(f"[campaign] {run} part {it.get('part_id')}: {cmp.summary()}",
+                  file=sys.stderr)
+    if checked:
+        print(f"[campaign] elout 교차 확인: {checked}개 항목")
+    if missing:
+        print(f"[campaign] elout 을 쓸 수 없는 항목 {missing}개 — "
+              f"*DATABASE_ELOUT 을 켜면 d3plot 이 피크를 놓쳤는지 확인할 수 있습니다",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":
