@@ -266,3 +266,9 @@
 - [x] 갭 문서 작성자에게 회신 — `reply-to-gap-report.md`
       → A-1 정정(이미 구현·배포됨 + VERSION 누락이 원인), 항목별 대응 결과,
         못 한 것(A-4 파싱부·A-6 배선)과 그 이유, 폐기 가능한 임시코드 목록
+
+## 최종 배포 (2026-09-16)
+- [x] SIF `c6ef4ca` (A-6 포함, clean) → `deploy_from_sif.sh` 로 배포
+      → verify: 호스트·SIF·node001 모두 `c6ef4ca`, 래퍼 6/6 환경변수 없이 실행,
+        env.sh 에 koo_scatter_report 경로 포함, 배포본으로 `--coord-transform` 동작
+- [x] 배포 아카이브 v35 (`deploy_from_sif` 이후 묶음 — 래퍼 lib/ 형식)
