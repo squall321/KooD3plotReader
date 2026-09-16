@@ -57,6 +57,10 @@ DEEP_CONFIG=""       # koo_deep_report --config 로 전달할 YAML
 DEEP_ONLY=false
 SPHERE_ONLY=false
 IMPACT_ONLY=false
+# 각도 산포 리포트(koo_scatter_report). 캠페인을 가로로 묶어 편차각 산포·방향도·
+# 리스크맵을 낸다. 기본은 끔 — 켜면 마지막 단계로 붙는다.
+SCATTER=false
+SCATTER_EXTRA=()
 FORCE=false
 SCHEMA_CHECK=true    # false 면 산출물 존재만 보고 스킵(옛 동작)
 THREADS=4
@@ -128,6 +132,9 @@ usage() {
 [고급]
     --deep-opts "..."       koo_deep_report 추가 옵션 pass-through
     --sphere-opts "..."     koo_sphere_report 추가 옵션 pass-through
+    --scatter               각도 산포 리포트(koo_scatter_report) 추가 생성
+    --scatter-opts "..."    koo_scatter_report 옵션 pass-through
+                            (예: '--criterion max_principal --ground-truth ng.tsv')
     --impact-opts "..."     koo_impact_report 추가 옵션 pass-through (예: '--units ton-mm-s')
     -h|--help
 
@@ -202,6 +209,9 @@ while [[ $# -gt 0 ]]; do
         # 고급 pass-through
         --deep-opts)     read -r -a _extra <<< "$2"; DEEP_EXTRA+=("${_extra[@]}"); shift 2 ;;
         --sphere-opts)   read -r -a _extra <<< "$2"; SPHERE_EXTRA+=("${_extra[@]}"); shift 2 ;;
+        --scatter)       SCATTER=true; shift ;;
+        --scatter-opts)  SCATTER=true; read -r -a _extra <<< "$2"
+                         SCATTER_EXTRA+=("${_extra[@]}"); shift 2 ;;
         --impact-opts)   read -r -a _extra <<< "$2"; IMPACT_EXTRA+=("${_extra[@]}"); shift 2 ;;
 
         -h|--help)       usage ;;
@@ -517,6 +527,39 @@ run_step_unified() {
 }
 
 # ============================================================
+# Step 3: koo_scatter_report  (각도 산포 — 캠페인을 가로로 묶는다)
+#  - 편차각 산포·방향도·히트맵·회수율·리스크맵을 한 장으로
+#  - 그림은 외부 라이브러리 없이 SVG (망이 막혀도 열린다)
+# ============================================================
+run_step_scatter() {
+    echo ""
+    echo "=== [Step 3] koo_scatter_report (각도 산포) ==="
+
+    if [ ! -d "${ANALYSIS_DIR}" ] || \
+       [ "$(find "${ANALYSIS_DIR}" -name "analysis_result.json" 2>/dev/null | head -1)" = "" ]; then
+        echo "  analysis_results/ 가 없어 건너뜁니다 (Step 1 을 먼저 실행하세요)"
+        return 0
+    fi
+
+    # 모듈이 없으면 조용히 넘어가지 않고 사유를 말한다
+    if ! python3 -c "import koo_scatter_report" >/dev/null 2>&1; then
+        echo "  koo_scatter_report 를 찾지 못했습니다 — 건너뜁니다"
+        echo "    (배포본이면 env.sh 를 source 했는지, 저장소면 PYTHONPATH 를 확인하세요)"
+        return 0
+    fi
+
+    local out="${TEST_DIR}/scatter_report.html"
+    if python3 -m koo_scatter_report "${TEST_DIR}" -o "${out}" \
+            "${SCATTER_EXTRA[@]}"; then
+        echo "  → ${out}"
+    else
+        # 산포 리포트 실패가 전체 파이프라인을 죽이지 않게 한다.
+        # 앞 단계 산출물(deep/sphere)은 이미 나와 있다.
+        echo "  koo_scatter_report 실패 — 앞 단계 산출물은 그대로 남아 있습니다"
+    fi
+}
+
+# ============================================================
 # Step 2: koo_sphere_report --test-dir  (빠름 — aggregation 만)
 #  - 전각도 DOE 종합 리포트 (analysis_results/ 필수)
 # ============================================================
@@ -752,9 +795,11 @@ should_skip_unified_for_impact() {
 
 if ${DEEP_ONLY}; then
     run_step_deep
+    ${SCATTER} && run_step_scatter
 elif ${SPHERE_ONLY}; then
     run_step_unified
     run_step_sphere
+    ${SCATTER} && run_step_scatter
 elif ${IMPACT_ONLY}; then
     if should_skip_unified_for_impact; then
         echo ""
@@ -764,6 +809,7 @@ elif ${IMPACT_ONLY}; then
         run_step_unified
     fi
     run_step_impact
+    ${SCATTER} && run_step_scatter
 else
     if [ "${EFFECTIVE_REPORT_MODE}" = "impact" ]; then
         echo ""
@@ -779,6 +825,7 @@ else
         run_step_sphere
     fi
     run_step_deep
+    ${SCATTER} && run_step_scatter
 fi
 
 echo ""

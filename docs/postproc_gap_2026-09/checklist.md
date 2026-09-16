@@ -171,7 +171,14 @@
 - [x] 줄마다 `tool_commit` 을 실어 런별 빌드 혼재를 나중에 알 수 있게
 - [x] `koo_scatter_report` CLI 신설 — `python3 -m koo_scatter_report <dir> -o r.html`
       (`--part` / `--criterion` / `--metric` / `--ground-truth` / `--segments`)
-- [ ] `runner_config.postprocess.auto_scatter` 훅 — 캠페인 러너 쪽 변경이라 별도
+- [x] 파이프라인 훅 — `post_analyze.sh --scatter` / `--scatter-opts "..."`
+      → `runner_config.postprocess.auto_scatter` 는 **실행 러너 소관**이라 이 저장소에서
+        만들 수 없다(그 파일에 `postprocess` 키 자체가 없다). 후처리 오케스트레이터인
+        `post_analyze.sh` 에 단계를 붙이는 것이 실질이고, 러너는 이 옵션을 넘기면 된다
+      → 모듈이 없으면 **사유를 말하고 건너뛴다**. 산포 리포트 실패가 앞 단계
+        산출물(deep/sphere)을 죽이지 않는다
+      → verify: 모듈 없을 때 안내 후 계속 / 있을 때 생성, `build_module.sh` 로
+        패키지·PYTHONPATH·CLI wrapper 까지 배포본에 들어가는 것 확인
 
 ## P4. 나머지
 - [x] **A-4 elout — 소스 전환 대신 '피크를 놓쳤는지' 교차 확인으로 구현**

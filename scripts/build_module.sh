@@ -230,11 +230,12 @@ cp -r "${PROJECT_ROOT}/python/koo_sphere_report" "${PREFIX}/python/"
 cp -r "${PROJECT_ROOT}/python/koo_impact_report" "${PREFIX}/python/"
 cp -r "${PROJECT_ROOT}/python/koo_federate_report" "${PREFIX}/python/"
 cp -r "${PROJECT_ROOT}/python/koo_custom_report" "${PREFIX}/python/"
+cp -r "${PROJECT_ROOT}/python/koo_scatter_report" "${PREFIX}/python/"
 ok "Python packages → python/"
 
 # 공통 PYTHONPATH: 모든 wrapper 가 동일하게 import. impact 가 deep 의 d3plot_reader 를
 # 의존하므로 deep 가 함께 있어야 한다.
-_KOOPY="\${MODULE_DIR}/python/koo_deep_report:\${MODULE_DIR}/python/koo_sphere_report:\${MODULE_DIR}/python/koo_impact_report:\${MODULE_DIR}/python/koo_federate_report:\${MODULE_DIR}/python/koo_custom_report"
+_KOOPY="\${MODULE_DIR}/python/koo_deep_report:\${MODULE_DIR}/python/koo_sphere_report:\${MODULE_DIR}/python/koo_impact_report:\${MODULE_DIR}/python/koo_federate_report:\${MODULE_DIR}/python/koo_custom_report:\${MODULE_DIR}/python/koo_scatter_report"
 
 # CLI wrapper: koo_deep_report
 cat > "${PREFIX}/bin/koo_deep_report" << WRAPPER
@@ -283,6 +284,18 @@ exec python3 -m koo_federate_report "\$@"
 WRAPPER
 chmod +x "${PREFIX}/bin/koo_federate_report"
 ok "koo_federate_report wrapper → bin/"
+
+# CLI wrapper: koo_scatter_report (각도 산포 캠페인 — 편차각·방향도·리스크맵)
+cat > "${PREFIX}/bin/koo_scatter_report" << WRAPPER
+#!/bin/bash
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="\$(cd "\${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${_KOOPY}:\${PYTHONPATH:-}"
+export PATH="\${MODULE_DIR}/bin:\${PATH}"
+exec python3 -m koo_scatter_report "\$@"
+WRAPPER
+chmod +x "${PREFIX}/bin/koo_scatter_report"
+ok "koo_scatter_report wrapper → bin/"
 
 # CLI wrapper: koo_custom_report (*SET_ 정의 기반 커스텀 후처리)
 cat > "${PREFIX}/bin/koo_custom_report" << WRAPPER
