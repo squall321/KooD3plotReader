@@ -86,6 +86,26 @@ for tarball in "$@"; do
         continue
     fi
 
+    # 🔴 래퍼가 SIF 구조(`python/`)를 가리키면 호스트(`lib/` 구조)에서 모듈을 못
+    #    찾는다. 2026-09-13 배포가 그렇게 깨졌고 v33 아카이브에도 들어갔다.
+    #    래퍼만 골라 한 번에 풀어 본다 (파일마다 풀면 550MB gzip 을 여러 번 읽는다).
+    wtmp="$(mktemp -d)"
+    tar xzf "$tarball" -C "$wtmp" --wildcards "${root}/bin/koo_*_report" 2>/dev/null || true
+    badw=""
+    for w in "$wtmp/${root}"/bin/koo_*_report; do
+        [ -f "$w" ] || continue
+        if grep -q '/python/koo_' "$w"; then
+            badw="${badw} $(basename "$w")"
+        fi
+    done
+    rm -rf "$wtmp"
+    if [ -n "$badw" ]; then
+        echo "   ✗ 래퍼가 python/ 경로를 가리킵니다 (호스트는 lib/ 구조):${badw}"
+        echo "     scripts/deploy_from_sif.sh 로 배포한 디렉토리를 묶으세요"
+        fail_total=$((fail_total + 1))
+        continue
+    fi
+
     # VERSION 내용까지 본다 — 파일만 있고 'unknown' 이면 추적이 안 된다
     ver="$(tar xzOf "$tarball" "${root}/VERSION" 2>/dev/null | sed -n 's/^Version:[[:space:]]*//p' | head -1)"
     built="$(tar xzOf "$tarball" "${root}/VERSION" 2>/dev/null | sed -n 's/^Built:[[:space:]]*//p' | head -1)"

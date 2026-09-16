@@ -76,6 +76,18 @@ mk_good "$W/f"; mkdir -p "$W/f/Other"; echo x > "$W/f/Other/f"
 (cd "$W/f" && tar czf "$W/two.tar.gz" SmartTwinPostprocessor Other)
 check "최상위 2개를 잡는다" 1 "$W/two.tar.gz"
 
+# ⑥b 래퍼가 SIF 구조(python/)를 가리키면 실패 (2026-09-13 배포 회귀)
+mk_good "$W/g"
+printf '#!/bin/bash\nexport PYTHONPATH="${MODULE_DIR}/python/koo_deep_report"\nexec python3 -m koo_deep_report "$@"\n' \
+    > "$W/g/SmartTwinPostprocessor/bin/koo_deep_report"
+(cd "$W/g" && tar czf "$W/pywrap.tar.gz" SmartTwinPostprocessor)
+check "python/ 경로 래퍼를 잡는다" 1 "$W/pywrap.tar.gz"
+mk_good "$W/h"
+printf '#!/bin/bash\nexport PYTHONPATH="${SMARTTWIN_POST_HOME}/lib/koo_deep_report"\nexec python3 -m koo_deep_report "$@"\n' \
+    > "$W/h/SmartTwinPostprocessor/bin/koo_deep_report"
+(cd "$W/h" && tar czf "$W/libwrap.tar.gz" SmartTwinPostprocessor)
+check "lib/ 경로 래퍼는 통과" 0 "$W/libwrap.tar.gz"
+
 # ⑦ 손상 아카이브 / 없는 파일
 head -c 200 "$W/good.tar.gz" > "$W/broken.tar.gz"
 check "손상 아카이브를 잡는다" 1 "$W/broken.tar.gz"

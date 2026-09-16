@@ -69,6 +69,39 @@ check_pair() {                 # check_pair <라벨> <VERSION 값> <바이너리
     echo "   ✓ 일치 (${vbin})"
 }
 
+# 배포 디렉토리의 CLI 래퍼가 **환경변수 없이** 실제로 뜨는지 본다.
+#
+# 🔴 2026-09-13 배포에서 SIF 의 래퍼(`python/` 경로)를 호스트(`lib/` 구조)에 그대로
+#    덮어써, env.sh 를 source 하지 않으면 `No module named koo_sphere_report` 로
+#    죽는 상태가 사흘간 남았다. env.sh 를 source 하면 PYTHONPATH 가 우연히 받쳐줘
+#    드러나지 않았고, 이 검증기는 VERSION 만 봐서 못 잡았다. 실행해 봐야 안다.
+check_wrappers() {             # check_wrappers <배포 디렉토리>
+    local dir="$1" w n rc out bad=0 total=0
+    for w in "$dir"/bin/koo_*_report; do
+        [ -f "$w" ] || continue
+        total=$((total + 1))
+        n="$(basename "$w")"
+        # 깨끗한 환경 — 사용자의 PYTHONPATH·env.sh 가 가려 주지 못하게
+        out="$(env -i PATH=/usr/bin:/bin HOME="${HOME:-/tmp}" LANG=C.UTF-8 \
+               timeout 120 "$w" --help 2>&1)"
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+            [ "$bad" -eq 0 ] && echo "   래퍼 실행 확인 (환경변수 없이 --help):"
+            echo "   ✗ ${n} — exit ${rc}: $(tail -1 <<< "$out" | cut -c1-100)"
+            bad=$((bad + 1))
+        fi
+    done
+    if [ "$total" -eq 0 ]; then
+        echo "   (bin/koo_*_report 래퍼가 없어 실행 확인을 건너뜁니다)"
+    elif [ "$bad" -eq 0 ]; then
+        echo "   ✓ 래퍼 ${total}개 모두 환경변수 없이 실행됨"
+    else
+        echo "     래퍼가 모듈을 못 찾습니다 — 호스트는 lib/ 구조인데 python/ 경로를"
+        echo "     가리키는지 확인하세요 (scripts/deploy_from_sif.sh 가 호스트 형식으로 생성합니다)"
+        fails=$((fails + bad))
+    fi
+}
+
 for target in "$@"; do
     if [ -d "$target" ]; then
         vfile="$(read_version_file "$target/VERSION")"
@@ -82,6 +115,7 @@ for target in "$@"; do
             continue
         fi
         check_pair "$target" "$vfile" "$vbin"
+        check_wrappers "$target"
 
     elif [ -f "$target" ]; then
         command -v apptainer >/dev/null 2>&1 || die "apptainer 를 찾지 못했습니다 (SIF 검사에 필요)"
