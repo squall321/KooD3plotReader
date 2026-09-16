@@ -117,6 +117,7 @@ table.dt td.b { color: var(--fg); font-weight: 600; }
 .verdict-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .verdict-cell { padding: 12px 16px; background: var(--bg2); border-left: 3px solid var(--dim); border-radius: 4px; }
 .verdict-cell.crit { border-left-color: var(--crit); }
+.topbar .meta span.warn { color: var(--warn); }
 .verdict-cell.warn { border-left-color: var(--warn); }
 .verdict-cell.safe { border-left-color: var(--good); }
 .verdict-cell .vl { font-size: 9px; color: var(--dim); letter-spacing: 3px; font-weight: 700; }

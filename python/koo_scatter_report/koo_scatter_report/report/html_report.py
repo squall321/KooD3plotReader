@@ -69,8 +69,8 @@ def build_html(si, criterion: str, metric: str, part_id=None,
 
     lat = {}
     for r in tbl.runs:
-        if r[6]:
-            lat.setdefault(r[6], set()).add(r[0])
+        if r[9]:
+            lat.setdefault(r[9], set()).add(r[0])
     latnote = ", ".join(f"{k} {len(v)}런" for k, v in sorted(lat.items())) or "각도 정보 없음"
     off = lat.get("off_lattice")
 
@@ -163,6 +163,61 @@ def build_html(si, criterion: str, metric: str, part_id=None,
     else:
         secs.append(_section("⑤ 편차각 구간 프로파일",
                              C.note_svg(680, 320, "편차각 정보가 없습니다")))
+
+    # ⑤b 통계 — 순위검정·상관. 귀무가설을 산출물에 함께 적는다.
+    try:
+        from koo_deep_report.core.stats_ranking import mean_rank_test, spearman
+        from koo_deep_report.core.doe_common import common_doe
+    except ImportError:
+        mean_rank_test = spearman = common_doe = None
+    if mean_rank_test is not None and vals:
+        lines = []
+        # (a) 면별 평균순위 — "이 면이 위험하다" 가 우연인지
+        by_run = {}
+        for r in tbl.rows:
+            if r[9] != criterion or r[10] != metric or not _fin(r[11]):
+                continue
+            by_run.setdefault(r[0], {})[r[7]] = max(
+                by_run.get(r[0], {}).get(r[7], float("-inf")), r[11])
+        parts_all = sorted({p for d in by_run.values() for p in d})
+        if len(parts_all) >= 2 and len(by_run) >= 1:
+            ranked = {}
+            for run, d in by_run.items():
+                order = sorted(d, key=lambda p: -d[p])
+                for i, p_ in enumerate(order):
+                    ranked.setdefault(p_, []).append(i + 1)
+            scored = []
+            for p_, rk in ranked.items():
+                res = mean_rank_test(rk, len(parts_all))
+                if res.p_value is not None:
+                    scored.append((res.p_value, p_, res))
+            scored.sort()
+            for pv, p_, res in scored[:5]:
+                mark = " ★" if pv < 0.05 else ""
+                lines.append(f"파트 {p_}: 평균순위 {res.mean_rank:.2f} "
+                             f"(귀무 {res.null_expected:.2f}) · p={pv:.4g} "
+                             f"[{res.method}]{mark}")
+            if scored:
+                lines.append(f"귀무가설: {scored[0][2].null_hypothesis}")
+        # (b) 편차각 ↔ 값 상관
+        sp = spearman([v[1] for v in vals if _fin(v[1])],
+                      [v[3] for v in vals if _fin(v[1])])
+        if sp.rho is not None:
+            lines.append(f"편차각 ↔ {metric} Spearman ρ = {sp.rho:.4f} (n={sp.n})")
+        elif sp.note:
+            lines.append(f"편차각 상관: {sp.note}")
+        # (c) 런 간 공통 파트 — 표본이 어긋나면 비교가 무의미하다
+        if common_doe is not None and len(by_run) >= 2:
+            cd = common_doe({k: list(v) for k, v in by_run.items()}, min_common=1,
+                            reject_below=False)
+            lines.append(f"런 간 공통 파트: {cd.n_common}개" +
+                         (f" · {cd.limiting[0][0]} 를 빼면 "
+                          f"{cd.n_common + cd.limiting[0][1]}개" if cd.limiting else ""))
+        body = ("<ul class='stat'>" + "".join(f"<li>{_esc(t)}</li>" for t in lines)
+                + "</ul>") if lines else C.note_svg(560, 120, "통계를 낼 표본이 부족합니다")
+        secs.append(_section("⑤b 순위 검정 · 상관", body,
+                             "★ 는 p<0.05. 귀무가설은 코드에 고정돼 있다 — "
+                             "매번 사람이 고르면 또 틀린다."))
 
     # ⑥ 리스크맵 — 클러스터 평면 투영
     items = [it for it in (tbl.items or []) if it.get("criterion") == criterion
@@ -295,6 +350,8 @@ section {{ margin:22px 0; }}
 h2 {{ font-size:0.98rem; margin:0 0 6px; color:#cfd4e6; }}
 .note {{ color:#9aa0b5; font-size:0.79rem; margin:0 0 8px; }}
 .fig {{ background:#151a2b; border:1px solid #2a2f45; border-radius:8px; padding:10px; }}
+ul.stat {{ margin:0; padding:6px 0 6px 20px; font-size:0.84rem; line-height:1.7; }}
+ul.stat li {{ color:#cfd4e6; }}
 .foot {{ color:#6b718c; font-size:0.75rem; padding:0 20px 24px; max-width:1100px; margin:0 auto; }}
 </style></head>
 <body>

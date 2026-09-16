@@ -34,6 +34,9 @@ def main(argv=None) -> int:
                     help="이 파트만 (여러 번 지정 가능)")
     ap.add_argument("--check-only", action="store_true",
                     help="건전성 점검만 하고 표를 만들지 않는다")
+    ap.add_argument("--segment-boxes", default=None, metavar="JSON",
+                    help="파트 구간 정의. 군집 중심을 구간에 배정해 구간별 통계를 낸다 "
+                         "(인터포저가 한 파트로 묶인 과제용)")
     ap.add_argument("--elout-check", action="store_true",
                     help="elout(촘촘한 요소 이력)과 견주어 d3plot 이 피크를 "
                          "놓쳤는지 확인한다 (*DATABASE_ELOUT 이 켜진 덱에서만)")
@@ -42,7 +45,7 @@ def main(argv=None) -> int:
     # elout 교차 확인은 클러스터 원형(peak_element_id)이 필요하다.
     # keep_clusters 를 안 켜면 순회할 항목이 없어 **아무 말 없이** 지나간다.
     tbl = collect_campaign(args.test_dir, part_ids=args.part,
-                           keep_clusters=bool(args.elout_check))
+                           keep_clusters=bool(args.elout_check or args.segment_boxes))
 
     if tbl.note:
         print(f"[campaign] {tbl.note}", file=sys.stderr)
@@ -71,9 +74,9 @@ def main(argv=None) -> int:
     #    군집 줄이 0 개라, rows 로 점검하면 각도 건전성을 아예 못 본다.
     runs_by_lat = {}
     for r in tbl.runs:
-        if r[6]:
-            runs_by_lat.setdefault(r[6], set()).add(r[0])
-    n_noangle = sum(1 for r in tbl.runs if not r[6])
+        if r[9]:
+            runs_by_lat.setdefault(r[9], set()).add(r[0])
+    n_noangle = sum(1 for r in tbl.runs if not r[9])
     if runs_by_lat:
         print("[campaign] 각도 격자: " +
               ", ".join(f"{k} {len(v)}런" for k, v in sorted(runs_by_lat.items())))
@@ -86,11 +89,15 @@ def main(argv=None) -> int:
     if n_noangle:
         print(f"[campaign] 각도를 읽지 못한 런 {n_noangle}개 "
               f"(output/<run>/DropSet.json 확인)", file=sys.stderr)
-    n_hs = sum(1 for r in tbl.runs if r[8])
+    n_hs = sum(1 for r in tbl.runs if r[11])
     if tbl.n_runs and not n_hs:
         print("[campaign] 핫스팟 군집이 있는 런이 없습니다 — "
               "unified_analyzer 를 --hotspot-clusters 로 돌리면 지표가 채워집니다",
               file=sys.stderr)
+
+    # ── 구간별 통계 ──
+    if args.segment_boxes:
+        _segment_stats(args.segment_boxes, tbl)
 
     # ── elout 교차 확인 ──
     if args.elout_check:
@@ -119,6 +126,50 @@ def main(argv=None) -> int:
             print(f"             {k:24s} {v}")
         print("[campaign] -o 로 TSV 경로를 주면 저장합니다.")
     return 0 if tbl.n_runs else 1
+
+
+def _segment_stats(seg_path, tbl) -> None:
+    """군집 중심을 구간에 배정해 구간별 최댓값을 낸다."""
+    from .core.segment_boxes import load_segments
+
+    ss = load_segments(seg_path)
+    if not ss.segments:
+        print(f"[campaign] 구간 정의를 쓸 수 없습니다 — {ss.note}", file=sys.stderr)
+        return
+    if ss.note:
+        print(f"[campaign] 구간 정의 경고: {ss.note}", file=sys.stderr)
+
+    best, cnt, unassigned = {}, {}, 0
+    for it in (tbl.items or []):
+        if ss.part_id is not None and it.get("part_id") != ss.part_id:
+            continue
+        for c in it.get("clusters") or []:
+            ctr = c.get("center")
+            v = c.get("stress_max")
+            if not (isinstance(ctr, list) and len(ctr) == 3):
+                continue
+            nm = ss.assign(ctr)
+            if nm is None:
+                unassigned += 1
+                continue
+            cnt[nm] = cnt.get(nm, 0) + 1
+            if isinstance(v, (int, float)):
+                if nm not in best or v > best[nm]:
+                    best[nm] = v
+    if not cnt:
+        print(f"[campaign] 구간에 배정된 군집이 없습니다 "
+              f"(파트 {ss.part_id} 의 군집이 구간 밖입니다)", file=sys.stderr)
+        return
+    print(f"[campaign] 구간별 통계 (파트 {ss.part_id}):")
+    for s_ in ss.segments:
+        n = cnt.get(s_.name, 0)
+        v = best.get(s_.name)
+        # 배정이 없는 구간은 값을 지어내지 않는다
+        print(f"             {s_.name:16s} 군집 {n:4d}개  최대 "
+              + (f"{v:.6g}" if v is not None else "—"))
+    if unassigned:
+        print(f"             (어느 구간에도 없는 군집 {unassigned}개 — "
+              f"구간이 파트를 다 덮는지 확인하세요)", file=sys.stderr)
 
 
 def _elout_check(test_dir, tbl) -> None:

@@ -90,10 +90,16 @@ try:
     chk("군집이 없어도 런 2개", t.n_runs, 2)
     chk("지표 줄은 0", len(t.rows), 0)
     chk("런 표는 2줄", len(t.runs), 2)
-    lat = {r[0]: r[6] for r in t.runs}
+    lat = {r[0]: r[9] for r in t.runs}
     chk("F1 기준자세는 face", lat["Run_A"], "face")
     chk("옛 코너(45,45)는 off_lattice", lat["Run_B"], "off_lattice")
-    chk("n_items 기록", sorted(r[8] for r in t.runs), [0, 0])
+    chk("n_items 기록", sorted(r[11] for r in t.runs), [0, 0])
+    chk("RUN_COLUMNS 와 길이가 맞는다",
+        {len(r) for r in t.runs}, {len(RUN_COLUMNS)})
+    # B-1: 성분 편차도 실린다
+    devs = {r[0]: (r[6], r[7], r[8]) for r in t.runs}
+    chk("F1 기준자세는 성분 편차 0", devs["Run_A"], (0.0, 0.0, 0.0))
+    chkb("옛 코너는 성분 편차가 0 이 아니다", any(abs(v) > 1 for v in devs["Run_B"]))
     out = tmp / "runs.tsv"
     chkb("런 표 저장", t.runs_to_tsv(out) is None and out.is_file())
 

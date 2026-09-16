@@ -21,6 +21,25 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     else:
         dt_str = f"{dt_s:g}"
         tf_str = f"{t_final:g}"
+    # 어느 unified_analyzer 빌드로 분석한 결과인지. 런마다 다르면 경고한다 —
+    # 차이가 모델 탓인지 도구 탓인지 구분할 수 없기 때문이다
+    # (docs/postproc_gap_2026-09/). 기록이 없으면 아무것도 적지 않는다.
+    _prov = meta.get("provenance") or {}
+    _builds = _prov.get("analysis_builds") or {}
+    _unknown = _prov.get("analysis_builds_unknown") or 0
+    if _prov.get("analysis_builds_mixed"):
+        _parts = [f"{k}({v})" for k, v in sorted(_builds.items())]
+        if _unknown:
+            _parts.append(f"기록없음({_unknown})")
+        build_span = ('<span class="warn">&#9888; BUILDS <b>'
+                      + _esc(", ".join(_parts)) + "</b></span>")
+    elif _builds:
+        build_span = f'<span>BUILD <b>{_esc(next(iter(_builds)))}</b></span>'
+    elif _unknown:
+        build_span = '<span>BUILD <b>기록 없음</b></span>'
+    else:
+        build_span = ""
+
     return f"""
 <div class="topbar">
   <div class="brand">KOOD3PLOT &middot; MULTI-FACE IMPACT</div>
@@ -32,6 +51,7 @@ def _build_topbar(meta: dict, unit_labels: dict | None = None) -> str:
     <span>MODE <b>{gen_mode}</b></span>
     <span>&Delta;t <b>{dt_str}</b></span>
     <span>T <b>{tf_str}</b></span>
+    {build_span}
   </div>
   <div class="nav">
     <a data-target="s1" class="active">OVERVIEW</a>

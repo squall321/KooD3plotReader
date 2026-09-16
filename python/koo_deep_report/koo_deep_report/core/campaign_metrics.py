@@ -45,7 +45,8 @@ _CLUSTER_METRICS = (
 #: 런 단위 정보 열 — 군집이 없는 캠페인에서도 각도 건전성을 점검할 수 있게
 #: `rows` 와 **따로** 보관한다. 각도를 군집 줄에만 실으면 핫스팟을 안 돌린
 #: 캠페인에서는 점검 자체가 불가능해진다.
-RUN_COLUMNS = ["run", "roll", "pitch", "yaw", "face", "dev_angle", "lattice",
+RUN_COLUMNS = ["run", "roll", "pitch", "yaw", "face", "dev_angle",
+               "dev_roll", "dev_pitch", "dev_yaw", "lattice",
                "tool_commit", "n_items"]
 
 
@@ -162,16 +163,19 @@ def collect_campaign(test_dir, part_ids=None, keep_clusters: bool = False) -> Ca
         if ang is None:
             roll = pitch = yaw = None
             face = dev = lat = None
+            dev_r = dev_p = dev_y = None
         else:
             roll, pitch, yaw = ang
             face, _ = nearest_face(roll, pitch, yaw)
             fd = face_deviation(roll, pitch, yaw, face or "")
             dev = fd.dev_angle
+            dev_r, dev_p, dev_y = fd.dev_roll, fd.dev_pitch, fd.dev_yaw
             lat, _ = classify_direction(roll, pitch, yaw)
 
         hs = doc.get("hotspot_clusters")
         n_items = len(hs) if isinstance(hs, list) else 0
-        tbl.runs.append((d.name, roll, pitch, yaw, face, dev, lat, commit, n_items))
+        tbl.runs.append((d.name, roll, pitch, yaw, face, dev,
+                         dev_r, dev_p, dev_y, lat, commit, n_items))
 
         if not isinstance(hs, list):
             continue

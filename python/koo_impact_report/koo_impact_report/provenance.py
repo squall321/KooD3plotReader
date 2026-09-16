@@ -69,6 +69,42 @@ def _input_digest(report) -> dict:
     return {"digest": h, "n_runs": n_runs}
 
 
+def _analysis_builds(report) -> dict:
+    """런들을 분석한 unified_analyzer 빌드 집계 {커밋: 런 수}.
+
+    런마다 다른 빌드로 분석해 놓고 결과를 비교하면, 차이가 모델 탓인지 도구
+    탓인지 구분할 수 없다. 2026-09 에 배포본 버전을 잘못 알아 오판한 일이 있었다
+    (docs/postproc_gap_2026-09/). 기록이 없는 런(2026-09-13 이전 산출물)도 센다 —
+    "1개 빌드" 로만 보고하면 나머지가 같은 판인 것처럼 읽힌다.
+    """
+    import json
+    builds: dict = {}
+    n_unknown = 0
+    for positions in (report.positions_by_face or {}).values():
+        for pos in positions or []:
+            rd = getattr(pos, "run_dir", None)
+            if rd is None:
+                continue
+            try:
+                doc = json.loads((Path(rd) / "analysis_result.json")
+                                 .read_text(encoding="utf-8", errors="replace"))
+                c = (doc.get("metadata") or {}).get("tool_commit") or ""
+            except (OSError, ValueError, AttributeError):
+                c = ""
+            if c:
+                builds[c] = builds.get(c, 0) + 1
+            else:
+                n_unknown += 1
+    out = {}
+    if builds:
+        out["analysis_builds"] = builds
+    if n_unknown:
+        out["analysis_builds_unknown"] = n_unknown
+    if len(builds) > 1 or (builds and n_unknown):
+        out["analysis_builds_mixed"] = True
+    return out
+
+
 def build_provenance(report, argv: list[str] | None = None) -> dict:
     """report 에 부착할 provenance dict 를 조립한다."""
     prov = {
@@ -82,4 +118,5 @@ def build_provenance(report, argv: list[str] | None = None) -> dict:
         "input": _input_digest(report),
     }
     prov.update(_read_module_version())
+    prov.update(_analysis_builds(report))
     return prov

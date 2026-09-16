@@ -75,7 +75,8 @@ try:
     print("[2] 데이터가 없을 때 — 사유를 적고 지어내지 않는다")
     html = build_html(si, "von_mises", "c1_stress_max")
     chk("HTML 생성", html.startswith("<!DOCTYPE html>"))
-    chk("섹션 9개", html.count("<section>") == 9)
+    # 그림 9종 + 통계 섹션(⑤b) = 10
+    chk("섹션 10개", html.count("<section>") == 10)
     chk("회수율은 불량데이터 없음을 말한다", "시험 불량 데이터가 없습니다" in html)
     chk("구간도는 정의 없음을 말한다", "구간 정의가 없습니다" in html)
     chk("외부 스크립트를 쓰지 않는다", "<script" not in html and "cdn." not in html)
@@ -84,7 +85,7 @@ try:
     svgs = re.findall(r"<svg.*?</svg>", html, re.S)
     chk(f"SVG {len(svgs)}개 모두 유효한 XML",
         all(ET.fromstring(s) is not None for s in svgs))
-    chk("SVG 9개", len(svgs) == 9)
+    chk("SVG 9개 (통계 섹션은 표라 SVG 가 아니다)", len(svgs) == 9)
 
     print("[3] 불량 데이터(좌표 포함)가 있을 때")
     gt = tmp / "ng.tsv"
@@ -109,6 +110,22 @@ try:
     chk("구간도가 그려진다", "구간 정의가 없습니다" not in html3)
     chk("구간 이름이 나온다", "Q1" in html3 and "Q2" in html3)
 
+    print("[4b] 통계 섹션 — 귀무가설을 산출물에 적는다")
+    chk("공통 파트 표본을 말한다", "런 간 공통 파트" in html)
+    # 순위검정은 파트가 2개 이상이어야 성립한다 (1개면 순위에 정보가 없다).
+    # 위 캠페인은 파트 7 하나뿐이라 나오지 않는 것이 **정상**이다.
+    chk("파트 1개면 순위검정을 내지 않는다", "평균순위" not in html)
+    root_r = tmp / "c1r"
+    _make_campaign(root_r, [
+        ("Run_A", (0.0, 0.0, 0.0), [_item(7, base=300.0), _item(8, base=100.0)]),
+        ("Run_B", (3.0, 0.0, 0.0), [_item(7, base=310.0), _item(8, base=110.0)]),
+    ])
+    si_r = load(root_r)
+    html_r = build_html(si_r, "von_mises", "c1_stress_max")
+    chk("파트 2개면 순위검정이 나온다", "평균순위" in html_r)
+    chk("귀무가설 문구가 실린다", "귀무가설" in html_r and "(N+1)/2" in html_r)
+    chk("파트 7 이 1위 (항상 더 뜨겁다)", "파트 7: 평균순위 1.00" in html_r)
+
     print("[5] 없는 기준량·지표를 요청해도 죽지 않는다")
     html4 = build_html(si, "nonexistent_crit", "c1_stress_max")
     chk("HTML 은 나온다", html4.startswith("<!DOCTYPE html>"))
@@ -121,7 +138,8 @@ try:
     chk("로딩은 성공", si5.ok)
     html5 = build_html(si5, "von_mises", "c1_stress_max")
     chk("군집 없음을 말한다", "군집 데이터가 없습니다" in html5)
-    chk("섹션은 그대로 9개", html5.count("<section>") == 9)
+    # 값이 없으면 통계 섹션은 붙지 않는다 — 빈 표를 내밀지 않는다
+    chk("그림 9종은 그대로", html5.count("<section>") == 9)
 
     print("[7] 코너 결함 캠페인은 경고한다")
     root3 = tmp / "c3"

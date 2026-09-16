@@ -41,7 +41,13 @@
 - [x] sphere — 런마다 다른 빌드로 분석됐는지까지 드러낸다
       → verify: 섞임 `⚠ builds: <커밋>(1), 기록 없음(3)` / 전부 같음 `build <커밋>` /
       기록 전무 시 아무것도 적지 않음. 1144각도 기존 리포트 회귀 없음
-- [ ] impact / federate / custom 푸터 — 구조가 제각각이라 별도 (P0-6)
+- [x] impact — `provenance.analysis_builds` + topbar 표시
+      → 런별 `metadata.tool_commit` 을 집계해 provenance 에 싣고, 상단 바에
+        단일이면 `BUILD <커밋>`, 혼재면 `⚠ BUILDS a(20), b(3), 기록없음(2)`
+      → verify: 세 경우(기록 없음/단일/혼재) 모두 의도대로. 골든 `skeleton` 만
+        바뀌고 `data` 는 그대로여서 변경 범위도 확인됨
+      - federate/custom 은 analysis_result.json 을 직접 읽지 않아(전자는 sidecar,
+        후자는 *SET_ 기반) 같은 방식이 성립하지 않는다 — 대상 아님
 
 ### P0-4. 배포 검증 스크립트 — 완료
 - [x] `scripts/verify_deploy.sh <경로|sif> [...]` — VERSION ↔ `--capabilities` 대조
@@ -144,7 +150,8 @@
       (예전 판은 "-5" 를 음수 임계로 받아 **항상 통과**시켰다)
 - [x] 경계 입력 16종 예외 0 → verify: dict 아님·빈 DOE·해시 불가 키·정렬 불가
       혼합 키 등 전부 거부 객체로 반환
-- [ ] CLI `--common-doe-only` 배선 — 캠페인 모듈(P3)이 생긴 뒤
+- [x] 배선 완료 — `koo_scatter_report` ⑤b 섹션이 `common_doe()` 로 런 간 공통
+      파트를 보고하고, 표본을 줄인 런을 지목한다
 
 ### P2-2. 통계 검정 유틸 — 완료 (배선은 P3)
 - [x] `koo_deep_report/core/stats_ranking.py` — 평균순위 검정 / Spearman /
@@ -159,7 +166,10 @@
 - [x] 계산 못 한 값은 `None` + 사유. 0 으로 채우지 않는다
 - [x] 경계 입력 18종 예외 0, **numpy 없는 환경**에서도 import·동작
 - [x] SIF 환경(다른 python)에서도 두 시험 통과
-- [ ] 리포트 배선 — 캠페인 모듈(P3)이 생긴 뒤
+- [x] 배선 완료 — `koo_scatter_report` ⑤b 섹션에 평균순위 검정(파트별 p값)과
+      Spearman 상관. **귀무가설 문구를 산출물에 함께 적는다**
+      → verify: 파트 1개면 순위검정을 내지 않고(순위에 정보가 없다), 2개 이상이면
+        `파트 7: 평균순위 1.00 (귀무 4.00) · p=0.0004165 [exact] ★`
 
 ## P3. 캠페인 그릇
 - [x] **B-1 면 기준 편차각** — `core/face_deviation.py`
@@ -200,15 +210,21 @@
       (조용히 사라지면 합이 안 맞는 이유를 알 수 없다)
       → verify: ±180° 감는 각도 구간, 뒤집힌 경계 자동 교정, 잘못된 정의 6종
       건너뛰기+사유, 경계 16종 예외 0
-- [ ] A-5 CLI 배선 `--segment-boxes segments.json`
+- [x] A-5 CLI 배선 — `campaign_cli --segment-boxes seg.json`
+      → verify: 실캠페인에서 Q1~Q4 구간별 군집 수·최댓값 출력, 배정 안 된 군집은
+        따로 세어 알린다(구간이 파트를 다 덮는지 확인하라고)
 - [x] A-6 좌표 정합 — `core/coordinate_transform.py` (Kabsch + 잔차 판정)
       → 후처리는 변환을 전달받지 못한다(DropSet.json 에 기록 없음). **추정**하고
       잔차를 함께 낸다. 잔차가 크면 "강체 변환이 아니다" 를 경고
       → verify: 실제 사건 값(Δy≈−73.7, Δz≈+4.9) 복원 오차 1e-9, 회전각이 정확히 0
       (acos 이었다면 1e-6 잡음), 대응 오류 1점에 경고, 회전 결정 불가 시 지어내지 않음
       → 구현 중 IndexError·ValueError 2건을 시험이 잡아 수정
-- [ ] A-6 배선 — `metadata.coordinate_transform` 에 싣기 (원본 덱 경로 확보 필요)
-- [ ] B-1 면 기준 편차각 `dev_roll`/`dev_pitch`/`dev_angle`
+- [ ] A-6 배선 — `metadata.coordinate_transform` 에 싣기.
+      유틸(`estimate_transform`)은 완성됐으나 **원본 덱 경로를 얻는 경로가 없다**.
+      후처리는 결과 좌표만 보고 원본 도면을 모른다 — 시나리오가 원본 .k 경로를
+      넘겨주는 규약이 생기면 그때 연결한다 (추측으로 찾으면 엉뚱한 덱을 문다)
+- [x] B-1 완료 — `RUN_COLUMNS` 에 `dev_angle`/`dev_roll`/`dev_pitch`/`dev_yaw`
+      → verify: 기준자세는 전부 0, 옛 코너(45,45)는 성분 편차가 0 이 아니다
 - [x] B-5 ground truth 스키마 — `core/ground_truth.py`
       → TSV 필수 열 `case`/`face`/`part_id`/`verdict` + 선택 `mechanism`/`location`/`note`
       → `part_recall()` 이 P2 의 recall@k 를 실제로 쓴다 (적중·놓친 파트까지 반환)
