@@ -6,6 +6,7 @@ import math
 from enum import Enum
 from pathlib import Path
 
+from ..loader import extreme_indices
 from ..models import MotionData, Report, Severity, SimulationResult
 
 
@@ -191,48 +192,60 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                     "final_ie": e.final_ie, "final_ke": e.final_ke,
                 }
             if pr.stress and pr.stress.times:
-                step = max(1, len(pr.stress.times) // ts_pts)
+                # 매 N번째 행 대신 구간별 최대·최소를 남긴다 — 이 배열의 argmax 로
+                # 화면이 Peak G·CAI·핫스팟 요소를 다시 계산하므로, 피크가 빠지면
+                # 그 KPI 들이 통째로 틀린다 (전수조사 2026-09).
+                idx = extreme_indices(len(pr.stress.times),
+                                      [pr.stress.max_values, pr.stress.min_values], ts_pts)
                 pd["stress_ts"] = {
-                    "t": [round(pr.stress.times[i], t_prec) for i in range(0, len(pr.stress.times), step)],
-                    "max": [round(pr.stress.max_values[i], s_prec) for i in range(0, len(pr.stress.max_values), step)],
-                    "avg": [round(pr.stress.avg_values[i], s_prec) for i in range(0, len(pr.stress.avg_values), step)],
+                    "t": [round(pr.stress.times[i], t_prec) for i in idx],
+                    "max": [round(pr.stress.max_values[i], s_prec) for i in idx],
+                    "avg": [round(pr.stress.avg_values[i], s_prec) for i in idx],
                 }
                 if include_extras and pr.stress.min_values:
-                    pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], s_prec) for i in range(0, len(pr.stress.min_values), step)]
+                    pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], s_prec) for i in idx]
                 if include_extras and pr.stress.max_element_ids:
-                    pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in range(0, len(pr.stress.max_element_ids), step)]
+                    pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in idx]
             if pr.strain and pr.strain.times:
-                step = max(1, len(pr.strain.times) // ts_pts)
+                idx = extreme_indices(len(pr.strain.times), [pr.strain.max_values], ts_pts)
                 pd["strain_ts"] = {
-                    "t": [round(pr.strain.times[i], t_prec) for i in range(0, len(pr.strain.times), step)],
-                    "max": [round(pr.strain.max_values[i], e_prec) for i in range(0, len(pr.strain.max_values), step)],
+                    "t": [round(pr.strain.times[i], t_prec) for i in idx],
+                    "max": [round(pr.strain.max_values[i], e_prec) for i in idx],
                 }
                 if pr.strain.avg_values:
-                    pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in range(0, len(pr.strain.avg_values), step)]
+                    pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in idx]
             if pr.motion and pr.motion.times:
-                step = max(1, len(pr.motion.times) // ts_pts)
                 g_factor = MotionData.G_FACTOR  # single source of truth
+                gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
                 pd["g_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
-                    "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],
+                    "t": [round(pr.motion.times[i], t_prec) for i in gidx],
+                    "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                 }
+                didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
                 pd["disp_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), step)],
-                    "mag": [round(pr.motion.avg_disp_mag[i], s_prec) for i in range(0, len(pr.motion.avg_disp_mag), step)],
+                    "t": [round(pr.motion.times[i], t_prec) for i in didx],
+                    "mag": [round(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
                 }
                 if include_components:
-                    cs = max(1, len(pr.motion.times) // comp_pts)
+                    aidx = extreme_indices(
+                        len(pr.motion.times),
+                        [pr.motion.avg_acc_x, pr.motion.avg_acc_y, pr.motion.avg_acc_z],
+                        comp_pts)
                     pd["acc_ts"] = {
-                        "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), cs)],
-                        "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_x), cs)],
-                        "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_y), cs)],
-                        "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in range(0, len(pr.motion.avg_acc_z), cs)],
+                        "t": [round(pr.motion.times[i], t_prec) for i in aidx],
+                        "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in aidx],
+                        "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in aidx],
+                        "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in aidx],
                     }
+                    cidx = extreme_indices(
+                        len(pr.motion.times),
+                        [pr.motion.avg_disp_x, pr.motion.avg_disp_y, pr.motion.avg_disp_z],
+                        comp_pts)
                     pd["disp_comp_ts"] = {
-                        "t": [round(pr.motion.times[i], t_prec) for i in range(0, len(pr.motion.times), cs)],
-                        "x": [round(pr.motion.avg_disp_x[i], s_prec) for i in range(0, len(pr.motion.avg_disp_x), cs)],
-                        "y": [round(pr.motion.avg_disp_y[i], s_prec) for i in range(0, len(pr.motion.avg_disp_y), cs)],
-                        "z": [round(pr.motion.avg_disp_z[i], s_prec) for i in range(0, len(pr.motion.avg_disp_z), cs)],
+                        "t": [round(pr.motion.times[i], t_prec) for i in cidx],
+                        "x": [round(pr.motion.avg_disp_x[i], s_prec) for i in cidx],
+                        "y": [round(pr.motion.avg_disp_y[i], s_prec) for i in cidx],
+                        "z": [round(pr.motion.avg_disp_z[i], s_prec) for i in cidx],
                     }
                 # 다운샘플 전 참최대속도를 쓴다 (줄인 배열의 max 는 피크를 놓친다).
                 # 속도 열이 아예 없으면 0 이 아니라 키를 넣지 않는다.

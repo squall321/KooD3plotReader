@@ -4,6 +4,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
+from ..loader import extreme_indices
 from ..models import MotionData, Report
 
 
@@ -108,28 +109,31 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 }
 
             if include_timeseries:
+                # 매 N번째 행 대신 구간별 최대·최소를 남긴다 — 피크가 빠진
+                # 시계열을 사이드카로 넘기면 federate 가 그것을 실측으로 읽는다.
                 if pr.stress and pr.stress.times:
-                    step = max(1, len(pr.stress.times) // ts_pts)
+                    idx = extreme_indices(len(pr.stress.times), [pr.stress.max_values], ts_pts)
                     pd["stress_ts"] = {
-                        "t": [round(pr.stress.times[i], 7) for i in range(0, len(pr.stress.times), step)],
-                        "max": [round(pr.stress.max_values[i], 1) for i in range(0, len(pr.stress.max_values), step)],
+                        "t": [round(pr.stress.times[i], 7) for i in idx],
+                        "max": [round(pr.stress.max_values[i], 1) for i in idx],
                     }
                 if pr.strain and pr.strain.times:
-                    step = max(1, len(pr.strain.times) // ts_pts)
+                    idx = extreme_indices(len(pr.strain.times), [pr.strain.max_values], ts_pts)
                     pd["strain_ts"] = {
-                        "t": [round(pr.strain.times[i], 7) for i in range(0, len(pr.strain.times), step)],
-                        "max": [round(pr.strain.max_values[i], 6) for i in range(0, len(pr.strain.max_values), step)],
+                        "t": [round(pr.strain.times[i], 7) for i in idx],
+                        "max": [round(pr.strain.max_values[i], 6) for i in idx],
                     }
                 if pr.motion and pr.motion.times:
-                    step = max(1, len(pr.motion.times) // ts_pts)
                     g_factor = MotionData.G_FACTOR  # single source of truth
+                    gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
                     pd["g_ts"] = {
-                        "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
-                        "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in range(0, len(pr.motion.avg_acc_mag), step)],
+                        "t": [round(pr.motion.times[i], 7) for i in gidx],
+                        "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                     }
+                    didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
                     pd["disp_ts"] = {
-                        "t": [round(pr.motion.times[i], 7) for i in range(0, len(pr.motion.times), step)],
-                        "mag": [round(pr.motion.avg_disp_mag[i], 2) for i in range(0, len(pr.motion.avg_disp_mag), step)],
+                        "t": [round(pr.motion.times[i], 7) for i in didx],
+                        "mag": [round(pr.motion.avg_disp_mag[i], 2) for i in didx],
                     }
 
             run_summary["parts"][str(pid)] = pd

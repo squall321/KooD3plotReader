@@ -219,11 +219,42 @@ def load_part_names(output_dir: Path) -> dict[int, PartInfo]:
     return parts
 
 
-def _downsample_step(n: int, target: int) -> int:
-    """Every Nth row to keep, or 1 if target unset / >= n."""
+def extreme_indices(n: int, arrays: list, target: int | None) -> list[int]:
+    """구간마다 각 배열의 최대·최소 위치를 남기는 인덱스 (처음·끝 포함, 오름차순).
+
+    '매 N번째 행'(`vals[::step]`)으로 줄이면 한두 샘플짜리 충격 피크가 통째로
+    사라진다. 실캠페인 Test_006(992상태→42행→11점)에서 g 시계열 피크가 참피크의
+    12%, 응력이 27% 까지 내려갔고, 화면 KPI(Peak G·펄스·CAI·핫스팟 요소)는 전부
+    그 솎인 배열에서 다시 계산되었다.
+
+    전역 피크가 든 구간은 그 위치를 그대로 내보내므로 값·시각·요소 ID 가 함께
+    남는다. 구간 수는 `(target-2) // (2×배열수)` 라 결과 점수가 target 을
+    넘지 않는다 — payload 예산은 그대로 두고 어느 점을 남길지만 바꾼다.
+    """
+    if n <= 0:
+        return []
     if target is None or target <= 0 or n <= target:
-        return 1
-    return max(1, n // target)
+        return list(range(n))
+    srcs = [a for a in arrays if a is not None and len(a) == n] or [list(range(n))]
+    buckets = max(1, (target - 2) // (2 * len(srcs)))
+    buckets = min(buckets, n)
+    keep = {0, n - 1}
+    for vals in srcs:
+        for b in range(buckets):
+            lo, hi = b * n // buckets, (b + 1) * n // buckets
+            imax = imin = None
+            for i in range(lo, hi):
+                v = vals[i]
+                if not isinstance(v, (int, float)) or not math.isfinite(v):
+                    continue
+                if imax is None or v > vals[imax]:
+                    imax = i
+                if imin is None or v < vals[imin]:
+                    imin = i
+            if imax is not None:
+                keep.add(imax)
+                keep.add(imin)
+    return sorted(keep)
 
 
 def _load_stress_strain_csv(csv_path: Path, target_points: int | None = None) -> TimeSeriesData:
@@ -270,13 +301,15 @@ def _load_stress_strain_csv(csv_path: Path, target_points: int | None = None) ->
         ts.true_min = all_min[min_idx]
         ts.true_min_time = all_t[min_idx]
 
-    step = _downsample_step(len(all_t), target_points)
-    ts.times = all_t[::step]
-    ts.max_values = all_max[::step]
-    ts.min_values = all_min[::step]
-    ts.avg_values = all_avg[::step]
+    # 줄이더라도 구간별 최대·최소는 남긴다 — 피크가 든 행을 통째로 내보내므로
+    # 값·시각·요소 ID 가 함께 보존된다 (매 N번째 행 방식은 이를 잃었다).
+    idx = extreme_indices(len(all_t), [all_max, all_min], target_points)
+    ts.times = [all_t[i] for i in idx]
+    ts.max_values = [all_max[i] for i in idx]
+    ts.min_values = [all_min[i] for i in idx]
+    ts.avg_values = [all_avg[i] for i in idx]
     if all_eid:
-        ts.max_element_ids = all_eid[::step]
+        ts.max_element_ids = [all_eid[i] for i in idx]
     return ts
 
 
@@ -325,10 +358,16 @@ def _load_motion_csv(csv_path: Path, target_points: int | None = None) -> Motion
         if finite_vel:
             md.true_peak_vel = max(finite_vel)
 
-    step = _downsample_step(len(all_t), target_points)
-    md.times = all_t[::step]
+    # 가속도·속도·변위의 극값을 모두 남기는 인덱스로 한 번에 줄인다
+    # (배열마다 따로 줄이면 같은 인덱스라는 보장이 길이 우연에 기댄다).
+    idx = extreme_indices(
+        len(all_t),
+        [buf["avg_acc_mag"], buf["avg_vel_mag"], buf["max_disp_mag"], buf["avg_disp_mag"]],
+        target_points,
+    )
+    md.times = [all_t[i] for i in idx]
     for k in cols:
-        setattr(md, k, buf[k][::step])
+        setattr(md, k, [buf[k][i] for i in idx])
     return md
 
 
