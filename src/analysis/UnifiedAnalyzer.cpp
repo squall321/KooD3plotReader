@@ -980,12 +980,18 @@ std::vector<int32_t> UnifiedAnalyzer::resolveSegmentParentElements(
     };
 
     // 절점 → solid 요소 역인덱스 (연결성은 내부 인덱스)
+    // 요소당 **고유** 절점만 넣는다. LS-DYNA 는 사면체를 (a,b,c,d,d,d,d,d),
+    // 피라미드를 (n1..n4,n5,n5,n5,n5) 로 적으므로, 중복을 그대로 넣으면 아래
+    // hit 이 '공유 절점 수' 가 아니게 되어 절점 1개만 걸친 사면체(5회)가
+    // 절점 4개를 공유한 진짜 부모(4회)를 이기고, best_n >= 3 임계도 무력화된다.
     std::map<int32_t, std::vector<int32_t>> node2elem;
     for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+        std::set<int32_t> uniq;
         for (int32_t node_ref : mesh.solids[ei].node_ids) {
             const int32_t ni = node_index(node_ref);
-            if (ni >= 0) node2elem[ni].push_back(static_cast<int32_t>(ei));
+            if (ni >= 0) uniq.insert(ni);
         }
+        for (int32_t ni : uniq) node2elem[ni].push_back(static_cast<int32_t>(ei));
     }
 
     std::set<int32_t> parents;

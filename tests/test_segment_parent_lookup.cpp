@@ -76,6 +76,34 @@ static std::array<int32_t, 4> sideFaceSegment(const data::Mesh& mesh, int e) {
     return seg;
 }
 
+
+/// 퇴화 육면체 시험용 작은 메시. 절점 1..12 는 모두 항등 사용자 ID 다.
+/// 요소는 호출자가 연결성 8개씩 넘겨 순서까지 지정한다 (요소 인덱스 순서가
+/// 동점 처리에 영향을 주므로 시험에서 그 순서를 직접 다뤄야 한다).
+static data::Mesh makeSmallMesh(const std::vector<std::vector<int32_t>>& conns) {
+    data::Mesh mesh;
+    for (int i = 0; i < 12; ++i) {
+        Node nd;
+        nd.id = i + 1;
+        nd.x = i;
+        nd.y = 0.0;
+        nd.z = 0.0;
+        mesh.nodes.push_back(nd);
+        mesh.real_node_ids.push_back(i + 1);
+    }
+    for (size_t e = 0; e < conns.size(); ++e) {
+        Element el;
+        el.id = static_cast<int32_t>(e) + 1;
+        el.type = ElementType::SOLID;
+        el.material_id = 1;
+        el.node_ids = conns[e];
+        mesh.solids.push_back(el);
+        mesh.solid_parts.push_back(1);
+    }
+    mesh.num_solids = mesh.solids.size();
+    return mesh;
+}
+
 int main() {
     const int N = 49;   // 절점 200개
 
@@ -117,6 +145,53 @@ int main() {
     {
         auto mesh = makeBar(N, /*renumber=*/true);
         std::vector<std::array<int32_t, 4>> segs = {{900001, 900002, 900003, 900004}};
+        size_t unresolved = 0;
+        auto parents = UnifiedAnalyzer::resolveSegmentParentElements(mesh, segs, unresolved);
+        chk("부모 없음", parents.empty(), listOf(parents));
+        chk("미해석 1개", unresolved == 1, "n=" + std::to_string(unresolved));
+    }
+
+
+    printf("\n[E] 퇴화 육면체(사면체) — 중복 절점이 진짜 부모를 가로채면 안 된다\n");
+    {
+        // LS-DYNA 는 사면체를 (a,b,c,d,d,d,d,d) 로 적는다. 절점 d 가 연결성에
+        // 5번 들어가므로, 중복을 세면 '절점 1개만 공유한 사면체'(5) 가
+        // '절점 4개를 공유한 진짜 부모'(4) 를 이긴다.
+        auto mesh = makeSmallMesh({
+            {9, 10, 11, 4, 4, 4, 4, 4},          // 요소 0 = 사면체, 절점 4 하나만 공유
+            {1, 2, 3, 4, 5, 6, 7, 8},            // 요소 1 = 진짜 육면체
+        });
+        std::vector<std::array<int32_t, 4>> segs = {{1, 2, 3, 4}};   // 육면체 바닥면
+        size_t unresolved = 0;
+        auto parents = UnifiedAnalyzer::resolveSegmentParentElements(mesh, segs, unresolved);
+        chk("부모 = 육면체(요소 1)", parents == std::vector<int32_t>({1}), listOf(parents));
+        chk("미해석 세그먼트 0개", unresolved == 0, "n=" + std::to_string(unresolved));
+    }
+
+    printf("\n[F] 퇴화 육면체(피라미드) — 꼭짓점 4회 반복이 동점을 만들면 안 된다\n");
+    {
+        // 피라미드는 (n1,n2,n3,n4,n5,n5,n5,n5) 라 꼭짓점이 4번 들어간다.
+        // 중복을 세면 진짜 부모와 4:4 동점이 되고, 요소 인덱스가 낮은 쪽이 이긴다.
+        auto mesh = makeSmallMesh({
+            {9, 10, 11, 12, 4, 4, 4, 4},         // 요소 0 = 피라미드, 꼭짓점이 절점 4
+            {1, 2, 3, 4, 5, 6, 7, 8},            // 요소 1 = 진짜 육면체
+        });
+        std::vector<std::array<int32_t, 4>> segs = {{1, 2, 3, 4}};
+        size_t unresolved = 0;
+        auto parents = UnifiedAnalyzer::resolveSegmentParentElements(mesh, segs, unresolved);
+        chk("부모 = 육면체(요소 1)", parents == std::vector<int32_t>({1}), listOf(parents));
+        chk("미해석 세그먼트 0개", unresolved == 0, "n=" + std::to_string(unresolved));
+    }
+
+    printf("\n[G] 절점 1개만 걸친 세그먼트 — 중복이 3개 임계를 통과시키면 안 된다\n");
+    {
+        // 셸 면처럼 solid 부모가 없는 세그먼트. 절점 하나가 사면체의 중복 슬롯에
+        // 걸리면 중복 계수로는 hit=5 가 되어 'best_n >= 3' 임계가 무력화된다.
+        auto mesh = makeSmallMesh({
+            {1, 2, 3, 4, 5, 6, 7, 8},
+            {9, 10, 11, 4, 4, 4, 4, 4},
+        });
+        std::vector<std::array<int32_t, 4>> segs = {{4, 900001, 900002, 900003}};
         size_t unresolved = 0;
         auto parents = UnifiedAnalyzer::resolveSegmentParentElements(mesh, segs, unresolved);
         chk("부모 없음", parents.empty(), listOf(parents));
