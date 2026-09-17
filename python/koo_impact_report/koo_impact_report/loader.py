@@ -1195,6 +1195,15 @@ def load_per_part_motions(
                     pm.acc_mag.append(fv("Avg_Acc_Mag"))
         except OSError:
             continue
+        # 시각 축 검사 — Time 은 소수 6자리 고정(1 µs)이라 출력 간격이 그보다
+        # 촘촘하면 상태들이 같은 시각을 갖는다. 그대로 두면 FFT 가 0 간격을
+        # 버리고 남은 것만 평균내 표본율을 간격비만큼 잘못 잡는다(20 kHz → 2 kHz).
+        _n_dup = sum(1 for a, b in zip(pm.times, pm.times[1:]) if b <= a)
+        if _n_dup > 0:
+            pm.time_issue = (
+                f"motion CSV 시각이 단조증가하지 않는다 — {_n_dup}/{len(pm.times) - 1} "
+                f"구간이 중복(Time 이 소수 6자리 고정이라 1 µs 미만 간격은 뭉개진다). "
+                f"주파수 분석(FFT/SRS)은 표본율을 알 수 없어 내보내지 않는다")
         # Derived scalar summaries — directly from real CSV (no synthetic differentiation)
         if pm.acc_mag:
             i_max = max(range(len(pm.acc_mag)), key=lambda i: pm.acc_mag[i])
@@ -1896,6 +1905,14 @@ def load_single_d3plot_report(
             impactor_trajectory=traj,
             part_motion=pm,
         ))
+
+    # 시각 축 결함 — 주파수 분석이 왜 비는지 화면에서 읽을 수 있게.
+    _time_bad = sorted(pid for pid, m in motions.items() if m.time_issue)
+    if _time_bad:
+        load_issues.append({
+            "kind": "motion-time-resolution", "pos_name": None, "exc_class": None,
+            "msg": f"part {', '.join(str(p) for p in _time_bad)} — "
+                   + str(motions[_time_bad[0]].time_issue)})
 
     # 측정 결측을 구조화 기록 — 화면에서 '0 G 로 통과' 로 읽히지 않게.
     if not motions:

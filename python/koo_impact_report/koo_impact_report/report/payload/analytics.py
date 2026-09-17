@@ -23,6 +23,11 @@ def _fft_dominant_freq(times, signal, f_lo=10.0):
     if np.allclose(s, 0.0):
         return None
     dts = np.diff(t)
+    # 시각이 단조증가하지 않으면(= CSV 소수 6자리 고정에 뭉개져 중복) 표본율을
+    # 알 수 없다. 0 간격을 버리고 남은 것만 평균내면 fs 가 간격비만큼 커져
+    # 실측 20 kHz 신호가 2 kHz 로 나온다 — 틀린 숫자 대신 값을 내지 않는다.
+    if np.any(dts <= 0):
+        return None
     dts = dts[dts > 0]
     if dts.size < 4:
         return None
@@ -83,6 +88,7 @@ def _build_fft_payload(report, max_bins: int = 128):
 
     # group by part_id
     by_part = {}
+    time_issues: list[str] = []
     for key, pm in part_motions.items():
         if not isinstance(key, tuple) or len(key) != 2:
             continue
@@ -90,6 +96,12 @@ def _build_fft_payload(report, max_bins: int = 128):
         times = getattr(pm, "times", None)
         acc = getattr(pm, "acc_mag", None)
         if times is None or acc is None:
+            continue
+        # 시각 해상도가 깨진 런은 스펙트럼을 내지 않는다 (사유는 payload 로).
+        _ti = getattr(pm, "time_issue", None)
+        if _ti:
+            if _ti not in time_issues:
+                time_issues.append(str(_ti))
             continue
         res = _fft_dominant_freq(times, acc, f_lo=10.0)
         if res is None:
@@ -142,7 +154,11 @@ def _build_fft_payload(report, max_bins: int = 128):
         "fs_Hz": round(float(np.mean(all_fs)), 2) if all_fs else 0.0,
         "freq_band_Hz": [round(float(f_lo_used), 2), round(float(f_hi_used), 2)],
     }
-    return {"per_part_dominant_freq": per_part, "summary": summary}
+    out = {"per_part_dominant_freq": per_part, "summary": summary}
+    if time_issues:
+        # 조용히 빈 패널을 내보내지 않는다 — 왜 비었는지 같이 싣는다.
+        out["time_issue"] = "; ".join(time_issues[:4])
+    return out
 
 
 def _srs_one_third_octave_centers(f_lo: float, f_hi: float):
@@ -285,6 +301,8 @@ def _build_srs_payload(report):
         a_arr = np.asarray(a, dtype=np.float64)
         if t_arr.size < 8 or a_arr.size != t_arr.size:
             continue
+        if getattr(pm, "time_issue", None):
+            continue   # 시각 해상도가 깨진 런은 SRS 도 낼 수 없다
         if not np.any(np.isfinite(a_arr)) or np.nanmax(np.abs(a_arr)) <= 0:
             continue
         candidates.append((kpart, t_arr, a_arr))

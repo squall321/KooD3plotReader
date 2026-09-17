@@ -286,6 +286,10 @@ class PartMotion:
     t_peak_g: float = 0.0                # s
     peak_disp: float = 0.0               # max disp_mag
     peak_vel: float = 0.0                # max vel_mag
+    #: 시각 축 결함 사유 (없으면 None). motion CSV 의 Time 은 소수 6자리 고정
+    #: 이라 출력 간격이 1 µs 보다 촘촘하면 상태들이 같은 시각을 갖는다.
+    #: 이 값이 있으면 FFT/SRS 는 결과를 내지 않는다 — 표본율을 알 수 없다.
+    time_issue: str | None = None
 
 
 @dataclass
