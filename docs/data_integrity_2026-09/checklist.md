@@ -26,9 +26,11 @@
 - [x] NARBS 블록 순서(절점→솔리드→빔→셸→두꺼운셸) + 헤더 포인터 (a80dbb5)
       → verify: 원본 .k 와 lasso 양쪽 6/6 일치, 옛 코드는 4건 불일치로 검출
 
-## 6. 전수 조사 확정 56건 — 수정·병합 완료
+## 6. 전수 조사 확정 60건 — 수정·병합 완료
+      (고유 위치는 58개. `examples/unified_analyzer.cpp:49` 의 CSV 자릿수 결함이
+       시간열·파트 CSV 값·전체 CSV 로 3번 나뉘어 적혀 있다 — findings.md 머리말 참고)
 - [x] 조사·검증 (154 에이전트) → findings.md / findings.json
-- [x] G1 C++ 출력(10) · G2 C++ 분석기(4) · G3 deep(11) · G4 impact(16) · G5 sphere 계열(13) · G6 스크립트(2)
+- [x] G1 cpp-core(9) · G2 cpp-output(7) · G3 deep(13) · G4 impact(16) · G5 sphere 계열(13) · G6 스크립트(2)
       → 6개 작업 트리 47커밋, cherry-pick 으로 병합(SinglePassAnalyzer 충돌 1건은 위임 구조 유지 + 침식 제외를 공용 계산기로 이관)
 - [x] 병합본 시험: C++ 14종, Python 420개, 스크립트 2종 통과
 - [x] 실덱 재확인: 면 응력 ±Z 400상태 독립 계산 일치, 배터리 덱 보고서 브라우저 오류 0,
