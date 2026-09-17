@@ -105,6 +105,76 @@ def test_js_tells_unmeasured_strain_from_zero():
     assert "strainMeasured" in seg, "미계측일 때도 '완전 탄성' 문장이 나온다"
 
 
+def _js():
+    """tests/ 를 경로에 넣고 jsutil 을 돌려준다 (node 없으면 None)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import jsutil
+    return jsutil if jsutil.node_bin() else None
+
+
+def test_js_tooltip_shows_dash_for_unmeasured_velocity():
+    """미계측 속도를 '0.0 mm/s' 로 찍으면 계측된 0 으로 읽힌다.
+
+    같은 툴팁의 나머지 네 줄은 '—' 로 정직하게 비어 있어 대비가 더 오해를 부른다.
+    --from-json 재생성본은 속도를 복원하지 않으므로 항상 이 경로를 탄다.
+    """
+    import re
+
+    import pytest
+    js = _js()
+    if js is None:
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
+    from koo_sphere_report.report.html_report import _JS
+    m = re.search(r"Vel: <b>(.*?)</b>", _JS)
+    assert m, "툴팁의 Vel 줄을 찾지 못했다"
+    cell = m.group(1)          # 템플릿 조각 그대로 — 그대로 평가한다
+    out = js.run_js(js.extract_functions(_JS, ["fxv"]) + f"""
+let pd = {{}};
+console.log(`{cell}`);
+pd = {{peak_vel: 1234.5}};
+console.log(`{cell}`);
+""")
+    assert out[0] == "—", f"미계측 속도가 '{out[0]}' 로 찍힌다 — 계측된 0 이 아니다"
+    assert out[1] == "1234.5 mm/s", out[1]
+
+
+def test_js_kpi_card_shows_dash_when_velocity_never_measured():
+    """속도를 한 번도 못 잰 파트의 KPI 카드가 '0.0' 을 최악값으로 내세우면 안 된다."""
+    import re
+
+    import pytest
+    js = _js()
+    if js is None:
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
+    from koo_sphere_report.report.html_report import _JS
+    base = ("function L(k){return k;}\nlet reportLang='ko';\n"
+            + js.extract_functions(_JS, ["fxv", "buildKPISection"]))
+    def _m(vel):
+        return ("{sf:2,ys:300,worstStress:{val:100,angle:'a'},worstG:{val:1e6,angle:'a'},"
+                "worstStrain:{val:0.1,angle:'a'},worstDisp:{val:1,angle:'a'},"
+                f"worstVel:{{val:{vel},angle:'',ri:-1}},"
+                "globalRank:1,totalParts:1,cov:0.1,meanStress:100,stdStress:1}")
+    out = js.run_js(base + f"""
+console.log(buildKPISection({_m('null')}).includes('—'));
+console.log(buildKPISection({_m('12.34')}).includes('12.3'));
+""")
+    assert out[0] == "true", "한 번도 못 잰 속도가 '0.0' 으로 찍힌다"
+    assert out[1] == "true", "잰 속도는 그대로 찍혀야 한다"
+
+    # 개요 안내문의 '최대 속도' 도 같은 규칙을 따라야 한다.
+    m = re.search(r"reportMax'\)\}: \$\{globalMaxVel[^}]*\}", _JS)
+    assert m, "개요 안내문의 최대 속도 줄을 찾지 못했다"
+    cell = m.group(0).split("}: ", 1)[1]
+    out = js.run_js(js.extract_functions(_JS, ["fxv"]) + f"""
+let globalMaxVel = null;
+console.log(`{cell}`);
+globalMaxVel = 987.6;
+console.log(`{cell}`);
+""")
+    assert out[0] == "—", f"한 번도 못 잰 최대 속도가 '{out[0]}' 로 찍힌다"
+    assert out[1] == "987.6 mm/s", out[1]
+
+
 def test_all():
     """pytest 진입점."""
     test_absent_series_is_none_not_zero()
@@ -113,3 +183,5 @@ def test_all():
     test_findings_do_not_crash_on_missing_series()
     test_terminal_report_does_not_crash()
     test_js_tells_unmeasured_strain_from_zero()
+    test_js_tooltip_shows_dash_for_unmeasured_velocity()
+    test_js_kpi_card_shows_dash_when_velocity_never_measured()

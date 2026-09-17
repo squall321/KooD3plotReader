@@ -1074,13 +1074,15 @@ function renderOverview() {
 
   // Compute worst-case values for the guide
   const pids = getAllPartIds();
-  let globalMaxStress = 0, globalMaxG = 0, globalMaxStrain = 0, globalMaxVel = 0;
+  let globalMaxStress = 0, globalMaxG = 0, globalMaxStrain = 0;
+  // 속도는 아예 안 잰 캠페인이 있다 — 0 으로 시작하면 '최대 0.0 mm/s' 가 찍힌다.
+  let globalMaxVel = null;
   for (const r of DATA.results) {
     for (const pd of Object.values(r.parts)) {
       if (pd.peak_stress > globalMaxStress) globalMaxStress = pd.peak_stress;
       if (pd.peak_g > globalMaxG) globalMaxG = pd.peak_g;
       if (pd.peak_strain > globalMaxStrain) globalMaxStrain = pd.peak_strain;
-      if ((pd.peak_vel||0) > globalMaxVel) globalMaxVel = pd.peak_vel;
+      if (pd.peak_vel != null && (globalMaxVel == null || pd.peak_vel > globalMaxVel)) globalMaxVel = pd.peak_vel;
     }
   }
   const ys = DATA.yield_stress;
@@ -1124,7 +1126,7 @@ function renderOverview() {
           <div style="color:var(--cyan);font-weight:bold;margin-bottom:6px">${L('velTitle')}</div>
           <div style="color:var(--fg2);font-size:12px;line-height:1.7">
             ${L('velDesc')}<br>
-            <b>${L('reportMax')}: ${globalMaxVel.toFixed(1)} mm/s</b><br>
+            <b>${L('reportMax')}: ${globalMaxVel == null ? '—' : fxv(globalMaxVel, 1) + ' mm/s'}</b><br>
             <span style="color:var(--dim)">${reportLang==='ko' ?
               '자유낙하('+DATA.sim_params.drop_height.toFixed(0)+' mm) 충돌 속도 ≈ '+(Math.sqrt(2*9.81*DATA.sim_params.drop_height/1000)*1000).toFixed(0)+' mm/s. 이를 초과하면 응력파 가속 효과입니다.' :
               'Free-fall from '+DATA.sim_params.drop_height.toFixed(0)+' mm ≈ '+(Math.sqrt(2*9.81*DATA.sim_params.drop_height/1000)*1000).toFixed(0)+' mm/s impact velocity. Parts exceeding this were accelerated by stress waves.'}</span>
@@ -2254,7 +2256,7 @@ function updateMollInfo(ri) {
       Strain: <b>${pd.peak_strain == null ? '—' : fxv(pd.peak_strain, 4)}</b><br>
       G-Force: <b>${pd.peak_g == null ? '—' : fxv(pd.peak_g/1e6, 2) + ' MG'}</b><br>
       Disp: <b>${pd.peak_disp == null ? '—' : fxv(pd.peak_disp, 2) + ' mm'}</b><br>
-      Vel: <b>${(pd.peak_vel||0).toFixed(1)} mm/s</b>
+      Vel: <b>${pd.peak_vel == null ? '—' : fxv(pd.peak_vel, 1) + ' mm/s'}</b>
     </div>`;
 }
 
@@ -3592,7 +3594,10 @@ function computePartDeepDive(pid) {
   const ys = DATA.yield_stress;
   const perAngle = [];
   let worstStress={val:0,angle:'',ri:-1,category:''}, worstG={val:0,angle:'',ri:-1};
-  let worstStrain={val:0,angle:'',ri:-1}, worstDisp={val:0,angle:'',ri:-1}, worstVel={val:0,angle:'',ri:-1};
+  let worstStrain={val:0,angle:'',ri:-1}, worstDisp={val:0,angle:'',ri:-1};
+  // 속도는 한 번도 못 잰 경우가 있다 (--from-json 은 속도를 복원하지 않는다).
+  // 0 으로 시작하면 '최악 0.0 mm/s' 라는 계측된 값처럼 보인다 — null 로 둔다.
+  let worstVel={val:null,angle:'',ri:-1};
   const allStress=[], allG=[], allStrain=[], allDisp=[], allVel=[];
   // 변형률을 실제로 잰 각도 수. 0 이면 '소성 변형률 0' 이 아니라 '안 쟀다' 이다.
   let strainMeasured = 0;
@@ -3613,7 +3618,8 @@ function computePartDeepDive(pid) {
     if (pd.peak_g > worstG.val) worstG = {val:pd.peak_g, angle:r.angle.name, ri};
     if (pd.peak_strain > worstStrain.val) worstStrain = {val:pd.peak_strain, angle:r.angle.name, ri};
     if (pd.peak_disp > worstDisp.val) worstDisp = {val:pd.peak_disp, angle:r.angle.name, ri};
-    if ((pd.peak_vel||0) > worstVel.val) worstVel = {val:pd.peak_vel||0, angle:r.angle.name, ri};
+    if (pd.peak_vel != null && (worstVel.val == null || pd.peak_vel > worstVel.val))
+      worstVel = {val:pd.peak_vel, angle:r.angle.name, ri};
     if (pd.peak_strain != null) strainMeasured++;
     allStress.push(pd.peak_stress); allG.push(pd.peak_g);
     allStrain.push(pd.peak_strain); allDisp.push(pd.peak_disp); allVel.push(pd.peak_vel||0);
@@ -3904,7 +3910,7 @@ function buildKPISection(m) {
       <div class="dd-kpi-lbl">${L('peakG')}</div><div class="dd-kpi-sub">${m.worstG.angle}</div></div>
     <div class="dd-kpi"><div class="dd-kpi-val">${m.worstStrain.val.toFixed(4)}</div>
       <div class="dd-kpi-lbl">${L('peakStrain')}</div><div class="dd-kpi-sub">${m.worstStrain.angle}</div></div>
-    <div class="dd-kpi"><div class="dd-kpi-val">${m.worstVel.val.toFixed(1)}</div>
+    <div class="dd-kpi"><div class="dd-kpi-val">${m.worstVel.val == null ? '—' : fxv(m.worstVel.val, 1)}</div>
       <div class="dd-kpi-lbl">${L('peakVel')}</div><div class="dd-kpi-sub">${m.worstVel.angle}</div></div>
     <div class="dd-kpi"><div class="dd-kpi-val">${m.worstDisp.val.toFixed(2)}</div>
       <div class="dd-kpi-lbl">${L('peakDisp')}</div><div class="dd-kpi-sub">${m.worstDisp.angle}</div></div>
