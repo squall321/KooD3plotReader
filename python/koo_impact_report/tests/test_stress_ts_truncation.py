@@ -10,7 +10,9 @@ t=4.847e-05 의 2255.42 MPa 인데 20 점 배열의 최대는 201.47 MPa 였다 
 규칙은 둘이다.
   1. num_states 보다 점이 적으면 잘린 것으로 보고 전해상도 CSV 로 되읽는다.
   2. CSV 도 없으면 시계열을 내보내지 않고(0 도 20 점 그래프도 아니다) 사유를 남긴다.
-변형률 CSV 는 소수 6자리 고정이라 1e-5 규모가 뭉개진다 — CSV 경로를 쓰지 않는다.
+변형률도 같은 규칙이다. 종전에는 '변형률 CSV 는 소수 6자리 고정이라 대체 불가'
+라며 CSV 경로를 막았지만, 그 전제는 fce37bf(작성기 CSV 를 defaultfloat·유효숫자
+10자리로 교체)가 없앴다.
 """
 from __future__ import annotations
 
@@ -118,19 +120,52 @@ def test_truncated_stress_without_csv_is_omitted_with_reason():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_truncated_strain_never_takes_the_csv_route():
-    """변형률 CSV 는 6자리 고정이라 되읽지 않는다 — 사유만 남기고 뺀다."""
+def test_truncated_strain_is_reloaded_from_full_csv():
+    """변형률도 응력과 같이 전해상도 CSV 로 되읽는다.
+
+    종전 규칙('변형률 CSV 는 소수 6자리 고정이라 대체 불가')의 전제는
+    fce37bf 가 없앴다 — 지금 작성기는 defaultfloat·유효숫자 10자리다.
+    없는 손실을 근거로 시계열을 버리고 WARNING 을 만들면 안 된다.
+    """
     curve = [(i * 1.008e-06, 2.5e-05) for i in range(N_STATES)]
     tmp = Path(tempfile.mkdtemp(prefix="koo_impact_ts_"))
     try:
-        _write_csv(tmp / "strain" / "part_21_eff_plastic_strain.csv", curve,
-                   "Time,Max_eff_plastic_strain,Min,Avg,MaxID,MinID")
+        path = tmp / "strain" / "part_21_eff_plastic_strain.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("Time,Max_eff_plastic_strain,Min_eff_plastic_strain,"
+                    "Avg_eff_plastic_strain,Max_Element_ID,Min_Element_ID\n")
+            for t, v in curve:   # 새 작성기 형식 — 유효숫자 10자리
+                f.write(f"{t:.10g},{v:.10g},0,{v / 3:.10g},1,1\n")
+        res = _Result(strain=[_Series(21, "eff_plastic_strain", "",
+                                      _truncated_data(curve), 2.532e-05)],
+                      output_dir=tmp)
+        rec = _extract_part_stress_strain(res)[21]
+        assert len(rec["strain_times"] or []) == N_STATES, \
+            f"되읽지 않았다: {rec.get('strain_ts_issue')}"
+        assert max(rec["strain_max_series"]) == 2.5e-05, rec["strain_max_series"][:3]
+        assert rec["strain_ts_source"] == "csv"
+        assert "strain_ts_issue" not in rec, rec["strain_ts_issue"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_truncated_strain_without_csv_is_omitted_with_the_real_reason():
+    """CSV 가 없을 때만 시계열을 빼고, 사유는 '정밀도' 가 아니라 '없음' 이다."""
+    curve = [(i * 1.008e-06, 2.5e-05) for i in range(N_STATES)]
+    tmp = Path(tempfile.mkdtemp(prefix="koo_impact_ts_"))
+    try:
         res = _Result(strain=[_Series(21, "eff_plastic_strain", "",
                                       _truncated_data(curve), 2.532e-05)],
                       output_dir=tmp)
         rec = _extract_part_stress_strain(res)[21]
         assert rec.get("strain_times") is None
-        assert "strain_ts_issue" in rec
+        issue = rec["strain_ts_issue"]
+        assert "20/992" in issue, issue
+        assert "6자리" not in issue, issue
+        assert "eff_plastic_strain.csv" in issue, issue
+        # 스칼라 피크는 잘림과 무관하게 살아 있어야 한다.
+        assert abs(rec["peak_strain"] - 2.532e-05) < 1e-12
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -150,5 +185,6 @@ def test_all():
     """pytest 진입점 — 위 시험들을 한 번에 돌린다."""
     test_truncated_stress_is_reloaded_from_full_csv()
     test_truncated_stress_without_csv_is_omitted_with_reason()
-    test_truncated_strain_never_takes_the_csv_route()
+    test_truncated_strain_is_reloaded_from_full_csv()
+    test_truncated_strain_without_csv_is_omitted_with_the_real_reason()
     test_full_series_passes_through()

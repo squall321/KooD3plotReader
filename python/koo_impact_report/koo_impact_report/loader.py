@@ -1407,8 +1407,8 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         rec["peak_stress"] = float(getattr(s, "global_max", 0.0) or 0.0)
         rec["stress_unit"] = getattr(s, "unit", "") or ""
         if n_states > 0 and len(st_t) < n_states:
-            # 잘렸다 — 전해상도 CSV 로 되읽는다. 응력은 MPa 규모라 CSV 의
-            # 소수 6자리 고정이 문제되지 않는다.
+            # 잘렸다 — 전해상도 CSV 로 되읽는다 (지금 작성기의 CSV 는
+            # defaultfloat·유효숫자 10자리다, fce37bf).
             full = _read_full_history_csv(
                 out_dir, "stress", int(pid), "von_mises", "Max_von_mises")
             if full is not None and len(full[0]) > len(st_t):
@@ -1435,17 +1435,28 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         rec = out.setdefault(int(pid), {})
         rec["peak_strain"] = float(getattr(s, "global_max", 0.0) or 0.0)
         if n_states > 0 and len(sn_t) < n_states:
-            # 변형률 CSV 는 소수 6자리 고정이라 1e-5 규모가 뭉개진다 —
-            # 되읽지 않고 시계열 자체를 뺀다 (사유는 남긴다).
-            rec["strain_times"] = None
-            rec["strain_max_series"] = None
-            rec["strain_ts_issue"] = (
-                f"analysis_result.json 변형률 이력이 잘림 "
-                f"({len(sn_t)}/{n_states}) — CSV 는 소수 6자리 고정이라 "
-                f"대체 불가, 시계열을 뺐다")
+            # 잘렸다 — 응력과 같이 전해상도 CSV 로 되읽는다. '변형률 CSV 는
+            # 소수 6자리 고정이라 대체 불가' 라던 옛 근거는 fce37bf 가
+            # 없앴다 (작성기 CSV 가 defaultfloat·유효숫자 10자리다).
+            full = _read_full_history_csv(
+                out_dir, "strain", int(pid),
+                "eff_plastic_strain", "Max_eff_plastic_strain")
+            if full is not None and len(full[0]) > len(sn_t):
+                rec["strain_times"], rec["strain_max_series"] = full
+                rec["strain_ts_source"] = "csv"
+            else:
+                # 20 점짜리 곡선을 '진짜 이력' 으로 내보내지 않는다.
+                rec["strain_times"] = None
+                rec["strain_max_series"] = None
+                rec["strain_ts_issue"] = (
+                    f"analysis_result.json 변형률 이력이 잘림 "
+                    f"({len(sn_t)}/{n_states}) — 전해상도 "
+                    f"strain/part_{int(pid)}_eff_plastic_strain.csv 도 없어 "
+                    f"시계열을 뺐다")
         else:
             rec["strain_times"] = sn_t
             rec["strain_max_series"] = sn_m
+            rec["strain_ts_source"] = "json"
 
     # 주응력/주변형률/등가변형률 — 산출물에 있을 때만 채운다.
     # 없으면 키 자체를 넣지 않아 소비자가 '미기록' 과 '0' 을 구분할 수 있다.
