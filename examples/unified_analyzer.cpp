@@ -32,6 +32,18 @@ namespace fs = std::filesystem;
 using namespace kood3plot;
 using namespace kood3plot::analysis;
 
+/// CSV 수치 표기 — **std::fixed 를 쓰면 안 된다**. AnalysisResult.hpp 의 jnum()
+/// 과 같은 정책(유효숫자 기준)이다.
+/// 소수 6자리 고정은 절대 오차 1e-6 이다. 시각이 초 단위이므로 µs 간격 출력이
+/// 통째로 뭉개져 같은 시각이 여러 줄 찍히고(np.diff(t)=0 → FFT/SRS 의 dt 가 깨진다),
+/// 5e-7 미만 변형률·SI 덱 변위는 "0.000000" 이 되어 **진짜 0 과 구분되지 않는다**.
+/// 유효숫자 기준(defaultfloat)이면 필요할 때만 지수 표기가 되고, 지수 표기는
+/// Python 소비처의 float() 가 그대로 읽는다.
+static constexpr int kCSVPrecision = 10;
+inline std::ostream& csvnum(std::ostream& os) {
+    return os << std::defaultfloat << std::setprecision(kCSVPrecision);
+}
+
 /**
  * @brief Write part time series to CSV
  */
@@ -46,7 +58,7 @@ void writePartCSV(const std::string& filepath, const PartTimeSeriesStats& stats)
         << ",Avg_" << stats.quantity << ",Max_Element_ID,Min_Element_ID\n";
 
     for (const auto& point : stats.data) {
-        ofs << std::fixed << std::setprecision(6)
+        ofs << csvnum
             << point.time << ","
             << point.max_value << ","
             << point.min_value << ","
@@ -75,7 +87,7 @@ void writeMotionCSV(const std::string& filepath, const PartMotionStats& stats) {
         << "Max_Disp_Mag,Max_Disp_Node_ID\n";
 
     for (const auto& point : stats.data) {
-        ofs << std::fixed << std::setprecision(6)
+        ofs << csvnum
             << point.time << ","
             << point.avg_displacement.x << ","
             << point.avg_displacement.y << ","
@@ -114,7 +126,7 @@ void writeSurfaceCSV(const std::string& filepath, const SurfaceAnalysisStats& st
         << "MinPrincipal_Max,MinPrincipal_Min,MinPrincipal_Avg,MinPrincipal_Min_ElemID\n";
 
     for (const auto& point : stats.data) {
-        ofs << std::fixed << std::setprecision(6)
+        ofs << csvnum
             << point.time << ","
             << point.normal_stress_max << ","
             << point.normal_stress_min << ","
@@ -243,7 +255,7 @@ void writeQualityCSV(const std::string& filepath, const ElementQualityStats& sta
     };
 
     for (const auto& tp : stats.data) {
-        ofs << std::fixed << std::setprecision(6) << tp.time << ",";
+        ofs << csvnum << tp.time << ",";
         num(tp.aspect_measured,   tp.aspect_ratio_max);
         num(tp.aspect_measured,   tp.aspect_ratio_avg);
         num(tp.jacobian_measured, tp.jacobian_min);
@@ -511,7 +523,7 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
             std::ofstream file(filename);
             if (file) {
                 file << "Time,sxx,syy,szz,sxy,syz,szx\n";
-                file << std::fixed << std::setprecision(8);
+                file << csvnum;
                 for (size_t i = 0; i < hist.time.size(); ++i) {
                     file << hist.time[i] << ","
                          << hist.sxx[i] << "," << hist.syy[i] << "," << hist.szz[i] << ","
