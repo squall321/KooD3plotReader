@@ -1059,6 +1059,35 @@ def _outputs_are_current(case_out: Path) -> bool:
         return False
 
 
+def _batch_case_names(sim_paths: list[Path], root: Path) -> list[str]:
+    """케이스별 출력 폴더 이름을 배치 루트 기준 상대 경로로 만든다.
+
+    잎 폴더 이름만 쓰면 Test_A/output/Run_001 과 Test_B/output/Run_001 이,
+    표준 배치(output/Run_xxx/Output)에서는 모든 런이 한 폴더로 겹쳐
+    서로를 덮어쓴다 — 배치 리포트에는 마지막 것 하나만 남고 나머지는
+    실패로도 기록되지 않는다.
+    """
+    names: list[str] = []
+    used: set[str] = set()
+    for sp in sim_paths:
+        try:
+            rel = sp.relative_to(root)
+        except ValueError:
+            rel = Path(sp.name)
+        parts = [p for p in rel.parts if p not in ("", ".", "/")]
+        if not parts:
+            parts = [sp.name or "case"]
+        name = "__".join(parts)
+        if name in used:
+            k = 2
+            while f"{name}__{k}" in used:
+                k += 1
+            name = f"{name}__{k}"
+        used.add(name)
+        names.append(name)
+    return names
+
+
 def run_batch(args: argparse.Namespace) -> None:
     import concurrent.futures
     import threading
@@ -1073,7 +1102,7 @@ def run_batch(args: argparse.Namespace) -> None:
     sims = find_all(target, recursive=True)
     all_sims = sims
     sims = [s for s in sims if s.can_analyze]
-    skipped_t0 = [s.path.name for s in all_sims if not s.can_analyze]
+    skipped_t0 = _batch_case_names([s.path for s in all_sims if not s.can_analyze], target)
     print(f"[batch] 분석 가능: {len(sims)}개 | T0(스킵): {len(skipped_t0)}개")
 
     failed: list[str] = []
@@ -1081,38 +1110,49 @@ def run_batch(args: argparse.Namespace) -> None:
     stale_existing: list[str] = []
     lock = threading.Lock()
 
-    def run_one_safe(sim_info):
-        case_out = output_root / sim_info.path.name
+    # 출력 폴더 이름은 배치 루트 기준 상대 경로로 만든다 — 잎 이름만 쓰면
+    # 서로 다른 해석이 같은 폴더에 겹쳐 조용히 덮어쓴다.
+    case_names = _batch_case_names([s.path for s in sims], target)
+    _leaf = [s.path.name for s in sims]
+    if len(set(_leaf)) < len(_leaf):
+        print(f"[batch] ※ 잎 폴더 이름이 겹치는 해석이 있습니다 "
+              f"({len(_leaf) - len(set(_leaf))}개) — 출력 폴더는 배치 루트 기준 "
+              f"상대 경로로 이름 짓습니다.")
+
+    def run_one_safe(job):
+        sim_info, case_name = job
+        case_out = output_root / case_name
         if args.skip_existing and _outputs_are_current(case_out):
             with lock:
-                skipped_existing.append(sim_info.path.name)
-            return "skip", sim_info.path.name
+                skipped_existing.append(case_name)
+            return "skip", case_name
         # 산출물은 있는데 스키마가 낡아 다시 도는 경우를 따로 센다
         if args.skip_existing and (case_out / "result.json").exists():
             with lock:
-                stale_existing.append(sim_info.path.name)
+                stale_existing.append(case_name)
 
         try:
-            _run_one(sim_info, case_out, args)
-            return "ok", sim_info.path.name
+            _run_one(sim_info, case_out, args, label=case_name)
+            return "ok", case_name
         except Exception as e:
             with lock:
-                failed.append(sim_info.path.name)
-            return "fail", f"{sim_info.path.name}: {e}"
+                failed.append(case_name)
+            return "fail", f"{case_name}: {e}"
 
     n = len(sims)
     threads = max(1, args.threads)
     done = [0]
 
+    jobs = list(zip(sims, case_names))
     if threads == 1:
-        for i, sim_info in enumerate(sims, 1):
-            status, name = run_one_safe(sim_info)
+        for i, job in enumerate(jobs, 1):
+            status, name = run_one_safe(job)
             tag = {"ok": "OK", "skip": "SKIP", "fail": "FAIL"}[status]
             print(f"[batch] [{i}/{n}] {name} → {tag}")
     else:
         print(f"[batch] 병렬 실행: {threads}개 스레드")
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as ex:
-            futures = {ex.submit(run_one_safe, s): s for s in sims}
+            futures = {ex.submit(run_one_safe, j): j for j in jobs}
             for f in concurrent.futures.as_completed(futures):
                 with lock:
                     done[0] += 1
@@ -1148,7 +1188,8 @@ def run_batch(args: argparse.Namespace) -> None:
     print(f"[batch] 배치 리포트: {batch_html}")
 
 
-def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
+def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
+             label: str = "") -> None:
     glstat_data = None
     if sim_info.glstat:
         glstat_data = parse_glstat(sim_info.glstat)
@@ -1222,7 +1263,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace) -> None:
         binout_data=binout_data,
         yield_stress=getattr(args, "yield_stress", 0.0),
         strain_limit=getattr(args, "strain_limit", 0.0),
-        label=getattr(args, "label", "") or sim_info.path.name,
+        label=getattr(args, "label", "") or label or sim_info.path.name,
     )
     (output_dir / "result.json").write_text(
         json.dumps(result.to_compare_dict(), ensure_ascii=False, indent=2),
