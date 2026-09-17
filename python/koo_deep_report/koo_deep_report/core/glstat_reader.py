@@ -68,8 +68,11 @@ def parse_glstat(path: Path) -> GlstatData | None:
         else:
             data.energy_ratio.append(0.0)
 
+        # 'added mass' 줄이 없는 블록을 0.0 으로 채우면 '줄이 없다(질량
+        # 스케일링 미사용)' 와 '0.0 으로 기록됐다' 를 구분할 수 없게 된다.
         mass = _extract(block, _RE_MASS)
-        data.mass.append(mass or 0.0)
+        if mass is not None:
+            data.mass.append(mass)
         pct = _extract(block, _RE_MASS_PCT)
         if pct is not None:
             data.mass_pct_increase.append(pct)

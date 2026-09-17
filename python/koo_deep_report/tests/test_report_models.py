@@ -145,11 +145,20 @@ chk("증가율을 그대로 보고", gl.mass_added_pct, 2.3721)
 gl_small = GlstatData(t=[0.0, 1.0], mass=[0.0, 1.0e-12], mass_pct_increase=[0.0, 0.004])
 chkb("0.004% 증가 → False", gl_small.has_mass_added is False)
 
-# 'percentage increase' 줄이 없는 glstat 은 판단 근거가 없다 — False 로 단정하지 않는다.
+# 'added mass' 줄은 있는데 'percentage increase' 만 없으면 판단 근거가 없다
+# — False 로 단정하지 않는다.
 gl_nopct = GlstatData(t=[0.0, 1.0], mass=[0.0, 4.9451e-05])
 chk("증가율 미기록이면 None", gl_nopct.mass_added_pct, None)
 chkb("증가율 미기록이면 판단 불가(None)", gl_nopct.has_mass_added is None)
 chkb("사유가 남는다", gl_nopct.mass_added_reason != "")
+
+# 'added mass' 블록 자체가 없으면 질량 스케일링을 안 쓴 것이다 — 추가 질량 0 이지
+# '판단 불가' 가 아니다. 이걸 None 으로 돌리면 평범한 폭발적 덱 대부분에서
+# '질량 추가 판단 불가' 경고가 상시로 떠 진짜 경고가 묻힌다.
+gl_noline = GlstatData(t=[0.0, 1.0])
+chk("줄이 없으면 증가율도 None", gl_noline.mass_added_pct, None)
+chkb("줄이 아예 없으면 질량 추가 없음(False)", gl_noline.has_mass_added is False)
+chkb("무엇을 근거로 False 인지 남는다", gl_noline.mass_added_reason != "")
 
 # 실제 파일로 파서까지 통과시킨다.
 from koo_deep_report.core.glstat_reader import parse_glstat
@@ -161,6 +170,26 @@ if real.exists():
     chk("실데이터: 증가율 2.3721%", round(g.mass_added_pct, 4) if g else None, 2.3721)
 else:
     print("  -- 실 glstat 없음 — 건너뜀")
+
+# 질량 스케일링을 쓰지 않는 덱 (DT2MS=0) — 'added mass' 줄이 아예 없다.
+noscale = Path("/data/battery_study/case_01_phase1_stacked_tier-1/glstat")
+if noscale.exists():
+    g2 = parse_glstat(noscale)
+    chkb("실데이터: 스케일링 미사용 덱은 경고하지 않는다",
+         g2 is not None and g2.has_mass_added is False)
+    chk("실데이터: 'added mass' 를 0 으로 채우지 않는다",
+        len(g2.mass) if g2 else None, 0)
+else:
+    print("  -- 스케일링 미사용 glstat 없음 — 건너뜀")
+
+# 'added mass' 줄이 있는 덱은 파서도 그 사실을 남긴다.
+scaled = Path("/data/warpage_study/case_shell/glstat")
+if scaled.exists():
+    g3 = parse_glstat(scaled)
+    chkb("실데이터: 줄이 있으면 mass 가 채워진다", g3 is not None and len(g3.mass) > 0)
+    chkb("실데이터: 증가율 0.0 → False", g3 is not None and g3.has_mass_added is False)
+else:
+    print("  -- 스케일링 사용 glstat 없음 — 건너뜀")
 
 print()
 
