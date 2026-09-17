@@ -87,6 +87,29 @@ def test_series_to_dict_keeps_peak():
     assert len(d["t"]) == len(d["max_vals"]) == len(d["avg_vals"]) <= 500
 
 
+def test_matsum_rows_stay_aligned_with_time():
+    from koo_deep_report.report.html_report import _downsample_rows
+    n, parts = 3000, 4
+    t = [i * 1e-5 for i in range(n)]
+    ie = [[float(p) + 0.001 * i for p in range(parts)] for i in range(n)]
+    ie[2222][2] = 1e6          # 파트 2 의 한 샘플 스파이크
+    ke = [[1.0] * parts for _ in range(n)]
+    g = _downsample_rows(t, {"internal_energy": ie, "kinetic_energy": ke})
+    assert len(g["internal_energy"]) == len(g["t"]) == len(g["kinetic_energy"]) <= 500
+    assert all(len(r) == parts for r in g["internal_energy"])
+    j = [r[2] for r in g["internal_energy"]].index(1e6)
+    assert g["t"][j] == t[2222]
+    # 시각과 값의 짝: 파트 0 값은 0.001*i 이므로 t 로부터 복원 가능해야 한다
+    for tj, row in zip(g["t"], g["internal_energy"]):
+        assert abs(row[0] - 0.001 * round(tj / 1e-5)) < 1e-9
+
+
+def test_matsum_bad_shape_reports_reason():
+    from koo_deep_report.report.html_report import _downsample_rows
+    g = _downsample_rows([0.0, 1.0, 2.0], {"internal_energy": [[1.0, 2.0], [3.0]]})
+    assert g["internal_energy"] == [] and "internal_energy_note" in g
+
+
 def test_all():
     for name, fn in list(globals().items()):
         if name.startswith("test_") and name != "test_all":

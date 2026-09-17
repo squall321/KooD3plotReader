@@ -289,15 +289,14 @@ def _build_js_data(result: SingleResult) -> dict:
         matsum = None
         if bn.matsum:
             ms = bn.matsum
-            arrays = {("ie", i): e for i, e in enumerate(ms.internal_energy)}
-            arrays.update({("ke", i): e for i, e in enumerate(ms.kinetic_energy)})
-            g = _downsample_group(ms.t, arrays)
+            g = _downsample_rows(ms.t, {"internal_energy": ms.internal_energy,
+                                        "kinetic_energy": ms.kinetic_energy})
             matsum = {
                 "part_ids": ms.part_ids,
                 "part_names": ms.part_names,
                 "t": g["t"],
-                "internal_energy": [g[("ie", i)] for i in range(len(ms.internal_energy))],
-                "kinetic_energy": [g[("ke", i)] for i in range(len(ms.kinetic_energy))],
+                "internal_energy": g["internal_energy"],
+                "kinetic_energy": g["kinetic_energy"],
             }
         rcforc = []
         for ifc in bn.rcforc:
@@ -372,6 +371,44 @@ def _downsample_group(t: list, arrays: dict, n_max: int = 500) -> dict:
             out[k] = v
         else:
             out[k] = [v[i] for i in _extreme_indices(len(v), [v], n_max)]
+    return out
+
+
+def _downsample_rows(t: list, tables: dict, n_max: int = 500) -> dict:
+    """[n_times][n_cols] 표들을 시간축과 같은 인덱스로 줄인다 (matsum 에너지 등).
+
+    열(파트)마다 극값을 보존하도록 열 단위로 풀어 _downsample_group 에 넘기고 다시 행으로 묶는다.
+    행 수가 t 와 다르거나 행 길이가 들쭉날쭉한 표는 시각과 짝지을 수 없어 빈 목록으로 두고,
+    같은 이름의 "<이름>_note" 에 사유를 남긴다.
+    """
+    t = list(t or [])
+    n = len(t)
+    cols: dict = {}
+    widths: dict = {}
+    notes: dict = {}
+    for name, rows in tables.items():
+        rows = list(rows or [])
+        if not rows:
+            widths[name] = 0
+            continue
+        w = len(rows[0]) if isinstance(rows[0], (list, tuple)) else -1
+        if len(rows) != n or w < 0 or any(not isinstance(r, (list, tuple)) or len(r) != w for r in rows):
+            notes[name] = f"행 {len(rows)}개가 시각 {n}개와 맞지 않거나 행 길이가 달라 표시하지 않음"
+            widths[name] = None
+            continue
+        widths[name] = w
+        for c in range(w):
+            cols[(name, c)] = [r[c] for r in rows]
+    g = _downsample_group(t, cols, n_max=n_max)
+    out = {"t": g["t"]}
+    for name, w in widths.items():
+        if w is None:
+            out[name] = []
+            out[f"{name}_note"] = notes[name]
+        elif w == 0:
+            out[name] = []
+        else:
+            out[name] = [[g[(name, c)][j] for c in range(w)] for j in range(len(g["t"]))]
     return out
 
 
@@ -1615,10 +1652,13 @@ function updateMatsumChart() {
   const ms = bn.matsum;
   const ie = ms.internal_energy.map(row => row[idx]);
   const ke = ms.kinetic_energy.map(row => row[idx]);
+  // 시각과 짝지을 수 없어 비운 표는 빈 그래프 대신 사유를 보인다
+  const notes = [ms.internal_energy_note, ms.kinetic_energy_note].filter(Boolean);
   Plotly.newPlot('matsum-chart', [
     {x: ms.t, y: ie, name: '내부 에너지', line: {color: COLORS[2]}},
     {x: ms.t, y: ke, name: '운동 에너지', line: {color: COLORS[1]}},
-  ], {...PLOT_LAYOUT, title: {text: `에너지 — Part ${ms.part_ids[idx]}${ms.part_names[idx] ? ' (' + ms.part_names[idx] + ')' : ''}`, font:{size:13}}}, PLOT_CONFIG);
+  ], {...PLOT_LAYOUT, title: {text: `에너지 — Part ${ms.part_ids[idx]}${ms.part_names[idx] ? ' (' + ms.part_names[idx] + ')' : ''}`, font:{size:13}},
+      annotations: notes.length ? [{text: notes.join('<br>'), xref: 'paper', yref: 'paper', x: 0.5, y: 0.5, showarrow: false}] : []}, PLOT_CONFIG);
 }
 
 function updateSleoutChart() {
