@@ -5,7 +5,9 @@ from __future__ import annotations
 import html as _html
 import json
 
-from ..models import METRIC_LABELS, METRIC_UNIT_AXIS, severity
+from ..models import (
+    METRIC_COMPRESSIVE, METRIC_LABELS, METRIC_UNIT_AXIS, severity,
+)
 
 __all__ = ["generate_html"]
 
@@ -337,10 +339,19 @@ def _build_revcards(cmp_: dict) -> str:
     return '<div class="revcards r">' + "".join(cards) + "</div>\n"
 
 
-def _delta_cell(v, base_v):
-    """baseline 대비 Δ% 를 색 클래스와 함께 반환한다."""
+def _delta_cell(v, base_v, compressive: bool = False):
+    """baseline 대비 Δ% 를 색 클래스와 함께 반환한다.
+
+    압축측(σ3/ε3)은 값이 음수라 원래 차이를 그대로 쓰면 더 심한 압축
+    (-350 → -500)이 음수 Δ 가 되고, 범례상 음수는 파랑(개선)이다. 엔진
+    (compare.py)은 이미 '악화량'(severity) 공간에서 Δ 를 내므로 같은 규칙을
+    쓴다 — 그러지 않으면 한 문서 안에서 s1 KPI 표와 s4 프로브 표가 같은 값에
+    정반대 결론을 준다.
+    """
     if not isinstance(v, (int, float)) or not isinstance(base_v, (int, float)) or not base_v:
         return _EMDASH, "na"
+    if compressive:
+        v, base_v = severity(v, "s3"), severity(base_v, "s3")
     d = (v - base_v) / abs(base_v) * 100.0
     return _pct(d), ("up" if d > 0 else ("dn" if d < 0 else "na"))
 
@@ -405,29 +416,33 @@ def _build_kpi_table(cmp_: dict) -> str:
                  else (ul.get(_METRIC_AXIS.get(metric, "acc")) or ""))
     main_div = (gdiv or 1.0) if is_acc else 1.0
     main_name = "WORST ACC" if is_acc else f"WORST {METRIC_LABELS.get(metric, metric).upper()}"
+    # 압축측(σ3/ε3)은 값이 음수라 Δ 를 '악화량' 기준으로 잰다 — 비교 지표를
+    # 따르는 행(참피크·worst)만 해당한다. worst_s(von Mises)·소산은 인장 계열이다.
+    is_comp = metric in METRIC_COMPRESSIVE
     rows_def = [
-        (main_name, _kpi_series(cmp_, "worst_g"), main_unit, main_div, 0),
-        ("WORST STRESS", _kpi_series(cmp_, "worst_s"), ul.get("stress") or "", 1.0, 0),
-        ("DISSIPATION", _kpi_series(cmp_, "diss_pct"), "%", 1.0, 1),
+        (main_name, _kpi_series(cmp_, "worst_g"), main_unit, main_div, 0, is_comp),
+        ("WORST STRESS", _kpi_series(cmp_, "worst_s"), ul.get("stress") or "", 1.0, 0, False),
+        ("DISSIPATION", _kpi_series(cmp_, "diss_pct"), "%", 1.0, 1, False),
     ]
     # 공통 격자를 IDW 보간으로 만든 경우, 격자 worst 는 이웃 가중평균이라 실측
     # 피크를 넘지 못한다(실데이터 -40~-46%). 원본에서 뽑은 참피크를 함께 건다.
     tp = (cmp_.get("kpi") or {}).get("true_peak_per_rev") or []
     if any(isinstance(v, (int, float)) for v in tp):
-        rows_def.insert(0, ("참피크 (실측)", list(tp), main_unit, main_div, 0))
+        rows_def.insert(0, ("참피크 (실측)", list(tp), main_unit, main_div, 0, is_comp))
         rows_def[1] = (main_name + " (격자)",) + rows_def[1][1:]
     head = '<th class="tl">METRIC</th>' + "".join(
         f'<th>{_esc(l)}</th><th>&Delta; vs BASE</th>' for l in labels
     )
     body = []
-    for name, vals, unit, div, dec in rows_def:
+    for name, vals, unit, div, dec, comp in rows_def:
         base_v = vals[base] if base < len(vals) else None
         tds = [f'<td class="tl b">{_esc(name)} <span class="dim">{_esc(unit)}</span></td>']
         for i in range(len(labels)):
             v = vals[i] if i < len(vals) else None
             shown = (_numa(v / div) if dec == 0 else _num(v / div, dec)) \
                 if isinstance(v, (int, float)) else _EMDASH
-            dtxt, dcls = (("BASE", "na") if i == base else _delta_cell(v, base_v))
+            dtxt, dcls = (("BASE", "na") if i == base
+                          else _delta_cell(v, base_v, comp))
             tds.append(f'<td class="num">{shown}</td><td class="dpct {dcls}">{dtxt}</td>')
         body.append("<tr>" + "".join(tds) + "</tr>")
 
@@ -445,6 +460,16 @@ def _build_kpi_table(cmp_: dict) -> str:
             + (f". 격자 셀 중 실측 비율은 {min(meas):.0f}%다" if meas else "")
             + (f". baseline 참피크 발생 위치는 {_esc(cellnames[0])}" if cellnames else "")
             + ".</div>"
+        )
+    if is_comp:
+        # VALUE 와 Δ 의 부호 기준이 서로 다르다 — 표만 보고는 알 수 없다.
+        note += (
+            '<div class="pcap">'
+            + _esc(METRIC_LABELS.get(metric, metric))
+            + " 는 <b>압축측</b> 지표다 — 값은 원래 부호(음수)를 그대로 두고, "
+            "Δ·Δ% 는 <b>악화량</b> 기준이라 더 음수가 될수록 +로 찍힌다 "
+            "(-350 → -500 은 +42.9%, 악화). 값에 Δ 를 더해 baseline 을 "
+            "되짚을 수는 없다.</div>"
         )
     return (
         '<table class="dt"><thead><tr>' + head + "</tr></thead><tbody>"
@@ -1240,6 +1265,18 @@ var GDIV = (METRIC === 'g' && typeof DATA.g_divisor === 'number' && DATA.g_divis
 var UL   = DATA.unit_labels || {};
 var VUNIT = GDIV ? 'G' : (UL[MAXIS[METRIC] || 'acc'] || '');
 var RAWU  = UL[MAXIS[METRIC] || 'acc'] || '';
+/* 압축측(σ3/ε3)은 값이 음수라 더 음수일수록 악화다. 엔진은 Δ·Δ% 를
+   '악화량'(severity) 공간에서 내고, VALUE 만 원래 부호 그대로다 — 표에
+   그 사실을 적지 않으면 -500 에 Δ +150 을 더해 baseline 을 되짚게 된다. */
+var MCOMP = __METRIC_COMPRESSIVE__;
+var DHINT = (MCOMP.indexOf(METRIC) >= 0)
+  ? '압축측 지표: 값은 원래 부호(음수), Δ·Δ% 는 악화량 기준이라 더 음수가 될수록 +다.'
+  : '';
+function dHead(kind) {
+  var comp = MCOMP.indexOf(METRIC) >= 0;
+  if (kind === 'pct') return comp ? 'Δ% (악화)' : 'Δ%';
+  return comp ? 'Δ (악화량)' : 'Δ';
+}
 var NS = 'http://www.w3.org/2000/svg';
 var ST = { ord: 'severity', mode: 'abs', probe: null, dmap: (BASE === 0 ? Math.min(1, NREV - 1) : 0),
            psort: 'delta', pdir: -1, mtx: (BASE === 0 ? Math.min(1, NREV - 1) : 0) };
@@ -1777,8 +1814,10 @@ function renderProbe() {
   var t = elx('table', 'dt');
   var th = elx('thead');
   var hr = document.createElement('tr');
-  ['리비전', 'VALUE (' + (VUNIT || 'raw') + ')', 'Δ', 'Δ%', 'BEHAVIOR', 'TRUST'].forEach(function (h, i) {
-    var e = document.createElement('th'); e.textContent = h; if (i === 0 || i >= 4) e.className = 'tl'; hr.appendChild(e);
+  ['리비전', 'VALUE (' + (VUNIT || 'raw') + ')', dHead('abs'), dHead('pct'), 'BEHAVIOR', 'TRUST'].forEach(function (h, i) {
+    var e = document.createElement('th'); e.textContent = h; if (i === 0 || i >= 4) e.className = 'tl';
+    if ((i === 2 || i === 3) && DHINT) e.title = DHINT;
+    hr.appendChild(e);
   });
   th.appendChild(hr); t.appendChild(th);
   var tb = elx('tbody');
@@ -2181,7 +2220,8 @@ def generate_html(comparison: dict) -> str:
 
     data_json = json.dumps(cmp_, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     js = (_JS.replace("__PALETTE__", json.dumps(_PALETTE))
-             .replace("__METRIC_AXIS__", json.dumps(_METRIC_AXIS)))
+             .replace("__METRIC_AXIS__", json.dumps(_METRIC_AXIS))
+             .replace("__METRIC_COMPRESSIVE__", json.dumps(sorted(METRIC_COMPRESSIVE))))
     title = "리비전 연합 비교 — KOO FEDERATE"
 
     return (
