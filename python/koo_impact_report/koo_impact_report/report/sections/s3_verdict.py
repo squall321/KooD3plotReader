@@ -261,7 +261,9 @@ function initFaceKpiTable() {
     if (!rows.length) continue;
     let worst = rows[0];
     for (const r of rows) if (r.g > worst.g) worst = r;
-    const gvals = rows.map(r => r.g).sort((a, b) => a - b);
+    // 미계측(null)은 표본이 아니다 — `null - b` 가 0 처럼 정렬돼 P95 를
+    // 끌어내리고, crit 비율의 분모까지 부풀린다.
+    const gvals = rows.map(r => r.g).filter(v => v != null).sort((a, b) => a - b);
     const p95 = gvals[Math.floor(gvals.length * 0.95)] || 0;
     // Critical-count uses the payload's P95 threshold (same as the rest of
     // the report) instead of the magic 0.5 ratio.

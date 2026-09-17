@@ -271,20 +271,30 @@ function renderS9Static(posId) {
   const tb = document.querySelector('#s9-part-tbl tbody');
   while (tb.firstChild) tb.removeChild(tb.firstChild);
   rows.forEach((r, i) => {
-    const tr = el('tr', { 'data-part': r.part_id });
+    // 미계측(null)은 0 이 아니다 — 0 으로 찍으면 그 부품이 그 위치에서
+    // 가장 안전한 행으로 읽힌다. 같은 행의 변형률은 이미 '—' 로 나간다.
+    const gUnm = (r.g == null);
+    const tr = el('tr', gUnm ? { 'data-part': r.part_id, class: 'r-dim' }
+                             : { 'data-part': r.part_id });
     tr.appendChild(el('td', { class: 'tl b' }, String(i + 1)));
     tr.appendChild(el('td', { class: 'tl' }, r.part_name || pname(r.part_id)));
-    tr.appendChild(el('td', { class: 'num' }, fmt((r.g || 0) / gDiv, 0)));
+    const gTd = el('td', { class: 'num' }, gUnm ? '미계측' : fmt(r.g / gDiv, 0));
+    if (gUnm) { gTd.style.opacity = 0.55; gTd.title = '가속도 이력 없음 — 측정되지 않았다'; }
+    tr.appendChild(gTd);
     const barTd = el('td', {});
-    barTd.appendChild(el('span', {
-      class: 's9-bar',
-      style: { width: Math.max(2, 70 * (r.g || 0) / worstG) + 'px' },
-    }));
+    if (!gUnm) {
+      barTd.appendChild(el('span', {
+        class: 's9-bar',
+        style: { width: Math.max(2, 70 * r.g / worstG) + 'px' },
+      }));
+    }
     tr.appendChild(barTd);
-    tr.appendChild(el('td', { class: 'num' }, (100 * (r.g || 0) / worstG).toFixed(0) + '%'));
-    const sTd = el('td', { class: 'num' }, fmt(r.s || 0, 1));
+    tr.appendChild(el('td', { class: 'num' },
+      gUnm ? '—' : (100 * r.g / worstG).toFixed(0) + '%'));
+    const sTd = el('td', { class: 'num' }, fmt(r.s, 1));
+    if (r.s == null) sTd.style.opacity = 0.4;
     const _sLim = (DATA.kpi || {}).stress_limit;
-    if (_sLim != null && (r.s || 0) > _sLim) {
+    if (_sLim != null && r.s != null && r.s > _sLim) {
       sTd.style.color = 'var(--crit, #ff5e84)';
       sTd.title = '설계 응력 한계 ' + _sLim + ' 초과';
     }
@@ -300,6 +310,8 @@ function renderS9Static(posId) {
     if (r.part_id === pm.worst_part_id_s && pm.worst_part_id_s !== pm.worst_part_id_g)
       bTd.appendChild(el('span', { class: 's9-badge sdriver' }, 'σ-DRIVER'));
     if (isImp) bTd.appendChild(el('span', { class: 's9-badge impactor' }, 'IMPACTOR'));
+    // 미계측은 CRIT/WARN 판정 대상이 아니다 — '안전' 도 아니므로 배지로 알린다.
+    else if (gUnm) bTd.appendChild(el('span', { class: 's9-badge', style: { opacity: 0.55 } }, '미계측'));
     else if (crit && r.g >= crit) bTd.appendChild(el('span', { class: 's9-badge crit' }, 'CRIT'));
     else if (warn && r.g >= warn) bTd.appendChild(el('span', { class: 's9-badge warn' }, 'WARN'));
     if (firstHit != null && r.part_id === firstHit) bTd.appendChild(el('span', { class: 's9-badge firsthit' }, 'FIRST-HIT'));
