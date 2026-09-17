@@ -91,6 +91,19 @@ class PartTimeSeries:
     global_min: float
     time_of_max: float
     data: list[dict]       # [{time, max, min, avg, max_element_id}]
+    #: analysis_result.json 의 num_points — 해석이 실제로 남긴 점 수.
+    #: data 보다 크면 JSON 이 잘린 것이다 (0 = 미기록).
+    num_points: int = 0
+
+    @property
+    def truncated(self) -> bool:
+        """JSON 이 시계열을 잘랐는가 (남은 점이 num_points 보다 적다)."""
+        return self.num_points > len(self.data)
+
+    @property
+    def omitted_points(self) -> int:
+        """잘려나간 점 수. 잘리지 않았으면 0."""
+        return max(0, self.num_points - len(self.data)) if self.num_points else 0
 
     @property
     def t(self) -> list[float]:
@@ -106,14 +119,32 @@ class PartTimeSeries:
 
     @property
     def peak_element_id(self) -> int | None:
-        """global_max 시점의 max_element_id."""
+        """global_max 시점의 max_element_id. 그 시점이 없으면 None.
+
+        가장 가까운 남은 점으로 대체하지 않는다 — 다른 시각의 요소를
+        '피크 위치' 라고 부르게 된다. 사유는 peak_element_reason 에 있다.
+        """
+        d = self._peak_point()
+        return d.get("max_element_id") if d else None
+
+    @property
+    def peak_element_reason(self) -> str:
+        """peak_element_id 가 None 인 사유. 정상이면 빈 문자열."""
+        d = self._peak_point()
+        if d is None:
+            if self.truncated:
+                return f"시계열 잘림 — {self.omitted_points}점 생략되어 피크 시점이 없다"
+            return "피크 시점(time_of_max)의 점이 시계열에 없다"
+        if d.get("max_element_id") is None:
+            return "이 시점에 max_element_id 가 기록되지 않았다"
+        return ""
+
+    def _peak_point(self) -> dict | None:
+        """time_of_max 와 같은 시각의 점. 없으면 None."""
+        tol = max(1e-12, abs(self.time_of_max) * 1e-9)
         for d in self.data:
-            if abs(d["time"] - self.time_of_max) < 1e-12:
-                return d.get("max_element_id")
-        # 가장 가까운 시점
-        if self.data:
-            closest = min(self.data, key=lambda d: abs(d["time"] - self.time_of_max))
-            return closest.get("max_element_id")
+            if abs(d["time"] - self.time_of_max) <= tol:
+                return d
         return None
 
 
@@ -261,6 +292,8 @@ class PartSummary:
     peak_stress: float = 0.0
     time_of_peak_stress: float = 0.0
     peak_element_id: int | None = None
+    #: peak_element_id 가 None 인 사유 (시계열 잘림 등). 정상이면 빈 문자열.
+    peak_element_reason: str = ""
     peak_strain: float = 0.0
     peak_max_principal: float = 0.0
     peak_min_principal: float = 0.0

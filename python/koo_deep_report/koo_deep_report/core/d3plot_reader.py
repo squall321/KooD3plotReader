@@ -560,8 +560,15 @@ def _parse_outputs(
 
 def _parse_series(raw: dict) -> PartTimeSeries:
     # unified_analyzer inserts "...(omitted N entries)..." strings in data arrays
-    # to truncate large outputs. Filter those out.
+    # to truncate large outputs. Filter those out — but keep num_points so the
+    # series knows it is partial (PartTimeSeries.truncated).
     data = [d for d in raw.get("data", []) if isinstance(d, dict)]
+    try:
+        num_points = int(raw.get("num_points", 0) or 0)
+    except (TypeError, ValueError):
+        num_points = 0
+    if num_points <= 0:
+        num_points = len(data)
     return PartTimeSeries(
         part_id=raw.get("part_id", 0),
         part_name=raw.get("part_name", ""),
@@ -571,6 +578,7 @@ def _parse_series(raw: dict) -> PartTimeSeries:
         global_min=raw.get("global_min", 0.0),
         time_of_max=raw.get("time_of_max", 0.0),
         data=data,
+        num_points=num_points,
     )
 
 

@@ -1330,6 +1330,7 @@ def _aggregate(
             peak_stress=st.global_max if st else 0.0,
             time_of_peak_stress=st.time_of_max if st else 0.0,
             peak_element_id=st.peak_element_id if st else None,
+            peak_element_reason=(st.peak_element_reason if st else ""),
             peak_strain=sr.global_max if sr else 0.0,
             peak_max_principal=s1.global_max if s1 else 0.0,
             peak_min_principal=s3.global_min if s3 else 0.0,

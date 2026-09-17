@@ -179,6 +179,7 @@ def _build_js_data(result: SingleResult) -> dict:
                 "peak_stress": p.peak_stress,
                 "time_of_peak_stress": p.time_of_peak_stress,
                 "peak_element_id": p.peak_element_id,
+                "peak_element_reason": p.peak_element_reason,
                 "peak_strain": p.peak_strain,
                 "peak_max_principal": p.peak_max_principal,
                 "peak_min_principal": p.peak_min_principal,
@@ -1400,6 +1401,9 @@ function updateDeepDive() {
   }
   if (p?.peak_element_id) {
     kpiHtml += `<div class="kpi-card"><div class="kpi-label">피크 Element</div><div class="kpi-value" style="font-size:1rem">#${p.peak_element_id}</div><div class="kpi-unit">max stress 위치</div></div>`;
+  } else if (p?.peak_element_reason) {
+    // 미기록을 빈칸으로 두면 '없다' 가 아니라 '안 봤다' 로 읽힌다 — 사유를 띄운다.
+    kpiHtml += `<div class="kpi-card"><div class="kpi-label">피크 Element</div><div class="kpi-value" style="font-size:1rem">—</div><div class="kpi-unit">${p.peak_element_reason}</div></div>`;
   }
   document.getElementById('dd-kpis').innerHTML = kpiHtml;
 
