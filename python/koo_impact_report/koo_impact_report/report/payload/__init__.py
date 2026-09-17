@@ -107,6 +107,8 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
                 positions.append({
                     "pos_id": pos.pos_id, "face": pos.face,
                     "x": _safe(pos.x), "y": _safe(pos.y),
+                    # (0,0) 이 '측정된 원점 타격' 인지 '못 구함' 인지 구분.
+                    "xy_source": getattr(pos, "xy_source", "") or "",
                 })
         def _ts_payload(ts):
             """Down-sample TimeSeriesData (times+max_values) for transport.

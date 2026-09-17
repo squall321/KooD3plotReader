@@ -230,10 +230,10 @@ def _build_mock_energy_flow() -> dict:
 def _build_device_geometry(report: ImpactReport) -> dict:
     """Derive device XY footprint from per-part PartMotion centroids.
 
-    Each PartMotion holds ``disp_x[0]`` / ``disp_y[0]`` — the centroid of the
-    part at t=0 in world coordinates. Collecting these across all parts (for
-    a single position — they all share the same device) yields the actual
-    device extent in XY, which is tighter than the DOE grid bbox.
+    ``PartMotion.centroid0`` 은 t=0 파트 중심의 절대 좌표다 (옛 형식 motion CSV
+    에서만 복원된다 — 지금 작성기의 Avg_Disp_* 는 변위라 t=0 이 전부 0 이고,
+    그걸 중심으로 읽으면 폭·높이 0 인 상자가 나온다). 한 위치의 모든 파트
+    중심을 모으면 실제 장치의 XY 범위가 되고, DOE 격자 bbox 보다 촘촘하다.
 
     Falls back to ``{"source": "grid_fallback"}`` (empty bbox) when no
     PartMotion data is available; callers can then defer to the grid bbox.
@@ -275,10 +275,14 @@ def _build_device_geometry(report: ImpactReport) -> dict:
     xs: list[float] = []
     ys: list[float] = []
     for pm in best_pos:
-        dx = getattr(pm, "disp_x", None) or []
-        dy = getattr(pm, "disp_y", None) or []
-        cx = float(dx[0]) if dx else 0.0
-        cy = float(dy[0]) if dy else 0.0
+        c0 = getattr(pm, "centroid0", None)
+        if not c0:
+            continue   # 중심 좌표가 없는 산출물 — 원점으로 가정하지 않는다
+        try:
+            cx = float(c0[0])
+            cy = float(c0[1])
+        except (TypeError, ValueError, IndexError):
+            continue
         if math.isnan(cx) or math.isnan(cy) or math.isinf(cx) or math.isinf(cy):
             continue
         xs.append(cx)

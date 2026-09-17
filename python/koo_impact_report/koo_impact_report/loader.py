@@ -680,15 +680,36 @@ def _parse_initial_velocity_rigid_body(kfile: Path, pid: int) -> tuple[float, fl
     return v
 
 
-def _bbox_from_d3plot_part(d3plot_path: Path, pid: int, work_dir: Path) -> tuple[float, float] | None:
-    """Return (max_radial_extent_mm, None_placeholder) from motion CSV at t=0.
+def _motion_csv_is_absolute(first_row: dict) -> bool:
+    """이 motion CSV 가 **옛 형식**(절대 좌표)인가.
 
-    The unified_analyzer's ``Max_Disp_Mag`` at t=0 is the distance from the
-    part centroid to its farthest node — i.e. the bounding sphere radius.
+    unified_analyzer 는 2026-08-11 부터 Avg_Disp_*/Max_Disp_Mag 를 초기 좌표
+    기준 **변위** 로 쓴다. 그래서 t=0 행은 전부 정확히 0 이다. 그 전에는 같은
+    자리에 파트 중심의 절대 좌표와 중심→최원단 절점 거리가 들어 있었다
+    (실측 Test_Impact_A part 24: (20.016, -39.992, 16.950), Max 55.84).
+
+    판별은 추측이 아니다 — 옛 형식에서 Max_Disp_Mag(t=0) 는 파트의 경계 반경
+    이라 실제 파트면 반드시 > 0 이고, 새 형식에서는 정의상 정확히 0 이다.
+    """
+    try:
+        return float(first_row.get("Max_Disp_Mag", 0) or 0) > 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _bbox_from_d3plot_part(d3plot_path: Path, pid: int, work_dir: Path) -> tuple[float, float] | None:
+    """Return (max_radial_extent_mm, 0.0) from an **old-format** motion CSV.
+
+    옛 형식에서만 ``Max_Disp_Mag`` 의 t=0 값이 파트 중심에서 최원단 절점까지의
+    거리(= 경계 구 반경)다. 지금 작성기는 그 열에 변위를 쓰므로 t=0 이 0 이고
+    경계 반경을 복원할 수 없다 — 그때는 None 이다. 종전 코드는 "첫 0 아닌 값"
+    을 찾아 그냥 그 시각의 변위(예 1e-4 s 의 0.511 mm)를 반경으로 삼았고,
+    ρ·V 질량이 (0.5/8)³ 배로 줄었다.
+
     Height/length cannot be inferred from a single scalar, so it is left as
     0.0 and downstream code must treat that as "unknown".
 
-    Returns None if the CSV is missing.
+    Returns None if the CSV is missing or is the displacement (new) format.
     """
     csv_path = work_dir / "motion" / f"part_{pid}_motion.csv"
     if not csv_path.exists():
@@ -696,16 +717,12 @@ def _bbox_from_d3plot_part(d3plot_path: Path, pid: int, work_dir: Path) -> tuple
     try:
         with open(csv_path, encoding="utf-8") as f:
             rdr = csv.DictReader(f)
-            for row in rdr:
-                try:
-                    far = float(row.get("Max_Disp_Mag", 0))
-                    if far > 0:
-                        return (far, 0.0)
-                except ValueError:
-                    continue
-    except OSError:
+            first = next(rdr, None)
+            if first is None or not _motion_csv_is_absolute(first):
+                return None
+            return (float(first["Max_Disp_Mag"]), 0.0)
+    except (OSError, KeyError, ValueError):
         return None
-    return None
 
 
 def _geometry_from_step_config(
@@ -1222,12 +1239,17 @@ def load_per_part_motions(
         try:
             with open(csv_path, encoding="utf-8") as f:
                 rdr = csv.DictReader(f)
-                for row in rdr:
+                for _i, row in enumerate(rdr):
                     def fv(k):
                         try:
                             return float(row.get(k, 0) or 0)
                         except ValueError:
                             return 0.0
+                    if _i == 0 and _motion_csv_is_absolute(row):
+                        # 옛 형식 CSV 에서만 t=0 행이 파트 중심의 절대 좌표다.
+                        # 지금 작성기는 변위를 쓰므로 여기서는 채워지지 않는다.
+                        pm.centroid0 = (fv("Avg_Disp_X"), fv("Avg_Disp_Y"),
+                                        fv("Avg_Disp_Z"))
                     pm.times.append(fv("Time"))
                     pm.disp_x.append(fv("Avg_Disp_X"))
                     pm.disp_y.append(fv("Avg_Disp_Y"))
@@ -1900,12 +1922,34 @@ def load_single_d3plot_report(
     else:
         face = FACE_STANDARD[face_code]
         print(f"[loader] face auto-detected from v₀: {face_code} ({face.name})")
+    # 타격 좌표. 종전에는 임팩터 궤적의 pos_x[0]/pos_y[0] 를 썼는데, 그 값은
+    # 이제 변위라 언제나 (0,0) 이다 — 모든 단일 d3plot 보고서가 원점 타격으로
+    # 그려졌다. step_config 의 LocationX/Y 가 유일한 권위이며, 없으면 못 구한
+    # 것이라 사유를 남긴다 (0.0 은 표시용 자리값이지 측정값이 아니다).
+    _loc_x = _loc_y = None
+    if step_config:
+        for _k, _dst in (("LocationX", "x"), ("LocationY", "y")):
+            try:
+                _v = float(step_config.get(_k))
+            except (TypeError, ValueError):
+                _v = None
+            if _dst == "x":
+                _loc_x = _v
+            else:
+                _loc_y = _v
+    if _loc_x is None or _loc_y is None:
+        load_issues.append({
+            "kind": "impact-xy-unknown", "pos_name": None, "exc_class": None,
+            "msg": "타격 좌표(LocationX/Y)를 구할 수 없다 — step_config.txt 가 없고 "
+                   "motion CSV 의 t=0 행은 변위라 좌표를 주지 못한다. "
+                   "위치 지도의 (0,0) 은 자리값이지 측정값이 아니다"})
     pos = ImpactPosition(
         pos_id=f"{face_code}_P_0001",
         face=face_code,
-        x=float(traj.pos_x[0]) if traj.pos_x else 0.0,
-        y=float(traj.pos_y[0]) if traj.pos_y else 0.0,
+        x=_loc_x if _loc_x is not None else 0.0,
+        y=_loc_y if _loc_y is not None else 0.0,
         run_dir=parent,
+        xy_source=("step_config" if (_loc_x is not None and _loc_y is not None) else ""),
     )
 
     results: list[PairResult] = []
@@ -2773,6 +2817,8 @@ def load_partial_impact_doe_report(
             x=float(run["location_x"]),
             y=float(run["location_y"]),
             run_dir=run["run_dir"],
+            # DOE 는 step_config.txt / DropWeightImpactTestSet.json 이 좌표의 권위다.
+            xy_source="step_config",
         )
         positions.append(pos)
 

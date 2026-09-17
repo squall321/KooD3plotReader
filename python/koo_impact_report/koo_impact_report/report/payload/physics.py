@@ -35,6 +35,17 @@ def _build_stress_wave_velocity_payload(report) -> dict:
             "rigid-body motion CSV와 contact engagement 파싱 결과를 확인하세요."
         ),
     }
+    #: 파트 중심 좌표가 산출물에 없을 때의 사유. r = |충격점 - 파트 중심| 을
+    #: 계산할 수 없으므로 겉보기 속도를 지어내지 않는다.
+    NO_CENTROID = dict(
+        EMPTY,
+        _placeholder=(
+            "응력파 전파 속도 계산 불가 - 파트 중심 좌표가 산출물에 없습니다. "
+            "motion CSV 의 Avg_Disp_* 는 초기 좌표 기준 변위라 t=0 이 0 이고, "
+            "거리 r = |충격점 - 파트 중심| 을 만들 수 없습니다. 중심 좌표를 "
+            "내보내는 산출물(옛 형식 motion CSV 또는 별도 중심 열)이 필요합니다."
+        ),
+    )
 
     part_motions = getattr(report, "part_motions", None) or {}
     trajs = getattr(report, "impactor_trajectories", None) or {}
@@ -52,19 +63,16 @@ def _build_stress_wave_velocity_payload(report) -> dict:
         for pos in (plist or []):
             pos_xy_by_id[pos.pos_id] = (float(pos.x), float(pos.y))
 
-    # Impact-Z reference: prefer the trajectory's first pos_z (impactor tip at t=0).
-    # Falls back to 0.0 if not available — keeps the formula well-defined.
-    def _impact_z(pos_id: str) -> float:
-        tr = trajs.get(pos_id)
-        if tr is None:
-            return 0.0
-        pz = getattr(tr, "pos_z", None) or []
-        if not pz:
-            return 0.0
-        try:
-            return float(pz[0])
-        except (TypeError, ValueError):
-            return 0.0
+    # 파트 중심 좌표가 하나도 없으면 r 을 만들 수 없다. 종전에는 motion CSV 의
+    # t=0 행을 중심으로 읽었는데, 그 열은 이제 변위라 전 파트가 (0,0,0) 이 되고
+    # r 이 "원점에서 충격점까지의 거리" 로 파트마다 같아졌다 (형상 무관).
+    if not any(getattr(pm, "centroid0", None) for pm in part_motions.values()
+               if pm is not None):
+        return NO_CENTROID
+
+    # Impact-Z reference: 임팩터 궤적의 pos_z 도 이제 변위라 t=0 이 0 이다.
+    # 중심 좌표와 같은 좌표계의 값이 아니므로 z 성분은 쓰지 않는다 — 평면
+    # 거리(XY)만으로 r 을 만든다 (z 를 0 으로 가정해 섞으면 거리가 틀린다).
 
     # Accumulate per-part samples
     # M10: Δt→0 발산 샘플 + 미접촉 런(노이즈 피크)이 mean 을 지배해
@@ -100,19 +108,15 @@ def _build_stress_wave_velocity_payload(report) -> dict:
         if pos_id not in pos_xy_by_id:
             continue
         px, py = pos_xy_by_id[pos_id]
-        dx_arr = getattr(pm, "disp_x", None) or []
-        dy_arr = getattr(pm, "disp_y", None) or []
-        dz_arr = getattr(pm, "disp_z", None) or []
-        if not dx_arr or not dy_arr or not dz_arr:
-            continue
+        c0 = getattr(pm, "centroid0", None)
+        if not c0:
+            continue   # 이 파트는 중심 좌표가 없다 — 표본에서 뺀다
         try:
-            cx = float(dx_arr[0])
-            cy = float(dy_arr[0])
-            cz = float(dz_arr[0])
-        except (TypeError, ValueError):
+            cx = float(c0[0])
+            cy = float(c0[1])
+        except (TypeError, ValueError, IndexError):
             continue
-        iz = _impact_z(pos_id)
-        r_mm = math.sqrt((px - cx) ** 2 + (py - cy) ** 2 + (iz - cz) ** 2)
+        r_mm = math.hypot(px - cx, py - cy)
         if not math.isfinite(r_mm) or r_mm <= 0.0:
             continue
         v_mm_s = r_mm / dt          # mm/s

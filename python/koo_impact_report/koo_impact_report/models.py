@@ -52,6 +52,10 @@ class ImpactPosition:
     x: float             # mm
     y: float             # mm
     run_dir: Path = field(default_factory=Path)
+    #: (x, y) 의 출처. "step_config" = 덱이 선언한 타격 좌표(권위),
+    #: "" = 못 구했다 — 이때 x/y 는 0.0 이지만 **측정값이 아니다**.
+    #: motion CSV 의 t=0 행은 이제 변위(전부 0)라 타격 좌표를 줄 수 없다.
+    xy_source: str = ""
 
 
 @dataclass
@@ -286,6 +290,12 @@ class PartMotion:
     t_peak_g: float = 0.0                # s
     peak_disp: float = 0.0               # max disp_mag
     peak_vel: float = 0.0                # max vel_mag
+    #: t=0 파트 중심의 절대 좌표 (mm). **모든 산출물에 있는 값이 아니다.**
+    #: unified_analyzer 의 motion CSV 는 Avg_Disp_* 를 초기 좌표 기준 변위로
+    #: 쓰므로 t=0 행이 전부 0 이고 중심 좌표가 남지 않는다. 옛 형식(초기 좌표를
+    #: 빼지 않던 시절) CSV 에서만 복원할 수 있어, 없으면 None 이다 — 소비자는
+    #: 원점을 중심으로 가정하지 말고 해당 지표를 비워야 한다.
+    centroid0: tuple[float, float, float] | None = None
     #: 시각 축 결함 사유 (없으면 None). motion CSV 의 Time 은 소수 6자리 고정
     #: 이라 출력 간격이 1 µs 보다 촘촘하면 상태들이 같은 시각을 갖는다.
     #: 이 값이 있으면 FFT/SRS 는 결과를 내지 않는다 — 표본율을 알 수 없다.
