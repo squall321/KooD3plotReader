@@ -16,20 +16,28 @@ void NARBSParser::parse(size_t& offset) {
     // ls-dyna_database.txt lines 667-724
     // NARBS section contains arbitrary node and element numbering
     //
-    // NARBS section structure:
-    // - Header (16 words): counts and offsets
-    //   Word 0: NSORT = NUMNP (or -NUMNP if pointer array)
-    //   Word 1: NSRH = |NEL8|
-    //   Word 2: NSRB = NEL2
-    //   Word 3: NSRS = NEL4
-    //   Word 4: NSRT = NELT
-    //   Word 5: NSORTD = total words for sorting
-    //   Word 6: NSRHD = sorted/unsorted data
-    //   Word 7: NSRBD = beam data
-    //   Word 8: NSRSD = shell data
-    //   Word 9: NSRTD = thick shell data
-    //   Words 10-15: Additional header data
-    // - Data arrays (node IDs, element IDs, etc.)
+    // NARBS section structure (ls-dyna_database.txt NARBS 절):
+    // - Header: 10 워드, NSORT < 0 이면 16 워드
+    //   Word 0: NSORT  = 절점 번호 배열을 가리키는 **포인터**(LS-DYNA 내부 값).
+    //                    음수면 '임의 재질 번호도 쓴다' 는 플래그다 — ±NUMNP 가 아니다.
+    //   Word 1: NSRH   = NSORT + NUMNP   (솔리드 ID 배열 포인터)
+    //   Word 2: NSRB   = NSRH  + NEL8    (빔 ID 배열 포인터)
+    //   Word 3: NSRS   = NSRB  + NEL2    (셸 ID 배열 포인터)
+    //   Word 4: NSRT   = NSRS  + NEL4    (두꺼운셸 ID 배열 포인터)
+    //   Word 5: NSORTD = 절점 **개수**   (= NUMNP)
+    //   Word 6: NSRHD  = 솔리드 개수
+    //   Word 7: NSRBD  = 빔 개수
+    //   Word 8: NSRSD  = 셸 개수
+    //   Word 9: NSRTD  = 두꺼운셸 개수
+    //   Words 10-15: NSORT < 0 일 때만 있는 재질 번호 관련 워드
+    // - Data arrays (node IDs, element IDs, part IDs, ...)
+    //
+    // 실측(/data/battery_study/case_01): 헤더 16워드 =
+    //   [-1, 9739, 10900, 10900, 18270, 9738, 1161, 0, 7370, 4704, ...]
+    // 즉 word0 은 -1 이고(−NUMNP 가 아니다), word1..4 는 포인터, word5..9 가 개수다.
+    // 이 파일들의 실제 규약은 NSRH = |NSORT| + NUMNP = 1 + 9738 이라, 아래
+    // use_pointer 의 `ptr - 1` 이 맞는다. 규격 본문 그대로의 `ptr - nsort` 는
+    // 같은 덱에서 2 씩 어긋난다 — 고치지 말 것.
 
     if (control_data_.NARBS == 0) {
         // No arbitrary numbering - use sequential IDs
@@ -39,11 +47,12 @@ void NARBSParser::parse(size_t& offset) {
     std::cerr << "Parsing NARBS section (" << control_data_.NARBS << " words)..." << std::endl;
 
     // Read NARBS header to determine structure
-    int nsort = reader_->read_int(offset);      // Number of nodes (may be negative)
-    int nsrh = reader_->read_int(offset + 1);   // Number of solids
-    int nsrb = reader_->read_int(offset + 2);   // Number of beams
-    int nsrs = reader_->read_int(offset + 3);   // Number of shells
-    int nsrt = reader_->read_int(offset + 4);   // Number of thick shells
+    // 🔴 word 0-4 는 **포인터**다 (개수가 아니다 — 위 헤더 설명 참고).
+    int nsort = reader_->read_int(offset);      // NSORT: 절점 배열 포인터 (음수 = 임의 재질번호)
+    int nsrh = reader_->read_int(offset + 1);   // NSRH : 솔리드 ID 배열 포인터
+    int nsrb = reader_->read_int(offset + 2);   // NSRB : 빔 ID 배열 포인터
+    int nsrs = reader_->read_int(offset + 3);   // NSRS : 셸 ID 배열 포인터
+    int nsrt = reader_->read_int(offset + 4);   // NSRT : 두꺼운셸 ID 배열 포인터
 
     // Determine header size based on NSORT value
     // If NSORT < 0, it indicates a pointer array format (16 words header)
@@ -69,7 +78,6 @@ void NARBSParser::parse(size_t& offset) {
     size_t pos_beam = pos_solid + static_cast<size_t>(std::max(num_solids, 0));
     size_t pos_shell = pos_beam + static_cast<size_t>(std::max(num_beams, 0));
     size_t pos_thick = pos_shell + static_cast<size_t>(std::max(num_shells, 0));
-    const size_t pos_after = pos_thick + static_cast<size_t>(std::max(num_thick_shells, 0));
 
     // 포인터 형식(NSORT < 0)이면 헤더의 1-based 포인터(NSRH/NSRB/NSRS/NSRT)가
     // 각 블록 시작을 직접 가리킨다. 개수로 계산한 위치와 다르면 포인터를 따르고
@@ -88,6 +96,11 @@ void NARBSParser::parse(size_t& offset) {
     use_pointer(nsrb, pos_beam, "beam");
     use_pointer(nsrs, pos_shell, "shell");
     use_pointer(nsrt, pos_thick, "thick shell");
+
+    // 🔴 포인터 보정 **뒤에** 잡는다. 앞에서 고정하면 '포인터를 따릅니다' 라고
+    //    말해 놓고 그 뒤 블록(NORDER/NSRMU/NSRMP)만 개수 계산 위치에서 읽어,
+    //    파트 ID 배열이 통째로 엉뚱한 워드에서 나온다.
+    const size_t pos_after = pos_thick + static_cast<size_t>(std::max(num_thick_shells, 0));
 
     auto read_ids = [&](size_t pos, int count, std::vector<int32_t>& ids,
                         std::unordered_map<int32_t, size_t>& index_map, const char* label) {
@@ -130,9 +143,19 @@ void NARBSParser::parse(size_t& offset) {
     }
 
     // 7. Material type numbers (remaining after Part ID arrays)
-    size_t total_read = node_ids_.size() + solid_ids_.size() + beam_ids_.size()
-                      + shell_ids_.size() + thick_shell_ids_.size() + 3 * nmmat;
-    size_t remaining = control_data_.NARBS - total_read;
+    //
+    // 🔴 헤더 워드를 함께 센다. 규격상 NARBS = 헤더(10 또는 16) + NUMNP + NEL8 +
+    //    NEL2 + NEL4 + NELT + 3*NMMAT 이므로, 헤더를 빼먹으면 remaining 이 **항상**
+    //    정확히 헤더 크기가 되어 구역이 끝난 지점에서 10~16 워드를 더 읽는다.
+    //    실측(/data/battery_study/case_01)에서 그 워드는 다음 구역(파트 타이틀)의
+    //    문자열 조각이었다. 이제 규격대로면 remaining = 0 이고, 이 저장소
+    //    D3plotWriter 가 규격 외로 덧붙이는 4번째 NMMAT 배열(재질 타입)만 남는다.
+    const size_t total_read = static_cast<size_t>(header_size)
+                            + node_ids_.size() + solid_ids_.size() + beam_ids_.size()
+                            + shell_ids_.size() + thick_shell_ids_.size()
+                            + 3 * static_cast<size_t>(std::max(nmmat, 0));
+    const size_t narbs_words = static_cast<size_t>(std::max(control_data_.NARBS, 0));
+    size_t remaining = (narbs_words > total_read) ? (narbs_words - total_read) : 0;
 
     if (remaining > 0 && remaining < 100000) {  // Sanity check
         material_types_.reserve(remaining);

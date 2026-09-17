@@ -73,6 +73,13 @@ add_executable(test_csv_notation test_csv_notation.cpp)
 target_link_libraries(test_csv_notation PRIVATE kood3plot)
 target_include_directories(test_csv_notation PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# NARBS 구역 경계 tests — Writer 로 합성 덱을 만든다
+if(TARGET kood3plot_writer)
+    add_executable(test_narbs_section_bounds test_narbs_section_bounds.cpp)
+    target_link_libraries(test_narbs_section_bounds PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_narbs_section_bounds PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)
