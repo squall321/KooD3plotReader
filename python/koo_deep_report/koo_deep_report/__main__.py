@@ -1313,6 +1313,10 @@ def _aggregate(
             n_mat = len(kw_data.materials)
             n_part = len(kw_data.parts)
             print(f"[koo_deep_report] keyword: {n_part} parts, {n_mat} materials parsed from {kw_data.source_path}")
+            for w in kw_data.warnings:
+                # 못 읽은 것은 못 읽었다고 말한다 — 조용히 빠지면 그 파트는
+                # 이름도 설계기준도 없이 '기준 없음' 으로 보인다.
+                print(f"[koo_deep_report] keyword 경고: {w}")
             design_criteria = kw_data.get_design_criteria(design_overrides, material_overrides)
 
     # Back-fill keyword part names into PartTimeSeries and MotionData

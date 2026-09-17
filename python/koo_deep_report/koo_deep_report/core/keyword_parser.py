@@ -70,6 +70,9 @@ class KeywordData:
     parts: dict[int, PartMaterialMap] = field(default_factory=dict)   # PID → PartMaterialMap
     materials: dict[int, MaterialInfo] = field(default_factory=dict)  # MID → MaterialInfo
     source_path: str = ""
+    #: 읽지 못한 것들의 사유 (따라가지 않은 *INCLUDE, 해석하지 않은 *PART_ 변형 등).
+    #: 비어 있지 않으면 parts/materials 가 덱 전체를 담고 있지 않다는 뜻이다.
+    warnings: list[str] = field(default_factory=list)
 
     def get_design_criteria(
         self,
@@ -258,15 +261,49 @@ _MAT_FAIL_MAP: dict[int, tuple[int, int]] = {
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+# *PART 의 OPTION 조합 — 어느 조합이든 '제목 줄 + PID SECID MID ...' 로 시작한다
+# (R16 Vol.I *PART Card Summary). 세트는 다음 '*' 키워드 전까지 반복될 수 있다.
+_PART_STD_RE = re.compile(
+    r"^\*PART(_(INERTIA|REPOSITION|CONTACT|PRINT|ATTACHMENT_NODES|AVERAGED|FIELD|TITLE))*\s*$")
+# *PART_COMPOSITE 는 카드 3 이 'PID ELFORM SHRF ...' 라 MID 열이 없다.
+_PART_COMPOSITE_RE = re.compile(
+    r"^\*PART_COMPOSITE(_(LONG|TSHELL|IGA_SHELL|CONTACT|TITLE))*\s*$")
+
+_MAX_INCLUDE_DEPTH = 8
+
+
 def parse_keyword_file(path: str | Path) -> KeywordData:
-    """Parse LS-DYNA keyword file for *PART and *MAT_ sections."""
+    """Parse LS-DYNA keyword file for *PART and *MAT_ sections.
+
+    *INCLUDE 로 끌어온 파일도 따라간다 — 따라가지 않으면 그 파일의 파트가
+    통째로 없는 것이 되어 이름도 설계기준도 붙지 않는다.
+    """
     path = Path(path)
     data = KeywordData(source_path=str(path))
+    _parse_into(path, data, seen=set(), depth=0)
+    return data
+
+
+def _parse_into(path: Path, data: KeywordData, seen: set[str], depth: int) -> None:
+    """path 를 읽어 data 에 누적한다. *INCLUDE 는 재귀로 따라간다."""
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path)
+    if key in seen:
+        return
+    seen.add(key)
 
     if not path.exists():
-        return data
+        data.warnings.append(f"키워드 파일을 찾지 못했다: {path}")
+        return
 
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        data.warnings.append(f"키워드 파일을 읽지 못했다: {path} ({e})")
+        return
+
     lines = text.splitlines()
 
     i = 0
@@ -282,9 +319,26 @@ def parse_keyword_file(path: str | Path) -> KeywordData:
         if line.startswith("*"):
             upper = line.upper()
 
-            # *PART (not *PART_INERTIA etc.)
-            if upper.startswith("*PART") and not upper.startswith("*PART_"):
-                i = _parse_part(lines, i + 1, data)
+            if _PART_COMPOSITE_RE.match(upper):
+                # 카드 3 에 MID 가 없다 — 이웃 열(SHRF)을 MID 로 읽지 않는다.
+                i = _parse_part(lines, i + 1, data, multi=False, has_mid=False)
+                continue
+
+            if _PART_STD_RE.match(upper):
+                # 옵션이 붙으면 세트마다 추가 카드가 따라온다. 그 장수는
+                # 옵션마다 달라 추측할 수 없으므로 첫 세트만 읽는다.
+                std = upper.rstrip() == "*PART"
+                i = _parse_part(lines, i + 1, data, multi=std, has_mid=True)
+                continue
+
+            if upper.startswith("*PART"):
+                data.warnings.append(
+                    f"{line.split()[0]} 는 해석하지 않았다 — 이 블록의 파트는 빠져 있다")
+                i += 1
+                continue
+
+            if upper.startswith("*INCLUDE"):
+                i = _parse_include(lines, i, path, data, seen, depth)
                 continue
 
             # *MAT_*  — capture both *MAT_RIGID_TITLE and *MAT_MOONEY-RIVLIN_RUBBER
@@ -297,39 +351,88 @@ def parse_keyword_file(path: str | Path) -> KeywordData:
 
         i += 1
 
-    return data
 
+def _parse_include(lines: list[str], i: int, src: Path, data: KeywordData,
+                   seen: set[str], depth: int) -> int:
+    """*INCLUDE 블록을 처리하고 다음 키워드 줄 위치를 돌려준다.
 
-def _parse_part(lines: list[str], i: int, data: KeywordData) -> int:
-    """Parse *PART section: title line + data line (PID, SECID, MID, ...)."""
-    # Skip comment lines
-    while i < len(lines) and lines[i].strip().startswith("$"):
-        i += 1
-
-    if i >= len(lines):
-        return i
-
-    # Line 1: title/name
-    title = lines[i].strip()
+    옵션 없는 *INCLUDE 만 따라간다. *INCLUDE_TRANSFORM 은 ID 오프셋을
+    함께 적용해야 하므로 여기서 따라가면 PID 가 어긋난다 — 사유만 남긴다.
+    """
+    header = lines[i].strip()
+    plain = header.upper().rstrip() == "*INCLUDE"
     i += 1
-
-    # Skip comments
-    while i < len(lines) and lines[i].strip().startswith("$"):
+    names: list[str] = []
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("*"):
+            break
+        if stripped and not stripped.startswith("$"):
+            names.append(stripped)
         i += 1
 
-    if i >= len(lines):
+    if not plain:
+        data.warnings.append(
+            f"{header.split()[0]} 는 따라가지 않았다 (ID 오프셋 미적용): "
+            + ", ".join(names[:1] or ["<파일명 없음>"]))
         return i
 
-    # Line 2: PID, SECID, MID, EOSID, HGID, GRAV, ADPOPT, TMID
-    fields = _read_fields(lines[i], 8)
-    pid = _to_int(fields[0])
-    secid = _to_int(fields[1])
-    mid = _to_int(fields[2])
+    if depth >= _MAX_INCLUDE_DEPTH:
+        data.warnings.append(f"*INCLUDE 중첩이 {_MAX_INCLUDE_DEPTH}단을 넘어 멈췄다: {src}")
+        return i
 
-    if pid > 0:
-        data.parts[pid] = PartMaterialMap(pid=pid, name=title, secid=secid, mid=mid)
+    for name in names:
+        cand = Path(name)
+        target = cand if cand.is_absolute() else (src.parent / cand)
+        if not target.exists():
+            data.warnings.append(f"*INCLUDE 파일을 찾지 못했다: {name} (기준 {src.parent})")
+            continue
+        _parse_into(target, data, seen, depth + 1)
+    return i
 
-    return i + 1
+
+def _parse_part(lines: list[str], i: int, data: KeywordData,
+                multi: bool = True, has_mid: bool = True) -> int:
+    """Parse *PART section: (title line + data line) sets.
+
+    LS-DYNA 는 다음 '*' 키워드 전까지 세트를 반복할 수 있다. 첫 세트만
+    읽으면 나머지 파트는 이름도 설계기준도 없이 사라진다 (multi=True).
+    옵션이 붙은 *PART_xxx 는 세트마다 추가 카드가 따라오고 그 장수가
+    옵션마다 달라, 첫 세트만 읽고 나머지는 건너뛴다 (multi=False).
+    """
+    n = len(lines)
+    while i < n:
+        # Skip comment lines
+        while i < n and lines[i].strip().startswith("$"):
+            i += 1
+        if i >= n or lines[i].strip().startswith("*"):
+            break
+
+        # Line 1: title/name
+        title = lines[i].strip()
+        i += 1
+
+        # Skip comments
+        while i < n and lines[i].strip().startswith("$"):
+            i += 1
+        if i >= n or lines[i].strip().startswith("*"):
+            break
+
+        # Line 2: PID, SECID, MID, EOSID, HGID, GRAV, ADPOPT, TMID
+        #   (*PART_COMPOSITE: PID, ELFORM, SHRF, ... — MID 열이 없다)
+        fields = _read_fields(lines[i], 8)
+        pid = _to_int(fields[0])
+        secid = _to_int(fields[1]) if has_mid else 0
+        mid = _to_int(fields[2]) if has_mid else 0
+        i += 1
+
+        if pid > 0:
+            data.parts[pid] = PartMaterialMap(pid=pid, name=title, secid=secid, mid=mid)
+
+        if not multi:
+            break
+
+    return i
 
 
 def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
