@@ -73,3 +73,13 @@
   -42.9%, 화면에서 '개선' 으로 읽혔다. `_pct_m(new, base, metric)` 으로 대체.
 - `negative_metric` ERROR 는 s3/e3 를 건너뛴다 — 그 지표는 음수가 정상이다.
 - tiers 는 metric 인자를 받되 기본값 "g" 라 기존 호출과 시험이 그대로 돈다.
+
+## F2 지표별 단위·자릿수 (2026-09-17)
+- `g_divisor` 는 compare 에서 **metric=='g' 일 때만** 실린다. 화면·표·요약이 모두
+  이 한 값을 보므로 한 곳에서 막는 것이 가장 확실했다.
+- payload 에 새 키를 만들지 않았다. JS 는 `DATA.metric` + `unit_labels` 와,
+  `__METRIC_AXIS__` 로 주입한 지표→축 표로 단위를 고른다(골든 해시 불변).
+- 렌더 쪽 `_METRIC_AXIS` 가 4종짜리 사본이라 s1/s3/e1/e3/evm 이 전부 "acc" 로
+  폴백돼 응력에 가속도 단위가 붙던 것도 같이 고쳤다 — models 표를 그대로 쓴다.
+- 자릿수는 Python `_numa`, JS `fauto` 로 통일. |v|>=1000 → 0자리, >=1 → 2자리,
+  그 미만 → 유효숫자 3자리.

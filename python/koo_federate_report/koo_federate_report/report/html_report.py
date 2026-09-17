@@ -5,6 +5,8 @@ from __future__ import annotations
 import html as _html
 import json
 
+from ..models import METRIC_LABELS, METRIC_UNIT_AXIS, severity
+
 __all__ = ["generate_html"]
 
 # 리비전 고정 팔레트 — 모든 뷰에서 같은 색 = 같은 리비전.
@@ -25,6 +27,24 @@ def _num(v, d: int = 0) -> str:
     if v is None or not isinstance(v, (int, float)) or v != v:
         return _EMDASH
     return f"{v:,.{d}f}"
+
+
+def _numa(v) -> str:
+    """값의 **크기**로 자릿수를 정하는 표기.
+
+    가속도(수만 G)에 맞춰 0 자리로 고정돼 있어, 응력 0.09 GPa 나 변형률
+    0.0021 을 같은 표에 넣으면 전부 "0" 이 됐다. 값이 없으면 em-dash.
+    """
+    if v is None or not isinstance(v, (int, float)) or v != v:
+        return _EMDASH
+    a = abs(v)
+    if a == 0:
+        return "0"
+    if a >= 1000:
+        return f"{v:,.0f}"
+    if a >= 1:
+        return f"{v:,.2f}"
+    return f"{v:.3g}"
 
 
 def _pct(v, d: int = 1) -> str:
@@ -376,9 +396,17 @@ def _build_kpi_table(cmp_: dict) -> str:
     if not labels:
         return ""
 
-    acc_unit = "G" if gdiv else (ul.get("acc") or "")
+    # 첫 행은 **비교 중인 지표**의 worst 다 (엔진이 kpi.worst_per_rev 로 낸다).
+    # 예전에는 무조건 "WORST ACC" 라 불러 G 제수로 나눴다 — 응력 470 MPa 가
+    # "G 0" 으로 찍혔다. 지표가 가속도일 때만 G 환산이다.
+    metric = cmp_.get("metric") or "g"
+    is_acc = metric == "g"
+    main_unit = ("G" if (gdiv and is_acc)
+                 else (ul.get(_METRIC_AXIS.get(metric, "acc")) or ""))
+    main_div = (gdiv or 1.0) if is_acc else 1.0
+    main_name = "WORST ACC" if is_acc else f"WORST {METRIC_LABELS.get(metric, metric).upper()}"
     rows_def = [
-        ("WORST ACC", _kpi_series(cmp_, "worst_g"), acc_unit, gdiv or 1.0, 0),
+        (main_name, _kpi_series(cmp_, "worst_g"), main_unit, main_div, 0),
         ("WORST STRESS", _kpi_series(cmp_, "worst_s"), ul.get("stress") or "", 1.0, 0),
         ("DISSIPATION", _kpi_series(cmp_, "diss_pct"), "%", 1.0, 1),
     ]
@@ -386,8 +414,8 @@ def _build_kpi_table(cmp_: dict) -> str:
     # 피크를 넘지 못한다(실데이터 -40~-46%). 원본에서 뽑은 참피크를 함께 건다.
     tp = (cmp_.get("kpi") or {}).get("true_peak_per_rev") or []
     if any(isinstance(v, (int, float)) for v in tp):
-        rows_def.insert(0, ("참피크 (실측)", list(tp), acc_unit, gdiv or 1.0, 0))
-        rows_def[1] = ("WORST ACC (격자)",) + rows_def[1][1:]
+        rows_def.insert(0, ("참피크 (실측)", list(tp), main_unit, main_div, 0))
+        rows_def[1] = (main_name + " (격자)",) + rows_def[1][1:]
     head = '<th class="tl">METRIC</th>' + "".join(
         f'<th>{_esc(l)}</th><th>&Delta; vs BASE</th>' for l in labels
     )
@@ -397,7 +425,8 @@ def _build_kpi_table(cmp_: dict) -> str:
         tds = [f'<td class="tl b">{_esc(name)} <span class="dim">{_esc(unit)}</span></td>']
         for i in range(len(labels)):
             v = vals[i] if i < len(vals) else None
-            shown = _num(v / div, dec) if isinstance(v, (int, float)) else _EMDASH
+            shown = (_numa(v / div) if dec == 0 else _num(v / div, dec)) \
+                if isinstance(v, (int, float)) else _EMDASH
             dtxt, dcls = (("BASE", "na") if i == base else _delta_cell(v, base_v))
             tds.append(f'<td class="num">{shown}</td><td class="dpct {dcls}">{dtxt}</td>')
         body.append("<tr>" + "".join(tds) + "</tr>")
@@ -461,8 +490,12 @@ def _summary_prose(cmp_: dict) -> str:
         return "비교할 리비전이 없다. 입력에 revisions 가 비어 있어 요약을 만들 수 없다."
     labels = _rev_labels(revs)
     gdiv = cmp_.get("g_divisor") or 0
-    unit = "G" if gdiv else ((cmp_.get("unit_labels") or {}).get("acc") or "")
-    div = gdiv or 1.0
+    metric = cmp_.get("metric") or "g"
+    # 단위·제수는 **비교 중인 지표**의 것이다 (예전에는 무조건 가속도였다)
+    unit = ("G" if (gdiv and metric == "g")
+            else ((cmp_.get("unit_labels") or {}).get(
+                _METRIC_AXIS.get(metric, "acc")) or ""))
+    div = (gdiv or 1.0) if metric == "g" else 1.0
     out = [
         f"기준 리비전은 <b>{_esc(labels[base])}</b> 이고, 총 <b>{len(revs)}</b>개 리비전을 "
         f"<b>{len(cells)}</b>개 셀에서 비교했다."
@@ -471,13 +504,14 @@ def _summary_prose(cmp_: dict) -> str:
     wg = _kpi_series(cmp_, "worst_g")
     pairs = [(i, v) for i, v in enumerate(wg) if isinstance(v, (int, float))]
     if len(pairs) >= 2:
-        bi, bv = min(pairs, key=lambda t: t[1])
-        wi, wv = max(pairs, key=lambda t: t[1])
+        # 압축측(σ3/ε3)은 값이 음수라 크기로 골라야 좋고 나쁘이 뒤집히지 않는다
+        bi, bv = min(pairs, key=lambda t: severity(t[1], metric))
+        wi, wv = max(pairs, key=lambda t: severity(t[1], metric))
         out.append(
             f"최저 worst 응답은 <b>{_esc(labels[bi])}</b> "
-            f'(<span class="dn">{_num(bv / div)} {_esc(unit)}</span>) 로 가장 양호하고, '
+            f'(<span class="dn">{_numa(bv / div)} {_esc(unit)}</span>) 로 가장 양호하고, '
             f"최악은 <b>{_esc(labels[wi])}</b> "
-            f'(<span class="up">{_num(wv / div)} {_esc(unit)}</span>) 이다.'
+            f'(<span class="up">{_numa(wv / div)} {_esc(unit)}</span>) 이다.'
         )
     elif len(pairs) == 1:
         out.append("worst 지표가 리비전 1개에만 있어 우열을 가릴 수 없다.")
@@ -854,8 +888,9 @@ def _build_s9(cmp_: dict) -> str:
     )
 
 
-#: 지표 → unit_labels 축 이름 (models.METRIC_UNIT_AXIS 와 같은 표, 렌더 전용 사본)
-_METRIC_AXIS = {"g": "acc", "s": "stress", "e": "strain", "d": "disp"}
+#: 지표 → unit_labels 축 이름. 예전에는 4종짜리 사본이라 s1/s3/e1/e3/evm 이
+#: 전부 "acc" 로 폴백돼 응력에 가속도 단위가 붙었다 — 엔진 표를 그대로 쓴다.
+_METRIC_AXIS = dict(METRIC_UNIT_AXIS)
 
 
 def _build_s10(cmp_: dict) -> str:
@@ -888,7 +923,7 @@ def _build_s10(cmp_: dict) -> str:
     ) if derived else ""
 
     def shown(v):
-        return _num(v / div, 0) if isinstance(v, (int, float)) else _EMDASH
+        return _numa(v / div) if isinstance(v, (int, float)) else _EMDASH
 
     # ---- 그룹 막대 (worst) ----
     W, H = 1240, 330
@@ -1196,10 +1231,15 @@ var PARTS = DATA.parts || [];
 var PAL = __PALETTE__;
 var BASE = Math.min(Math.max(parseInt(DATA.baseline_idx || 0, 10) || 0, 0), Math.max(NREV - 1, 0));
 var RLBL = REVS.map(function (r, i) { return (r && r.label) || ('REV' + (i + 1)); });
-var GDIV = (typeof DATA.g_divisor === 'number' && DATA.g_divisor > 0) ? DATA.g_divisor : 0;
+var METRIC = String(DATA.metric || 'g');
+var MAXIS = __METRIC_AXIS__;
+/* G 환산은 **가속도를 비교할 때만**이다. 예전에는 지표와 무관하게 나눠
+   응력 470 MPa 가 "0 G" 로 찍혔다(Δ 도 0, Δ% 만 살아남았다). */
+var GDIV = (METRIC === 'g' && typeof DATA.g_divisor === 'number' && DATA.g_divisor > 0)
+  ? DATA.g_divisor : 0;
 var UL   = DATA.unit_labels || {};
-var VUNIT = GDIV ? 'G' : (UL.acc || '');
-var RAWU  = UL.acc || '';
+var VUNIT = GDIV ? 'G' : (UL[MAXIS[METRIC] || 'acc'] || '');
+var RAWU  = UL[MAXIS[METRIC] || 'acc'] || '';
 var NS = 'http://www.w3.org/2000/svg';
 var ST = { ord: 'severity', mode: 'abs', probe: null, dmap: (BASE === 0 ? Math.min(1, NREV - 1) : 0),
            psort: 'delta', pdir: -1, mtx: (BASE === 0 ? Math.min(1, NREV - 1) : 0) };
@@ -1211,6 +1251,16 @@ function fnum(v, d) {
   if (!isN(v)) return '—';
   d = (d === undefined) ? 0 : d;
   return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+/* 값의 **크기**로 자릿수를 정한다. 0 자리 고정은 가속도(수만 G)에나 맞는 표기라
+   변형률 0.0021 이나 GPa 응력 0.09 를 전부 "0" 으로 만들었다. */
+function fauto(v) {
+  if (!isN(v)) return '—';
+  var a = Math.abs(v);
+  if (a === 0) return '0';
+  if (a >= 1000) return fnum(v, 0);
+  if (a >= 1) return fnum(v, 2);
+  return v.toPrecision(3);
 }
 function fpct(v, d) { return isN(v) ? (v >= 0 ? '+' : '') + fnum(v, d === undefined ? 1 : d) + '%' : '—'; }
 function sv(t, a) { var e = document.createElementNS(NS, t); for (var k in (a || {})) e.setAttribute(k, a[k]); return e; }
@@ -1581,7 +1631,7 @@ function mapColor(mode, c) {
 function mapValueText(mode, c) {
   if (mode === 'winner') return isN(c.winner) ? RLBL[c.winner] : '미판정';
   if (mode === 'trend') return isN(c.trend) ? fnum(c.trend, 3) : '미판정';
-  if (mode === 'spread') return isN(c.spread) ? fnum(gv(c.spread), 0) + ' ' + VUNIT : '미판정';
+  if (mode === 'spread') return isN(c.spread) ? fauto(gv(c.spread)) + ' ' + VUNIT : '미판정';
   var d = (c.delta_pct || [])[ST.dmap];
   return isN(d) ? fpct(d) : '미판정';
 }
@@ -1714,7 +1764,7 @@ function renderProbe() {
         fill: rc(r), 'fill-opacity': (p2.trust && p2.trust.ok === false) ? 0.35 : 0.9 }));
       var vt = sv('text', { x: BW - 72, y: y + 13, fill: '#c8d4ff', 'font-size': 11,
         'font-family': 'JetBrains Mono, monospace' });
-      bars.appendChild(tx(vt, fnum(gv(p2.value), 0)));
+      bars.appendChild(tx(vt, fauto(gv(p2.value))));
     } else {
       var nt2 = sv('text', { x: 138, y: y + 13, fill: '#5c6383', 'font-size': 10.5 });
       bars.appendChild(tx(nt2, '데이터 없음 —'));
@@ -1737,11 +1787,11 @@ function renderProbe() {
     var c0 = elx('td', 'tl b', RLBL[r3] + (r3 === BASE ? '  (BASE)' : ''));
     c0.style.borderLeft = '3px solid ' + rc(r3);
     tr.appendChild(c0);
-    var c1 = elx('td', 'num', isN(pr.value) ? fnum(gv(pr.value), 0) : '—');
+    var c1 = elx('td', 'num', isN(pr.value) ? fauto(gv(pr.value)) : '—');
     if (isN(pr.value)) c1.title = 'raw ' + pr.value + ' ' + RAWU;
     tr.appendChild(c1);
     var dv = (c.delta || [])[r3], dp = (c.delta_pct || [])[r3];
-    tr.appendChild(elx('td', 'num', isN(dv) ? fnum(gv(dv), 0) : '—'));
+    tr.appendChild(elx('td', 'num', isN(dv) ? fauto(gv(dv)) : '—'));
     var dc = elx('td', 'dpct ' + (isN(dp) ? (dp > 0 ? 'up' : (dp < 0 ? 'dn' : 'na')) : 'na'), isN(dp) ? fpct(dp) : '—');
     tr.appendChild(dc);
     var bc = document.createElement('td'); bc.className = 'tl';
@@ -1846,7 +1896,7 @@ function renderParts() {
     // 리비전마다 worst 셀이 다르면 취약점이 이동한 것이므로 그 자체가 신호다.
     var wc = p.worst_cell || [];
     for (var i = 0; i < NREV; i++) {
-      var td = elx('td', 'num', isN(w[i]) ? fnum(gv(w[i]), 0) : '—');
+      var td = elx('td', 'num', isN(w[i]) ? fauto(gv(w[i])) : '—');
       if (!isN(w[i])) {
         td.title = (ds[i] === 'absent') ? '이 리비전에 파트가 없습니다 (부재 ≠ 0)'
                  : (ds[i] === 'gated') ? '비교 가능한 셀이 없습니다 (전 셀 미판정)'
@@ -2130,7 +2180,8 @@ def generate_html(comparison: dict) -> str:
     )
 
     data_json = json.dumps(cmp_, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    js = _JS.replace("__PALETTE__", json.dumps(_PALETTE))
+    js = (_JS.replace("__PALETTE__", json.dumps(_PALETTE))
+             .replace("__METRIC_AXIS__", json.dumps(_METRIC_AXIS)))
     title = "리비전 연합 비교 — KOO FEDERATE"
 
     return (

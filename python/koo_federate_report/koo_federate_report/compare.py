@@ -866,6 +866,10 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
     # 리포트가 1.49e9 mm/s² 같은 못 읽는 수를 151,762 G 로 보여줄 수 있게 한다.
     _acc = (bundles[baseline_idx].unit_labels or {}).get("acc", "")
     g_divisor = 9.81 if _acc in ("m/s²", "mm/ms²") else (9810.0 if _acc == "mm/s²" else None)
+    # **가속도를 비교할 때만** G 환산이다. 예전에는 metric 과 무관하게 실려 나가
+    # 화면이 응력 470 MPa 를 470/9810 = "0 G" 로 찍었다(Δ 도 0, Δ% 만 살아남았다).
+    if metric != "g":
+        g_divisor = None
 
     return {
         "g_divisor": g_divisor,
