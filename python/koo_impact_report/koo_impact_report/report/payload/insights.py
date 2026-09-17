@@ -272,10 +272,16 @@ def _build_damage_index(report):
             mx_pg = max(pgs) if pgs else 0.0
             mx_ps = max(pss) if pss else 0.0
             mx_pe = max(pes) if pes else 0.0
-            c_pg = (mx_pg / g_max_pg) if g_max_pg > 0 else 0.0
-            c_ps = (mx_ps / g_max_ps) if g_max_ps > 0 else 0.0
-            c_pe = (mx_pe / g_max_pe) if g_max_pe > 0 else 0.0
-            di = (c_pg + c_ps + c_pe) / 3.0
+            # 잰 지표만으로 평균낸다 — 3 으로 고정해 나누면 응력·변형률을
+            # 못 잰 부품의 DI 가 최대 1/3 로 눌려 상위 목록에서 사라진다.
+            # 같은 함수의 per-pair contrib 은 이미 이 규칙(n 으로 나눔)이다.
+            _c = []
+            if pgs and g_max_pg > 0: _c.append(mx_pg / g_max_pg)
+            if pss and g_max_ps > 0: _c.append(mx_ps / g_max_ps)
+            if pes and g_max_pe > 0: _c.append(mx_pe / g_max_pe)
+            if not _c:
+                continue   # 한 지표도 못 쟀다 — DI 0.0 으로 싣지 않는다
+            di = sum(_c) / len(_c)
             # peak position: position with the highest normalized composite
             best_score = -1.0
             best_pos = None

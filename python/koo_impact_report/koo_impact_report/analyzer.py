@@ -115,21 +115,33 @@ def compute_severity_score(
     the severity column from their report rather than substitute a fake
     "0" score. ``score_scale`` is the output rescale (default 1.0 keeps the
     natural [0, 1] range; pass 10 for a 0–10 dial, 100 for percent).
+
+    미계측 항목은 분자·분모 양쪽에서 빼고 남은 가중치로 재정규화한다
+    (`report/payload/physics.py` 의 active_weight 와 같은 규칙). 한 항목도
+    못 쟀으면 ``None`` — 점수를 지어내지 않는다.
     """
     if not weights or not max_vals:
         return None
 
-    def _n(v: float | None, k: str) -> float:
+    def _n(v: float | None, k: str) -> float | None:
         # 미계측은 0 으로 정규화하지 않고 기여에서 뺀다 (점수는 잰 항목만으로).
         if v is None:
-            return 0.0
+            return None
         m = max_vals.get(k, 0.0)
-        return (v / m) if m > 0 else 0.0
+        if m <= 0:
+            return None   # 정규화 기준이 없다 — 이 항도 기여로 칠 수 없다
+        return v / m
 
-    g = _n(part_result.peak_g,      "peak_g")
-    s = _n(part_result.peak_stress, "peak_stress")
-    e = _n(part_result.peak_strain, "peak_strain")
-    score = (weights.get("g", 0) * g + weights.get("s", 0) * s + weights.get("e", 0) * e)
+    terms = {
+        "g": _n(part_result.peak_g,      "peak_g"),
+        "s": _n(part_result.peak_stress, "peak_stress"),
+        "e": _n(part_result.peak_strain, "peak_strain"),
+    }
+    active = {k: v for k, v in terms.items() if v is not None}
+    active_weight = sum(weights.get(k, 0) for k in active)
+    if not active or active_weight <= 0:
+        return None
+    score = sum(weights.get(k, 0) * v for k, v in active.items()) / active_weight
     return float(min(score_scale, max(0.0, score * score_scale)))
 
 
