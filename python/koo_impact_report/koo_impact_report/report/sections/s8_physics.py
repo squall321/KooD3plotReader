@@ -90,6 +90,17 @@ _JS_S8 = r"""function _physRenderStressWaveVelocity(data){
   cap.textContent = '거리/Δt 로 산출한 외형 wave 속도. 이론값 위면 다중 모드 동시 도착, 아래면 부품간 결합 약함.';
   body.appendChild(cap);
 
+  // r 의 정의는 화면에 있어야 한다 — XY 평면 거리라는 사실을 모르면
+  // 다른 정의로 만든 예전 보고서와 비교할 때 물리 변화로 오독한다.
+  const _rdef = (d.summary && d.summary.r_definition) || null;
+  if (_rdef) {
+    const rd = document.createElement('div');
+    rd.className = 'phys-caption';
+    rd.style.opacity = '0.75';
+    rd.textContent = _rdef;
+    body.appendChild(rd);
+  }
+
   // Summary chips
   if(d.summary && typeof d.summary === 'object'){
     const s = d.summary;

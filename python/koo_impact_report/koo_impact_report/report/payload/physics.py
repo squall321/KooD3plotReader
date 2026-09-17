@@ -70,9 +70,20 @@ def _build_stress_wave_velocity_payload(report) -> dict:
                if pm is not None):
         return NO_CENTROID
 
-    # Impact-Z reference: 임팩터 궤적의 pos_z 도 이제 변위라 t=0 이 0 이다.
-    # 중심 좌표와 같은 좌표계의 값이 아니므로 z 성분은 쓰지 않는다 — 평면
-    # 거리(XY)만으로 r 을 만든다 (z 를 0 으로 가정해 섞으면 거리가 틀린다).
+    # r 은 **XY 평면 거리** 다. 옛 주석은 "pos_z 도 변위라 t=0 이 0" 을
+    # 근거로 들었지만 그건 이 함수가 도달하는 경우에 사실이 아니다 —
+    # centroid0 은 옛 형식(절대 좌표) motion CSV 에서만 채워지고, traj.pos_z 는
+    # 같은 CSV 의 Avg_Disp_Z 라 그때는 pos_z 도 절대 좌표다.
+    #
+    # 그래도 z 를 쓰지 않는 이유는 따로 있다. 쓸 수 있는 유일한 z 기준인
+    # 임팩터 t=0 z 는 접촉면이 아니라 **구 중심** 이라 반지름+offset 만큼
+    # 위에 있다. 실측(Test_Impact_A Run_20260603_075531: 타점 (20,0),
+    # 임팩터 z0=16.95, 반지름 8, offset 0.01 → 접촉면 z≈8.94)에서 그 z 를
+    # 쓴 옛 3D 식은 근거리 part 16 의 r 을 참값보다 28% 부풀렸다. XY 식은
+    # 7% 모자란다 — 접촉면 z 를 알 수 없는 한 XY 가 덜 틀린다.
+    # 정의는 payload summary.r_definition 으로 화면에 실어 보낸다.
+    R_DEFINITION = ("r = 충격점과 파트 중심의 XY 평면 거리 (z 성분 제외 — "
+                    "접촉면 z 를 산출물에서 알 수 없다)")
 
     # Accumulate per-part samples
     # M10: Δt→0 발산 샘플 + 미접촉 런(노이즈 피크)이 mean 을 지배해
@@ -180,6 +191,7 @@ def _build_stress_wave_velocity_payload(report) -> dict:
     summary["n_dropped_v_ceiling"] = n_dropped_ceil
     summary["n_dropped_no_contact"] = n_dropped_nocontact
     summary["v_app_ceiling_m_s"] = V_APP_CEIL_M_S
+    summary["r_definition"] = R_DEFINITION
     return {
         "per_part": per_part,
         "v_theory_impactor": v_theory,
