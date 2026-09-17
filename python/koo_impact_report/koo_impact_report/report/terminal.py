@@ -20,6 +20,13 @@ SEVERITY_LABEL = {
 }
 
 
+def _fmt(v, spec: str) -> str:
+    """미계측은 '미계측' 으로 — 0 으로 찍지 않는다."""
+    if v is None:
+        return "미계측"
+    return format(float(v), spec)
+
+
 def print_report(report: ImpactReport) -> None:
     console = Console()
 
@@ -47,9 +54,14 @@ def print_report(report: ImpactReport) -> None:
     kpi.add_column("Metric", style="cyan")
     kpi.add_column("Value", justify="right")
 
-    gmax = max((r.peak_g for r in report.results), default=0.0)
-    smax = max((r.peak_stress for r in report.results), default=0.0)
-    emax = max((r.peak_strain for r in report.results), default=0.0)
+    # 미계측(None)은 빼고 최대를 구한다 — 0 으로 세지 않는다.
+    def _vals(metric):
+        return [getattr(r, metric) for r in report.results
+                if getattr(r, metric, None) is not None]
+
+    gmax = max(_vals("peak_g"), default=0.0)
+    smax = max(_vals("peak_stress"), default=0.0)
+    emax = max(_vals("peak_strain"), default=0.0)
 
     kpi.add_row("Faces",      str(len(report.faces)))
     kpi.add_row("Positions",  str(n_positions))
@@ -57,12 +69,13 @@ def print_report(report: ImpactReport) -> None:
     kpi.add_row("Pair rows",  str(len(report.results)))
     kpi.add_row("Peak |a|",   f"{gmax:.3e}")
     kpi.add_row("Peak σ",     f"{smax:.3e}")
-    kpi.add_row("Peak ε",     f"{emax:.4f}")
+    kpi.add_row("Peak ε",     f"{emax:.3g}")
     console.print(kpi)
 
     # ── Top 5 worst pairs ─────────────────────────────────────────
     if report.results:
-        worst = sorted(report.results, key=lambda r: r.peak_g, reverse=True)[:5]
+        worst = sorted((r for r in report.results if r.peak_g is not None),
+                       key=lambda r: r.peak_g, reverse=True)[:5]
         tbl = Table(title="Top 5 Worst (face × position × part) — by peak_g")
         tbl.add_column("#", style="dim")
         tbl.add_column("Face", style="cyan")
@@ -81,9 +94,10 @@ def print_report(report: ImpactReport) -> None:
                 r.face,
                 f"{r.position.pos_id} ({r.position.x:.1f},{r.position.y:.1f})",
                 pname,
-                f"{r.peak_g:.3e}",
-                f"{r.peak_stress:.3e}",
-                f"{r.peak_strain:.4f}",
+                _fmt(r.peak_g, ".3e"),
+                _fmt(r.peak_stress, ".3e"),
+                # ε 은 1e-5 규모가 흔하다 — .4f 는 전부 0.0000 이 된다.
+                _fmt(r.peak_strain, ".3g"),
             )
         console.print(tbl)
 

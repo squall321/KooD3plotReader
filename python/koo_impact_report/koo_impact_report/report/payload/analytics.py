@@ -251,7 +251,9 @@ def _build_srs_payload(report):
     if results:
         try:
             best = max(
-                (r for r in results if np.isfinite(getattr(r, "peak_g", float("nan")))),
+                (r for r in results
+                 if getattr(r, "peak_g", None) is not None
+                 and np.isfinite(getattr(r, "peak_g"))),
                 key=lambda r: getattr(r, "peak_g", 0.0),
                 default=None,
             )
@@ -918,7 +920,8 @@ def _build_per_part_drilldown(report) -> dict:
         per_part.setdefault(pid, []).append(r)
 
     # global p75 of peak_g (data-derived threshold)
-    all_g = sorted(_safe(r.peak_g) for r in results)
+    # 미계측(None)은 분위수 표본이 아니다 — 0 으로 세면 p75 가 내려간다.
+    all_g = sorted(_safe(r.peak_g) for r in results if r.peak_g is not None)
     if all_g:
         # Linear-interp p75
         idx = 0.75 * (len(all_g) - 1)
@@ -958,9 +961,12 @@ def _build_per_part_drilldown(report) -> dict:
     # ------- build the part index -------
     out_parts: list = []
     for pid, rows in per_part.items():
-        gs = [_safe(r.peak_g) for r in rows]
-        ss = [_safe(r.peak_stress) for r in rows]
-        ds = [_safe(r.peak_disp) for r in rows]
+        # 미계측은 통계에서 뺀다 (0 위장 금지). gs 와 rows 의 인덱스 정합을
+        # 유지해야 max 위치를 되짚을 수 있으므로 rows 도 같이 거른다.
+        _rows_g = [r for r in rows if r.peak_g is not None]
+        gs = [_safe(r.peak_g) for r in _rows_g]
+        ss = [_safe(r.peak_stress) for r in rows if r.peak_stress is not None]
+        ds = [_safe(r.peak_disp) for r in rows if r.peak_disp is not None]
         if not gs:
             continue
         max_g = max(gs)
@@ -970,7 +976,7 @@ def _build_per_part_drilldown(report) -> dict:
 
         # position of max peak_g
         max_idx = gs.index(max_g)
-        max_row = rows[max_idx]
+        max_row = _rows_g[max_idx]
         max_pos_id = max_row.position.pos_id
         max_x = _safe(getattr(max_row.position, "x", 0.0))
         max_y = _safe(getattr(max_row.position, "y", 0.0))

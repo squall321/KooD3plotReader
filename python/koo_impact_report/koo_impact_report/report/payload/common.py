@@ -40,6 +40,22 @@ def _safe(v: float, default: float = 0.0) -> float:
     return float(v)
 
 
+def _opt(v) -> float | None:
+    """측정값이 없으면 None 그대로 — 0 으로 위장하지 않는다.
+
+    ``_safe`` 는 결측을 0.0 으로 바꾸므로 '측정했는데 0' 과 '못 쟀다' 가
+    화면에서 구분되지 않는다. 시각화가 없음을 표시해야 하는 값에는 이쪽을 쓴다.
+    """
+    if v is None:
+        return None
+    try:
+        if math.isnan(v) or math.isinf(v):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return float(v)
+
+
 def _pct(values: list[float], q: float) -> float:
     if not values:
         return 0.0

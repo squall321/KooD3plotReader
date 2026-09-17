@@ -125,6 +125,8 @@ def _build_failure_risk_payload(report) -> dict:
                 pid = int(r.part_id)
             except (TypeError, ValueError):
                 continue
+            if getattr(r, "peak_stress", None) is None:
+                continue   # 미계측은 순위 표본이 아니다
             s = _safe(getattr(r, "peak_stress", 0.0))
             pos_id = r.position.pos_id
             prev = per_part_peak.get(pid)
@@ -195,6 +197,8 @@ def _build_failure_risk_payload(report) -> dict:
             continue
         if pid not in yield_by_pid:
             continue
+        if getattr(r, "peak_stress", None) is None:
+            continue   # 응력을 못 쟀으면 안전계수도 없다 (∞ 로 위장 금지)
         y = yield_by_pid[pid]
         s = _safe(getattr(r, "peak_stress", 0.0))
         pos_id = r.position.pos_id
@@ -315,6 +319,8 @@ def _build_corr_network_payload(report) -> dict:
         pos_id = getattr(getattr(r, "position", None), "pos_id", None)
         if pos_id is None:
             continue
+        if getattr(r, "peak_g", None) is None:
+            continue   # 미계측은 상관분석 표본이 아니다 (0 을 넣으면 가짜 상관)
         try:
             g = float(getattr(r, "peak_g", 0.0) or 0.0)
         except Exception:
@@ -684,15 +690,21 @@ def _build_idw_predictor_payload(report):
         pid = getattr(r.position, "pos_id", None)
         if pid is None or pid not in pos_xy:
             continue
-        g = _sv(getattr(r, "peak_g", 0.0))
-        s = _sv(getattr(r, "peak_stress", 0.0))
-        if g > pos_g.get(pid, 0.0):
-            pos_g[pid] = g
-        if s > pos_s.get(pid, 0.0):
-            pos_s[pid] = s
+        # 미계측은 표본이 아니다 — 0 으로 넣으면 그 위치가 '0 G 측정' 으로
+        # IDW 면에 박히고 주변까지 끌어내린다.
+        if getattr(r, "peak_g", None) is not None:
+            g = _sv(getattr(r, "peak_g", 0.0))
+            if g > pos_g.get(pid, 0.0):
+                pos_g[pid] = g
+        if getattr(r, "peak_stress", None) is not None:
+            s = _sv(getattr(r, "peak_stress", 0.0))
+            if s > pos_s.get(pid, 0.0):
+                pos_s[pid] = s
 
     measured = []
     for pid, (x, y) in pos_xy.items():
+        if pid not in pos_g and pid not in pos_s:
+            continue   # 이 위치는 한 파트도 재지 못했다 — 표본에서 제외
         measured.append({
             "pos_id": pid,
             "x": round(x, 1),
@@ -855,6 +867,8 @@ def _build_pareto_severity_payload(report) -> dict:
     # global P75 over all (pos, part) peak_g values
     all_g = []
     for r in results:
+        if getattr(r, "peak_g", None) is None:
+            continue
         v = _safe(getattr(r, "peak_g", 0.0))
         if v > 0:
             all_g.append(float(v))
@@ -878,7 +892,13 @@ def _build_pareto_severity_payload(report) -> dict:
     pos_xy: dict = {}
     for r in results:
         pid = r.position.pos_id
-        by_pos.setdefault(pid, []).append(_safe(getattr(r, "peak_g", 0.0)))
+        # 미계측은 평균·건수에서 뺀다 — 0 을 넣으면 mean_g 가 내려가
+        # 그 위치가 '안전' 쪽으로 밀린다.
+        _g = getattr(r, "peak_g", None)
+        if _g is not None:
+            by_pos.setdefault(pid, []).append(_safe(_g))
+        else:
+            by_pos.setdefault(pid, [])
         if pid not in pos_xy:
             pos_xy[pid] = (r.face, _safe(r.position.x), _safe(r.position.y))
 
@@ -1189,14 +1209,17 @@ def _build_doe_payload(report: ImpactReport) -> dict | None:
     for r in report.results:
         part_id = int(r.part_id)
         pid = r.position.pos_id
-        g = _safe(r.peak_g)
-        s = _safe(r.peak_stress)
+        # 미계측 셀은 아예 넣지 않는다 — 0 을 넣으면 히트맵이 '0 G 측정' 으로 읽힌다.
         gm = peak_g_matrix.setdefault(str(part_id), {})
-        if g > gm.get(pid, 0.0):
-            gm[pid] = _r4(g)
+        if r.peak_g is not None:
+            g = _safe(r.peak_g)
+            if g > gm.get(pid, 0.0):
+                gm[pid] = _r4(g)
         sm = peak_stress_matrix.setdefault(str(part_id), {})
-        if s > sm.get(pid, 0.0):
-            sm[pid] = _r4(s)
+        if r.peak_stress is not None:
+            s = _safe(r.peak_stress)
+            if s > sm.get(pid, 0.0):
+                sm[pid] = _r4(s)
 
     # --- trajectory summary + KE curves -----------------------------------
     traj_summary: dict[str, dict] = {}

@@ -18,6 +18,13 @@ from .models import (
 # Per-part / per-face statistics
 # ---------------------------------------------------------------------------
 
+def _fmt_opt(v: float | None, spec: str) -> str:
+    """미계측은 '미계측' 으로 — 0 으로 찍지 않는다."""
+    if v is None:
+        return "미계측"
+    return format(float(v), spec)
+
+
 def _metric_values(results: Iterable[PairResult], metric: str) -> list[float]:
     out: list[float] = []
     for r in results:
@@ -112,7 +119,10 @@ def compute_severity_score(
     if not weights or not max_vals:
         return None
 
-    def _n(v: float, k: str) -> float:
+    def _n(v: float | None, k: str) -> float:
+        # 미계측은 0 으로 정규화하지 않고 기여에서 뺀다 (점수는 잰 항목만으로).
+        if v is None:
+            return 0.0
         m = max_vals.get(k, 0.0)
         return (v / m) if m > 0 else 0.0
 
@@ -134,7 +144,10 @@ def compute_influence_area(part_id: int, results: list[PairResult],
     for r in results:
         if r.part_id != part_id:
             continue
-        if float(getattr(r, metric, 0.0)) > threshold:
+        v = getattr(r, metric, None)
+        if v is None:
+            continue
+        if float(v) > threshold:
             count += 1
     return count
 
@@ -151,7 +164,10 @@ def compute_centroid(part_id: int, results: list[PairResult],
     for r in results:
         if r.part_id != part_id:
             continue
-        w = float(getattr(r, metric, 0.0))
+        _w = getattr(r, metric, None)
+        if _w is None:
+            continue
+        w = float(_w)
         if w <= 0:
             continue
         xs.append(r.position.x)
@@ -171,10 +187,11 @@ def compute_centroid(part_id: int, results: list[PairResult],
 
 def _global_max(results: list[PairResult]) -> dict[str, float]:
     return {
-        "peak_g":      max((r.peak_g      for r in results), default=0.0),
-        "peak_stress": max((r.peak_stress for r in results), default=0.0),
-        "peak_strain": max((r.peak_strain for r in results), default=0.0),
-        "peak_disp":   max((r.peak_disp   for r in results), default=0.0),
+        # 미계측(None)은 빼고 최대를 구한다 — 0 으로 채우면 통계가 끌린다.
+        "peak_g":      max(_metric_values(results, "peak_g"),      default=0.0),
+        "peak_stress": max(_metric_values(results, "peak_stress"), default=0.0),
+        "peak_strain": max(_metric_values(results, "peak_strain"), default=0.0),
+        "peak_disp":   max(_metric_values(results, "peak_disp"),   default=0.0),
     }
 
 
@@ -226,9 +243,11 @@ def generate_findings(
 
     gmax = _global_max(report.results)
 
-    # Per-part worst pair
+    # Per-part worst pair — peak_g 를 잰 결과들 중에서만 고른다.
     by_part: dict[int, PairResult] = {}
     for r in report.results:
+        if r.peak_g is None:
+            continue
         cur = by_part.get(r.part_id)
         if cur is None or r.peak_g > cur.peak_g:
             by_part[r.part_id] = r
@@ -245,7 +264,9 @@ def generate_findings(
                 title=f"{name}: peak_g {worst.peak_g:.3e} at {worst.position.pos_id}",
                 detail=(
                     f"face={worst.face} (x,y)=({worst.position.x:.1f},{worst.position.y:.1f}) "
-                    f"σ={worst.peak_stress:.3e}, ε={worst.peak_strain:.4f}"
+                    # ε 은 1e-5 규모가 흔하다 — .4f 는 전부 0.0000 이 된다.
+                    f"σ={_fmt_opt(worst.peak_stress, '.3e')}, "
+                    f"ε={_fmt_opt(worst.peak_strain, '.3g')}"
                 ),
                 recommendation="Verify component shock tolerance; consider reinforcement.",
             ))
@@ -262,7 +283,7 @@ def generate_findings(
         # Per-part yield-stress check uses the part's OWN yield stress (from
         # *MAT_ card), not a global one. Skipped when not supplied.
         sy = float(yields.get(pid, 0.0) or 0.0)
-        if sy > 0 and worst.peak_stress > sy:
+        if sy > 0 and worst.peak_stress is not None and worst.peak_stress > sy:
             sf = sy / worst.peak_stress if worst.peak_stress > 0 else float("inf")
             findings.append(Finding(
                 severity=Severity.CRITICAL,

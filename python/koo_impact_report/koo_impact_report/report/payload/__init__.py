@@ -11,7 +11,7 @@ from ...models import (
     ImpactReport, PartInfo, Severity,
 )
 from .common import (  # noqa: F401 — re-export (분할 과도기)
-    _esc, _Encoder, _safe, _pct, _r4, _sparse_matrix, _pid_cast,
+    _esc, _Encoder, _safe, _opt, _pct, _r4, _sparse_matrix, _pid_cast,
     _downsample_indices, _argmax,
 )
 from .tiers import tier_for
@@ -121,10 +121,11 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
                 "face": r.face, "pos_id": r.position.pos_id,
                 "x": _safe(r.position.x), "y": _safe(r.position.y),
                 "part_id": int(r.part_id),
-                "g": _safe(r.peak_g),
-                "s": _safe(r.peak_stress),
-                "e": _safe(r.peak_strain),
-                "d": _safe(r.peak_disp),
+                # 미계측은 null — 0 으로 내보내면 '0 G 로 통과' 로 읽힌다.
+                "g": _opt(r.peak_g),
+                "s": _opt(r.peak_stress),
+                "e": _opt(r.peak_strain),
+                "d": _opt(r.peak_disp),
                 # 주응력/주변형률/등가변형률 — 없으면 키를 넣지 않는다(0 위장 금지).
                 **{k: v for k, v in (
                     ("s1", r.peak_principal_stress),
@@ -254,9 +255,11 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         contact_profile = {"pairs": [], "pf": [], "ti": [], "tw": []}
 
     # --- aggregates ---------------------------------------------------------
-    g_vals = [r["g"] for r in results if r["g"] > 0]
-    s_vals = [r["s"] for r in results if r["s"] > 0]
-    worst = max(results, key=lambda r: r["g"]) if results else {
+    # 미계측(null)은 통계에서 뺀다 — 0 으로 세면 평균·분위수가 끌려 내려간다.
+    g_vals = [r["g"] for r in results if r["g"] is not None and r["g"] > 0]
+    s_vals = [r["s"] for r in results if r["s"] is not None and r["s"] > 0]
+    _measured = [r for r in results if r["g"] is not None]
+    worst = max(_measured, key=lambda r: r["g"]) if _measured else {
         "face": "-", "x": 0, "y": 0, "part_name": "-", "g": 0
     }
     n_pos = len({(r["face"], r["pos_id"]) for r in results})
@@ -279,6 +282,8 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     n_crit = sum(1 for v in g_vals if v >= crit_thresh)
     pos_max: dict[tuple[str, str], float] = {}
     for r in results:
+        if r["g"] is None:
+            continue
         key = (r["face"], r["pos_id"])
         pos_max[key] = max(pos_max.get(key, 0.0), r["g"])
     median_g = statistics.median(pos_max.values()) if pos_max else 0.0

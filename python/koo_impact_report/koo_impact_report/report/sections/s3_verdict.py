@@ -42,6 +42,7 @@ _PAGE3 = """
         <div class="verdict-cell crit"><div class="vl">CRITICAL</div><div class="vn" id="vCrit">0</div><div class="vd">G &ge; P95 threshold &middot; 즉시 대응</div></div>
         <div class="verdict-cell warn"><div class="vl">WARNING</div><div class="vn" id="vWarn">0</div><div class="vd">P75 &le; G &lt; P95 &middot; 모니터링</div></div>
         <div class="verdict-cell safe"><div class="vl">PASSED</div><div class="vn" id="vSafe">0</div><div class="vd">G &lt; P75 &middot; 안전 마진</div></div>
+        <div class="verdict-cell" id="vUnmCell" style="display:none"><div class="vl">NOT MEASURED</div><div class="vn" id="vUnm">0</div><div class="vd">motion/응력 이력 부재 &middot; 판정 불가</div></div>
       </div>
       <div class="panel r" style="padding:14px">
         <div class="ph">
@@ -432,31 +433,42 @@ function renderVerdict() {
   const tbody = document.querySelector('#verdict-tbl tbody');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   const byPart = {};
+  const unmeasured = {};
   for (const r of RESULTS) {
+    // g == null 은 '재지 못함' 이다 — 0 으로 취급하면 '0 G 로 통과' 가 된다.
+    if (r.g == null) { if (!byPart[r.part_id]) unmeasured[r.part_id] = r; continue; }
     const cur = byPart[r.part_id];
     if (!cur || r.g > cur.g) byPart[r.part_id] = r;
+  }
+  for (const pid of Object.keys(unmeasured)) {
+    if (!byPart[pid]) byPart[pid] = unmeasured[pid];
   }
   // Use payload-supplied percentile thresholds (P95 = crit, P75 = warn).
   // Falls back to JS-side percentile if payload field missing.
   const k = DATA.kpi || {};
-  const g_vals = RESULTS.map(r => r.g).filter(v => v > 0);
+  const g_vals = RESULTS.map(r => r.g).filter(v => v != null && v > 0);
   const crit_t = (k.crit_threshold != null) ? k.crit_threshold : _percentile(g_vals, 0.95);
   const warn_t = (k.warn_threshold != null) ? k.warn_threshold : _percentile(g_vals, 0.75);
   const infl_t = (k.influence_threshold != null) ? k.influence_threshold : _percentile(g_vals, 0.85);
   let nC = 0, nW = 0, nS = 0;
-  const rows = Object.values(byPart).sort((a, b) => b.g - a.g);
+  const rows = Object.values(byPart).sort((a, b) => (b.g == null ? -1 : b.g) - (a.g == null ? -1 : a.g));
+  let nU = 0;
   for (const r of rows) {
     const partRows = RESULTS.filter(x => x.part_id === r.part_id);
-    const vs = partRows.map(x => x.g);
-    const mean = vs.reduce((a, b) => a + b, 0) / vs.length;
-    const variance = vs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vs.length;
+    const vs = partRows.map(x => x.g).filter(v => v != null);
+    const mean = vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : 0;
+    const variance = vs.length ? vs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vs.length : 0;
     const cov = mean > 0 ? Math.sqrt(variance) / mean : 0;
     // influence: rows in this part exceeding the P85 threshold
     const inf = vs.filter(v => v >= infl_t).length;
-    const klass = r.g >= crit_t ? 'CRITICAL' : r.g >= warn_t ? 'WARNING' : 'PASSED';
-    if (klass === 'CRITICAL') nC++; else if (klass === 'WARNING') nW++; else nS++;
-    const rowClass = klass === 'CRITICAL' ? 'r-crit' : klass === 'WARNING' ? 'r-warn' : 'r-safe';
-    const klassColor = klass === 'CRITICAL' ? 'var(--crit)' : klass === 'WARNING' ? 'var(--warn)' : 'var(--good)';
+    const klass = (r.g == null) ? 'NOT MEASURED'
+      : r.g >= crit_t ? 'CRITICAL' : r.g >= warn_t ? 'WARNING' : 'PASSED';
+    if (klass === 'CRITICAL') nC++; else if (klass === 'WARNING') nW++;
+    else if (klass === 'NOT MEASURED') nU++; else nS++;
+    const rowClass = klass === 'CRITICAL' ? 'r-crit' : klass === 'WARNING' ? 'r-warn'
+      : klass === 'NOT MEASURED' ? 'r-dim' : 'r-safe';
+    const klassColor = klass === 'CRITICAL' ? 'var(--crit)' : klass === 'WARNING' ? 'var(--warn)'
+      : klass === 'NOT MEASURED' ? 'var(--dim)' : 'var(--good)';
     // MODE: just report influence count without the 0.5-ratio "전반 약화" magic
     tbody.appendChild(el('tr', { class: rowClass }, [
       el('td', { class: 'tl b' }, r.part_name),
@@ -464,10 +476,12 @@ function renderVerdict() {
       el('td', { class: 'num' }, r.x.toFixed(1)),
       el('td', { class: 'num' }, r.y.toFixed(1)),
       el('td', { class: 'tl', style: { color: klassColor } }, klass),
-      el('td', { class: 'num b', title: 'raw ' + fmt(r.g, 0) + ' ' + (_u('acc') || '') }, fmt(toG(r.g), 0) + ' G'),
+      el('td', { class: 'num b', title: 'raw ' + fmt(r.g, 0) + ' ' + (_u('acc') || '') },
+         r.g == null ? '미계측' : fmt(toG(r.g), 0) + ' G'),
       el('td', { class: 'num' }, fmt(r.s, 1)),
-      el('td', { class: 'num' }, r.e.toFixed(4)),
-      el('td', { class: 'num' }, r.d.toFixed(3)),
+      // ε 은 1e-5 규모가 흔하다 — toFixed(4) 는 전부 0.0000 이 된다.
+      el('td', { class: 'num' }, fmt(r.e, 4)),
+      el('td', { class: 'num' }, fmt(r.d, 3)),
       el('td', { class: 'num dim' }, cov.toFixed(2)),
       el('td', { class: 'num' }, inf + '/' + partRows.length),
       el('td', { class: 'tl dim' }, String(inf))
@@ -476,12 +490,18 @@ function renderVerdict() {
   document.getElementById('vCrit').textContent = nC;
   document.getElementById('vWarn').textContent = nW;
   document.getElementById('vSafe').textContent = nS;
+  // 미계측 파트가 있을 때만 칸을 띄운다 — 0 건이면 화면을 늘리지 않는다.
+  const unmCell = document.getElementById('vUnmCell');
+  if (unmCell) {
+    document.getElementById('vUnm').textContent = nU;
+    unmCell.style.display = nU > 0 ? '' : 'none';
+  }
 }
 
 function renderTSGrid() {
   const grid = document.getElementById('ts-grid');
   while (grid.firstChild) grid.removeChild(grid.firstChild);
-  const top = RESULTS.slice().sort((a, b) => b.g - a.g).slice(0, 12);
+  const top = RESULTS.filter(r => r.g != null).sort((a, b) => b.g - a.g).slice(0, 12);
   for (let i = 0; i < top.length; i++) {
     const r = top[i];
     const div = el('div', { class: 'ts-mini' }, [

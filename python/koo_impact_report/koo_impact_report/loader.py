@@ -1851,16 +1851,25 @@ def load_single_d3plot_report(
     )
 
     results: list[PairResult] = []
+    _no_motion: list[int] = []
     for p in parts:
         pm = motions.get(p.part_id)
         ss = stress_strain.get(p.part_id, {})
-        # Prefer real element-level stress (MPa) from d3plot. Fall back to
-        # internal-energy proxy (mJ) from binout matsum when stress is absent.
-        peak_stress = float(ss.get("peak_stress", 0.0) or 0.0)
-        if peak_stress <= 0.0 and matsum and p.part_id in matsum.part_ids:
-            idx = matsum.part_ids.index(p.part_id)
-            ies = [row[idx] for row in matsum.internal_energy]
-            peak_stress = max(ies) if ies else 0.0
+        if pm is None:
+            _no_motion.append(p.part_id)
+        # 응력 이력이 없으면 None — 0 도, matsum 내부에너지(mJ)도 아니다.
+        # 옛 코드는 IE 를 peak_stress 자리에 넣어 MPa 라벨 아래 전시했다
+        # (실측 part 1 = 20.96 mJ 가 '20.96 MPa' 로 읽혔다). IE 는 단위가
+        # 다르므로 peak_internal_energy 로 따로 싣는다.
+        peak_stress = ss.get("peak_stress")
+        peak_stress = float(peak_stress) if peak_stress is not None else None
+        peak_strain = ss.get("peak_strain")
+        peak_strain = float(peak_strain) if peak_strain is not None else None
+        peak_ie = None
+        if matsum and p.part_id in matsum.part_ids:
+            _idx = matsum.part_ids.index(p.part_id)
+            _ies = [row[_idx] for row in matsum.internal_energy]
+            peak_ie = float(max(_ies)) if _ies else None
 
         # Stress time series: real (times + max-per-step), else empty
         stress_ts = TimeSeriesData(
@@ -1872,20 +1881,35 @@ def load_single_d3plot_report(
             face=face_code,
             position=pos,
             part_id=p.part_id,
-            peak_g=float(pm.peak_g) if pm else 0.0,
+            peak_g=float(pm.peak_g) if pm else None,
             peak_stress=peak_stress,
-            peak_strain=float(ss.get("peak_strain", 0.0) or 0.0),
+            peak_strain=peak_strain,
+            peak_internal_energy=peak_ie,
             peak_principal_stress=ss.get("peak_principal_stress"),
             min_principal_stress=ss.get("min_principal_stress"),
             peak_principal_strain=ss.get("peak_principal_strain"),
             min_principal_strain=ss.get("min_principal_strain"),
             peak_vm_strain=ss.get("peak_vm_strain"),
-            peak_disp=float(pm.peak_disp) if pm else 0.0,
-            peak_vel=float(pm.peak_vel) if pm else 0.0,
+            peak_disp=float(pm.peak_disp) if pm else None,
+            peak_vel=float(pm.peak_vel) if pm else None,
             stress_ts=stress_ts,
             impactor_trajectory=traj,
             part_motion=pm,
         ))
+
+    # 측정 결측을 구조화 기록 — 화면에서 '0 G 로 통과' 로 읽히지 않게.
+    if not motions:
+        load_issues.append({
+            "kind": "motion-extraction-failed", "pos_name": None,
+            "exc_class": None,
+            "msg": f"unified_analyzer 가 motion CSV 를 하나도 내놓지 못했다 "
+                   f"({d3plot_path}) — 이 런의 peak_g/peak_disp/peak_vel 은 전부 미계측"})
+    elif _no_motion:
+        load_issues.append({
+            "kind": "motion-missing", "pos_name": None, "exc_class": None,
+            "msg": "motion CSV 없는 파트 "
+                   + ", ".join(str(p) for p in _no_motion)
+                   + " — peak_g/peak_disp/peak_vel 미계측(0 아님)"})
 
     # 7) Fallback ImpactorSpec when keyword parsing failed: leave geometry
     # type empty rather than assuming "Sphere"; all numeric fields stay 0.0.
@@ -1932,7 +1956,7 @@ def load_single_d3plot_report(
     print(f"[loader] single d3plot: {len(parts)} part(s), "
           f"traj n_states={len(traj.times)}, "
           f"behavior={traj.behavior_class}, KE retention={traj.ke_retention:.3f}, "
-          f"peak_g={'/'.join(f'{p.part_id}:{(motions[p.part_id].peak_g if p.part_id in motions else 0.0):.1e}' for p in parts)}")
+          f"peak_g={'/'.join(f'{p.part_id}:' + (f'{motions[p.part_id].peak_g:.1e}' if p.part_id in motions else '미계측') for p in parts)}")
 
     return ImpactReport(
         project_name=project_name,
@@ -2408,6 +2432,12 @@ def _load_one_run_subreport(args: tuple) -> ImpactReport | None:
     return sub
 
 
+def _motion_extraction_failed(sub) -> bool:
+    """이 sub-report 의 motion 추출이 통째로 실패했는가 (load_issues 로 판정)."""
+    return any((i or {}).get("kind") == "motion-extraction-failed"
+               for i in (getattr(sub, "load_issues", None) or []))
+
+
 def load_partial_impact_doe_report(
     test_dir: Path,
     impactor_part_name: str | None = None,
@@ -2513,7 +2543,10 @@ def load_partial_impact_doe_report(
 
     def _on_done(i: int, sub: "ImpactReport | None") -> None:
         sub_reports[i] = sub
-        if use_cache and sub is not None and fingerprints[i]:
+        # 측정이 통째로 빠진 런을 캐시에 넣으면 다음 실행에서도 '적중' 으로
+        # 조용히 재사용된다 — 실패는 캐시하지 않는다.
+        if (use_cache and sub is not None and fingerprints[i]
+                and not _motion_extraction_failed(sub)):
             _cache_save(test_dir, runs[i]["pos_name"], fingerprints[i], sub)
         print(f"[doe]   {runs[i]['pos_name']:>9s}  ({runs[i]['location_x']:+.1f}, {runs[i]['location_y']:+.1f}) ✓")
 
@@ -2657,12 +2690,17 @@ def load_partial_impact_doe_report(
                 peak_vm_strain=r.peak_vm_strain,
                 peak_disp=r.peak_disp,
                 peak_vel=r.peak_vel,
+                peak_internal_energy=r.peak_internal_energy,
                 stress_ts=r.stress_ts,
                 impactor_trajectory=traj,
                 part_motion=pm,
             ))
 
-    n_failed = len(runs) - sum(1 for s in sub_reports if s is not None and s.results)
+    # motion 추출이 통째로 실패한 런은 결과 행만 있고 측정값이 없다 —
+    # '성공' 으로 세면 n_failed 가 0 이 되어 실패가 화면에서 사라진다.
+    n_failed = len(runs) - sum(
+        1 for s in sub_reports
+        if s is not None and s.results and not _motion_extraction_failed(s))
     if impactor_spec is None:
         raise RuntimeError("All runs failed to load — no usable sub-reports.")
     if n_failed > 0:

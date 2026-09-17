@@ -69,6 +69,7 @@ table.dt tr:hover td { background: rgba(255,255,255,0.02); }
 table.dt tr.r-crit td:first-child::before { content: '\25A0 '; color: var(--crit); }
 table.dt tr.r-warn td:first-child::before { content: '\25A0 '; color: var(--warn); }
 table.dt tr.r-safe td:first-child::before { content: '\25A0 '; color: var(--good); }
+table.dt tr.r-dim td:first-child::before { content: '\25A0 '; color: var(--dim); }
 table.dt td.num { color: var(--num); font-family: 'JetBrains Mono', monospace; }
 table.dt td.dim { color: var(--dim); }
 table.dt td.b { color: var(--fg); font-weight: 600; }

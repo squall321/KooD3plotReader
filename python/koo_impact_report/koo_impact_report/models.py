@@ -294,11 +294,16 @@ class PairResult:
     face: str
     position: ImpactPosition
     part_id: int
-    peak_g: float = 0.0          # mm/s² — max |a| from PartMotion
-    peak_stress: float = 0.0     # MPa (or IE proxy when stress not available)
-    peak_strain: float = 0.0
-    peak_disp: float = 0.0       # mm
-    peak_vel: float = 0.0        # mm/s
+    #: 측정값이 없으면 None — 0 이 아니다. motion CSV 가 없는 파트(빔 댐퍼 등)나
+    #: unified_analyzer 가 실패한 런이 '0 G 로 통과' 로 읽히던 것을 막는다.
+    peak_g: float | None = None          # mm/s² — max |a| from PartMotion
+    peak_stress: float | None = None     # MPa — 응력 이력이 없으면 None
+    peak_strain: float | None = None
+    peak_disp: float | None = None       # mm
+    peak_vel: float | None = None        # mm/s
+    #: matsum 내부에너지 피크 (mJ). 응력이 아니므로 peak_stress 를 대신하지
+    #: 않는다 — 단위가 달라 MPa 라벨 아래 놓이면 거짓이 된다.
+    peak_internal_energy: float | None = None
     #: 주응력·주변형률·등가변형률. 산출물에 없으면 None — 0 이 아니다.
     #: σ3/ε3 는 압축측이라 음수이며 부호를 유지한다.
     peak_principal_stress: float | None = None
