@@ -84,6 +84,37 @@ def test_undetected_unit_writes_no_labels():
     assert d["unit_system"]["note"]
 
 
+def test_old_sidecar_without_unit_system_is_not_claimed_detected():
+    """옛 사이드카에는 unit_system 키가 없다 — 판정한 적 없음을 그대로 적는다.
+
+    --from-json 은 analyze() 를 타지 않으므로 검출기가 한 번도 돌지 않는다.
+    그때 클래스 기본값('ton-mm-s')이 남아 있으면 재생성 산출물이
+    detected=true / note='' 로 나가 '판정했다' 고 거짓말하고, 그 상태가
+    새 사이드카에 그대로 굳는다.
+    """
+    from koo_sphere_report.from_json import load_report_from_json
+    MotionData.set_unit_system("ton-mm-s", 9806.65,
+                               labels={"acc": "G", "stress": "MPa", "disp": "mm"})
+    old = {
+        "results_summary": [{
+            "run_folder": "R", "num_states": 2,
+            "angle": {"name": "P1", "roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+            "parts": {"1": {"peak_stress": 300.0}},
+        }],
+        "parts": {"1": {"part_name": "PKG\\A", "group": "PKG"}},
+    }
+    out = Path(tempfile.mkdtemp()) / "old_report.json"
+    out.write_text(json.dumps(old), encoding="utf-8")
+    load_report_from_json(out)
+
+    assert MotionData.UNIT_SYSTEM == "", (
+        f"'{MotionData.UNIT_SYSTEM}' 로 남았다 — 판정한 적이 없는데 검출됐다고 말한다")
+    assert MotionData.UNIT_NOTE, "왜 모르는지가 비어 있다"
+    d = _saved()
+    assert d["unit_system"]["detected"] is False
+    assert "unit_labels" not in d, "모르는 단위의 라벨을 지어냈다"
+
+
 def test_all():
     """pytest 진입점."""
     saved = (MotionData.UNIT_SYSTEM, MotionData.G_FACTOR,
@@ -92,6 +123,7 @@ def test_all():
         test_sidecar_carries_detected_unit_labels()
         test_si_deck_labels_are_pa_and_m()
         test_undetected_unit_writes_no_labels()
+        test_old_sidecar_without_unit_system_is_not_claimed_detected()
     finally:
         (MotionData.UNIT_SYSTEM, MotionData.G_FACTOR,
          MotionData.UNIT_NOTE, MotionData.UNIT_LABELS) = saved

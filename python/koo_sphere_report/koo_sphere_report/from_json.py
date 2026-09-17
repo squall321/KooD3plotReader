@@ -132,8 +132,10 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
         raise ValueError(
             "각도 결과가 하나도 없습니다 — 빈 리포트를 성공으로 위장하지 않습니다.")
 
-    # 사이드카에 단위계가 적혀 있으면 되살린다. 없으면 건드리지 않는다 —
-    # 옛 산출물에는 이 키가 없고, 그때는 기본 환산이 그대로 쓰인다.
+    # 사이드카에 단위계가 적혀 있으면 되살린다. 없으면 **미검출로 명시**한다 —
+    # 옛 산출물에는 이 키가 없고, --from-json 은 검출기를 한 번도 돌리지 않는다.
+    # 클래스 기본값('ton-mm-s')을 그대로 두면 재생성 산출물이 detected=true 로
+    # 나가 판정한 적 없는 것을 판정했다고 말하고, 그 상태가 새 사이드카에 굳는다.
     us = d.get("unit_system")
     if isinstance(us, dict):
         MotionData.set_unit_system(
@@ -141,6 +143,11 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
             note=str(us.get("note") or ""),
             labels=d.get("unit_labels") or {},
         )
+    else:
+        MotionData.set_unit_system(
+            "", note=("이 사이드카에는 단위계 기록이 없어 판정 상태를 알 수 "
+                      f"없습니다 — peak-G 는 환산 {MotionData.G_FACTOR:g} 로 "
+                      f"계산한 값입니다."))
 
     sp_raw = d.get("simulation_params", {})
     sim_params = SimulationParams(
