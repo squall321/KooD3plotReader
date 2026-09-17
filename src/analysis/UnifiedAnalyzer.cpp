@@ -1696,19 +1696,13 @@ void UnifiedAnalyzer::processElementQualityJobs(
         }
     }
 
-    // Sample states (not all — use ~10 evenly spaced states for performance)
-    std::vector<size_t> sample_indices;
-    size_t n_states = all_states.size();
-    size_t n_samples = std::min(n_states, size_t(10));
-    if (n_samples <= 1) {
-        sample_indices.push_back(0);
-        if (n_states > 1) sample_indices.push_back(n_states - 1);
-    } else {
-        for (size_t i = 0; i < n_samples; ++i) {
-            size_t idx = i * (n_states - 1) / (n_samples - 1);
-            sample_indices.push_back(idx);
-        }
-    }
+    // 🔴 전 상태를 본다. 예전에는 등간격 10개만 표본으로 봤는데, 그 결과가
+    //    "전 시간 피크"(min_jacobian / max_negative_jacobian_count /
+    //    peak_aspect_ratio / min·max_volume_change) 라는 이름으로 나갔다.
+    //    992상태 덱이면 표본 간격이 111상태라, 충격 순간에만 뒤집혔다가 회복하는
+    //    요소는 통째로 빠지고 보고서에는 '음수Jac=0개' 가 찍혔다.
+    const size_t n_states = all_states.size();
+    const size_t report_every = std::max<size_t>(1, n_states / 10);
 
     // Initialize result stats
     std::map<int32_t, ElementQualityStats> stats_map;
@@ -1720,14 +1714,14 @@ void UnifiedAnalyzer::processElementQualityJobs(
         qs.num_elements = elems.size();
     }
 
-    // Process sampled states
-    for (size_t si = 0; si < sample_indices.size(); ++si) {
-        size_t state_idx = sample_indices[si];
+    // Process every state
+    for (size_t state_idx = 0; state_idx < n_states; ++state_idx) {
         const auto& state = all_states[state_idx];
 
-        if (callback) {
-            callback("    Quality: sample " + std::to_string(si + 1) + "/" + std::to_string(sample_indices.size()) +
-                     " (state " + std::to_string(state_idx + 1) + "/" + std::to_string(n_states) + ")");
+        if (callback && (state_idx == 0 || state_idx + 1 == n_states ||
+                         (state_idx + 1) % report_every == 0)) {
+            callback("    Quality: state " + std::to_string(state_idx + 1) +
+                     "/" + std::to_string(n_states));
         }
 
         // 침식(삭제)된 요소는 이미 죽은 요소다 — 절점이 계속 움직여 음수 Jacobian·
