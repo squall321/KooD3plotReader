@@ -34,6 +34,7 @@
 #include "kood3plot/analysis/MotionAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceStrainAnalyzer.hpp"
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -91,6 +92,24 @@ public:
 
     /** @brief True if section views were already processed inside analyze() */
     bool sectionViewsDone() const { return section_views_done_; }
+
+    /// *SET_SEGMENT 의 세그먼트들이 붙어 있는 부모 solid 요소를 찾는다.
+    ///
+    /// 🔴 두 절점 규약이 만나는 자리다. 요소 연결성 값은 **LS-DYNA 내부 1-based
+    ///    인덱스**라 mesh.nodes[nid-1] 로만 풀 수 있고, 세그먼트의 절점 번호는
+    ///    키워드 파일에서 온 **사용자 ID** 라 real_node_ids 역맵으로 풀어야 한다.
+    ///    예전에는 연결성까지 사용자 ID 역맵에 넣어, real_node_ids 가 비항등인
+    ///    덱에서 부모를 엉뚱한 요소로 잡거나 아예 못 찾고 "셸 면이거나 절점 미존재"
+    ///    로 버렸다.
+    ///
+    /// @param mesh        메시
+    /// @param segments    세그먼트 4절점 (사용자 ID). n[3]==n[2] 면 삼각형
+    /// @param unresolved  [출력] 부모를 못 찾은 세그먼트 수
+    /// @return 부모 요소 인덱스(오름차순·중복 제거)
+    static std::vector<int32_t> resolveSegmentParentElements(
+        const data::Mesh& mesh,
+        const std::vector<std::array<int32_t, 4>>& segments,
+        size_t& unresolved);
 
 private:
     std::string last_error_;

@@ -956,6 +956,63 @@ struct NodeIndexResolver {
 };
 } // namespace
 
+std::vector<int32_t> UnifiedAnalyzer::resolveSegmentParentElements(
+    const data::Mesh& mesh,
+    const std::vector<std::array<int32_t, 4>>& segments,
+    size_t& unresolved
+) {
+    unresolved = 0;
+
+    // 연결성 → 내부 인덱스. 규약이 하나뿐이다 (NodeIndexResolver 주석 참고).
+    const NodeIndexResolver node_index(mesh);
+
+    // 세그먼트 절점(사용자 ID) → 내부 인덱스. real_node_ids 가 없으면 항등으로 본다.
+    std::map<int32_t, int32_t> user2idx;
+    for (size_t ni = 0; ni < mesh.real_node_ids.size(); ++ni) {
+        user2idx[mesh.real_node_ids[ni]] = static_cast<int32_t>(ni);
+    }
+    auto seg_index = [&](int32_t user_id) -> int32_t {
+        if (!user2idx.empty()) {
+            auto it = user2idx.find(user_id);
+            return it != user2idx.end() ? it->second : -1;
+        }
+        return node_index(user_id);
+    };
+
+    // 절점 → solid 요소 역인덱스 (연결성은 내부 인덱스)
+    std::map<int32_t, std::vector<int32_t>> node2elem;
+    for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
+        for (int32_t node_ref : mesh.solids[ei].node_ids) {
+            const int32_t ni = node_index(node_ref);
+            if (ni >= 0) node2elem[ni].push_back(static_cast<int32_t>(ei));
+        }
+    }
+
+    std::set<int32_t> parents;
+    for (const auto& seg : segments) {
+        // 세그먼트 절점 3개 이상을 담은 요소 = 부모
+        std::map<int32_t, int> hit;
+        const bool tria = (seg[3] == seg[2]);
+        const int nn = tria ? 3 : 4;
+        for (int k = 0; k < nn; ++k) {
+            const int32_t ni = seg_index(seg[k]);
+            if (ni < 0) continue;
+            auto itv = node2elem.find(ni);
+            if (itv == node2elem.end()) continue;
+            for (int32_t ei : itv->second) hit[ei]++;
+        }
+        int32_t best = -1;
+        int best_n = 0;
+        for (const auto& kv : hit) {
+            if (kv.second > best_n) { best_n = kv.second; best = kv.first; }
+        }
+        if (best >= 0 && best_n >= 3) parents.insert(best);
+        else ++unresolved;
+    }
+
+    return std::vector<int32_t>(parents.begin(), parents.end());
+}
+
 namespace {
 
 /// 세트 필드명 → (이력 컨테이너 선택자, 압축측 여부)
@@ -1108,50 +1165,14 @@ std::vector<int32_t> UnifiedAnalyzer::prepareSetReports(
                         sr.metric_source = "segments";
                         node_or_segment_ref = true;
 
-                        std::map<int32_t, int32_t> nid2idx;
-                        for (size_t ni = 0; ni < mesh.real_node_ids.size(); ++ni) {
-                            nid2idx[mesh.real_node_ids[ni]] = (int32_t)ni;
-                        }
-                        auto ridx = [&](int32_t nid) -> int32_t {
-                            if (!nid2idx.empty()) {
-                                auto itn = nid2idx.find(nid);
-                                return itn != nid2idx.end() ? itn->second : -1;
-                            }
-                            return (nid >= 1 && (size_t)nid <= mesh.nodes.size()) ? nid - 1 : -1;
-                        };
-
-                        // 절점 → solid 요소 역인덱스
-                        std::map<int32_t, std::vector<int32_t>> node2elem;
-                        for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
-                            for (int32_t nid : mesh.solids[ei].node_ids) {
-                                const int32_t ni = ridx(nid);
-                                if (ni >= 0) node2elem[ni].push_back((int32_t)ei);
-                            }
-                        }
-
-                        std::set<int32_t> parents;
-                        size_t unresolved = 0;
+                        std::vector<std::array<int32_t, 4>> segs;
+                        segs.reserve(set->segments.size());
                         for (const auto& seg : set->segments) {
-                            // 세그먼트 절점 3개 이상을 담은 요소 = 부모
-                            std::map<int32_t, int> hit;
-                            const bool tria = (seg.n[3] == seg.n[2]);
-                            const int nn = tria ? 3 : 4;
-                            for (int k = 0; k < nn; ++k) {
-                                const int32_t ni = ridx(seg.n[k]);
-                                if (ni < 0) continue;
-                                auto itv = node2elem.find(ni);
-                                if (itv == node2elem.end()) continue;
-                                for (int32_t ei : itv->second) hit[ei]++;
-                            }
-                            int32_t best = -1;
-                            int best_n = 0;
-                            for (const auto& kv2 : hit) {
-                                if (kv2.second > best_n) { best_n = kv2.second; best = kv2.first; }
-                            }
-                            if (best >= 0 && best_n >= 3) parents.insert(best);
-                            else ++unresolved;
+                            segs.push_back({seg.n[0], seg.n[1], seg.n[2], seg.n[3]});
                         }
-                        sr.parent_elem_idx.assign(parents.begin(), parents.end());
+                        size_t unresolved = 0;
+                        sr.parent_elem_idx =
+                            resolveSegmentParentElements(mesh, segs, unresolved);
                         if (unresolved) {
                             sr.notes.push_back("부모 solid 요소를 못 찾은 세그먼트 " +
                                                std::to_string(unresolved) +
