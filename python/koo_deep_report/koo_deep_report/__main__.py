@@ -1029,11 +1029,16 @@ def run_single(args: argparse.Namespace) -> None:
         pass
 
 
-#: unified_analyzer 산출물 스키마. **분석기가 새로 내보내는 산출물이 생기면 올린다.**
+#: unified_analyzer 산출물 스키마. **산출물이 늘거나 값이 달라지면 올린다.**
 #: 예전에는 result.json 존재만 보고 스킵해서, 분석기가 산출물을 늘려도
 #: (σ1 주응력 CSV 등) 기존 case 가 영원히 옛 산출물로 남았다.
+#: 이 값은 scripts/post_analyze.sh 의 UA_OUTPUT_SCHEMA 와 같아야 한다 —
+#: 한쪽만 올리면 다른 쪽이 수정 전 산출물을 계속 '최신' 으로 본다
+#: (tests/test_ua_schema_marker.py 가 두 사본을 묶어 감시한다).
 #:   v2: max/min principal stress CSV (von Mises 와 항상 동반 생성)
-UA_OUTPUT_SCHEMA = 2
+#:   v3: 시계열 20점 잘림 제거 + 수치 표기 교정(유효숫자 10, 비유한값 null),
+#:       표면 응력·요소 면 위상 수정 — 산출물 목록이 아니라 **값**이 달라졌다.
+UA_OUTPUT_SCHEMA = 3
 UA_SCHEMA_MARKER = ".ua_schema"
 
 
@@ -1163,9 +1168,9 @@ def run_batch(args: argparse.Namespace) -> None:
 
     # failed_cases.txt
     if stale_existing:
-        print(f"\n[batch] ※ {len(stale_existing)}개는 산출물이 낡아(스키마 < {UA_OUTPUT_SCHEMA}) "
+        print(f"\n[batch] ※ {len(stale_existing)}개는 산출물이 낡아(스키마 ≠ {UA_OUTPUT_SCHEMA}) "
               f"--skip-existing 에도 불구하고 다시 분석했습니다.")
-        print("        분석기가 새 산출물(주응력 CSV 등)을 내게 되어 기존 결과에는 없던 것입니다.")
+        print("        분석기의 산출물이 늘었거나 같은 항목의 값이 달라졌습니다.")
 
     all_skipped = skipped_existing + skipped_t0
     if failed:
