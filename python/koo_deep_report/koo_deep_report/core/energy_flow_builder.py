@@ -34,15 +34,19 @@ _ENGAGE_FORCE_REL = 0.01
 # 수치 유틸
 # ---------------------------------------------------------------------------
 
-def _r4(x: float) -> float:
-    """4자리 반올림. NaN/inf 는 0 으로."""
+def _num(x: float) -> float:
+    """유효숫자 6자리로 정규화. NaN/inf 는 0 으로.
+
+    소수 4자리로 자르면 작은 물리량이 통째로 사라진다 — 0.9 N 접촉의
+    충격량 3.15e-5 N·s 가 0.0 이 되어 'engaged 인데 충격량 0' 이 된다.
+    """
     try:
         xf = float(x)
     except (TypeError, ValueError):
         return 0.0
     if not math.isfinite(xf):
         return 0.0
-    return round(xf, 4)
+    return float(f"{xf:.6g}")
 
 
 def _rt(t: float) -> float:
@@ -71,7 +75,7 @@ def _peak_at(series, t_full) -> tuple[float | None, float | None]:
         if series[a] > mx:
             mx, mi = series[a], a
     tt = t_full[mi] if mi < len(t_full) else None
-    return _r4(mx), (_rt(tt) if tt is not None else None)
+    return _num(mx), (_rt(tt) if tt is not None else None)
 
 
 def _downsample_indices(n: int, max_pts: int, peak_idx: int | None = None) -> list[int]:
@@ -127,10 +131,37 @@ def _interp(xs: list[float], ys: list[float], x: float) -> float:
 
 
 def _resample(src_t: list[float], src_y: list[float], ref_t: list[float]) -> list[float]:
-    """(src_t,src_y) 를 ref_t 축으로 선형 리샘플 후 4dp 반올림."""
+    """(src_t,src_y) 를 ref_t 축으로 선형 리샘플. 누적량(단조)에 쓴다."""
     if not src_t or not src_y:
         return [0.0 for _ in ref_t]
-    return [_r4(_interp(src_t, src_y, tt)) for tt in ref_t]
+    return [_num(_interp(src_t, src_y, tt)) for tt in ref_t]
+
+
+def _resample_max(src_t: list[float], src_y: list[float],
+                  ref_t: list[float]) -> list[float]:
+    """ref_t 축으로 리샘플하되 구간 최대를 남긴다 (비누적 크기 신호용).
+
+    점 샘플링은 샘플 사이에만 있는 짧은 펄스를 통째로 버린다 — 5 us 간격
+    2000 샘플을 200 점으로 솎으면 15 us 짜리 50 N 펄스가 force_mag_ts 에서
+    0 으로 사라진다. 구간 최대를 쓰면 펄스가 남는다.
+    """
+    if not src_t or not src_y or not ref_t:
+        return [0.0 for _ in ref_t]
+    n = min(len(src_t), len(src_y))
+    out: list[float] = []
+    j = 0
+    for k, tt in enumerate(ref_t):
+        lo = ref_t[k - 1] if k > 0 else tt
+        v = _interp(src_t, src_y, tt)
+        while j < n and src_t[j] < lo:
+            j += 1
+        jj = j
+        while jj < n and src_t[jj] <= tt:
+            if src_y[jj] > v:
+                v = src_y[jj]
+            jj += 1
+        out.append(_num(v))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +307,8 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
             "name": name,
             "is_impactor": is_imp,
             "times": list(ref_t),
-            "kinetic_ts": [_r4(ke_s[i]) for i in idx],
-            "internal_ts": ([_r4(ie_s[i]) for i in idx] if ie_s else []),
+            "kinetic_ts": [_num(ke_s[i]) for i in idx],
+            "internal_ts": ([_num(ie_s[i]) for i in idx] if ie_s else []),
             # 파트별 에너지 요약 (원해상도). 값이 없으면 0 으로 채우지 않고 None.
             "peak_ke": ke_pk,
             "peak_ke_time": ke_pt,
@@ -285,8 +316,8 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
             "peak_ie_time": ie_pt,
             # 최종 내부에너지 = 그 파트가 끝까지 흡수하고 남은 양 (탄성 복원분 제외).
             # 피크와 다르므로 둘 다 싣는다 — 피크만 보면 되튐을 흡수로 오독한다.
-            "final_ie": (_r4(ie_s[-1]) if ie_s else None),
-            "final_ke": (_r4(ke_s[-1]) if ke_s else None),
+            "final_ie": (_num(ie_s[-1]) if ie_s else None),
+            "final_ke": (_num(ke_s[-1]) if ke_s else None),
         })
         node_ke0[nid] = float(ke_s[0]) if ke_s else 0.0
         node_ids_real.add(nid)
@@ -400,16 +431,25 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
             src_real, src_idx, dst_real, dst_idx = e["b_real"], e["b_idx"], e["a_real"], e["a_idx"]
 
         rt, fm = e["rt"], e["fm"]
-        force_mag_ts = _resample(rt, fm, ref_t)
+        # |F| 는 누적량이 아니다 — 점 샘플링하면 짧은 펄스가 사라진다.
+        force_mag_ts = _resample_max(rt, fm, ref_t)
         impulse_cum_ts = _resample(rt, e["cimp_full"], ref_t)
 
-        # first_engage_idx: ref 축에서 |F| 가 peak 의 1% 를 처음 넘는 인덱스
+        # first_engage: |F| 가 peak 의 1% 를 처음 넘는 **원해상도** 시각.
+        # 솎은 force_mag_ts 위에서 찾으면 아무 샘플도 임계를 못 넘는 경우
+        # 인덱스가 0 으로 남아 't0 부터 접촉' 이라고 보고하게 된다.
         thr = _ENGAGE_FORCE_REL * e["peak_force"]
-        first_engage_idx = 0
-        for k, f in enumerate(force_mag_ts):
+        first_engage_t = None
+        for tt, f in zip(rt, fm):
             if f > thr:
-                first_engage_idx = k
+                first_engage_t = _rt(tt)
                 break
+        # ref 축 인덱스는 그 시각에 가장 가까운 점 (그래프 표시용).
+        if first_engage_t is None or not ref_t:
+            first_engage_idx = 0
+        else:
+            first_engage_idx = min(range(len(ref_t)),
+                                   key=lambda k: abs(ref_t[k] - first_engage_t))
 
         # work: 양끝이 실파트 + rbvelocity 존재일 때만
         work_cum_ts: list[float] = []
@@ -427,7 +467,7 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
                 power.append(fx_f[a] * dvx + fy_f[a] * dvy + fz_f[a] * dvz)
             work_full = _cumtrapz(power, t_full)
             total_work = work_full[-1] if work_full else 0.0
-            work_cum_ts = [_r4(work_full[i]) for i in idx]
+            work_cum_ts = [_num(work_full[i]) for i in idx]
 
         edges.append({
             "src": src_id, "dst": dst_id, "contact_id": e["iid"], "name": e["name"],
@@ -435,10 +475,13 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
             "force_mag_ts": force_mag_ts,
             "impulse_cum_ts": impulse_cum_ts,
             "work_cum_ts": work_cum_ts,
-            "peak_force": _r4(e["peak_force"]),
-            "total_impulse": _r4(e["total_impulse"]),
-            "total_work": _r4(total_work),
-            "confidence": _r4(e["confidence"]),
+            "peak_force": _num(e["peak_force"]),
+            "total_impulse": _num(e["total_impulse"]),
+            "total_work": _num(total_work),
+            "confidence": _num(e["confidence"]),
+            # first_engage_t 가 기준값이다. first_engage_idx 는 그 시각에
+            # 가장 가까운 ref 축 인덱스로, 솎은 격자에 스냅된 근사다.
+            "first_engage_t": first_engage_t,
             "first_engage_idx": first_engage_idx,
         })
 
@@ -486,9 +529,9 @@ def build_flow_graph(binout, contact_map, part_names: dict[int, str],
     return {
         "nodes": nodes,
         "edges": edges,
-        "impactor_ke_initial": _r4(impactor_ke_initial),
-        "impactor_ke_final": _r4(impactor_ke_final),
-        "energy_dissipated": _r4(energy_dissipated),
+        "impactor_ke_initial": _num(impactor_ke_initial),
+        "impactor_ke_final": _num(impactor_ke_final),
+        "energy_dissipated": _num(energy_dissipated),
         "depth_map": depth_map,
         "propagation_order": prop_order,
     }

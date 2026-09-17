@@ -67,11 +67,12 @@ def write_energy_flow_csv(output_dir: Path, binout_data, keyword_path: Path | No
                         "name", "peak_force", "t_engage", "total_impulse",
                         "total_work", "confidence"])
             for e in g["edges"]:
-                times = e.get("times") or []
-                fe_idx = e.get("first_engage_idx")
-                t_engage = ""
-                if isinstance(fe_idx, int) and 0 <= fe_idx < len(times):
-                    t_engage = times[fe_idx]
+                # 엣지의 engage 시각은 원해상도에서 잰 first_engage_t 다.
+                # 솎은 times[first_engage_idx] 를 쓰면 격자에 스냅되고,
+                # 임계를 못 넘은 엣지는 times[0]=0.0 즉 '해석 시작부터 접촉'
+                # 이라고 적히게 된다. 못 쟀으면 빈 칸으로 둔다.
+                fe_t = e.get("first_engage_t")
+                t_engage = "" if fe_t is None else fe_t
                 w.writerow([
                     e.get("contact_id", -1),
                     e.get("src", ""), node_name.get(e.get("src", ""), e.get("src", "")),
