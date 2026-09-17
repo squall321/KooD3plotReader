@@ -60,6 +60,18 @@ StressTensor SurfaceStressAnalyzer::extractStressTensor(
     return StressTensor(sxx, syy, szz, sxy, syz, szx);
 }
 
+std::vector<bool> SurfaceStressAnalyzer::deletedSolidMask(const data::StateData& state, size_t num_solids) {
+    std::vector<bool> mask;
+    if (state.deleted_solids.empty() || num_solids == 0) return mask;
+    mask.assign(num_solids, false);
+    for (int32_t ord : state.deleted_solids) {
+        if (ord < 1) continue;
+        const size_t idx = static_cast<size_t>(ord) - 1;
+        if (idx < num_solids) mask[idx] = true;
+    }
+    return mask;
+}
+
 FaceStressResult SurfaceStressAnalyzer::analyzeFace(
     const Face& face,
     const data::StateData& state
@@ -154,8 +166,18 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
     double max_principal_sum = 0;
     double min_principal_sum = 0;
 
+    // 침식된 요소의 면은 뺀다 — 응력 워드가 0 으로 실려 '실측 0' 으로 위장된다.
+    const std::vector<bool> dead =
+        deletedSolidMask(state, static_cast<size_t>(std::max(num_solid_elements_, 0)));
+
     size_t n = 0;
     for (const auto& face : faces) {
+        if (!dead.empty() && face.element_id >= 0 &&
+            static_cast<size_t>(face.element_id) < dead.size() &&
+            dead[static_cast<size_t>(face.element_id)]) {
+            ++stats.num_faces_skipped;
+            continue;
+        }
         FaceStressResult result = analyzeFace(face, state);
         if (!result.valid) {
             ++stats.num_faces_skipped;
@@ -216,10 +238,17 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
 
     stats.num_faces = n;
     if (n == 0) {
-        // 읽은 면이 없다 — 극값 초기값(±max)을 값처럼 내보내지 않는다.
+        // 읽은 면이 없다(전량 침식 등) — 0 이나 극값 초기값(±max)으로 위장하지 않고
+        // NaN 으로 남긴다. JSON 에는 null 로 나간다.
+        const double nan_v = std::numeric_limits<double>::quiet_NaN();
         SurfaceStressStats empty;
         empty.time = state.time;
         empty.num_faces_skipped = stats.num_faces_skipped;
+        empty.von_mises_max = empty.von_mises_min = empty.von_mises_avg = nan_v;
+        empty.normal_stress_max = empty.normal_stress_min = empty.normal_stress_avg = nan_v;
+        empty.shear_stress_max = empty.shear_stress_min = empty.shear_stress_avg = nan_v;
+        empty.max_principal_max = empty.max_principal_min = empty.max_principal_avg = nan_v;
+        empty.min_principal_max = empty.min_principal_min = empty.min_principal_avg = nan_v;
         return empty;
     }
     stats.von_mises_avg = von_mises_sum / n;

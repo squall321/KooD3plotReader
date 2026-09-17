@@ -17,6 +17,38 @@
 namespace kood3plot {
 namespace analysis {
 
+namespace {
+
+/// 이 상태에서 삭제(침식)된 요소 표식. 빈 벡터 = 삭제 없음.
+///
+/// 🔴 삭제된 요소는 d3plot 에 응력·변형률 워드가 **전부 0** 으로 실린다.
+///    그대로 통계에 넣으면 '실측 0' 으로 둔갑해 파트 최소값이 0 으로 붕괴하고
+///    (Min_Element_ID 까지 죽은 요소를 가리킨다) 평균이 아래로 끌린다.
+///    실측(/data/koopark/Test_DTMIN_erode/dtmin_0p1, MDLOPT=2, t=5.0e-4):
+///    파트 1 Min 143.69 → 0, 파트 3 평균 857.76 → 851.46 (-0.7%).
+///
+/// deleted_* 는 해당 요소 배열 내 **1-based 순번**이다
+/// (StateDataParser::parse_deletion_data).
+std::vector<bool> deletedMask(const std::vector<int32_t>& deleted, size_t count) {
+    std::vector<bool> mask;
+    if (deleted.empty() || count == 0) return mask;
+    mask.assign(count, false);
+    for (int32_t ord : deleted) {
+        if (ord < 1) continue;
+        const size_t idx = static_cast<size_t>(ord) - 1;
+        if (idx < count) mask[idx] = true;
+    }
+    return mask;
+}
+
+/// 측정된 값이 하나도 없으면(예: 파트 전량 침식) 0 이나 ±DBL_MAX 로 위장하지
+/// 않고 NaN 으로 남긴다 — JSON 에는 null 로 나간다.
+inline double measuredOrNaN(bool measured, double value) {
+    return measured ? value : std::numeric_limits<double>::quiet_NaN();
+}
+
+} // namespace
+
 // ========================================
 // Constructor
 // ========================================
@@ -73,6 +105,9 @@ AnalysisResult SinglePassAnalyzer::analyzeParallel(
 
     // Initialize result storage
     initializeResults(num_states, config);
+
+    // 침식 요약 — 삭제 요소를 통계에서 뺐다는 사실을 호출부가 사람에게 알린다.
+    recordErosionSummary(all_states);
 
     // Extract surfaces if needed
     if (!config.surface_specs.empty()) {
@@ -175,6 +210,9 @@ AnalysisResult SinglePassAnalyzer::analyzeWithStates(
 
     // Initialize result storage
     initializeResults(num_states, config);
+
+    // 침식 요약 — 삭제 요소를 통계에서 뺐다는 사실을 호출부가 사람에게 알린다.
+    recordErosionSummary(all_states);
 
     // Extract surfaces if needed
     if (!config.surface_specs.empty()) {
@@ -279,6 +317,9 @@ AnalysisResult SinglePassAnalyzer::analyzeLegacy(
 
     // Initialize result storage
     initializeResults(num_states, config);
+
+    // 침식 요약 — 삭제 요소를 통계에서 뺐다는 사실을 호출부가 사람에게 알린다.
+    recordErosionSummary(all_states);
 
     // Extract surfaces if needed
     if (!config.surface_specs.empty()) {
@@ -531,6 +572,9 @@ void SinglePassAnalyzer::analyzePartStats(
 
     size_t num_parts = part_ids_.size();
 
+    // 침식된 요소는 워드가 0 으로 실린다 — 통계에서 뺀다.
+    const std::vector<bool> dead = deletedMask(state.deleted_solids, num_solid_elements_);
+
     // Per-part accumulators for this state
     std::vector<PartStateStats> part_stats(num_parts);
 
@@ -556,6 +600,7 @@ void SinglePassAnalyzer::analyzePartStats(
         #pragma omp for nowait
         for (int64_t elem_idx = 0; elem_idx < static_cast<int64_t>(num_solid_elements_); ++elem_idx) {
             if (elem_idx >= elem_to_part_.size()) continue;
+            if (!dead.empty() && dead[static_cast<size_t>(elem_idx)]) continue;
 
             int32_t part_id = elem_to_part_[elem_idx];
             auto it = part_id_to_result_index_.find(part_id);
@@ -659,6 +704,7 @@ void SinglePassAnalyzer::analyzePartStats(
     // Sequential processing
     for (size_t elem_idx = 0; elem_idx < num_solid_elements_; ++elem_idx) {
         if (elem_idx >= elem_to_part_.size()) continue;
+        if (!dead.empty() && dead[elem_idx]) continue;
 
         int32_t part_id = elem_to_part_[elem_idx];
         auto it = part_id_to_result_index_.find(part_id);
@@ -826,6 +872,8 @@ void SinglePassAnalyzer::analyzePartStats(
             }
         }
     }
+
+    markUnmeasuredParts(state_idx, part_stats, analyze_stress, analyze_strain);
 }
 
 void SinglePassAnalyzer::analyzeSurfaceStats(
@@ -852,6 +900,9 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
 
     size_t num_parts = part_ids_.size();
 
+    // 침식된 요소는 워드가 0 으로 실린다 — 통계에서 뺀다.
+    const std::vector<bool> dead = deletedMask(state.deleted_solids, num_solid_elements_);
+
     // Per-part accumulators for this state
     std::vector<PartStateStats> part_stats(num_parts);
     for (auto& stats : part_stats) {
@@ -861,6 +912,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
     // Sequential processing (no OpenMP - this runs inside parallel state loop)
     for (size_t elem_idx = 0; elem_idx < num_solid_elements_; ++elem_idx) {
         if (elem_idx >= elem_to_part_.size()) continue;
+        if (!dead.empty() && dead[elem_idx]) continue;
 
         int32_t part_id = elem_to_part_[elem_idx];
         auto it = part_id_to_result_index_.find(part_id);
@@ -1024,6 +1076,57 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tpe3.avg_value = (stats.principal_strain_count > 0) ?
                                  stats.min_principal_strain_sum / stats.principal_strain_count : 0.0;
                 tpe3.min_element_id = stats.min_principal_strain_min_elem;
+            }
+        }
+    }
+
+    markUnmeasuredParts(state_idx, part_stats, analyze_stress, analyze_strain);
+}
+
+void SinglePassAnalyzer::recordErosionSummary(const std::vector<data::StateData>& all_states) {
+    erosion_ = ErosionSummary();
+    for (size_t si = 0; si < all_states.size(); ++si) {
+        const size_t n = all_states[si].deleted_solids.size();
+        if (n == 0) continue;
+        if (erosion_.max_deleted_solids == 0) {
+            erosion_.first_state = si;
+            erosion_.first_time = all_states[si].time;
+        }
+        if (n > erosion_.max_deleted_solids) erosion_.max_deleted_solids = n;
+    }
+}
+
+void SinglePassAnalyzer::markUnmeasuredParts(
+    size_t state_idx,
+    const std::vector<PartStateStats>& part_stats,
+    bool analyze_stress,
+    bool analyze_strain
+) {
+    auto blank = [state_idx](std::vector<PartTimeSeriesStats>& arr, size_t i) {
+        if (i >= arr.size() || state_idx >= arr[i].data.size()) return;
+        auto& tp = arr[i].data[state_idx];
+        tp.max_value = std::numeric_limits<double>::quiet_NaN();
+        tp.min_value = std::numeric_limits<double>::quiet_NaN();
+        tp.avg_value = std::numeric_limits<double>::quiet_NaN();
+        tp.max_element_id = 0;
+        tp.min_element_id = 0;
+    };
+
+    for (size_t i = 0; i < part_stats.size(); ++i) {
+        const auto& s = part_stats[i];
+        if (analyze_stress) {
+            if (s.stress_count == 0) blank(stress_results_, i);
+            if (s.principal_count == 0) {
+                blank(max_principal_results_, i);
+                blank(min_principal_results_, i);
+            }
+        }
+        if (analyze_strain) {
+            if (s.strain_count == 0) blank(strain_results_, i);
+            if (s.principal_strain_count == 0) {
+                blank(vm_strain_results_, i);
+                blank(max_principal_strain_results_, i);
+                blank(min_principal_strain_results_, i);
             }
         }
     }
@@ -1222,12 +1325,25 @@ void SinglePassAnalyzer::clusterTimeAggregate(
             : all_states[si].solid_data;
         if (sd.empty()) continue;
 
+        // 침식된 요소는 워드가 0 으로 실린다 — 덩어리 평균에서 뺀다.
+        // (덩어리의 요소가 그 시각에 전멸하면 sum_w == 0 이라 그 상태는 건너뛴다)
+        const size_t n_elem = is_shell_like
+            ? ((kind == HotspotElementKind::Shell) ? num_shell_elements_ : num_tshell_elements_)
+            : num_solid_elements_;
+        const std::vector<bool> dead = deletedMask(
+            is_shell_like
+                ? ((kind == HotspotElementKind::Shell) ? all_states[si].deleted_shells
+                                                       : all_states[si].deleted_thick_shells)
+                : all_states[si].deleted_solids,
+            n_elem);
+
         std::fill(sum_v.begin(), sum_v.end(), 0.0);
         std::fill(sum_w.begin(), sum_w.end(), 0.0);
         bool any = false;
 
         for (const auto& kv : elem_to_cluster) {
             const size_t ei = kv.first;
+            if (!dead.empty() && ei < dead.size() && dead[ei]) continue;
             const size_t base = ei * static_cast<size_t>(nv);
             if (base + static_cast<size_t>(nv) > sd.size()) continue;
 

@@ -380,6 +380,15 @@ public:
      */
     bool wasSuccessful() const { return success_; }
 
+    /// 침식(요소 삭제) 요약 — 통계에서 제외한 요소가 있었다는 사실을 호출부가 알린다.
+    /// 삭제가 없으면 count 는 0, 시각은 NaN.
+    struct ErosionSummary {
+        size_t max_deleted_solids = 0;  ///< 한 상태에서 삭제된 solid 최대 개수
+        double first_time = std::numeric_limits<double>::quiet_NaN();  ///< 첫 삭제가 나온 시각
+        size_t first_state = 0;         ///< 첫 삭제가 나온 상태 번호 (0-based)
+    };
+    const ErosionSummary& erosionSummary() const { return erosion_; }
+
 private:
     D3plotReader& reader_;
     std::string last_error_;
@@ -396,6 +405,8 @@ private:
     // Element to part mapping
     std::vector<int32_t> elem_to_part_;  // elem_index -> part_id
     std::unordered_map<int32_t, size_t> elem_id_to_index_;
+
+    ErosionSummary erosion_;  ///< 침식 요약 (recordErosionSummary 가 채운다)
 
     // ── 요소별 시간축 극값 (핫스팟 군집용), 기준별 ──
     // elem_index -> 값. config.hotspot_enabled 일 때만 채워진다.
@@ -500,6 +511,16 @@ private:
      */
     void analyzeSurfaceStatsSequential(size_t state_idx,
                                        const data::StateData& state);
+
+    /// 이 상태에 살아 있는 요소가 하나도 없는 파트(전량 침식)의 시점을 NaN 으로 표시한다.
+    /// 0 이나 ±DBL_MAX 로 위장하지 않는다 — JSON 에는 null 로 나간다.
+    void markUnmeasuredParts(size_t state_idx,
+                             const std::vector<PartStateStats>& part_stats,
+                             bool analyze_stress,
+                             bool analyze_strain);
+
+    /// 상태 배열을 훑어 침식 요약을 채운다 (통계 제외 사실을 남기기 위한 것).
+    void recordErosionSummary(const std::vector<data::StateData>& all_states);
 
     // ========================================
     // Stress/Strain extraction

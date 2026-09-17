@@ -203,6 +203,15 @@ public:
         const data::StateData& state
     );
 
+    /**
+     * @brief 이 상태에서 삭제(침식)된 솔리드 표식. 비어 있으면 삭제가 없다.
+     *
+     * state.deleted_solids 는 솔리드 배열 안의 **1-based 순번** 이다
+     * (StateDataParser::parse_deletion_data). 삭제된 요소는 응력 워드가 0 으로
+     * 실리므로, 통계에 넣으면 '실측 0' 으로 위장된다.
+     */
+    static std::vector<bool> deletedSolidMask(const data::StateData& state, size_t num_solids);
+
     // ============================================================
     // Time History Analysis
     // ============================================================

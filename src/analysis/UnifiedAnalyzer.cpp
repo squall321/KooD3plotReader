@@ -329,6 +329,18 @@ void UnifiedAnalyzer::processSolidJobs(
             }
         });
 
+    // 침식(요소 삭제)이 있었다면 그 사실을 남긴다 — 삭제 요소는 응력·변형률 워드가
+    // 0 으로 실려 통계에서 제외했다. 사유 없이 요소 수가 줄면 사람이 알 길이 없다.
+    {
+        const auto& ero = sp_analyzer.erosionSummary();
+        if (ero.max_deleted_solids > 0 && callback) {
+            callback("  침식: 상태 " + std::to_string(ero.first_state + 1) +
+                     " (t=" + std::to_string(ero.first_time) + ") 부터 solid 최대 " +
+                     std::to_string(ero.max_deleted_solids) +
+                     "개 삭제 — 파트·표면 통계에서 제외");
+        }
+    }
+
     // Move stress results (Von Mises + principal stress + tensors)
     if (do_stress) {
         result.stress_history = std::move(sp_result.stress_history);
@@ -1677,6 +1689,20 @@ void UnifiedAnalyzer::processElementQualityJobs(
                      " (state " + std::to_string(state_idx + 1) + "/" + std::to_string(n_states) + ")");
         }
 
+        // 침식(삭제)된 요소는 이미 죽은 요소다 — 절점이 계속 움직여 음수 Jacobian·
+        // 종횡비 폭주를 만들지만 모델에는 더 이상 없다. 품질 지표에서 뺀다.
+        // deleted_* 는 해당 요소 배열 내 1-based 순번이다.
+        auto deadSet = [](const std::vector<int32_t>& del) {
+            std::set<size_t> s;
+            for (int32_t ord : del) {
+                if (ord >= 1) s.insert(static_cast<size_t>(ord) - 1);
+            }
+            return s;
+        };
+        const std::set<size_t> dead_solid  = deadSet(state.deleted_solids);
+        const std::set<size_t> dead_tshell = deadSet(state.deleted_thick_shells);
+        const std::set<size_t> dead_shell  = deadSet(state.deleted_shells);
+
         for (auto& [pid, elems] : part_elements) {
             ElementQualityTimePoint tp;
             tp.time = state.time;
@@ -1692,6 +1718,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
                 int32_t elem_id = 0;
 
                 if (info.is_solid) {
+                    if ((info.is_tshell ? dead_tshell : dead_solid).count(info.idx)) continue;
                     const auto& elem = info.is_tshell ? mesh.thick_shells[info.idx]
                                                       : mesh.solids[info.idx];
                     elem_id = elem.id;
@@ -1762,6 +1789,7 @@ void UnifiedAnalyzer::processElementQualityJobs(
 
                     count++;
                 } else {
+                    if (dead_shell.count(info.idx)) continue;
                     const auto& elem = mesh.shells[info.idx];
                     elem_id = elem.id;
                     if (elem.node_ids.size() < 4) continue;
