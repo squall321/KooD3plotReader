@@ -632,31 +632,33 @@ document.querySelectorAll('.tab-btn').forEach(btn => {{
 // ============================================================
 // Part comparison
 // ============================================================
-// Build ALL_PARTS: {{ part_name -> {{ pid, cases: {{ case_label -> part_data }} }} }}
+// Build ALL_PARTS: {{ "pid|name" -> {{ pid, name, cases: {{ case_index -> part_data }} }} }}
+// 이름으로만 묶으면 같은 *PART 제목을 쓴 다른 PID 가 서로를 덮는다 (SCREW·FOAM·
+// TAPE, 배터리 덱의 boxsolid 처럼 흔하다). 케이스도 라벨이 겹치면 같은 일이
+// 생기므로 순번으로 넣는다.
 const ALL_PARTS = {{}};
-for (const r of RESULTS) {{
-  const caseLabel = r.label || (r.metadata || {{}}).project_name || '?';
+RESULTS.forEach((r, ci) => {{
   const parts = r.parts || {{}};
   for (const [pid, pdata] of Object.entries(parts)) {{
     const pname = pdata.name || `Part ${{pid}}`;
-    const key = pname;
-    if (!ALL_PARTS[key]) ALL_PARTS[key] = {{ pid: parseInt(pid), cases: {{}} }};
-    ALL_PARTS[key].cases[caseLabel] = pdata;
+    const key = pid + '|' + pname;
+    if (!ALL_PARTS[key]) ALL_PARTS[key] = {{ pid: parseInt(pid), name: pname, cases: {{}} }};
+    ALL_PARTS[key].cases[ci] = pdata;
   }}
-}}
+}});
 const CASE_LABELS = RESULTS.map(r => r.label || (r.metadata || {{}}).project_name || '?');
 
 let _partFilterKeywords = [];
 
-function partMatchesFilter(partName) {{
+function partMatchesFilter(partName, pid) {{
   if (_partFilterKeywords.length === 0) return true;
-  const lower = partName.toLowerCase();
+  const lower = (partName + ' ' + pid).toLowerCase();
   return _partFilterKeywords.some(kw => lower.includes(kw));
 }}
 
 function getFilteredParts() {{
   const sortField = document.getElementById('part-sort-field').value;
-  let entries = Object.entries(ALL_PARTS).filter(([name]) => partMatchesFilter(name));
+  let entries = Object.entries(ALL_PARTS).filter(([, info]) => partMatchesFilter(info.name, info.pid));
 
   // Sort by max value across all cases
   entries.sort((a, b) => {{
@@ -705,15 +707,16 @@ function renderPartComparison() {{
     return;
   }}
 
-  tbody.innerHTML = parts.map(([name, info]) => {{
-    const vals = CASE_LABELS.map(cl => {{
-      const pd = info.cases[cl];
+  tbody.innerHTML = parts.map(([, info]) => {{
+    const vals = CASE_LABELS.map((cl, ci) => {{
+      const pd = info.cases[ci];
       const v = pd ? pd[metric] : null;
       return `<td class="${{valClass(pd, metric)}}">${{fmtVal(v, metric)}}</td>`;
     }});
-    const maxVal = Math.max(...Object.values(info.cases).map(c => c[metric] || 0));
+    const nums = Object.values(info.cases).map(c => c[metric]).filter(v => v != null);
+    const maxVal = nums.length ? Math.max(...nums) : null;
     return `<tr>
-      <td style="font-weight:600">${{name}}</td>
+      <td style="font-weight:600">${{info.name}} <span style="color:var(--fg2);font-weight:400">#${{info.pid}}</span></td>
       ${{vals.join('')}}
       <td style="font-weight:700">${{fmtVal(maxVal, metric)}}</td>
     </tr>`;
@@ -734,16 +737,17 @@ function renderPartChart(parts, metric) {{
 
   // Show top 15 parts max for readability
   const topParts = parts.slice(0, 15);
-  const traces = topParts.map(([name, info], i) => ({{
+  const traces = topParts.map(([, info], i) => ({{
     type: 'bar',
-    name: name,
+    name: info.name + ' #' + info.pid,
     x: CASE_LABELS,
-    y: CASE_LABELS.map(cl => {{
-      const pd = info.cases[cl];
-      return pd ? (pd[metric] || 0) : 0;
+    // 미계측은 0 이 아니라 빈 칸이다 — 0 막대는 '측정값 0' 으로 읽힌다.
+    y: CASE_LABELS.map((cl, ci) => {{
+      const pd = info.cases[ci];
+      return pd && pd[metric] != null ? pd[metric] : null;
     }}),
     marker: {{ color: colors[i % colors.length] }},
-    hovertemplate: `${{name}}<br>%{{x}}: %{{y:.3f}}<extra></extra>`,
+    hovertemplate: `${{info.name}} #${{info.pid}}<br>%{{x}}: %{{y:.3f}}<extra></extra>`,
   }}));
 
   Plotly.newPlot('chart-part-compare', traces, {{

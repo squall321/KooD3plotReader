@@ -134,6 +134,39 @@ if NODE and fmt_src and sig_src and val_src:
 
 print()
 
+# ---------------------------------------------------------------------------
+print("[3] 이름이 같은 파트가 서로를 덮지 않는다")
+
+# 조립 덱에는 같은 *PART 제목이 흔하다 (SCREW·FOAM·TAPE, 배터리 덱의 boxsolid).
+dup = _sample_result("case_A")
+dup["parts"] = {
+    "101": {"name": "SCREW", "peak_stress": 900.0, "peak_strain": 0.01,
+            "peak_disp_mag": 1.0},
+    "102": {"name": "SCREW", "peak_stress": 50.0, "peak_strain": 0.001,
+            "peak_disp_mag": 0.5},
+    "103": {"name": "FOAM", "peak_stress": 20.0, "peak_strain": 0.2,
+            "peak_disp_mag": 3.0},
+}
+html3 = _build_html([dup], [], [], Path("/tmp"), 0.0)
+node_check("batch(dup)", html3)
+
+m = re.search(r"const ALL_PARTS[\s\S]*?const CASE_LABELS = [^\n]*\n", html3)
+chkb("ALL_PARTS 구성 코드를 찾았다", m is not None)
+if NODE and m:
+    src = ("const RESULTS = " + json.dumps([dup], ensure_ascii=False) + ";\n"
+           + m.group(0)
+           + "console.log(JSON.stringify(Object.values(ALL_PARTS)"
+             ".map(v => [v.pid, v.name, Object.values(v.cases)[0].peak_stress])));")
+    out = run_js(src, "ALL_PARTS")
+    if out is not None:
+        chk("파트 3개가 모두 남는다", len(out), 3)
+        peaks = {row[0]: row[2] for row in out}
+        chk("PID 101 (SCREW) 900 MPa 가 살아 있다", peaks.get(101), 900.0)
+        chk("PID 102 (SCREW) 50 MPa 도 살아 있다", peaks.get(102), 50.0)
+        chk("PID 103 (FOAM)", peaks.get(103), 20.0)
+
+print()
+
 
 def test_all():
     """pytest 진입점."""
