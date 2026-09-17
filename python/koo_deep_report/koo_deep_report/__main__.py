@@ -1337,7 +1337,10 @@ def _aggregate(
             peak_max_principal_strain=e1.global_max if e1 else 0.0,
             peak_min_principal_strain=e3.global_min if e3 else 0.0,
             peak_vm_strain=(evm.global_max if evm else None),
-            peak_disp_mag=mo.peak_disp_mag if mo else 0.0,
+            peak_disp_mag=mo.peak_disp_mag if mo else None,
+            peak_avg_disp_mag=mo.peak_avg_disp_mag if mo else None,
+            peak_disp_node=mo.peak_disp_node if mo else None,
+            peak_disp_reason=(mo.peak_disp_reason if mo else "motion CSV 없음"),
             peak_vel_mag=mo.peak_vel_mag if mo else 0.0,
             peak_acc_mag=mo.peak_acc_mag if mo else 0.0,
         )
@@ -1374,7 +1377,10 @@ def _aggregate(
         result.peak_stress_global = best.peak_stress
         result.peak_stress_part_id = best.part_id
         result.peak_strain_global = max(p.peak_strain for p in result.parts.values())
-        result.peak_disp_global = max(p.peak_disp_mag for p in result.parts.values())
+        # 절점 최대 변위가 하나도 계측되지 않았으면 0 이 아니라 None 이다.
+        disps = [p.peak_disp_mag for p in result.parts.values()
+                 if p.peak_disp_mag is not None]
+        result.peak_disp_global = max(disps) if disps else None
 
     if glstat_data:
         result.energy_ratio_min = glstat_data.energy_ratio_min
@@ -1394,7 +1400,10 @@ def _print_summary(result: SingleResult) -> None:
         peak_label += f" ({peak_part_name.part_name})"
     print(f"  피크 응력    : {result.peak_stress_global:.2f} MPa ({peak_label})")
     print(f"  피크 변형률  : {result.peak_strain_global:.4f}")
-    print(f"  피크 변위    : {result.peak_disp_global:.2f} mm")
+    if result.peak_disp_global is None:
+        print("  피크 변위    : 미계측 (motion CSV 에 Max_Disp_Mag 열 없음)")
+    else:
+        print(f"  피크 변위    : {result.peak_disp_global:.2f} mm (절점 최대)")
     if result.energy_ratio_min is not None:
         print(f"  에너지 비율  : {result.energy_ratio_min:.4f} (min)")
     if result.d3plot_result and result.d3plot_result.element_quality:

@@ -163,8 +163,33 @@ class MotionData:
     max_disp_node: list[int] = field(default_factory=list)
 
     @property
-    def peak_disp_mag(self) -> float:
-        return max(self.disp_mag) if self.disp_mag else 0.0
+    def peak_disp_mag(self) -> float | None:
+        """절점 변위의 최대 (Max_Disp_Mag). 그 열이 없으면 None.
+
+        Avg_Disp_Mag 는 파트 평균 변위 '벡터' 의 크기라 굽힘·회전에서
+        상쇄된다 — 절점 최대의 대역으로 쓰면 실제보다 작게 나온다.
+        """
+        return max(self.max_disp_mag) if self.max_disp_mag else None
+
+    @property
+    def peak_avg_disp_mag(self) -> float | None:
+        """파트 평균 변위 벡터 크기의 최대 (Avg_Disp_Mag). 없으면 None."""
+        return max(self.disp_mag) if self.disp_mag else None
+
+    @property
+    def peak_disp_node(self) -> int | None:
+        """peak_disp_mag 시점의 최대 변위 절점 ID. 미기록이면 None."""
+        if not self.max_disp_mag or not self.max_disp_node:
+            return None
+        i = max(range(len(self.max_disp_mag)), key=lambda k: self.max_disp_mag[k])
+        return self.max_disp_node[i] if i < len(self.max_disp_node) else None
+
+    @property
+    def peak_disp_reason(self) -> str:
+        """peak_disp_mag 가 None 인 사유. 정상이면 빈 문자열."""
+        if self.max_disp_mag:
+            return ""
+        return "motion CSV 에 Max_Disp_Mag 열이 없다 — 절점 최대 변위 미계측"
 
     @property
     def peak_vel_mag(self) -> float:
@@ -173,10 +198,6 @@ class MotionData:
     @property
     def peak_acc_mag(self) -> float:
         return max(self.acc_mag) if self.acc_mag else 0.0
-
-    @property
-    def peak_max_disp(self) -> float:
-        return max(self.max_disp_mag) if self.max_disp_mag else 0.0
 
 
 @dataclass
@@ -301,7 +322,14 @@ class PartSummary:
     peak_min_principal_strain: float = 0.0
     #: ε_vm. 미기록이면 None — 0 이 아니다(유효소성변형률로 대체 금지).
     peak_vm_strain: float | None = None
-    peak_disp_mag: float = 0.0
+    #: 절점 최대 변위. Max_Disp_Mag 열이 없으면 None — 0 이 아니다.
+    peak_disp_mag: float | None = None
+    #: 파트 평균 변위 벡터 크기의 최대 (참고용).
+    peak_avg_disp_mag: float | None = None
+    #: peak_disp_mag 시점의 절점 ID.
+    peak_disp_node: int | None = None
+    #: peak_disp_mag 가 None 인 사유.
+    peak_disp_reason: str = ""
     peak_vel_mag: float = 0.0
     peak_acc_mag: float = 0.0
     internal_energy: float = 0.0
@@ -360,7 +388,8 @@ class SingleResult:
     peak_stress_global: float = 0.0
     peak_stress_part_id: int | None = None
     peak_strain_global: float = 0.0
-    peak_disp_global: float = 0.0
+    #: 절점 최대 변위의 전체 최대. 아무 파트도 계측되지 않았으면 None.
+    peak_disp_global: float | None = None
     energy_ratio_min: float | None = None
 
     def to_compare_dict(self) -> dict:
@@ -392,6 +421,9 @@ class SingleResult:
                     "time_of_peak_stress": p.time_of_peak_stress,
                     "peak_strain": p.peak_strain,
                     "peak_disp_mag": p.peak_disp_mag,
+                    "peak_avg_disp_mag": p.peak_avg_disp_mag,
+                    "peak_disp_node": p.peak_disp_node,
+                    "peak_disp_reason": p.peak_disp_reason,
                     "peak_acc_mag": p.peak_acc_mag,
                     "safety_factor": p.safety_factor,
                     "mat_type": p.mat_type,

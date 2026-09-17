@@ -187,6 +187,9 @@ def _build_js_data(result: SingleResult) -> dict:
                 "peak_min_principal_strain": p.peak_min_principal_strain,
                 "peak_vm_strain": p.peak_vm_strain,
                 "peak_disp_mag": p.peak_disp_mag,
+                "peak_avg_disp_mag": p.peak_avg_disp_mag,
+                "peak_disp_node": p.peak_disp_node,
+                "peak_disp_reason": p.peak_disp_reason,
                 "peak_vel_mag": p.peak_vel_mag,
                 "peak_acc_mag": p.peak_acc_mag,
                 "safety_factor": p.safety_factor,
@@ -241,6 +244,9 @@ def _build_js_data(result: SingleResult) -> dict:
                 "part_name": md.part_name,
                 **g,
                 "peak_disp_mag": md.peak_disp_mag,
+                "peak_avg_disp_mag": md.peak_avg_disp_mag,
+                "peak_disp_node": md.peak_disp_node,
+                "peak_disp_reason": md.peak_disp_reason,
                 "peak_vel_mag": md.peak_vel_mag,
                 "peak_acc_mag": md.peak_acc_mag,
             }
@@ -772,7 +778,7 @@ function renderOverview() {
   <div class="kpi-card">
     <div class="kpi-label">피크 변위</div>
     <div class="kpi-value">${fmt(s.peak_disp)}</div>
-    <div class="kpi-unit">mm</div>
+    <div class="kpi-unit">${s.peak_disp === null || s.peak_disp === undefined ? '미계측 — motion CSV 에 Max_Disp_Mag 없음' : 'mm (절점 최대)'}</div>
   </div>`;
   if (sf !== null) {
     const sfClass = sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
@@ -1287,17 +1293,22 @@ function lodeAngle(s1,s2,s3) {
 function renderMotion() {
   const mEntries = Object.entries(DATA.motion)
     .filter(([pid]) => partMatchesFilter(pid, DATA.parts[pid]))
-    .sort((a,b) => b[1].peak_disp_mag - a[1].peak_disp_mag);
-  const maxD = mEntries[0]?.[1].peak_disp_mag || 1;
+    .sort((a,b) => (b[1].peak_disp_mag ?? -Infinity) - (a[1].peak_disp_mag ?? -Infinity));
+  // 미계측 파트는 막대로 그리지 않는다 — 0 막대는 '안 움직였다' 로 읽힌다.
+  const measured = mEntries.filter(([,m]) => m.peak_disp_mag !== null && m.peak_disp_mag !== undefined);
+  const unmeasured = mEntries.length - measured.length;
+  const maxD = measured[0]?.[1].peak_disp_mag || 1;
 
-  const dispBars = mEntries.map(([pid, m]) => {
+  const dispBars = measured.map(([pid, m]) => {
     const pct = (m.peak_disp_mag / maxD * 100).toFixed(1);
+    const node = m.peak_disp_node ? ' <span class="hs-dim">node #'+m.peak_disp_node+'</span>' : '';
     return `<div class="bar-row">
       <div class="bar-label" title="${m.part_name}">${m.part_name ? 'Part '+pid+' ('+m.part_name+')' : 'Part '+pid}</div>
       <div class="bar-track"><div class="bar-fill" style="background:var(--accent2);width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(m.peak_disp_mag)} mm</div>
+      <div class="bar-val">${fmt(m.peak_disp_mag)} mm${node}</div>
     </div>`;
-  }).join('');
+  }).join('')
+  + (unmeasured ? `<div class="hs-dim" style="margin-top:6px">${unmeasured}개 파트는 절점 최대 변위 미계측 (motion CSV 에 Max_Disp_Mag 열 없음)</div>` : '');
 
   const opts = mEntries.map(([pid, m]) =>
     `<option value="${pid}">${m.part_name ? 'Part '+pid+' ('+m.part_name+')' : 'Part '+pid}</option>`).join('');
@@ -1394,7 +1405,7 @@ function updateDeepDive() {
   <div class="kpi-card"><div class="kpi-label">Min Principal (σ₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal)}</div><div class="kpi-unit">MPa</div></div>
   ${p?.peak_max_principal_strain ? `<div class="kpi-card"><div class="kpi-label">Max Principal Strain (ε₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal_strain,4)}</div><div class="kpi-unit">—</div></div>` : ''}
   ${p?.peak_min_principal_strain ? `<div class="kpi-card"><div class="kpi-label">Min Principal Strain (ε₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal_strain,4)}</div><div class="kpi-unit">—</div></div>` : ''}
-  <div class="kpi-card"><div class="kpi-label">피크 변위</div><div class="kpi-value">${fmt(p?.peak_disp_mag)}</div><div class="kpi-unit">mm</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 변위</div><div class="kpi-value">${fmt(p?.peak_disp_mag)}</div><div class="kpi-unit">${p?.peak_disp_mag === null || p?.peak_disp_mag === undefined ? (p?.peak_disp_reason || '미계측') : 'mm (절점 최대' + (p?.peak_disp_node ? ' #' + p.peak_disp_node : '') + ')'}</div></div>
   <div class="kpi-card"><div class="kpi-label">피크 가속도</div><div class="kpi-value">${fmt(p?.peak_acc_mag)}</div><div class="kpi-unit">—</div></div>`;
   if (sf !== null && sf !== undefined) {
     kpiHtml += `<div class="kpi-card"><div class="kpi-label">Safety Factor</div><div class="kpi-value ${sfClass}">${fmt(sf,3)}</div><div class="kpi-unit">σ_yield=${fmt(DATA.yield_stress)} MPa</div></div>`;

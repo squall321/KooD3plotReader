@@ -596,6 +596,10 @@ def _parse_motion_csv(csv_path: Path) -> MotionData | None:
     try:
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            # 옛 CSV 에는 Max_Disp_Mag 열이 없다. 없는 열을 0 으로 채우면
+            # '절점이 하나도 안 움직였다' 로 읽힌다 — 열이 있을 때만 담는다.
+            cols = reader.fieldnames or []
+            has_max_disp = "Max_Disp_Mag" in cols
             for row in reader:
                 def fv(key: str) -> float:
                     try:
@@ -614,12 +618,13 @@ def _parse_motion_csv(csv_path: Path) -> MotionData | None:
                 md.disp_mag.append(fv("Avg_Disp_Mag"))
                 md.vel_mag.append(fv("Avg_Vel_Mag"))
                 md.acc_mag.append(fv("Avg_Acc_Mag"))
-                md.max_disp_mag.append(fv("Max_Disp_Mag"))
-                node_val = row.get("Max_Disp_Node_ID", "0") or "0"
-                try:
-                    md.max_disp_node.append(int(float(node_val)))
-                except ValueError:
-                    md.max_disp_node.append(0)
+                if has_max_disp:
+                    md.max_disp_mag.append(fv("Max_Disp_Mag"))
+                    node_val = row.get("Max_Disp_Node_ID", "0") or "0"
+                    try:
+                        md.max_disp_node.append(int(float(node_val)))
+                    except ValueError:
+                        md.max_disp_node.append(0)
     except OSError:
         return None
 

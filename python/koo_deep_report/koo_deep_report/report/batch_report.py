@@ -371,7 +371,7 @@ for (const r of RESULTS) {{
     t_end: m.t_end ?? 0,
     peak_stress: s.peak_stress_global ?? 0,
     peak_strain: s.peak_strain_global ?? 0,
-    peak_disp: s.peak_disp_global ?? 0,
+    peak_disp: s.peak_disp_global ?? null,   // 미계측은 0 이 아니다
     er_min: s.energy_ratio_min ?? null,
     sf: (() => {{
       if (YIELD_STRESS <= 0 || !(s.peak_stress_global > 0)) return null;

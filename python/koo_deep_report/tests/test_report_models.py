@@ -1,17 +1,19 @@
-# report/models.py 의 파생값(피크 요소 ID 등)이 원자료와 어긋나지 않는지 검증하는 시험
+# report/models.py 의 파생값(피크 요소 ID·피크 변위)이 원자료와 어긋나지 않는지 검증하는 시험
 """`koo_deep_report.report.models` 시험.
 
 여기서 보는 것은 "파생값이 원자료를 배신하지 않는가" 하나다.
-시계열이 잘려 피크 시점이 사라졌으면 그 시점의 요소 ID 는 **없는 것**이다.
-가장 가까운 남은 점의 ID 를 대신 내놓으면 다른 시각의 요소를 피크라고
-부르게 된다.
+- 시계열이 잘려 피크 시점이 사라졌으면 그 시점의 요소 ID 는 **없는 것**이다.
+  가장 가까운 남은 점의 ID 를 대신 내놓으면 다른 시각의 요소를 피크라고
+  부르게 된다.
+- '피크 변위' 는 절점 최대(Max_Disp_Mag)여야 한다. 파트 평균 변위 벡터의
+  크기는 굽힘·회전에서 상쇄되어 실제 최대보다 한참 작다.
 """
 import json
 import sys
 from pathlib import Path
 
 from koo_deep_report.core.d3plot_reader import _parse_series
-from koo_deep_report.report.models import PartTimeSeries
+from koo_deep_report.report.models import MotionData, PartTimeSeries
 
 fails = []
 
@@ -82,6 +84,53 @@ if sample.exists():
     chk("표본: 3748.5 MPa 피크의 요소 ID 는 미기록", ts.peak_element_id, None)
 else:
     print("  -- 표본 analysis_result.json 없음 — 건너뜀")
+
+print()
+
+# ---------------------------------------------------------------------------
+print("[2] 피크 변위 — 절점 최대를 쓴다 (파트 평균 변위 벡터 크기가 아니라)")
+
+# 외팔보 PCB: 끝단 절점은 20 mm 움직이는데 파트 평균 변위 벡터 크기는 5 mm.
+mo = MotionData(
+    part_id=7, part_name="PCB",
+    t=[0.0, 1.0e-3, 2.0e-3],
+    disp_mag=[0.0, 2.5, 5.0],
+    max_disp_mag=[0.0, 9.0, 20.0],
+    max_disp_node=[0, 331, 412],
+)
+chk("peak_disp_mag = max(Max_Disp_Mag) = 20", mo.peak_disp_mag, 20.0)
+chk("peak_avg_disp_mag = max(Avg_Disp_Mag) = 5", mo.peak_avg_disp_mag, 5.0)
+chk("피크 변위 절점 ID", mo.peak_disp_node, 412)
+chk("정상이면 사유 없음", mo.peak_disp_reason, "")
+
+# Max_Disp_Mag 열이 없는 옛 CSV 는 미계측이다 — 평균으로 슬쩍 바꿔치지 않는다.
+mo_old = MotionData(part_id=8, t=[0.0, 1.0], disp_mag=[0.0, 5.0])
+chk("Max_Disp_Mag 없으면 None", mo_old.peak_disp_mag, None)
+chk("그래도 평균 피크는 남는다", mo_old.peak_avg_disp_mag, 5.0)
+chkb("미계측 사유가 남는다", mo_old.peak_disp_reason != "")
+
+# CSV 파서: 헤더에 Max_Disp_Mag 가 없으면 0 으로 채우지 않는다.
+import tempfile
+from koo_deep_report.core.d3plot_reader import _parse_motion_csv
+
+with tempfile.TemporaryDirectory() as td:
+    old_csv = Path(td) / "part_9_motion.csv"
+    old_csv.write_text(
+        "Time,Avg_Disp_X,Avg_Disp_Y,Avg_Disp_Z,Avg_Disp_Mag,Avg_Vel_Mag,Avg_Acc_Mag\n"
+        "0.0,0,0,0,0.0,0,0\n"
+        "1.0,3,4,0,5.0,0,0\n", encoding="utf-8")
+    md_old = _parse_motion_csv(old_csv)
+    chk("옛 CSV: max_disp_mag 를 0 으로 채우지 않는다", len(md_old.max_disp_mag), 0)
+    chk("옛 CSV: peak_disp_mag=None", md_old.peak_disp_mag, None)
+
+    new_csv = Path(td) / "part_10_motion.csv"
+    new_csv.write_text(
+        "Time,Avg_Disp_Mag,Avg_Vel_Mag,Avg_Acc_Mag,Max_Disp_Mag,Max_Disp_Node_ID\n"
+        "0.0,0.0,0,0,0.0,0\n"
+        "1.0,5.0,0,0,20.0,412\n", encoding="utf-8")
+    md_new = _parse_motion_csv(new_csv)
+    chk("새 CSV: peak_disp_mag=20", md_new.peak_disp_mag, 20.0)
+    chk("새 CSV: 절점 412", md_new.peak_disp_node, 412)
 
 print()
 
