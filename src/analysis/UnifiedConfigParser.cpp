@@ -391,6 +391,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     bool has_current_sr = false;
     bool in_set_reports = false;
     bool has_current_analysis_job = false;
+    /// 이 잡 안에서 못 읽는 문법을 만났다 — 기본값으로 돌리지 말고 통째로 뺀다.
+    bool current_analysis_job_invalid = false;
     bool has_current_render_job = false;
     bool has_current_sv = false;
     bool has_current_psr = false;
@@ -400,11 +402,13 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
     std::string sub_section;  // "surface", "output", "section", "fringe_range"
 
     auto flush_analysis_job = [&]() {
-        if (has_current_analysis_job && !current_analysis_job.name.empty()) {
+        if (has_current_analysis_job && !current_analysis_job.name.empty() &&
+            !current_analysis_job_invalid) {
             config.analysis_jobs.push_back(current_analysis_job);
         }
         current_analysis_job = AnalysisJob();
         has_current_analysis_job = false;
+        current_analysis_job_invalid = false;
         sub_section.clear();
     };
 
@@ -482,12 +486,27 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         std::string value = trim(trimmed.substr(colon_pos + 1));
 
         // 인라인 매핑(`surface: { direction: [0,0,1], angle: 45 }`)은 이 수제 파서가
-        // 읽지 못한다. 무음으로 버리면 그 잡이 **기본값으로** 돌아간다 — 실제로
+        // 읽지 못한다. 그 줄만 버리면 잡이 **기본값으로** 돌아간다 — 실제로
         // +Z/-Z 두 잡이 모두 기본 -Z 로 돌아 같은 결과를 냈다 (2026-09-17).
+        // 경고만으로는 부족하다: 래핑 실행에서는 stderr 가 삼켜지고 산출물에는
+        // 표식이 없어, 사용자가 붙인 이름표를 단 기본값이 그대로 보고서에 실린다.
+        // 그래서 그 잡을 통째로 빼고 사유를 설정에 남긴다(→ metadata.config_issues).
         if (!value.empty() && value[0] == '{') {
-            std::cerr << "[config] 경고: " << (i + 1) << "행 '" << key
-                      << ":' 의 인라인 매핑 { ... } 은 지원하지 않습니다 — 무시됩니다. "
-                      << "블록 형식으로 쓰세요 (다음 줄에 들여쓰기해서 key: value)." << std::endl;
+            std::ostringstream issue;
+            issue << "설정 " << (i + 1) << "행 '" << key
+                  << ":' 의 인라인 매핑 { ... } 은 지원하지 않습니다";
+            if (in_analysis_jobs && has_current_analysis_job) {
+                current_analysis_job_invalid = true;
+                issue << " — 분석 잡 '"
+                      << (current_analysis_job.name.empty() ? std::string("(이름 없음)")
+                                                            : current_analysis_job.name)
+                      << "' 을 건너뜁니다";
+            } else {
+                issue << " — 이 줄은 무시됩니다";
+            }
+            issue << ". 블록 형식으로 쓰세요 (다음 줄에 들여쓰기해서 key: value).";
+            config.config_issues.push_back(issue.str());
+            std::cerr << "[config] 경고: " << issue.str() << std::endl;
             continue;
         }
 

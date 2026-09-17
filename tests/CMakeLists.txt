@@ -58,6 +58,11 @@ if(TARGET kood3plot_writer)
     target_include_directories(test_surface_stress_tet10 PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# 인라인 매핑 YAML 이 잡을 기본값으로 돌리지 않는지 보는 tests
+add_executable(test_config_inline_mapping test_config_inline_mapping.cpp)
+target_link_libraries(test_config_inline_mapping PRIVATE kood3plot)
+target_include_directories(test_config_inline_mapping PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)

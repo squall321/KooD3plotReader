@@ -208,6 +208,12 @@ struct AnalysisMetadata {
     double end_time = 0.0;               ///< Last state time
     std::vector<int32_t> analyzed_parts; ///< List of analyzed part IDs
 
+    /// 설정을 그대로 실행하지 못한 사유(없으면 비어 있고 JSON 에도 키가 안 생긴다).
+    /// 예: 이 수제 YAML 파서가 못 읽는 인라인 매핑 때문에 건너뛴 분석 잡.
+    /// 로그를 못 보는 소비처가 '이 산출물은 설정대로 나온 것이 아니다' 를 알려면
+    /// 산출물 자체에 실려 있어야 한다.
+    std::vector<std::string> config_issues;
+
     /**
      * @brief Set analysis date to current time
      */
@@ -297,7 +303,17 @@ struct AnalysisResult {
         oss << indent << indent << "\"num_states\": " << metadata.num_states << "," << nl;
         oss << indent << indent << "\"start_time\": " << jnum(metadata.start_time) << "," << nl;
         oss << indent << indent << "\"end_time\": " << jnum(metadata.end_time) << "," << nl;
-        oss << indent << indent << "\"analyzed_parts\": " << arrayToJSON(metadata.analyzed_parts) << nl;
+        oss << indent << indent << "\"analyzed_parts\": " << arrayToJSON(metadata.analyzed_parts);
+        // 사유가 없으면 키를 만들지 않는다 — 빈 배열도 '확인했다' 는 뜻이 되어버린다.
+        if (!metadata.config_issues.empty()) {
+            oss << "," << nl << indent << indent << "\"config_issues\": [";
+            for (size_t i = 0; i < metadata.config_issues.size(); ++i) {
+                if (i > 0) oss << ", ";
+                oss << "\"" << escapeJSON(metadata.config_issues[i]) << "\"";
+            }
+            oss << "]";
+        }
+        oss << nl;
         oss << indent << "}," << nl;
 
         // Stress history

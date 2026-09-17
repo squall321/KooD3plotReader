@@ -1150,6 +1150,12 @@ struct UnifiedConfig {
     // Per-part section render jobs (LSPrePost renderAllPartSections)
     std::vector<PartSectionRenderJob> part_section_renders;
 
+    /// 설정을 읽다가 **그대로 실행하면 안 되는** 것을 만났을 때의 사유.
+    /// 이 수제 파서가 못 읽는 문법(인라인 매핑 등)을 만나면 해당 잡을 빼고
+    /// 여기에 사유를 남긴다. 산출물(metadata.config_issues)에 실어서, 로그를
+    /// 못 보는 소비처도 '이 잡은 설정대로 돌지 않았다' 를 알 수 있게 한다.
+    std::vector<std::string> config_issues;
+
     /**
      * @brief Check if any analysis jobs exist
      */

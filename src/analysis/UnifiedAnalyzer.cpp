@@ -1944,6 +1944,8 @@ void UnifiedAnalyzer::fillMetadata(
     result.metadata.tool_commit = Version::build_commit();
     result.metadata.tool_built  = Version::build_date();
     result.metadata.num_states = static_cast<int32_t>(all_states.size());
+    // 설정을 그대로 실행하지 못한 사유를 산출물에 그대로 옮긴다 (있을 때만).
+    result.metadata.config_issues = config.config_issues;
 
     if (!all_states.empty()) {
         result.metadata.start_time = all_states.front().time;
