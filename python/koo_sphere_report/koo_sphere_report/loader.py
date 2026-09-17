@@ -10,6 +10,28 @@ from .models import (
 )
 
 
+#: DOE 각도 매칭 허용오차(도). runner_config 와 DropSet 은 같은 각도를 다른
+#: 경로로 적어 마지막 자리가 어긋날 수 있다(45.04 vs 45.06 → 0.1° 반올림에서
+#: '45.0' 과 '45.1' 로 갈린다). 실캠페인 DOE 간격은 2~6° 라 0.05° 는 안전하다.
+_ANGLE_MATCH_TOL_DEG = 0.05
+
+
+def _angle_key(roll: float, pitch: float, yaw: float) -> str:
+    """각도 → DOE 조회 키. 부호 없는 0 으로 정규화한다.
+
+    `f"{-0.0:.1f}"` 는 '-0.0', `f"{0.0:.1f}"` 는 '0.0' 이라 **같은 각도가 다른
+    키**가 된다. 실캠페인 Test_006 의 P0001 은 runner_config 에서 pitch=-0.0 이라
+    DropSet 이 부호 없는 0 을 적는 순간 그 런은 이름과 분류를 통째로 잃는다.
+    """
+    return "_".join(f"{v + 0.0:.1f}" for v in (roll, pitch, yaw))
+
+
+def _angle_text(v: float) -> str:
+    """대체 이름에 쓰는 각도 표기. 0.1° 까지 남기고 -0 을 없앤다."""
+    s = f"{v + 0.0:.1f}"
+    return s[:-2] if s.endswith(".0") else s
+
+
 def _classify_angle(name: str) -> str:
     if name.startswith("F"):
         return "face"
@@ -75,8 +97,7 @@ def load_runner_config(test_dir: Path) -> tuple[str, str, SimulationParams, dict
                 yaw=angle_def.get("yaw", 0.0),
                 category=_classify_angle(name),
             )
-            key = f"{ac.roll:.1f}_{ac.pitch:.1f}_{ac.yaw:.1f}"
-            doe_angles[key] = ac
+            doe_angles[_angle_key(ac.roll, ac.pitch, ac.yaw)] = ac
 
     return project_name, doe_strategy, sim_params, doe_angles
 
@@ -465,10 +486,18 @@ def _resolve_angle(
     dropset_angle: AngleCondition,
     doe_angles: dict[str, AngleCondition],
 ) -> AngleCondition:
-    """Match DropSet angle to named DOE angle."""
-    key = f"{dropset_angle.roll:.1f}_{dropset_angle.pitch:.1f}_{dropset_angle.yaw:.1f}"
-    if key in doe_angles:
-        matched = doe_angles[key]
+    """Match DropSet angle to named DOE angle.
+
+    키 한 번으로 못 찾으면 허용오차 안에서 가장 가까운 DOE 를 찾는다 — 두 파일이
+    같은 각도를 0.1° 반올림 경계 양쪽에 적어 둔 경우를 살린다. 허용오차 밖이면
+    붙이지 않는다(가까운 이름을 빌려 오면 그 런이 남의 각도로 보고된다).
+    """
+    matched = doe_angles.get(
+        _angle_key(dropset_angle.roll, dropset_angle.pitch, dropset_angle.yaw)
+    )
+    if matched is None:
+        matched = _nearest_doe_angle(dropset_angle, doe_angles)
+    if matched is not None:
         return AngleCondition(
             angle_name=matched.angle_name,
             roll=dropset_angle.roll,
@@ -476,14 +505,38 @@ def _resolve_angle(
             yaw=dropset_angle.yaw,
             category=matched.category,
         )
-    # No match - generate name from angles
+    # No match - generate name from angles.
+    # yaw 를 빼면 (35.26,45,0) 과 (35.26,45,90) 이 같은 'R35_P45' 가 되어 서로
+    # 다른 런이 한 이름으로 겹친다 — 연합 어댑터는 이 이름을 셀 키로 쓰고(하나가
+    # 조용히 대체된다), sphere 화면은 이름으로 런을 찾는다. 세 축을 0.1° 까지 쓴다.
     return AngleCondition(
-        angle_name=f"R{dropset_angle.roll:.0f}_P{dropset_angle.pitch:.0f}",
+        angle_name=(f"R{_angle_text(dropset_angle.roll)}"
+                    f"_P{_angle_text(dropset_angle.pitch)}"
+                    f"_Y{_angle_text(dropset_angle.yaw)}"),
         roll=dropset_angle.roll,
         pitch=dropset_angle.pitch,
         yaw=dropset_angle.yaw,
         category="unknown",
     )
+
+
+def _nearest_doe_angle(
+    dropset_angle: AngleCondition,
+    doe_angles: dict[str, AngleCondition],
+) -> AngleCondition | None:
+    """세 축 모두 허용오차 안인 DOE 중 가장 가까운 것. 없으면 None."""
+    best, best_err = None, None
+    for ac in doe_angles.values():
+        err = max(
+            abs(ac.roll - dropset_angle.roll),
+            abs(ac.pitch - dropset_angle.pitch),
+            abs(ac.yaw - dropset_angle.yaw),
+        )
+        if err > _ANGLE_MATCH_TOL_DEG:
+            continue
+        if best_err is None or err < best_err:
+            best, best_err = ac, err
+    return best
 
 
 def _collect_hotspot_clusters(ar: dict, part_ids: set[int] | None) -> list[dict]:
