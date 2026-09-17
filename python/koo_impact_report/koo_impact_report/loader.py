@@ -1222,6 +1222,47 @@ def load_per_part_motions(
     return motions, d3plot_result
 
 
+def _read_full_history_csv(
+    out_dir,
+    sub: str,
+    pid: int,
+    quantity: str,
+    column: str,
+) -> tuple[list[float], list[float]] | None:
+    """``<out_dir>/<sub>/part_<pid>_<quantity>.csv`` 를 (times, max) 로 읽는다.
+
+    unified_analyzer 가 JSON 과 **같은 폴더**에 쓰는 전해상도 이력이다. 파일이
+    없거나 한 줄도 못 읽으면 None — 빈 배열(=0 위장)을 돌려주지 않는다.
+    """
+    if out_dir is None:
+        return None
+    csv_path = Path(out_dir) / sub / f"part_{pid}_{quantity}.csv"
+    if not csv_path.exists():
+        return None
+    times: list[float] = []
+    vals: list[float] = []
+    try:
+        with open(csv_path, encoding="utf-8") as f:
+            rdr = csv.DictReader(f)
+            if not rdr.fieldnames or column not in rdr.fieldnames:
+                return None
+            for row in rdr:
+                try:
+                    t = float(row["Time"])
+                    v = float(row[column])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if not (math.isfinite(t) and math.isfinite(v)):
+                    continue
+                times.append(t)
+                vals.append(v)
+    except OSError:
+        return None
+    if not times:
+        return None
+    return times, vals
+
+
 def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
     """Per-part peak stress/strain + time-series from D3plotResult.
 
@@ -1242,6 +1283,16 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
     out: dict[int, dict] = {}
     if d3plot_result is None:
         return out
+
+    # 잘림 판정 기준 — 상태 수. 옛 unified_analyzer 는 analysis_result.json 의
+    # 시계열을 앞 10 + 뒤 10 점으로 자르고 가운데를 "...(omitted N entries)..."
+    # 문자열로 대체했는데, koo_deep_report 의 _parse_series 가 그 표식을 버려
+    # 여기서는 20 점짜리 멀쩡한 배열로 보인다. num_states 와 대조해야 알 수 있다.
+    try:
+        n_states = int(getattr(d3plot_result, "num_states", 0) or 0)
+    except (TypeError, ValueError):
+        n_states = 0
+    out_dir = getattr(d3plot_result, "output_dir", None)
 
     def _series_to_lists(ts):
         """Convert PartTimeSeries.data → (times, max_values).
@@ -1274,8 +1325,26 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         rec = out.setdefault(int(pid), {})
         rec["peak_stress"] = float(getattr(s, "global_max", 0.0) or 0.0)
         rec["stress_unit"] = getattr(s, "unit", "") or ""
-        rec["stress_times"] = st_t
-        rec["stress_max_series"] = st_m
+        if n_states > 0 and len(st_t) < n_states:
+            # 잘렸다 — 전해상도 CSV 로 되읽는다. 응력은 MPa 규모라 CSV 의
+            # 소수 6자리 고정이 문제되지 않는다.
+            full = _read_full_history_csv(
+                out_dir, "stress", int(pid), "von_mises", "Max_von_mises")
+            if full is not None and len(full[0]) > len(st_t):
+                rec["stress_times"], rec["stress_max_series"] = full
+                rec["stress_ts_source"] = "csv"
+            else:
+                # 20 점짜리 곡선을 '진짜 이력' 으로 내보내지 않는다.
+                rec["stress_times"] = None
+                rec["stress_max_series"] = None
+                rec["stress_ts_issue"] = (
+                    f"analysis_result.json 응력 이력이 잘림 "
+                    f"({len(st_t)}/{n_states}) — 전해상도 "
+                    f"stress/part_{int(pid)}_von_mises.csv 도 없어 시계열을 뺐다")
+        else:
+            rec["stress_times"] = st_t
+            rec["stress_max_series"] = st_m
+            rec["stress_ts_source"] = "json"
 
     for s in getattr(d3plot_result, "strain", []) or []:
         pid = getattr(s, "part_id", None)
@@ -1284,8 +1353,18 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
         sn_t, sn_m = _series_to_lists(s)
         rec = out.setdefault(int(pid), {})
         rec["peak_strain"] = float(getattr(s, "global_max", 0.0) or 0.0)
-        rec["strain_times"] = sn_t
-        rec["strain_max_series"] = sn_m
+        if n_states > 0 and len(sn_t) < n_states:
+            # 변형률 CSV 는 소수 6자리 고정이라 1e-5 규모가 뭉개진다 —
+            # 되읽지 않고 시계열 자체를 뺀다 (사유는 남긴다).
+            rec["strain_times"] = None
+            rec["strain_max_series"] = None
+            rec["strain_ts_issue"] = (
+                f"analysis_result.json 변형률 이력이 잘림 "
+                f"({len(sn_t)}/{n_states}) — CSV 는 소수 6자리 고정이라 "
+                f"대체 불가, 시계열을 뺐다")
+        else:
+            rec["strain_times"] = sn_t
+            rec["strain_max_series"] = sn_m
 
     # 주응력/주변형률/등가변형률 — 산출물에 있을 때만 채운다.
     # 없으면 키 자체를 넣지 않아 소비자가 '미기록' 과 '0' 을 구분할 수 있다.
@@ -1647,6 +1726,17 @@ def load_single_d3plot_report(
         load_issues.append({"kind": "binout", "pos_name": None,
                             "exc_class": _bin_err.get("class"),
                             "msg": _bin_err.get("msg", "")})
+
+    # 잘린 analysis_result.json 때문에 시계열을 뺀 파트 — 파트 목록과 사유를
+    # 한 건으로 묶어 남긴다 (25 파트면 Finding 25 건이 되지 않게).
+    for _key, _label in (("stress_ts_issue", "stress"), ("strain_ts_issue", "strain")):
+        _hit = sorted(p for p, rec in stress_strain.items() if rec.get(_key))
+        if _hit:
+            load_issues.append({
+                "kind": "history-truncated", "pos_name": None,
+                "exc_class": _label,
+                "msg": f"part {', '.join(str(p) for p in _hit)} — "
+                       + str(stress_strain[_hit[0]][_key])})
 
     impactor_mass: float | None = None
     v0_mag = 0.0

@@ -420,6 +420,18 @@ def _findings_from_load_issues(report: ImpactReport) -> list[Finding]:
             recommendation="step_config *Description 의 DOE### 토큰을 확인하세요.",
         ))
 
+    # 4b) 위에서 이름으로 다루지 않은 kind — 사유가 화면에서 사라지지 않게
+    #     kind 당 집계 1건으로 승격한다 (하드 룰: kind 당 1건).
+    _named = {"run-load-failed", "impactor-mismatch", "binout", "doe-index-fallback"}
+    for _kind in sorted(k for k in by_kind if k not in _named):
+        _items = by_kind[_kind]
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title=f"{_kind} ({len(_items)}/{n_runs})",
+            detail=_names(_items) + " — " + str(_items[0].get("msg", ""))[:200],
+            recommendation="산출물 meta.load_issues 에 원문이 있습니다.",
+        ))
+
     # 5) impactor geometry / mass 상태 (report.impactor 직접 판정)
     imp = report.impactor
     if getattr(imp, "geometry_source", "") == "motion-bbox":
