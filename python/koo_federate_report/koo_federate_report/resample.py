@@ -301,10 +301,61 @@ def _idw_sample(target_vec, cells, vecs, power=2.0, k=4) -> Sample:
     )
 
 
+def _angle_gap(c1, c2):
+    """두 셀의 각거리(도). 한쪽이라도 각도가 없으면 None(판정 불가)."""
+    if c1 is None or c2 is None:
+        return None
+    if (c1.roll is None or c1.pitch is None
+            or c2.roll is None or c2.pitch is None):
+        return None
+    return _ang_dist_deg(_unit_vec(c1.roll, c1.pitch), _unit_vec(c2.roll, c2.pitch))
+
+
+def _name_matches_direction(c1, c2) -> bool:
+    """이름이 같은 두 셀이 **같은 방향**인가.
+
+    실캠페인의 Fibonacci DOE 는 방향 이름이 런 순번이다(P0001..P1146,
+    P0001..P10313). 격자 크기가 다르면 **같은 이름이 전혀 다른 방향**을 가리킨다 —
+    실측 격자에서 최악 141° 떨어진 쌍이 offset 0.0 인 '실측 일치' 로 기록됐다.
+    각도를 모를 때만 이름을 믿는다(반박할 근거가 없다).
+    """
+    d = _angle_gap(c1, c2)
+    return True if d is None else d <= _ANGLE_EXACT_DEG
+
+
+def _collision_warning(bad: list) -> dict:
+    """이름은 같은데 방향이 다른 쌍을 조용히 강등하지 않고 말한다."""
+    worst = max(d for _, d in bad)
+    keys = ", ".join(sorted({k for k, _ in bad})[:5])
+    return {
+        "code": "angle_name_collision",
+        "severity": "WARN",
+        "message": (
+            f"각도 이름은 같은데 방향이 다른 쌍이 {len(bad)}개 있습니다 "
+            f"(최대 {worst:.1f}° 차이: {keys}). Fibonacci DOE 의 방향 이름은 런 순번이라 "
+            "격자 크기가 다르면 같은 이름이 다른 방향을 가리킵니다 — 이름 일치를 "
+            "실측 일치로 쓰지 않고 각도로 다시 맞췄습니다."
+        ),
+    }
+
+
 def _align_sphere(bundles, baseline_idx, mode) -> AlignResult:
     res = AlignResult()
     keysets = [{c.key for c in b.cells} for b in bundles]
     identical = all(ks == keysets[0] for ks in keysets)
+
+    # 이름이 같아도 방향이 다를 수 있다. identity 로 들어가기 전에 확인한다.
+    _indexes_all = [{c.key: c for c in b.cells} for b in bundles]
+    _collisions = [
+        (key, d)
+        for key, cell in _indexes_all[baseline_idx].items()
+        for ix in _indexes_all
+        for d in [_angle_gap(cell, ix.get(key))]
+        if d is not None and d > _ANGLE_EXACT_DEG
+    ]
+    if _collisions:
+        identical = False
+        res.warnings.append(_collision_warning(_collisions))
 
     if identical:
         base = bundles[baseline_idx]
@@ -333,6 +384,10 @@ def _align_sphere(bundles, baseline_idx, mode) -> AlignResult:
         common = set.intersection(*keysets) if keysets else set()
         base = bundles[baseline_idx]
         indexes = [{c.key: c for c in b.cells} for b in bundles]
+        # 이름 교집합은 방향 교집합이 아니다 — 방향이 어긋난 이름은 뺀다.
+        common = {k for k in common
+                  if all(_name_matches_direction(indexes[baseline_idx].get(k), ix.get(k))
+                         for ix in indexes)}
         nodes = []
         for cell in base.cells:
             if cell.key not in common:
@@ -371,7 +426,9 @@ def _align_sphere(bundles, baseline_idx, mode) -> AlignResult:
             tv = _unit_vec(cell.roll, cell.pitch)
             for i, b in enumerate(bundles):
                 exact = next((c for c in b.cells if c.key == cell.key), None)
-                if exact is not None:
+                # 이름이 같아도 **방향이 같을 때만** 실측 일치다. 아니면 이름을 버리고
+                # 아래 각도 탐색으로 넘긴다 (허용 반경 밖이면 missing 이 된다).
+                if exact is not None and _name_matches_direction(cell, exact):
                     node.per_rev.append(_sample_from_cell(exact, "exact", True, 0.0))
                     continue
                 best, best_d = None, None
