@@ -24,9 +24,13 @@ from koo_sphere_report.models import (  # noqa: E402
     AngleCondition, MotionData, PartEnergy, PartInfo, PartResult, Report,
     SimulationResult, TimeSeriesData,
 )
+from koo_sphere_report.report.html_report import _build_report_data  # noqa: E402
 from koo_sphere_report.report.json_report import save_json  # noqa: E402
 
-N = 60
+# 표본 수는 다운샘플 임계(save_json 의 ts_pts=100)보다 **커야** 한다. 60 점이면
+# extreme_indices 가 range(n) 을 그대로 돌려줘 다운샘플 경로가 아예 안 돌고,
+# 열마다 격자가 갈리는 결함이 시험 범위 밖으로 빠진다.
+N = 600
 STRESS = [300.0 * (i / 20.0 if i <= 20 else max(0.0, (40 - i) / 20.0)) for i in range(N)]
 STRAIN = [0.0] * N
 STRAIN[37] = 0.0042          # 응력 피크(=20)와 **다른** 시각에 온다
@@ -80,11 +84,17 @@ def _built_report() -> Report:
     return rep
 
 
-def _roundtrip() -> PartResult:
+def _roundtrip_pair() -> tuple[dict, PartResult]:
+    """사이드카 원본과 되살린 파트를 함께 돌려준다 (둘을 맞대 볼 수 있게)."""
     out = Path(tempfile.mkdtemp()) / "report.json"
     save_json(_built_report(), str(out))
+    side = json.loads(out.read_text(encoding="utf-8"))
     back = load_report_from_json(out)
-    return back.results[0].parts[7]
+    return side["results_summary"][0]["parts"]["7"], back.results[0].parts[7]
+
+
+def _roundtrip() -> PartResult:
+    return _roundtrip_pair()[1]
 
 
 def test_stress_series_is_read_not_invented():
@@ -133,6 +143,37 @@ def test_motion_series_is_read():
     assert len(pr.motion.avg_disp_mag) > 2
 
 
+def test_disp_series_keeps_its_own_times():
+    """변위는 제 시각을 지켜야 한다 — 사라지지도, 가속도 시각에 붙지도 않는다.
+
+    사이드카의 g_ts 와 disp_ts 는 서로 다른 구간 극값 격자로 뽑힌다(가속도는
+    스파이크, 변위는 단조증가라 극값 위치가 다르다). 되살린 Report 를 다시
+    그리면 그 (시각, 값) 짝이 원본과 글자 그대로 같아야 한다.
+    """
+    side, pr = _roundtrip_pair()
+    g_ts, d_ts = side["g_ts"], side["disp_ts"]
+    # 이 시험이 실제로 다운샘플 경로를 타는지부터 못박는다.
+    assert len(d_ts["t"]) < N, "다운샘플이 일어나지 않아 격자 분리를 시험하지 못한다"
+    assert g_ts["t"] != d_ts["t"], "두 열의 격자가 같아 이 시험이 아무것도 안 본다"
+
+    rep = Report(project_name="RT", total_runs=1, successful_runs=1)
+    rep.part_info = {7: pr.part}
+    sr = SimulationResult(
+        run_folder="Run_0001",
+        angle=AngleCondition(angle_name="P0001", roll=1.0, pitch=2.0, yaw=3.0),
+        num_states=N,
+    )
+    sr.parts = {7: pr}
+    rep.results.append(sr)
+    again = _build_report_data(rep)["results"][0]["parts"]["7"]
+
+    assert "disp_ts" in again, "재생성에서 변위 곡선이 통째로 사라졌다"
+    assert again["disp_ts"]["mag"] == d_ts["mag"], "변위 값이 바뀌었다"
+    assert again["disp_ts"]["t"] == d_ts["t"], (
+        "변위가 제 시각을 잃었다 — 가속도 시각에 옮겨 붙었다")
+    assert again["g_ts"]["t"] == g_ts["t"], "가속도 시각이 바뀌었다"
+
+
 def test_absent_series_stays_absent():
     """키가 없으면 빈 채로 둔다 — 없는 곡선을 만들지 않는다."""
     d = {
@@ -159,4 +200,5 @@ def test_all():
     test_strain_uses_its_own_peak_time()
     test_principal_and_energy_survive()
     test_motion_series_is_read()
+    test_disp_series_keeps_its_own_times()
     test_absent_series_stays_absent()

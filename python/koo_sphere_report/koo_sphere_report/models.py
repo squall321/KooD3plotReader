@@ -125,6 +125,10 @@ class MotionData:
     avg_acc_z: list[float] = field(default_factory=list)
     avg_acc_mag: list[float] = field(default_factory=list)
     max_disp_mag: list[float] = field(default_factory=list)
+    #: 변위 열이 서 있는 시각. 사이드카는 g_ts/disp_ts 를 각각 제 구간 극값으로
+    #: 뽑으므로 두 열의 격자가 다를 수 있다 — 되살릴 때 이 배열이 채워진다.
+    #: 비어 있으면 `times` 와 같은 격자라는 뜻이다(로더가 읽은 원본이 그렇다).
+    disp_times: list[float] = field(default_factory=list)
     true_peak_g: float | None = None
     true_peak_g_time: float | None = None
     true_peak_disp: float | None = None
@@ -182,6 +186,11 @@ class MotionData:
         abs_vals = [abs(v) for v in self.avg_acc_mag]
         idx = abs_vals.index(max(abs_vals))
         return self.times[idx] if idx < len(self.times) else 0.0
+
+    @property
+    def disp_time_axis(self) -> list[float]:
+        """변위 열의 시각. 제 격자가 따로 있으면 그것을, 없으면 공통 times 를."""
+        return self.disp_times or self.times
 
     @property
     def peak_disp(self) -> float:

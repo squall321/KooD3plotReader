@@ -66,8 +66,11 @@ def _motion(pd: dict) -> MotionData | None:
     if dt and len(dt) == len(dv):
         if not mo.times:
             mo.times = dt
-        if len(dv) == len(mo.times):
-            mo.avg_disp_mag = dv
+        # 변위는 **제 시각을 그대로** 지킨다. g_ts 와 disp_ts 는 각자 제 구간
+        # 극값으로 뽑혀 격자가 다르다 — 예전에는 길이가 다르면 변위를 통째로
+        # 버리고(곡선이 조용히 사라졌다), 우연히 같으면 가속도 시각에 붙였다.
+        mo.disp_times = dt
+        mo.avg_disp_mag = dv
     mo.true_peak_g = peak_g
     mo.true_peak_g_time = peak_g_time
     mo.true_peak_disp = peak_disp

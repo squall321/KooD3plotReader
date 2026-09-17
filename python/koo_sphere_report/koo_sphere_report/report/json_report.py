@@ -153,10 +153,13 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                             "t": [round_keep_sig(pr.motion.times[i], 7) for i in gidx],
                             "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                         }
-                    if len(pr.motion.avg_disp_mag) == _n:
-                        didx = extreme_indices(_n, [pr.motion.avg_disp_mag], ts_pts)
+                    # 변위는 제 시각 위에 실는다 — 되살린 Report 는 g_ts 와
+                    # 다른 격자를 가질 수 있다(이 파일이 그렇게 뽑기 때문이다).
+                    _dt = pr.motion.disp_time_axis
+                    if _dt and len(pr.motion.avg_disp_mag) == len(_dt):
+                        didx = extreme_indices(len(_dt), [pr.motion.avg_disp_mag], ts_pts)
                         pd["disp_ts"] = {
-                            "t": [round_keep_sig(pr.motion.times[i], 7) for i in didx],
+                            "t": [round_keep_sig(_dt[i], 7) for i in didx],
                             "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], 2) for i in didx],
                         }
 

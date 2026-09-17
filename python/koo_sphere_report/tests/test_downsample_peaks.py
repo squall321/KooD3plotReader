@@ -130,7 +130,7 @@ def test_two_stage_keeps_peak_g(tmp_path: Path):
     pd = data["results"][0]["parts"]["7"]
     assert max(pd["g_ts"]["g"]) >= peak_g * 0.999, (
         f"g 시계열 피크가 {max(pd['g_ts']['g'])} — 참피크 {peak_g} 를 잃었다")
-    # 변위 시계열도 같은 인덱스 집합을 쓰므로 마지막(최대) 점이 남아야 한다
+    # 변위 시계열은 제 격자로 뽑히지만 끝점은 항상 남으므로 최대점이 살아야 한다
     assert max(pd["disp_ts"]["mag"]) == float(N_STATES - 1)
 
 

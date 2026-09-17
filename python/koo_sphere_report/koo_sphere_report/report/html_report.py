@@ -230,10 +230,13 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in gidx],
                         "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                     }
-                if len(pr.motion.avg_disp_mag) == _n:
-                    didx = extreme_indices(_n, [pr.motion.avg_disp_mag], ts_pts)
+                # 변위는 제 시각 위에 그린다 — --from-json 으로 되살린 Report 는
+                # g_ts 와 다른 격자를 가질 수 있다(사이드카가 그렇게 뽑는다).
+                _dt = pr.motion.disp_time_axis
+                if _dt and len(pr.motion.avg_disp_mag) == len(_dt):
+                    didx = extreme_indices(len(_dt), [pr.motion.avg_disp_mag], ts_pts)
                     pd["disp_ts"] = {
-                        "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in didx],
+                        "t": [round_keep_sig(_dt[i], t_prec) for i in didx],
                         "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
                     }
                 if include_components and len(pr.motion.avg_acc_x) == _n:
