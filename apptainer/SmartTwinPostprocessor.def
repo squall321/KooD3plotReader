@@ -57,8 +57,14 @@ From: ubuntu:22.04
         libomp-dev python3 python3-pip python3-venv libpython3.10 \
         ffmpeg libpng-dev xvfb \
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
-        libxinerama1 libxkbcommon0
+        libxinerama1 libxkbcommon0 \
+        libgtk-3-0 libnotify4 libsecret-1-0
     # libpython3.10: PyInstaller onefile 빌드 시 필요 (koo_dyna_diag)
+    # libgtk-3-0 libnotify4 libsecret-1-0: LSPrePost 가 링크하는 libgtk-3/gdk-3/atk-1.0/
+    #   notify/secret 은 lsprepost 번들(lib, mesa_lib)에 **없다**. 빠지면 렌더가
+    #   "libgtk-3.so.0: cannot open shared object file" (exit 127) 로 죽고 영상 0개.
+    #   (2026-09-17 SIF c6ef4ca 에서 재현, 이 3개 설치 후 헤드리스 렌더 성공 확인.
+    #    6/26 의 "번들에 있음" 판정은 호스트 ldd 가 호스트 GTK 를 찾은 착각이었다.)
 
     # --- GPU 렌더(VirtualGL) — best-effort, 실패해도 빌드 안 죽음 ---
     # GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속하는 경로(KOOD3PLOT_GPU_RENDER=1
@@ -99,6 +105,16 @@ From: ubuntu:22.04
         sed -i 's/^LSPrePost:.*/LSPrePost:  bundled/' /opt/kood3plot/VERSION 2>/dev/null || true
         rm -rf /opt/_lsprepost_staging
         echo "LSPrePost bundled → /opt/kood3plot/lsprepost/"
+
+        # 래퍼(lspp412_mesa)와 같은 라이브러리 경로에서 풀리지 않는 공유 라이브러리가
+        # 하나라도 있으면 렌더가 실행 시점에 죽는다 — 빌드에서 막는다.
+        lspp_missing=$(LD_LIBRARY_PATH=/opt/kood3plot/lsprepost/mesa_lib:/opt/kood3plot/lsprepost/lib \
+                       ldd /opt/kood3plot/lsprepost/lsprepost 2>&1 | grep "not found" || true)
+        if [ -n "$lspp_missing" ]; then
+            echo "ERROR: LSPrePost 공유 라이브러리 누락 (apt 목록 확인):"
+            echo "$lspp_missing"
+            exit 1
+        fi
     fi
 
     # Cleanup: remove build artifacts and source (keep only /opt/kood3plot)
@@ -169,6 +185,13 @@ From: ubuntu:22.04
 
 %test
     /opt/kood3plot/bin/unified_analyzer --help >/dev/null
+    # `! cmd` 는 set -e 에 걸리지 않는다 — 누락 시 명시적으로 실패시킨다.
+    if [ -x /opt/kood3plot/lsprepost/lsprepost ] && \
+       LD_LIBRARY_PATH=/opt/kood3plot/lsprepost/mesa_lib:/opt/kood3plot/lsprepost/lib \
+       ldd /opt/kood3plot/lsprepost/lsprepost 2>&1 | grep "not found"; then
+        echo "ERROR: LSPrePost 공유 라이브러리 누락"
+        exit 1
+    fi
     /opt/kood3plot/bin/koo_deep_report --help >/dev/null
     /opt/kood3plot/bin/koo_sphere_report --help >/dev/null
     /opt/kood3plot/bin/koo_impact_report --help >/dev/null
