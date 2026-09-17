@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from koo_deep_report.core.d3plot_reader import _parse_series
-from koo_deep_report.report.models import MotionData, PartTimeSeries
+from koo_deep_report.report.models import GlstatData, MotionData, PartTimeSeries
 
 fails = []
 
@@ -131,6 +131,36 @@ with tempfile.TemporaryDirectory() as td:
     md_new = _parse_motion_csv(new_csv)
     chk("새 CSV: peak_disp_mag=20", md_new.peak_disp_mag, 20.0)
     chk("새 CSV: 절점 412", md_new.peak_disp_node, 412)
+
+print()
+
+# ---------------------------------------------------------------------------
+print("[3] has_mass_added — added mass 가 0 에서 시작해도 잡는다")
+
+# 실제 glstat (ubend_c5210): added mass 0 → 4.9451e-05, percentage increase 2.3721%
+gl = GlstatData(t=[0.0, 1.0], mass=[0.0, 4.9451e-05], mass_pct_increase=[0.0, 2.3721])
+chkb("2.37% 증가 → True", gl.has_mass_added is True)
+chk("증가율을 그대로 보고", gl.mass_added_pct, 2.3721)
+
+gl_small = GlstatData(t=[0.0, 1.0], mass=[0.0, 1.0e-12], mass_pct_increase=[0.0, 0.004])
+chkb("0.004% 증가 → False", gl_small.has_mass_added is False)
+
+# 'percentage increase' 줄이 없는 glstat 은 판단 근거가 없다 — False 로 단정하지 않는다.
+gl_nopct = GlstatData(t=[0.0, 1.0], mass=[0.0, 4.9451e-05])
+chk("증가율 미기록이면 None", gl_nopct.mass_added_pct, None)
+chkb("증가율 미기록이면 판단 불가(None)", gl_nopct.has_mass_added is None)
+chkb("사유가 남는다", gl_nopct.mass_added_reason != "")
+
+# 실제 파일로 파서까지 통과시킨다.
+from koo_deep_report.core.glstat_reader import parse_glstat
+
+real = Path("/data/shield_can_forming_study/ubend_c5210/glstat")
+if real.exists():
+    g = parse_glstat(real)
+    chkb("실데이터: 질량 추가를 잡는다", g is not None and g.has_mass_added is True)
+    chk("실데이터: 증가율 2.3721%", round(g.mass_added_pct, 4) if g else None, 2.3721)
+else:
+    print("  -- 실 glstat 없음 — 건너뜀")
 
 print()
 

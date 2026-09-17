@@ -15,6 +15,9 @@ _RE_HOURGLASS = re.compile(r"hourglass energy\s*\.{2,}\s*([\d.Ee+\-]+)")
 _RE_TOTAL = re.compile(r"^ *total energy\.{2,}\s+([\d.Ee+\-]+)", re.MULTILINE)
 _RE_ENERGY_RATIO = re.compile(r"total energy / initial energy\.{2,}\s+([\d.Ee+\-]+)")
 _RE_MASS = re.compile(r"added mass\s*\.{2,}\s*([\d.Ee+\-]+)")
+# 'added mass' 는 t=0 에 0 이라 그것만으로는 질량 스케일링을 못 잡는다.
+# LS-DYNA 가 바로 아래 줄에 내놓는 모델 질량 대비 증가율(%)을 같이 읽는다.
+_RE_MASS_PCT = re.compile(r"percentage increase\s*\.{2,}\s*([\d.Ee+\-]+)")
 
 
 def parse_glstat(path: Path) -> GlstatData | None:
@@ -67,6 +70,9 @@ def parse_glstat(path: Path) -> GlstatData | None:
 
         mass = _extract(block, _RE_MASS)
         data.mass.append(mass or 0.0)
+        pct = _extract(block, _RE_MASS_PCT)
+        if pct is not None:
+            data.mass_pct_increase.append(pct)
 
     return data if data.t else GlstatData(normal_termination=data.normal_termination)
 

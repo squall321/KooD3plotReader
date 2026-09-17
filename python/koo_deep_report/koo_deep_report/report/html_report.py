@@ -289,6 +289,8 @@ def _build_js_data(result: SingleResult) -> dict:
             "energy_ratio_min": gl.energy_ratio_min,
             "energy_ratio_max": gl.energy_ratio_max,
             "has_mass_added": gl.has_mass_added,
+            "mass_added_pct": gl.mass_added_pct,
+            "mass_added_reason": gl.mass_added_reason,
             "normal_termination": gl.normal_termination,
         }
 
@@ -1523,8 +1525,10 @@ function renderEnergy() {
     ? `<div class="err-box">에너지 비율 이상: max=${fmt(erMax,4)} — 에너지가 생성됨 (수치 불안정 가능)</div>` :
     (erMax !== null && erMax > 1.05)
     ? `<div class="warn-box">에너지 비율 주의: max=${fmt(erMax,4)} — 에너지 소폭 증가</div>` : '';
-  const massWarn = g.has_mass_added
-    ? '<div class="warn-box">질량 추가 감지 — 시간 스텝 조절에 의한 인위적 질량 증가 확인 필요</div>' : '';
+  const massWarn = g.has_mass_added === true
+    ? `<div class="warn-box">질량 추가 감지 (모델 질량 대비 ${fmt(g.mass_added_pct, 2)}%) — 시간 스텝 조절에 의한 인위적 질량 증가 확인 필요</div>`
+    : (g.has_mass_added === null || g.has_mass_added === undefined)
+    ? `<div class="warn-box">질량 추가 판단 불가 — ${g.mass_added_reason || 'glstat 에 증가율 기록 없음'}</div>` : '';
 
   return `${warn}${massWarn}
 <div class="sec-title">에너지 이력</div>

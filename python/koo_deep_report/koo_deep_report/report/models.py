@@ -58,7 +58,10 @@ class GlstatData:
     kinetic_energy: list[float] = field(default_factory=list)
     internal_energy: list[float] = field(default_factory=list)
     hourglass_energy: list[float] = field(default_factory=list)
-    mass: list[float] = field(default_factory=list)
+    mass: list[float] = field(default_factory=list)          # glstat 'added mass'
+    #: glstat 'percentage increase' — 모델 질량 대비 추가 질량 비율(%).
+    #: 그 줄이 없는 glstat 도 있어서, 비어 있으면 '판단 불가' 다.
+    mass_pct_increase: list[float] = field(default_factory=list)
     energy_ratio: list[float] = field(default_factory=list)  # internal/total
 
     @property
@@ -70,11 +73,29 @@ class GlstatData:
         return max(self.energy_ratio) if self.energy_ratio else None
 
     @property
-    def has_mass_added(self) -> bool:
-        """질량 추가 여부 (초기 질량 대비 1% 이상 증가)."""
-        if len(self.mass) < 2 or self.mass[0] == 0:
-            return False
-        return (self.mass[-1] - self.mass[0]) / self.mass[0] > 0.01
+    def mass_added_pct(self) -> float | None:
+        """최종 질량 증가율(%). glstat 에 'percentage increase' 가 없으면 None."""
+        return self.mass_pct_increase[-1] if self.mass_pct_increase else None
+
+    @property
+    def has_mass_added(self) -> bool | None:
+        """질량 추가 여부 (모델 질량 대비 1% 이상 증가). 판단 불가면 None.
+
+        'added mass' 는 보통 t=0 에 0 이다. 그 값의 자기 대비 증가율을 보면
+        질량 스케일링이 있어도 잡히지 않는다 — LS-DYNA 가 직접 내놓는
+        'percentage increase' 를 쓴다.
+        """
+        pct = self.mass_added_pct
+        if pct is None:
+            return None
+        return pct > 1.0
+
+    @property
+    def mass_added_reason(self) -> str:
+        """has_mass_added 가 None 인 사유. 판단했으면 빈 문자열."""
+        if self.mass_pct_increase:
+            return ""
+        return "glstat 에 'percentage increase' 줄이 없다 — 질량 추가 판단 불가"
 
 
 # ---------------------------------------------------------------------------
