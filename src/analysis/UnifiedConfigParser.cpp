@@ -481,6 +481,16 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
         std::string key = trim(trimmed.substr(0, colon_pos));
         std::string value = trim(trimmed.substr(colon_pos + 1));
 
+        // 인라인 매핑(`surface: { direction: [0,0,1], angle: 45 }`)은 이 수제 파서가
+        // 읽지 못한다. 무음으로 버리면 그 잡이 **기본값으로** 돌아간다 — 실제로
+        // +Z/-Z 두 잡이 모두 기본 -Z 로 돌아 같은 결과를 냈다 (2026-09-17).
+        if (!value.empty() && value[0] == '{') {
+            std::cerr << "[config] 경고: " << (i + 1) << "행 '" << key
+                      << ":' 의 인라인 매핑 { ... } 은 지원하지 않습니다 — 무시됩니다. "
+                      << "블록 형식으로 쓰세요 (다음 줄에 들여쓰기해서 key: value)." << std::endl;
+            continue;
+        }
+
         // Remove quotes from value
         if (!value.empty() && (value[0] == '"' || value[0] == '\'')) {
             char quote = value[0];
