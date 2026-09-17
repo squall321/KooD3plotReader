@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import __version__
 from .models import (
     EnergyFlow, FaceOrientation, ImpactPosition, ImpactReport, ImpactorSpec,
     ImpactorTrajectory, PairResult, PartInfo, PartMotion, TimeSeriesData,
@@ -1090,11 +1091,37 @@ def _derive_mass_from_matsum(
     return None
 
 
+def _reuse_staleness(d3plot_path: Path, work_dir: Path) -> str | None:
+    """재사용하려는 deep 산출물이 입력보다 오래됐으면 사유, 아니면 None.
+
+    d3plot 이 없으면(=지워짐) 비교 자체가 불가능하므로 None — 그때는 재사용이
+    유일한 길이고, 호출부가 그 사실을 따로 기록한다.
+    """
+    try:
+        if not d3plot_path.exists():
+            return None
+        d3_m = d3plot_path.stat().st_mtime_ns
+        an_m = (work_dir / "analysis_result.json").stat().st_mtime_ns
+    except OSError:
+        return None
+    if an_m < d3_m:
+        return "analysis_result.json 이 d3plot 보다 오래됐다"
+    motion_dir = work_dir / "motion"
+    try:
+        csvs = sorted(motion_dir.glob("part_*_motion.csv"))
+        if csvs and min(c.stat().st_mtime_ns for c in csvs) < d3_m:
+            return "motion CSV 가 d3plot 보다 오래됐다"
+    except OSError:
+        return None
+    return None
+
+
 def load_per_part_motions(
     d3plot_path: Path,
     part_ids: list[int] | None = None,
     work_dir: Path | None = None,
     threads: int = 2,
+    issues: list[dict] | None = None,
 ) -> tuple[dict[int, PartMotion], object]:
     """Run unified_analyzer for the given parts → parse motion CSVs into PartMotion.
 
@@ -1126,6 +1153,27 @@ def load_per_part_motions(
         and (work_dir / "motion").is_dir()
         and any((work_dir / "motion").glob("part_*_motion.csv"))
     )
+    # 존재만 보면 안 된다 — 같은 자리에서 다시 푼 런(rerun.sh)은 d3plot 이
+    # analysis_result.json 보다 새롭고, 그러면 한 위치에 옛 peak_g/응력/motion 과
+    # 새 에너지흐름·solver_quality 가 섞인다. 오래됐으면 다시 돌린다.
+    _stale_reason = None
+    if _reuse:
+        _stale_reason = _reuse_staleness(Path(d3plot_path), work_dir)
+        if _stale_reason is not None:
+            if Path(d3plot_path).exists():
+                print(f"[loader] deep_report output is stale ({_stale_reason}) — "
+                      f"rerunning unified_analyzer")
+                _reuse = False
+            else:
+                # d3plot 이 없으니 다시 돌릴 수도 없다. 재사용하되 사유를 남긴다.
+                print(f"[loader] WARN  reusing STALE deep_report output "
+                      f"({_stale_reason}) — d3plot 이 없어 재생성 불가")
+                if issues is not None:
+                    issues.append({
+                        "kind": "deep-output-stale", "pos_name": None,
+                        "exc_class": None,
+                        "msg": f"{work_dir}: {_stale_reason} — d3plot 이 없어 "
+                               f"재생성하지 못하고 옛 산출물을 그대로 썼다"})
     d3plot_result = None
     if _reuse:
         try:
@@ -1697,11 +1745,14 @@ def load_single_d3plot_report(
     # when present (logs "reusing deep_report output"); otherwise it runs
     # unified_analyzer. Either way it returns per-part motions + d3plot_result.
     print(f"[loader] extracting per-part motion for parts={part_ids_to_extract or 'auto'}")
+    # 실패는 구조화 기록 → 리포트 load_issues 로 (stdout 소멸 금지, P1b)
+    load_issues: list[dict] = []
     motions, d3plot_result = load_per_part_motions(
         d3plot_path=d3plot_path,
         part_ids=part_ids_to_extract,
         work_dir=work_dir,
         threads=threads,
+        issues=load_issues,
     )
     stress_strain = _extract_part_stress_strain(d3plot_result)
 
@@ -1728,8 +1779,6 @@ def load_single_d3plot_report(
     bin_data = load_binout_energy(parent)
     matsum = bin_data.get("matsum")
     rcforc = bin_data.get("rcforc") or []
-    # 실패는 구조화 기록 → 리포트 load_issues 로 (stdout 소멸 금지, P1b)
-    load_issues: list[dict] = []
     _bin_err = bin_data.get("error")
     if _bin_err:
         load_issues.append({"kind": "binout", "pos_name": None,
@@ -2374,14 +2423,52 @@ def _shrink_subreport_series(sub: ImpactReport, motion_cap: int, traj_cap: int) 
 # --- per-run 증분 캐시 (P5-2) ------------------------------------------------
 # <test_dir>/.impact_cache/v<N>/<pos_name>/ 에 sub-report pickle + fingerprint.
 # 캐시는 best-effort: 읽기/쓰기 실패는 조용히 miss 로 강등 (읽기전용 NFS 대비).
-_CACHE_SCHEMA = 6   # v6: PairResult 에 σ1/σ3/ε1/ε3/ε_vm 추가
+_CACHE_SCHEMA = 7   # v7: 지문에 생산자(바이너리·패키지 버전)와 키워드 덱 추가
+
+
+def _producer_identity() -> str:
+    """산출물을 만든 쪽의 정체 — 코드가 바뀌면 캐시가 적중하면 안 된다.
+
+    종전 지문은 입력 파일 stat 만 봤다. unified_analyzer 를 새로 빌드하거나
+    로더를 고쳐도 같은 지문이 나와 '캐시 N/N 적중' 으로 옛 산출물이 그대로
+    재사용됐다 (_CACHE_SCHEMA 를 손으로 올리기 전까지).
+    """
+    bits = [f"impact={__version__}"]
+
+    def _mod_stat(tag: str, path_str: str) -> None:
+        # 패키지에 버전 문자열이 없을 수 있다 — 모듈 파일 stat 이 코드 변경을
+        # 가장 직접적으로 잡는다 (편집·재배포 모두 mtime 이 바뀐다).
+        try:
+            st = Path(path_str).stat()
+            bits.append(f"{tag}={st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            bits.append(f"{tag}=?")
+
+    _mod_stat("loader", __file__)
+    try:
+        from koo_deep_report.core import d3plot_reader as _dr
+        _mod_stat("deep", _dr.__file__)
+    except Exception:  # noqa: BLE001
+        bits.append("deep=?")
+    try:
+        from koo_deep_report.core.d3plot_reader import find_unified_analyzer
+        ua = find_unified_analyzer()
+        if ua is not None:
+            st = Path(ua).stat()
+            bits.append(f"ua={ua}:{st.st_size}:{st.st_mtime_ns}")
+        else:
+            bits.append("ua=missing")
+    except Exception:  # noqa: BLE001
+        bits.append("ua=?")
+    return "|".join(bits)
 
 
 def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:
-    """run 입력의 stat 기반 지문. 내용 해시가 아니라 size:mtime_ns — ~ms."""
+    """run 입력 + 생산자의 stat 기반 지문. 내용 해시가 아니라 size:mtime_ns — ~ms."""
     import hashlib
     parts: list[str] = [f"schema={_CACHE_SCHEMA}",
-                        f"caps={motion_cap}:{traj_cap}"]
+                        f"caps={motion_cap}:{traj_cap}",
+                        f"producer={_producer_identity()}"]
 
     def _stat(p: Path, tag: str) -> None:
         try:
@@ -2402,6 +2489,12 @@ def _run_fingerprint(run: dict, motion_cap: int, traj_cap: int) -> str:
         if motion_dir.is_dir():
             for csv_p in sorted(motion_dir.glob("*.csv")):
                 _stat(csv_p, f"m:{csv_p.name}")
+    # 키워드 덱 — 파트 이름·재료·항복값·초기속도가 전부 여기서 온다.
+    kf = _find_keyword_file(d3)
+    if kf is not None:
+        _stat(kf, "kfile")
+    else:
+        parts.append("kfile=missing")
     cfg = run.get("config") or {}
     parts.append("cfg=" + json.dumps(cfg, sort_keys=True, ensure_ascii=False))
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
