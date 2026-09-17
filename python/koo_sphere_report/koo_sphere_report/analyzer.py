@@ -64,10 +64,15 @@ def _generate_findings(report: Report) -> list[Finding]:
     # --- 단위계 미검출 ---
     # peak-G 는 단위계에 따라 1e6 배까지 달라진다. 못 정했으면 그 사실이 보고서에
     # 있어야 한다 — stdout 한 줄은 아무도 다시 보지 않는다.
-    if not MotionData.UNIT_SYSTEM:
+    # 검출은 했지만 단서(note)가 붙은 경우도 같은 자리에 싣는다 — 그 단서를
+    # stdout 에만 두면 아무도 다시 보지 않는다.
+    if not MotionData.UNIT_SYSTEM or MotionData.UNIT_NOTE:
+        _detected = bool(MotionData.UNIT_SYSTEM)
         findings.append(Finding(
             severity=Severity.WARNING,
-            title="단위계 미검출 — peak-G 는 기본 환산값입니다",
+            title=(f"단위계 판정에 단서가 있습니다 ({MotionData.UNIT_SYSTEM}) — "
+                   f"peak-G 를 읽기 전에 확인하십시오"
+                   if _detected else "단위계 미검출 — peak-G 는 기본 환산값입니다"),
             detail=(MotionData.UNIT_NOTE
                     or f"덱 단위계를 판정하지 못했습니다. peak-G 는 환산 "
                        f"{MotionData.G_FACTOR:g} 로 계산한 값입니다."),

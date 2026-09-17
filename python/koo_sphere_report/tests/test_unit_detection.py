@@ -71,6 +71,52 @@ def test_consistent_ton_mm_s_deck_is_still_detected(tmp_path: Path):
     assert MotionData.UNIT_NOTE == ""
 
 
+def test_si_deck_is_detected(tmp_path: Path):
+    """진짜 SI 덱(ρ=7800 kg/m³)은 SI 로 잡히고 G 환산이 9.80665 여야 한다."""
+    MotionData.UNIT_SYSTEM, MotionData.G_FACTOR = "ton-mm-s", 9810.0
+    MotionData.UNIT_NOTE = ""
+    L._apply_unit_system(None, _deck(tmp_path, "7800.0", "0.004"))
+    assert MotionData.UNIT_SYSTEM == "SI"
+    assert abs(MotionData.G_FACTOR - 9.80665) < 1e-9
+    assert MotionData.UNIT_NOTE == ""
+
+
+def test_si_deck_with_long_end_time_stays_detected(tmp_path: Path):
+    """종료시각이 길어도 SI 는 미검출로 내리지 않는다 — 내리면 1000배 틀린다.
+
+    s/ms 모호성은 mm-tonne 계열에만 있다(강철이 둘 다 7.85e-9). SI 를 미검출로
+    내리면 G 환산이 직전 값 9810(=ton-mm-s)으로 남아 m/s² 가속도를 mm/s² 계수로
+    나눈다 — 참 100 G 가 0.1 G 로 찍힌다. 어느 가설 아래서도 개선이 아니다.
+    대신 종료시각이 이상하다는 **단서**는 사유로 남겨 사람이 보게 한다.
+    """
+    MotionData.UNIT_SYSTEM, MotionData.G_FACTOR = "ton-mm-s", 9810.0
+    MotionData.UNIT_NOTE = ""
+    L._apply_unit_system(None, _deck(tmp_path, "7800.0", "1.0"))
+    assert MotionData.UNIT_SYSTEM == "SI", (
+        "SI 덱이 미검출로 떨어졌다 — peak-G 가 1000배 작아진다")
+    assert abs(MotionData.G_FACTOR - 9.80665) < 1e-9, MotionData.G_FACTOR
+    assert MotionData.UNIT_NOTE, "종료시각이 이상하다는 단서가 사유에 없다"
+    assert "1" in MotionData.UNIT_NOTE, "판단 근거(종료시각)가 사유에 없다"
+
+
+def test_detection_caveat_reaches_findings():
+    """검출됐더라도 단서가 붙었으면 보고서에 남아야 한다."""
+    from koo_sphere_report.analyzer import _generate_findings
+    from koo_sphere_report.models import (
+        AngleCondition, PartInfo, PartResult, Report, SimulationResult)
+    MotionData.UNIT_SYSTEM, MotionData.G_FACTOR = "SI", 9.80665
+    MotionData.UNIT_NOTE = "종료시각이 1 이라 시간 단위를 확인해야 합니다"
+    rep = Report(project_name="T", total_runs=1, successful_runs=1)
+    pr = PartResult(part=PartInfo(part_id=1, part_name="A\\B", group="A"))
+    rep.part_info = {1: pr.part}
+    sr = SimulationResult(run_folder="R",
+                          angle=AngleCondition(angle_name="P1", roll=0, pitch=0, yaw=0))
+    sr.parts = {1: pr}
+    rep.results.append(sr)
+    texts = " ".join(f.title + " " + f.detail for f in _generate_findings(rep))
+    assert "종료시각이 1" in texts, "검출 단서가 findings 에 실리지 않았다"
+
+
 def test_unknown_density_is_reported_as_undetected(tmp_path: Path):
     """g-mm-ms(ρ=7.85e-3)는 검출기가 미상을 준다 — ton-mm-s 라고 말하면 안 된다."""
     MotionData.UNIT_SYSTEM, MotionData.G_FACTOR = "ton-mm-s", 9810.0
@@ -138,6 +184,9 @@ def test_all(tmp_path: Path):
             return p
         test_end_time_disagreeing_with_density_is_not_silently_ton_mm_s(_d("a"))
         test_consistent_ton_mm_s_deck_is_still_detected(_d("b"))
+        test_si_deck_is_detected(_d("f"))
+        test_si_deck_with_long_end_time_stays_detected(_d("g"))
+        test_detection_caveat_reaches_findings()
         test_unknown_density_is_reported_as_undetected(_d("c"))
         test_missing_deck_is_reported_as_undetected(_d("d"))
         test_payload_carries_detection_state()

@@ -245,16 +245,31 @@ def _apply_unit_system(sim_params, output_dir: Path) -> None:
     # 시간 단위 교차 확인. 낙하 덱의 해석 창은 1~5 ms 라 초 단위면 ENDTIM 이
     # 0.001~0.005 이다. 0.5 를 넘으면 그 덱의 시간 단위는 초가 아닐 가능성이 크고,
     # 그러면 가속도도 mm/s² 가 아니다 (peak-G 가 1e6 배 어긋난다).
+    #
+    # 다만 미검출로 **내리는** 것은 ton-mm-s 에서만 한다. 밀도가 s 와 ms 를 못
+    # 가르는 것은 mm-tonne 계열뿐이고(강철이 둘 다 7.85e-9), SI(ρ≥1)에는 짝이 되는
+    # ms 프리셋이 없다. SI 를 내리면 G 환산이 직전 값 9810(=ton-mm-s)으로 남아
+    # m/s² 가속도를 mm/s² 계수로 나눈다 — 참 100 G 가 0.1 G 로 찍힌다. 그 값은
+    # 덱이 SI 든 kg-m-ms 든 어느 가설로도 맞지 않으므로, 내리는 것이 개선이 아니다.
+    # 대신 단서는 사유로 남겨 보고서에 싣는다.
     endtim = _deck_end_time(output_dir)
-    if endtim is not None and endtim >= 0.5 and uid in ("ton-mm-s", "SI"):
-        note = (f"덱 밀도({density:g})는 {uid} 를 가리키지만 *CONTROL_TERMINATION "
-                f"종료시각이 {endtim:g} 입니다 — 초 단위라면 비정상적으로 긴 해석 창이라 "
-                f"시간 단위가 ms 일 수 있습니다(그러면 peak-G 가 1e6 배 어긋납니다). "
-                f"단정하지 않고 미검출로 둡니다. peak-G 는 환산 "
-                f"{MotionData.G_FACTOR:g} 로 계산한 값입니다.")
-        print(f"[sphere] {note}")
-        MotionData.set_unit_system("", note=note)
-        return
+    caveat = ""
+    if endtim is not None and endtim >= 0.5:
+        if uid == "ton-mm-s":
+            note = (f"덱 밀도({density:g})는 {uid} 를 가리키지만 *CONTROL_TERMINATION "
+                    f"종료시각이 {endtim:g} 입니다 — 초 단위라면 비정상적으로 긴 해석 창이라 "
+                    f"시간 단위가 ms 일 수 있습니다(그러면 peak-G 가 1e6 배 어긋납니다). "
+                    f"단정하지 않고 미검출로 둡니다. peak-G 는 환산 "
+                    f"{MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+            print(f"[sphere] {note}")
+            MotionData.set_unit_system("", note=note)
+            return
+        caveat = (f"덱 밀도({density:g})로 {uid} 로 판정했지만 *CONTROL_TERMINATION "
+                  f"종료시각이 {endtim:g} 입니다 — 초 단위 낙하 해석 창(1~5 ms)보다 "
+                  f"훨씬 깁니다. 밀도만 SI 로 적은 mm-tonne 덱일 수 있으니 peak-G 를 "
+                  f"읽기 전에 덱의 시간·길이 단위를 확인하십시오. peak-G 는 환산 "
+                  f"{_G_FACTOR_BY_UNIT[uid]:g} 로 계산한 값입니다.")
+        print(f"[sphere] {caveat}")
 
     if uid != MotionData.UNIT_SYSTEM:
         print(f"[sphere] 단위계 검출: {uid} (덱 밀도={density:g}) — "
@@ -268,7 +283,7 @@ def _apply_unit_system(sim_params, output_dir: Path) -> None:
     for _k in ("stress", "strain", "disp", "vel"):
         if _pl.get(_k) is not None:
             labels[_k] = _pl[_k]
-    MotionData.set_unit_system(uid, gf, labels=labels)
+    MotionData.set_unit_system(uid, gf, note=caveat, labels=labels)
 
 
 def load_dropset(run_dir: Path) -> AngleCondition | None:
