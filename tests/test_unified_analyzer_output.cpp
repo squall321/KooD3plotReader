@@ -280,6 +280,145 @@ static void test_tensor_csv_precision() {
     }
 }
 
+// ============================================================
+// 재귀 배치 — 스캔·결과 폴더 이름·완료 판정
+// ============================================================
+
+/// 시험용 트리를 새로 만든다.
+static fs::path makeTree() {
+    const fs::path base = fs::path(tmpDir()) / "tree";
+    fs::remove_all(base);
+    fs::create_directories(base);
+    return base;
+}
+
+static void writeFile(const fs::path& p, const std::string& s) {
+    fs::create_directories(p.parent_path());
+    std::ofstream(p) << s;
+}
+
+static void test_scan_survives_symlink_cycle() {
+    std::cout << "findD3plotDirectories 심링크 순환·중복:\n";
+    const fs::path base = makeTree();
+    for (const char* r : {"Run_1", "Run_2", "Run_3"}) {
+        writeFile(base / "output" / r / "d3plot", "x");
+    }
+    // 순환 링크 하나로 예전 스캔은 ELOOP 로 끊겨 Run_2·Run_3 을 통째로 잃었다
+    fs::create_symlink("..", base / "output" / "Run_2" / "parent_link");
+
+    std::vector<std::string> unreadable;
+    auto dirs = findD3plotDirectories(base / "output", &unreadable);
+    chk("d3plot 폴더 3개를 모두 찾는다", dirs.size() == 3,
+        "size=" + std::to_string(dirs.size()));
+    std::vector<std::string> names;
+    for (const auto& d : dirs) names.push_back(d.filename().string());
+    std::sort(names.begin(), names.end());
+    chk("Run_1/Run_2/Run_3 각각 한 번씩",
+        names == std::vector<std::string>({"Run_1", "Run_2", "Run_3"}),
+        names.empty() ? "" : names.front() + ".." + names.back());
+    chk("순환은 오류가 아니라 '이미 본 폴더' 로 끊긴다", unreadable.empty(),
+        unreadable.empty() ? "" : unreadable.front());
+}
+
+static void test_scan_reports_unreadable() {
+    std::cout << "findD3plotDirectories 못 읽은 폴더 보고:\n";
+    const fs::path base = makeTree();
+    writeFile(base / "output" / "Run_1" / "d3plot", "x");
+    writeFile(base / "output" / "locked" / "Run_2" / "d3plot", "x");
+    fs::permissions(base / "output" / "locked", fs::perms::none);
+
+    std::vector<std::string> unreadable;
+    auto dirs = findD3plotDirectories(base / "output", &unreadable);
+    fs::permissions(base / "output" / "locked", fs::perms::owner_all);  // 정리용
+    chk("읽을 수 있는 폴더는 그대로 찾는다", dirs.size() == 1,
+        "size=" + std::to_string(dirs.size()));
+    chk("못 읽은 폴더가 사유와 함께 보고된다", unreadable.size() == 1,
+        unreadable.empty() ? "(없음)" : unreadable.front());
+}
+
+static void test_result_folder_name_stays_inside_root() {
+    std::cout << "generateResultFolderName 루트 이탈:\n";
+    const fs::path base = makeTree();
+    writeFile(base / "elsewhere" / "sims" / "Run_A" / "d3plot", "x");
+    fs::create_directories(base / "output");
+    fs::create_symlink(base / "elsewhere" / "sims" / "Run_A", base / "output" / "Run_A");
+
+    const std::string name = generateResultFolderName(base / "output" / "Run_A", base / "output");
+    chk("이름에 '..' 가 없다", name.find("..") == std::string::npos, name);
+    const fs::path out_root = base / "analysis_results";
+    const std::string full = (out_root / name).lexically_normal().string();
+    chk("결과 경로가 output_root 안에 있다",
+        full.rfind(out_root.string() + "/", 0) == 0, full);
+
+    // 보통 런은 이름이 그대로여야 한다 (회귀 방지)
+    writeFile(base / "output" / "Run_B" / "d3plot", "x");
+    chk("보통 런 이름은 그대로",
+        generateResultFolderName(base / "output" / "Run_B", base / "output") == "Run_B",
+        generateResultFolderName(base / "output" / "Run_B", base / "output"));
+    writeFile(base / "output" / "sub" / "Run_C" / "d3plot", "x");
+    chk("하위 폴더 구조도 그대로",
+        generateResultFolderName(base / "output" / "sub" / "Run_C", base / "output")
+            == "sub/Run_C",
+        generateResultFolderName(base / "output" / "sub" / "Run_C", base / "output"));
+}
+
+static void test_result_folder_collision_detected() {
+    std::cout << "결과 폴더 이름 충돌 탐지:\n";
+    const fs::path base = makeTree();
+    writeFile(base / "output" / "case 1" / "d3plot", "x");   // 공백 → '_'
+    writeFile(base / "output" / "case_1" / "d3plot", "x");
+    writeFile(base / "output" / "case_2" / "d3plot", "x");
+
+    const std::vector<fs::path> dirs = {base / "output" / "case 1",
+                                        base / "output" / "case_1",
+                                        base / "output" / "case_2"};
+    auto collided = findCollidingResultFolders(dirs, base / "output");
+    chk("'case 1' 과 'case_1' 충돌 1건을 잡는다", collided.size() == 1,
+        "n=" + std::to_string(collided.size()));
+    chk("뒤에 온 쪽이 충돌로 표시된다", collided.size() == 1 && collided[0] == 1,
+        collided.empty() ? "" : std::to_string(collided[0]));
+    chk("겹치지 않는 런은 충돌이 아니다",
+        findCollidingResultFolders({dirs[0], dirs[2]}, base / "output").empty());
+}
+
+static void test_completion_marker() {
+    std::cout << "--skip-existing 완료 판정:\n";
+    const fs::path base = makeTree();
+    const fs::path d3plot = base / "output" / "Run_1" / "d3plot";
+    writeFile(d3plot, "x");
+    const fs::path rd = base / "analysis_results" / "Run_1";
+    fs::create_directories(rd);
+
+    chk("결과가 아예 없으면 미완료", !isAnalysisCompleted(rd, d3plot));
+
+    // 렌더 도중 죽은 경우: JSON 만 (심지어 0바이트) 남는다
+    writeFile(rd / "analysis_result.json", "");
+    chk("0바이트 JSON 만 있으면 미완료", !isAnalysisCompleted(rd, d3plot));
+
+    writeFile(rd / "analysis_result.json", "{\"metadata\": {}}");
+    chk("완료 표시가 없으면 미완료 (옛 판 결과 포함)", !isAnalysisCompleted(rd, d3plot));
+
+    saveAnalysisMetadata(rd, d3plot, "cfg.yaml");
+    chk("끝까지 돈 결과는 완료", isAnalysisCompleted(rd, d3plot));
+
+    // 덱을 다시 돌렸다 → 옛 결과를 건너뛰면 안 된다
+    fs::last_write_time(d3plot, fs::last_write_time(d3plot) + std::chrono::hours(1));
+    chk("d3plot 이 새로 쓰이면 미완료", !isAnalysisCompleted(rd, d3plot));
+
+    // 분석기가 바뀌었다 → 옛 결과를 건너뛰면 안 된다
+    saveAnalysisMetadata(rd, d3plot, "cfg.yaml");
+    {
+        std::ifstream in(rd / ".analysis_info");
+        std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        const std::string k = "tool_version: ";
+        const size_t p = all.find(k);
+        all.replace(p + k.size(), all.find('\n', p) - p - k.size(), "older-build");
+        writeFile(rd / ".analysis_info", all);
+    }
+    chk("분석기 버전이 다르면 미완료", !isAnalysisCompleted(rd, d3plot));
+}
+
 }  // namespace uatest
 
 int main() {
@@ -292,6 +431,11 @@ int main() {
     uatest::test_surface_csv_precision();
     uatest::test_quality_csv_time();
     uatest::test_tensor_csv_precision();
+    uatest::test_scan_survives_symlink_cycle();
+    uatest::test_scan_reports_unreadable();
+    uatest::test_result_folder_name_stays_inside_root();
+    uatest::test_result_folder_collision_detected();
+    uatest::test_completion_marker();
 
     std::cout << "\n========================================\n";
     if (uatest::g_fails) {

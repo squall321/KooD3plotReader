@@ -16,13 +16,18 @@
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include "kood3plot/analysis/UnifiedConfigParser.hpp"
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include "kood3plot/Version.hpp"
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
 #include <iomanip>
 #include <chrono>
 #include <ctime>
+#include <map>
+#include <set>
 #include <sstream>
+#include <vector>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -550,27 +555,62 @@ void exportResults(const ExtendedAnalysisResult& result, const UnifiedConfig& co
 /**
  * @brief Find all directories containing d3plot files
  * @param root_dir Root directory to search
+ * @param unreadable 못 읽은 하위 폴더 + 사유 (선택). 비어 있지 않으면 스캔이 불완전하다.
  * @return Vector of directory paths containing d3plot
+ *
+ * 예전에는 recursive_directory_iterator 를 try 로 감싸고, 예외가 나면 stderr 에
+ * 한 줄 찍고 **그때까지 모은 목록을 그대로** 돌려줬다. follow_directory_symlink
+ * 가 켜져 있어 링크 순환(Run_2/parent_link -> "..") 하나면 ELOOP 로 스캔이 중간에
+ * 끊겼고, 호출자는 그 부분 목록을 전체로 알고 'Found N · Total N · 종료코드 0'
+ * 을 찍었다. 실측: Run_1/2/3 에 순환 링크 하나를 두면 41개(전부 Run_1 의 순환
+ * 경로)가 돌아오고 Run_2·Run_3 은 0개였다.
+ * 이제 폴더를 하나씩 돌며 (1) 이미 본 실경로는 건너뛰어 순환을 끊고
+ * (2) 못 읽은 폴더는 사유와 함께 남기고 (3) 같은 실경로는 한 번만 담는다.
  */
-std::vector<fs::path> findD3plotDirectories(const fs::path& root_dir) {
+std::vector<fs::path> findD3plotDirectories(const fs::path& root_dir,
+                                            std::vector<std::string>* unreadable = nullptr) {
     std::vector<fs::path> result;
+    std::set<fs::path> visited;   // 이미 들어간 폴더의 실경로 — 심링크 순환 차단
+    std::set<fs::path> found;     // 이미 담은 d3plot 폴더의 실경로 — 중복 제거
+    std::vector<fs::path> stack{root_dir};
 
-    try {
-        for (const auto& entry : fs::recursive_directory_iterator(root_dir,
-                fs::directory_options::follow_directory_symlink |
-                fs::directory_options::skip_permission_denied)) {
-            if (entry.is_regular_file() || entry.is_symlink()) {
-                std::string filename = entry.path().filename().string();
+    auto note = [&unreadable](const fs::path& p, const std::string& why) {
+        if (unreadable) unreadable->push_back(p.string() + " (" + why + ")");
+    };
+
+    while (!stack.empty()) {
+        const fs::path dir = stack.back();
+        stack.pop_back();
+
+        std::error_code ec;
+        const fs::path canon = fs::canonical(dir, ec);
+        if (ec) { note(dir, ec.message()); continue; }
+        if (!visited.insert(canon).second) continue;
+
+        fs::directory_iterator it(dir, ec);
+        if (ec) { note(dir, ec.message()); continue; }
+
+        const fs::directory_iterator end;
+        while (it != end) {
+            const fs::path p = it->path();
+            std::error_code sec;
+            if (fs::is_directory(p, sec)) {          // 심링크도 따라간다 (기존 동작)
+                stack.push_back(p);
+            } else if (p.filename() == "d3plot" && fs::is_regular_file(p, sec)) {
                 // Look for base d3plot file (not d3plot01, d3plot02, etc.)
-                if (filename == "d3plot") {
-                    result.push_back(entry.path().parent_path());
+                std::error_code pec;
+                const fs::path parent_canon = fs::canonical(p.parent_path(), pec);
+                if (pec || found.insert(parent_canon).second) {
+                    result.push_back(p.parent_path());
                 }
             }
+            it.increment(ec);
+            if (ec) { note(dir, ec.message()); break; }
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Error scanning directories: " << e.what() << "\n";
     }
 
+    // 순서를 고정한다 — 이름 충돌 때 '먼저 온 쪽' 이 실행마다 바뀌면 안 된다
+    std::sort(result.begin(), result.end());
     return result;
 }
 
@@ -581,18 +621,27 @@ std::vector<fs::path> findD3plotDirectories(const fs::path& root_dir) {
  * @return Sanitized folder name
  */
 std::string generateResultFolderName(const fs::path& d3plot_dir, const fs::path& root_dir) {
-    // Resolve symlinks and get canonical paths
-    fs::path canonical_dir, canonical_root;
-    try {
-        canonical_dir = fs::canonical(d3plot_dir);
-        canonical_root = fs::canonical(root_dir);
-    } catch (...) {
-        canonical_dir = d3plot_dir;
-        canonical_root = root_dir;
-    }
+    // 스캔 루트 기준 **문자 그대로의** 상대 경로를 쓴다.
+    // 예전에는 fs::canonical 로 심링크를 먼저 풀었다. 그래서 스캔 루트 안의 런
+    // 폴더가 바깥을 가리키는 심링크면 이름이 "../elsewhere/sims/Run_A" 가 되고,
+    // output_root / name 이 output_root 밖 — 시뮬레이션 폴더 자체 — 를 가리켜
+    // 결과가 analysis_results 에 하나도 안 남았다 (보고서에서 런이 조용히 사라진다).
+    // '/' 를 안 지우게 된 뒤로 아래 ".._" 정리 루프는 한 번도 안 걸렸다.
+    fs::path rel_path = d3plot_dir.lexically_normal()
+                                  .lexically_relative(root_dir.lexically_normal());
 
-    // Get relative path from root
-    fs::path rel_path = fs::relative(canonical_dir, canonical_root);
+    bool outside = rel_path.empty();
+    for (const auto& part : rel_path) {
+        if (part == "..") { outside = true; break; }
+    }
+    if (outside) {
+        // 루트 밖이면 쓸 상대 경로가 없다. 절대 경로를 접어 output_root **안** 에
+        // 남긴다 — 밖으로 나가지 않는 것이 먼저다.
+        std::error_code ec;
+        fs::path abs = fs::weakly_canonical(d3plot_dir, ec);
+        if (ec) abs = d3plot_dir;
+        rel_path = fs::path("_outside_root") / abs.lexically_normal().relative_path();
+    }
 
     // Convert to string — keep '/' for nested directory structure, only sanitize spaces
     std::string name = rel_path.string();
@@ -604,21 +653,69 @@ std::string generateResultFolderName(const fs::path& d3plot_dir, const fs::path&
         }
     }
 
-    // Remove leading ".._" patterns
-    while (name.size() >= 3 && name.substr(0, 3) == ".._") {
-        name = name.substr(3);
-    }
-
     return name;
+}
+
+/**
+ * @brief 결과 폴더 이름이 앞 항목과 겹치는 d3plot 의 인덱스
+ *
+ * 공백만 '_' 로 바꾸므로 'case 1' 과 'case_1' 은 같은 이름이 된다. 예전에는
+ * 그대로 둬서 뒤 실행이 앞 실행의 결과를 덮어쓰거나(--skip-existing 이면
+ * 앞 실행 결과를 자기 것인 양 '건너뜀' 으로 보고) 했다. 조용히 섞이는 대신
+ * 미리 찾아내 실패로 알린다.
+ */
+std::vector<size_t> findCollidingResultFolders(const std::vector<fs::path>& d3plot_dirs,
+                                               const fs::path& root_dir) {
+    std::map<std::string, size_t> first_use;
+    std::vector<size_t> collided;
+    for (size_t i = 0; i < d3plot_dirs.size(); ++i) {
+        const std::string name = generateResultFolderName(d3plot_dirs[i], root_dir);
+        if (!first_use.emplace(name, i).second) collided.push_back(i);
+    }
+    return collided;
+}
+
+/// d3plot 의 수정 시각 — 덱을 다시 돌렸는지 판별한다. 못 읽으면 빈 문자열.
+static std::string d3plotStamp(const fs::path& d3plot_path) {
+    std::error_code ec;
+    const auto t = fs::last_write_time(d3plot_path, ec);
+    if (ec) return "";
+    return std::to_string(t.time_since_epoch().count());
 }
 
 /**
  * @brief Check if analysis was already completed for a d3plot
  * @param result_dir Result directory to check
- * @return true if analysis_result.json exists
+ * @param d3plot_path 이 결과가 나온 d3plot (수정 시각 대조용)
+ * @return true if analysis was completed by this analyzer for this d3plot
+ *
+ * analysis_result.json 이 '있다' 는 것만으로는 완료가 아니다. JSON 은
+ * exportResults 안에서 렌더·단면뷰·메타데이터보다 **먼저** 쓰이고,
+ * saveExtendedToFile 은 내용을 만들기 전에 파일부터 비운다. 그래서
+ *  - 단면뷰 단계에서 OOM 으로 죽으면 렌더 없는 결과가 '완료' 로 남고
+ *  - 파일을 비운 직후 죽으면 0 바이트 JSON 이 '완료' 로 남고
+ *  - 분석기를 고쳐 새로 빌드해도 옛 결과를 그대로 건너뛰고
+ *  - 덱을 다시 돌려도 옛 결과를 그대로 건너뛴다.
+ * 이제 맨 마지막에 쓰는 .analysis_info 의 완료 표시·도구 버전·d3plot 수정 시각을
+ * 함께 본다. 근거가 없거나 어긋나면 '모른다' 가 아니라 '다시 한다' 로 간다.
  */
-bool isAnalysisCompleted(const fs::path& result_dir) {
-    return fs::exists(result_dir / "analysis_result.json");
+bool isAnalysisCompleted(const fs::path& result_dir, const fs::path& d3plot_path) {
+    if (!fs::exists(result_dir / "analysis_result.json")) return false;
+
+    std::ifstream ifs(result_dir / ".analysis_info");
+    if (!ifs) return false;   // 완료 표시가 없다 — 옛 판이거나 도중에 죽었다
+
+    std::string line, tool, stamp;
+    bool completed = false;
+    while (std::getline(ifs, line)) {
+        if (line.rfind("tool_version: ", 0) == 0)      tool = line.substr(14);
+        else if (line.rfind("d3plot_mtime: ", 0) == 0) stamp = line.substr(14);
+        else if (line.rfind("completed: ", 0) == 0)    completed = (line.substr(11) == "yes");
+    }
+    if (!completed) return false;
+    if (tool != Version::build_commit()) return false;   // 분석기가 바뀌었다
+    const std::string now = d3plotStamp(d3plot_path);
+    return !now.empty() && now == stamp;                 // 덱을 다시 돌렸다
 }
 
 /**
@@ -626,6 +723,8 @@ bool isAnalysisCompleted(const fs::path& result_dir) {
  * @param result_dir Result directory
  * @param d3plot_path Original d3plot path
  * @param config_path Config file used
+ *
+ * 맨 마지막 단계에서 불린다 — 이 파일이 곧 완료 표시다 (isAnalysisCompleted 참조).
  */
 void saveAnalysisMetadata(const fs::path& result_dir,
                           const fs::path& d3plot_path,
@@ -638,6 +737,10 @@ void saveAnalysisMetadata(const fs::path& result_dir,
         ofs << "d3plot_path: " << d3plot_path.string() << "\n";
         ofs << "config_file: " << config_path << "\n";
         ofs << "analyzed_at: " << std::ctime(&time_t);
+        // --skip-existing 의 판정 근거 (아래 두 줄이 없으면 '완료' 로 안 본다)
+        ofs << "tool_version: " << Version::build_commit() << "\n";
+        ofs << "d3plot_mtime: " << d3plotStamp(d3plot_path) << "\n";
+        ofs << "completed: yes\n";
     }
 }
 
@@ -734,11 +837,20 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     std::cout << "Skip existing: " << (skip_existing ? "yes" : "no") << "\n\n";
 
     // Find all d3plot directories
-    auto d3plot_dirs = findD3plotDirectories(root_dir);
+    std::vector<std::string> unreadable;
+    auto d3plot_dirs = findD3plotDirectories(root_dir, &unreadable);
+
+    // 못 읽은 하위 트리가 있으면 목록이 불완전하다 — 조용히 넘어가지 않는다
+    if (!unreadable.empty()) {
+        std::cerr << "[WARNING] 스캔이 불완전하다 — 못 읽은 폴더 "
+                  << unreadable.size() << "개:\n";
+        for (const auto& u : unreadable) std::cerr << "  - " << u << "\n";
+        std::cerr << "  이 아래의 d3plot 은 목록에 없다.\n\n";
+    }
 
     if (d3plot_dirs.empty()) {
         std::cout << "No d3plot files found.\n";
-        return 0;
+        return unreadable.empty() ? 0 : 1;
     }
 
     std::cout << "Found " << d3plot_dirs.size() << " d3plot file(s):\n";
@@ -746,6 +858,10 @@ int runRecursiveAnalysis(const fs::path& root_dir,
         std::cout << "  - " << fs::relative(dir, root_dir) << "\n";
     }
     std::cout << "\n";
+
+    // 결과 폴더 이름이 겹치는 항목 — 앞 실행을 덮어쓰지 않도록 미리 걸러낸다
+    const auto collided = findCollidingResultFolders(d3plot_dirs, root_dir);
+    const std::set<size_t> collided_set(collided.begin(), collided.end());
 
     // Create output root directory
     try {
@@ -771,8 +887,16 @@ int runRecursiveAnalysis(const fs::path& root_dir,
         std::cout << "[" << (i + 1) << "/" << d3plot_dirs.size() << "] "
                   << fs::relative(d3plot_dir, root_dir) << "\n";
 
+        // 이름이 겹치면 앞 실행의 결과를 덮어쓴다 — 섞느니 실패로 알린다
+        if (collided_set.count(i)) {
+            std::cerr << "  Failed: 결과 폴더 이름이 앞 실행과 겹친다 (\""
+                      << folder_name << "\"). 폴더 이름의 공백을 정리하고 다시 돌려라.\n\n";
+            ++fail_count;
+            continue;
+        }
+
         // Check if already analyzed
-        if (skip_existing && isAnalysisCompleted(result_dir)) {
+        if (skip_existing && isAnalysisCompleted(result_dir, d3plot_path)) {
             std::cout << "  Skipped (already analyzed)\n\n";
             ++skip_count;
             continue;
@@ -795,10 +919,14 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     std::cout << "Success: " << success_count << "\n";
     std::cout << "Skipped: " << skip_count << "\n";
     std::cout << "Failed: " << fail_count << "\n";
+    if (!unreadable.empty()) {
+        std::cout << "Unreadable subtrees: " << unreadable.size()
+                  << " (스캔 불완전 — 목록에 없는 d3plot 이 있다)\n";
+    }
     std::cout << "Results saved to: " << output_root << "\n";
     std::cout << "=============================================================\n";
 
-    return (fail_count > 0) ? 1 : 0;
+    return (fail_count > 0 || !unreadable.empty()) ? 1 : 0;
 }
 
 /**
