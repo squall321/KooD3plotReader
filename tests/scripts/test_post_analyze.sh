@@ -109,11 +109,28 @@ mk_config() {                   # mk_config <test_dir>
     printf 'version: "2.0"\nperformance:\n  threads: 1\n' > "$1/common_analysis.yaml"
 }
 
+PA_RC=0                         # 직전 run_pa 의 종료 코드
+
 run_pa() {                      # run_pa <test_dir> <옵션...> — 호출 기록을 새로 시작한다
     local t="$1"; shift
     export STUB_LOG="$W/calls.log"
     : > "$STUB_LOG"
     "$PA" "$t" "$@" > "$W/last_run.log" 2>&1
+    PA_RC=$?
+    # 이번 실행이 Step 1 요약("완료: N / 스킵: M / 실패: K / 전체: T")까지 갔는가.
+    # 이 양성 증거가 없으면 뒤따르는 '호출 0회' 단정들은 "올바르게 스킵했다" 와
+    # "아무것도 못 하고 죽었다" 를 구분하지 못한다 — 대역 호출 횟수와 파일 존재만
+    # 보기 때문이다. 실제로 post_analyze.sh 를 `exit 1` 한 줄로 바꿔도 스킵 계열
+    # 단정 9건이 그대로 OK 로 찍혔다.
+    #
+    # 종료 코드 자체는 단정에 쓰지 않는다 — post_analyze.sh 의 마지막 문장이
+    # `[ -f "${TEST_DIR}/report.html" ] && echo …` 라, 대역 sphere 가 report.html 을
+    # 만들지 않는 이 시험 환경에서는 정상 완료해도 1 이 나온다. 사유 표시용으로만
+    # PA_RC 에 남긴다.
+    if ! grep -q '완료: ' "$W/last_run.log"; then
+        echo "  NG  실행이 Step 1 요약까지 가지 못했다 (종료 $PA_RC) — post_analyze.sh $*"
+        fails=$((fails + 1))
+    fi
     return 0
 }
 
