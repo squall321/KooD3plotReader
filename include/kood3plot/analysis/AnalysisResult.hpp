@@ -494,9 +494,11 @@ protected:
     }
 
     static std::string vec3ToJSON(const Vec3& v) {
+        // 성분마다 jnum — std::fixed(6) 은 (1) 같은 방향벡터를 다른 블록과 다른
+        // 표기로 내보내고 (2) 비유한 성분을 JSON 이 아닌 nan 토큰으로 써서
+        // 파일 전체를 파이썬이 못 읽는 파일로 만든다 (jnum 주석 참조).
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(6);
-        oss << "[" << v.x << ", " << v.y << ", " << v.z << "]";
+        oss << "[" << jnum(v.x) << ", " << jnum(v.y) << ", " << jnum(v.z) << "]";
         return oss.str();
     }
 
@@ -528,10 +530,23 @@ protected:
         oss << ind2 << "\"unit\": \"" << stats.unit << "\"," << nl;
         oss << ind2 << "\"num_points\": " << stats.data.size() << "," << nl;
 
+        // 전 상태가 미계측(markUnmeasuredParts 가 넣은 NaN)이면 globalMax()/
+        // globalMin() 이 ±inf 를 돌려준다. jnum 은 그걸 null 로 쓰지만, **스칼라**
+        // null 은 소비처가 막지 못한다 (배열 원소 null 만 _finite() 로 거른다).
+        // 그래서 '값 없음' 은 키를 만들지 않고 사유만 남긴다. time_of_max 도
+        // 0.0 초기값이 그대로 나가 진짜 t=0 과 섞이므로 함께 뺀다.
         if (!stats.data.empty()) {
-            oss << ind2 << "\"global_max\": " << jnum(stats.globalMax()) << "," << nl;
-            oss << ind2 << "\"global_min\": " << jnum(stats.globalMin()) << "," << nl;
-            oss << ind2 << "\"time_of_max\": " << jnum(stats.timeOfGlobalMax()) << "," << nl;
+            const double gmax = stats.globalMax();
+            const double gmin = stats.globalMin();
+            if (std::isfinite(gmax) || std::isfinite(gmin)) {
+                oss << ind2 << "\"global_max\": " << jnum(gmax) << "," << nl;
+                oss << ind2 << "\"global_min\": " << jnum(gmin) << "," << nl;
+                oss << ind2 << "\"time_of_max\": " << jnum(stats.timeOfGlobalMax()) << "," << nl;
+            } else {
+                oss << ind2 << "\"global_unmeasured\": true," << nl;
+                oss << ind2 << "\"global_unmeasured_reason\": "
+                    << "\"전 상태에서 이 물리량이 계측되지 않았습니다\"," << nl;
+            }
         }
 
         oss << ind2 << "\"data\": [";

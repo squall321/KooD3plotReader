@@ -271,6 +271,100 @@ static void test_quality_measured_flags() {
     chk("맨 nan/inf 토큰 없음", !hasBareNonFinite(json3));
 }
 
+
+// ============================================================
+// surface_analysis 의 방향벡터 — 같은 파일 안에서 표기가 갈리면 안 된다
+// ============================================================
+
+static void test_reference_direction_notation() {
+    std::cout << "reference_direction 표기:\n";
+    ExtendedAnalysisResult r;
+
+    SurfaceAnalysisStats ss;
+    ss.description = "Top";
+    ss.reference_direction = Vec3(0, 0, 1);
+    ss.angle_threshold_degrees = 30.0;
+    ss.num_faces = 3;
+    {
+        SurfaceTimePointStats tp;
+        tp.time = 1e-6;
+        ss.data.push_back(tp);
+    }
+    r.surface_analysis.push_back(ss);
+
+    SurfaceStrainStats st;
+    st.description = "Top";
+    st.reference_direction = Vec3(0, 0, 1);
+    st.angle_threshold_degrees = 30.0;
+    st.num_faces = 3;
+    {
+        SurfaceStrainTimePoint tp;
+        tp.time = 1e-6;
+        st.data.push_back(tp);
+    }
+    r.surface_strain_analysis.push_back(st);
+
+    const std::string json = r.toExtendedJSON();
+    chk("고정소수 표기가 남아 있지 않다", !has(json, "[0.000000, 0.000000, 1.000000]"),
+        has(json, "[0.000000, 0.000000, 1.000000]") ? "std::fixed(6) 잔존" : "");
+    chk("응력·변형률 두 블록의 표기가 같다",
+        has(json, "\"reference_direction\": [0, 0, 1]"),
+        valueOf(json, "reference_direction"));
+
+    // 비유한 성분이 들어오면 맨 nan 토큰이 아니라 null 이어야 한다
+    ExtendedAnalysisResult bad = r;
+    bad.surface_analysis[0].reference_direction = Vec3(kNaN, 0, -1);
+    const std::string bad_json = bad.toExtendedJSON();
+    chk("비유한 방향 성분이 맨 nan 토큰으로 안 나간다", !hasBareNonFinite(bad_json));
+    chk("비유한 방향 성분은 null", has(bad_json, "[null, 0, -1]"),
+        valueOf(bad_json, "reference_direction"));
+}
+
+// ============================================================
+// 전 상태 미계측 시계열 — global_max 를 null 스칼라로 내보내지 않는다
+// ============================================================
+
+static void test_unmeasured_series_omits_globals() {
+    std::cout << "전 상태 미계측 시계열:\n";
+    ExtendedAnalysisResult r;
+
+    PartTimeSeriesStats ps;
+    ps.part_id = 5;
+    ps.part_name = "PKG";
+    ps.quantity = "von_mises";
+    ps.unit = "MPa";
+    for (int i = 0; i < 3; ++i) {
+        TimePointStats tp;
+        tp.time = 1e-6 * i;
+        tp.max_value = kNaN;          // markUnmeasuredParts 가 넣는 값
+        tp.min_value = kNaN;
+        tp.avg_value = kNaN;
+        ps.data.push_back(tp);
+    }
+    r.stress_history.push_back(ps);
+
+    const std::string json = r.toExtendedJSON();
+    chk("맨 nan/inf 토큰이 없다", !hasBareNonFinite(json));
+    chk("global_max 키를 만들지 않는다", !has(json, "\"global_max\""),
+        valueOf(json, "global_max"));
+    chk("global_min 키를 만들지 않는다", !has(json, "\"global_min\""),
+        valueOf(json, "global_min"));
+    chk("time_of_max 키도 만들지 않는다 (0 은 진짜 t=0 과 구분이 안 된다)",
+        !has(json, "\"time_of_max\""), valueOf(json, "time_of_max"));
+    chk("사유는 남긴다", has(json, "\"global_unmeasured\": true"),
+        valueOf(json, "global_unmeasured"));
+
+    // 한 점이라도 유한하면 평소대로 싣는다
+    ExtendedAnalysisResult ok = r;
+    ok.stress_history[0].data[1].max_value = 12.5;
+    ok.stress_history[0].data[1].min_value = 1.5;
+    const std::string ok_json = ok.toExtendedJSON();
+    chk("유한값이 하나라도 있으면 global_max 를 싣는다",
+        valueOf(ok_json, "global_max") == "12.5", valueOf(ok_json, "global_max"));
+    chk("그때는 사유 키가 없다", !has(ok_json, "\"global_unmeasured\""),
+        valueOf(ok_json, "global_unmeasured"));
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "toExtendedJSON 시험\n";
@@ -279,6 +373,8 @@ int main() {
     test_finite_precision();
     test_non_finite_becomes_null();
     test_quality_measured_flags();
+    test_reference_direction_notation();
+    test_unmeasured_series_omits_globals();
 
     std::cout << "\n========================================\n";
     if (g_fails) {

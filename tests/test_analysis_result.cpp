@@ -137,7 +137,9 @@ bool test_json_generation() {
     TEST_ASSERT(json.find("\"surface_analysis\"") != std::string::npos, "JSON should contain surface_analysis");
     TEST_ASSERT(json.find("\"von_mises\"") != std::string::npos, "JSON should contain von_mises");
     TEST_ASSERT(json.find("\"Bottom facing surfaces\"") != std::string::npos, "JSON should contain surface description");
-    TEST_ASSERT(json.find("-1.000000]") != std::string::npos, "JSON should contain reference direction");
+    // 방향벡터도 jnum 표기다 (고정소수 6자리가 아니다) — vec3ToJSON 주석 참조
+    TEST_ASSERT(json.find("\"reference_direction\": [0, 0, -1]") != std::string::npos,
+                "JSON should contain reference direction");
 
     std::cout << "PASSED\n";
     return true;
