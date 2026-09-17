@@ -234,6 +234,21 @@ public:
                                     const Vec3& p2, const Vec3& p3);
 
     /**
+     * @brief 솔리드 한 개의 실제 면(삼각형·사각형)들을 절점 번호 목록으로 만든다.
+     *
+     * LS-DYNA 는 사면체·쐐기·피라미드를 절점이 겹친 육면체로 적는다. 육면체 6면
+     * 규약을 그대로 쓰면 사면체에서 진짜 면(삼각형 4개) 대신 절점 4개짜리 가짜 면이
+     * 생겨 **언제나 외피로** 세어졌다 (내부 요소가 표면 결과에 섞임).
+     */
+    static std::vector<std::vector<int32_t>> solidFaceNodeSets(const std::vector<int32_t>& node_indices_0based);
+
+    /**
+     * @brief Generate a hash key for a face (node indices sorted)
+     */
+    static std::string generateFaceHash(const std::vector<int32_t>& node_indices);
+
+
+    /**
      * @brief Get last error message
      */
     const std::string& getLastError() const { return last_error_; }
@@ -267,11 +282,6 @@ private:
     // Face 5: 1,2,6,5 (X+ / right)
 
     static const int HEXA_FACE_NODES[6][4];
-
-    /**
-     * @brief Generate a hash key for a face (node indices sorted)
-     */
-    static std::string generateFaceHash(const std::vector<int32_t>& node_indices);
 
     /**
      * @brief Build face from node indices

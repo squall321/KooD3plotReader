@@ -5,7 +5,8 @@
     예) ... d3plot 21 +z 45 out/surface/p21_top_stress.csv
 
 독립 규약 (C++ 코드를 재사용하지 않는다):
-  - 외피 = 대상 솔리드(파트 0 이면 전체)의 6개 사각면 중 한 번만 나오는 면
+  - 외피 = 대상 솔리드(파트 0 이면 전체)의 실제 면(사면체 삼각형 4, 쐐기·피라미드·육면체는
+    중복 절점을 접은 면) 중 한 번만 나오는 면
   - 법선 = 대각선 외적, 방향은 요소 중심에서 멀어지는 쪽 (절점 순서 규약에 기대지 않음)
   - 넓이 0 인 퇴화 면은 제외, 좌표는 float64 (float32 면 정확히 45° 인 면이 경계에서 떨어진다)
 
@@ -18,7 +19,24 @@ import sys
 import numpy as np
 from lasso.dyna import D3plot, ArrayType as A
 
-FACES = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+HEX_FACES = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (0, 4, 7, 3), (1, 2, 6, 5)]
+
+
+def face_node_sets(conn_row):
+    """솔리드 한 개의 실제 면. LS-DYNA 는 사면체·쐐기·피라미드를 절점이 겹친 육면체로 적는다."""
+    n = list(conn_row)
+    uniq = list(dict.fromkeys(n))
+    if len(uniq) == 4 and n[4] == n[3] and n[5] == n[3] and n[6] == n[3] and n[7] == n[3]:
+        a, b, c, d = uniq                      # 사면체 — 삼각형 4개
+        return [(a, b, c), (a, b, d), (a, c, d), (b, c, d)]
+    out = []
+    for f in HEX_FACES:                        # 육면체·쐐기·피라미드 — 중복 절점을 접는다
+        poly = list(dict.fromkeys(n[i] for i in f))
+        if len(poly) >= 3:
+            out.append(tuple(poly))
+    return out
+
+
 DIRS = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1)}
 
 
@@ -37,10 +55,10 @@ def reference(d3plot_path, pid, ref_dir, angle):
 
     count, owner = {}, {}
     for e in sel:
-        for f in FACES:
-            key = tuple(sorted(conn[e, list(f)]))
+        for poly in face_node_sets(conn[e].tolist()):
+            key = tuple(sorted(poly))
             count[key] = count.get(key, 0) + 1
-            owner.setdefault(key, (e, f))
+            owner.setdefault(key, (e, poly))
     ref = np.asarray(ref_dir, dtype=np.float64)
     ref /= np.linalg.norm(ref)
     cosang = np.cos(np.radians(angle))
@@ -48,13 +66,16 @@ def reference(d3plot_path, pid, ref_dir, angle):
     for key, c in count.items():
         if c != 1:
             continue
-        e, f = owner[key]
-        p = xyz[conn[e, list(f)]]
-        n = np.cross(p[2] - p[0], p[3] - p[1])
+        e, poly = owner[key]
+        p = xyz[list(poly)]
+        if len(poly) >= 4:
+            n = np.cross(p[2] - p[0], p[3] - p[1])
+        else:
+            n = np.cross(p[1] - p[0], p[2] - p[0])
         if np.linalg.norm(n) < 1e-30:
             continue
         n /= np.linalg.norm(n)
-        if np.dot(n, p.mean(0) - xyz[conn[e]].mean(0)) < 0:
+        if np.dot(n, p.mean(0) - xyz[conn[e]].mean(0)) < 0:   # 요소 중심 기준 바깥쪽
             n = -n
         if np.dot(n, ref) >= cosang - 1e-12:
             elems.append(e)

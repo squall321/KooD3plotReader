@@ -95,22 +95,18 @@ SurfaceExtractionResult SurfaceExtractor::extractExteriorSurfaces(
             continue;
         }
 
-        // Process each of the 6 faces
-        for (int face_idx = 0; face_idx < 6; ++face_idx) {
-            // Get face node indices (0-based internal)
-            std::vector<int32_t> face_nodes(4);
-            for (int i = 0; i < 4; ++i) {
-                // elem.node_ids are 1-based, convert to 0-based
-                int local_node_idx = HEXA_FACE_NODES[face_idx][i];
-                face_nodes[i] = elem.node_ids[local_node_idx] - 1;
-            }
-
+        // 요소 종류에 맞는 실제 면(삼각형·사각형)
+        std::vector<int32_t> conn(8);
+        for (int i = 0; i < 8; ++i) {
+            conn[i] = elem.node_ids[i] - 1;   // 1-based 내부 번호 → 0-based
+        }
+        for (auto& face_nodes : solidFaceNodeSets(conn)) {
             std::string hash = generateFaceHash(face_nodes);
             face_count[hash]++;
 
             // Store face info (only first occurrence)
             if (face_count[hash] == 1) {
-                Face face = buildFace(static_cast<int32_t>(elem_idx), face_idx,
+                Face face = buildFace(static_cast<int32_t>(elem_idx), 0,
                                       face_nodes, part_id, SurfaceElementType::SOLID);
 
                 // Set real element ID
@@ -367,6 +363,43 @@ double SurfaceExtractor::calculateQuadArea(
     return area1 + area2;
 }
 
+std::vector<std::vector<int32_t>> SurfaceExtractor::solidFaceNodeSets(
+    const std::vector<int32_t>& n) {
+
+    std::vector<std::vector<int32_t>> faces;
+    if (n.size() < 8) return faces;
+
+    // 처음 등장 순서로 고유 절점
+    std::vector<int32_t> uniq;
+    for (int32_t v : n) {
+        if (std::find(uniq.begin(), uniq.end(), v) == uniq.end()) uniq.push_back(v);
+    }
+
+    // 사면체: (a,b,c,d,d,d,d,d) — 육면체 면 규약으로는 삼각형 ABC·ACD 가 만들어지지
+    // 않고 {a,b,c,d} 짜리 가짜 면이 생긴다. 네 삼각형을 직접 만든다.
+    const bool tet_pattern = uniq.size() == 4 &&
+                             n[4] == n[3] && n[5] == n[3] && n[6] == n[3] && n[7] == n[3];
+    if (tet_pattern) {
+        const int tri[4][3] = {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}};
+        for (const auto& t : tri) {
+            faces.push_back({uniq[t[0]], uniq[t[1]], uniq[t[2]]});
+        }
+        return faces;
+    }
+
+    // 육면체·쐐기·피라미드: 6면에서 **인접 중복 절점을 접는다**.
+    // 쐐기 (a,b,c,d,e,e,f,f) → 사각 3 + 삼각 2, 피라미드 (a,b,c,d,e,e,e,e) → 사각 1 + 삼각 4.
+    for (int f = 0; f < 6; ++f) {
+        std::vector<int32_t> poly;
+        for (int i = 0; i < 4; ++i) {
+            int32_t v = n[HEXA_FACE_NODES[f][i]];
+            if (std::find(poly.begin(), poly.end(), v) == poly.end()) poly.push_back(v);
+        }
+        if (poly.size() >= 3) faces.push_back(std::move(poly));   // 2개 이하는 퇴화한 모서리
+    }
+    return faces;
+}
+
 std::string SurfaceExtractor::generateFaceHash(const std::vector<int32_t>& node_indices) {
     // Sort node indices to make hash order-independent
     std::vector<int32_t> sorted = node_indices;
@@ -404,15 +437,41 @@ Face SurfaceExtractor::buildFace(
     }
 
     // Calculate geometry from initial mesh
-    if (node_indices.size() >= 4) {
+    if (node_indices.size() >= 3) {
         Vec3 p0 = getNodePosition(node_indices[0]);
         Vec3 p1 = getNodePosition(node_indices[1]);
         Vec3 p2 = getNodePosition(node_indices[2]);
-        Vec3 p3 = getNodePosition(node_indices[3]);
+        if (node_indices.size() >= 4) {
+            Vec3 p3 = getNodePosition(node_indices[3]);
+            face.normal = calculateQuadNormal(p0, p1, p2, p3);
+            face.centroid = calculateQuadCentroid(p0, p1, p2, p3);
+            face.area = calculateQuadArea(p0, p1, p2, p3);
+        } else {
+            face.normal = (p1 - p0).cross(p2 - p0).normalizedSafe();
+            face.centroid = (p0 + p1 + p2) * (1.0 / 3.0);
+            face.area = 0.5 * (p1 - p0).cross(p2 - p0).magnitude();
+        }
 
-        face.normal = calculateQuadNormal(p0, p1, p2, p3);
-        face.centroid = calculateQuadCentroid(p0, p1, p2, p3);
-        face.area = calculateQuadArea(p0, p1, p2, p3);
+        // 법선은 절점 순서 규약이 아니라 **요소 중심에서 바깥쪽**으로 정한다.
+        // 퇴화 육면체(사면체·쐐기)는 순서 규약이 덱마다 달라 순서만 믿으면 안쪽을 향한다.
+        if (elem_type == SurfaceElementType::SOLID && !face.normal.isZero() &&
+            elem_index >= 0 && static_cast<size_t>(elem_index) < mesh_.solids.size()) {
+            const auto& elem = mesh_.solids[elem_index];
+            Vec3 elem_center;
+            int counted = 0;
+            for (int i = 0; i < 8; ++i) {
+                int32_t idx = elem.node_ids[i] - 1;
+                if (idx < 0 || idx >= static_cast<int32_t>(mesh_.nodes.size())) continue;
+                elem_center = elem_center + getNodePosition(idx);
+                ++counted;
+            }
+            if (counted > 0) {
+                elem_center = elem_center * (1.0 / counted);
+                if (face.normal.dot(face.centroid - elem_center) < 0.0) {
+                    face.normal = face.normal * -1.0;
+                }
+            }
+        }
     }
 
     return face;

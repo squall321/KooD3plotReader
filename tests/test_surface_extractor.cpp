@@ -161,6 +161,52 @@ bool test_direction_filter() {
     return true;
 }
 
+/**
+ * LS-DYNA 는 사면체·쐐기·피라미드를 절점이 겹친 육면체로 적는다. 육면체 6면 규약을
+ * 그대로 쓰면 사면체에서 진짜 삼각형 대신 절점 4개짜리 가짜 면이 생겨 늘 '외피' 로
+ * 세어지고(내부 요소가 표면 결과에 섞임), 진짜 면 2개는 사라진다.
+ */
+bool test_solid_face_topology() {
+    std::cout << "  Testing solid face topology (tet/wedge/pyramid/hex)... ";
+
+    // 사면체 (a,b,c,d,d,d,d,d) — 삼각형 4개, 절점 4개짜리 면은 없어야 한다
+    auto tet = SurfaceExtractor::solidFaceNodeSets({10, 11, 12, 13, 13, 13, 13, 13});
+    TEST_ASSERT(tet.size() == 4, "tet must give 4 faces");
+    for (const auto& f : tet) {
+        TEST_ASSERT(f.size() == 3, "tet faces must be triangles");
+    }
+
+    // 두 사면체가 한 면을 공유하면 그 면은 두 번 세어져 내부로 걸러져야 한다
+    auto tet2 = SurfaceExtractor::solidFaceNodeSets({10, 11, 12, 14, 14, 14, 14, 14});
+    int shared = 0;
+    for (const auto& a : tet) {
+        for (const auto& b : tet2) {
+            if (SurfaceExtractor::generateFaceHash(a) == SurfaceExtractor::generateFaceHash(b)) ++shared;
+        }
+    }
+    TEST_ASSERT(shared == 1, "two tets sharing nodes 10-11-12 must share exactly one face");
+
+    // 육면체 — 사각형 6개
+    auto hex = SurfaceExtractor::solidFaceNodeSets({1, 2, 3, 4, 5, 6, 7, 8});
+    TEST_ASSERT(hex.size() == 6, "hex must give 6 faces");
+    for (const auto& f : hex) TEST_ASSERT(f.size() == 4, "hex faces must be quads");
+
+    // 쐐기 (a,b,c,d,e,e,f,f) — 사각 3 + 삼각 2
+    auto wedge = SurfaceExtractor::solidFaceNodeSets({1, 2, 3, 4, 5, 5, 6, 6});
+    int tri = 0, quad = 0;
+    for (const auto& f : wedge) (f.size() == 3 ? tri : quad)++;
+    TEST_ASSERT(wedge.size() == 5 && tri == 2 && quad == 3, "wedge must give 3 quads + 2 triangles");
+
+    // 피라미드 (a,b,c,d,e,e,e,e) — 사각 1 + 삼각 4
+    auto pyr = SurfaceExtractor::solidFaceNodeSets({1, 2, 3, 4, 5, 5, 5, 5});
+    tri = quad = 0;
+    for (const auto& f : pyr) (f.size() == 3 ? tri : quad)++;
+    TEST_ASSERT(pyr.size() == 5 && tri == 4 && quad == 1, "pyramid must give 1 quad + 4 triangles");
+
+    std::cout << "PASSED\n";
+    return true;
+}
+
 bool test_part_filter() {
     std::cout << "  Testing part filtering... ";
 
@@ -280,6 +326,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "\nFiltering Tests:\n";
     if (test_direction_filter()) passed++; else failed++;
+    if (test_solid_face_topology()) passed++; else failed++;
     if (test_part_filter()) passed++; else failed++;
 
     // D3plot integration tests
