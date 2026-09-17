@@ -438,6 +438,11 @@ void SinglePassAnalyzer::buildElementMapping() {
     }
 }
 
+/// 응력 시계열의 단위 라벨. d3plot 에 단위계 정보가 없으므로 "덱 단위 그대로,
+/// 단위계 미상" 을 뜻하는 표식을 쓴다. 실제 단위를 알아내려면 키워드 파일의
+/// *CONTROL_UNITS 나 사용자 설정이 필요하다 — 없으면 추측하지 않는다.
+static const char* const kUnknownStressUnit = "deck_units";
+
 void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConfig& config) {
     size_t num_parts = part_ids_.size();
 
@@ -447,7 +452,12 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
         for (size_t i = 0; i < num_parts; ++i) {
             stress_results_[i].part_id = part_ids_[i];
             stress_results_[i].quantity = "von_mises";
-            stress_results_[i].unit = "MPa";
+            // 🔴 "MPa" 를 박으면 안 된다. d3plot 은 단위계를 싣지 않는다 —
+            //    kg-mm-ms 덱이면 응력은 GPa, SI 덱이면 Pa 다. 실측
+            //    /data/battery_study/case_01... 은 피크가 0.23 인데 "0.23 MPa"
+            //    로 읽히면 실제 230 MPa 를 3자리 틀리게 본다. 모르는 것은
+            //    모른다고 쓴다 (변형률의 "" 는 무차원이라는 뜻이라 구분된다).
+            stress_results_[i].unit = kUnknownStressUnit;
             stress_results_[i].data.resize(num_states);
         }
     }
@@ -459,12 +469,12 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
         for (size_t i = 0; i < num_parts; ++i) {
             max_principal_results_[i].part_id = part_ids_[i];
             max_principal_results_[i].quantity = "max_principal_stress";
-            max_principal_results_[i].unit = "MPa";
+            max_principal_results_[i].unit = kUnknownStressUnit;
             max_principal_results_[i].data.resize(num_states);
 
             min_principal_results_[i].part_id = part_ids_[i];
             min_principal_results_[i].quantity = "min_principal_stress";
-            min_principal_results_[i].unit = "MPa";
+            min_principal_results_[i].unit = kUnknownStressUnit;
             min_principal_results_[i].data.resize(num_states);
         }
     }
