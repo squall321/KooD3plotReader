@@ -21,7 +21,7 @@ import math
 from dataclasses import dataclass, field
 from statistics import median
 
-from .models import Cell, Trust
+from .models import METRIC_KEYS, Cell, Trust
 
 #: 각도 일치 판정 허용치(도). sidecar 가 각도를 소수 4자리로 반올림해 저장하므로
 #: 1e-6° 로 보면 사실상 같은 방향도 '보간'으로 강등된다. 실제 DOE 최소 간격(수 도)
@@ -276,7 +276,11 @@ def _idw_sample(target_vec, cells, vecs, power=2.0, k=4) -> Sample:
     near_i = order[0]
     near_d = _ang_dist_deg(target_vec, vecs[near_i])
     metrics = {}
-    for mk in ("g", "s", "e", "d"):
+    # **모든** 지표를 보간한다. 예전에는 g/s/e/d 넷만 채워, 어댑터가 사이드카에서
+    # 읽어 온 s1/s3/e1/e3/evm 이 보간 셀마다 None 이 되었다 — compare 가 그 셀을
+    # '값 없음' 으로 게이트해, 각 각도에 값이 다 있는데도 데이터를 탓했다.
+    # 압축측(σ3/ε3)은 부호 있는 값을 그대로 가중평균한다(음수가 유지된다).
+    for mk in METRIC_KEYS:
         num = den = 0.0
         for i in order:
             v = cells[i].metrics.get(mk)
