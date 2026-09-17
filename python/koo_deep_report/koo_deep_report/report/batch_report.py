@@ -369,7 +369,7 @@ for (const r of RESULTS) {{
     tier: r.tier ?? -1,
     num_parts: m.num_parts ?? 0,
     t_end: m.t_end ?? 0,
-    peak_stress: s.peak_stress_global ?? 0,
+    peak_stress: s.peak_stress_global ?? null,   // 미산출은 0 이 아니다
     peak_strain: s.peak_strain_global ?? 0,
     peak_disp: s.peak_disp_global ?? null,   // 미계측은 0 이 아니다
     er_min: s.energy_ratio_min ?? null,

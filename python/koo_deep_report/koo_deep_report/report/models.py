@@ -310,8 +310,11 @@ class D3plotResult:
 class PartSummary:
     part_id: int
     part_name: str
-    peak_stress: float = 0.0
-    time_of_peak_stress: float = 0.0
+    #: 응력 이력이 없는 파트(셸·두꺼운셸 등)는 미산출이다 — 0 이 아니다.
+    peak_stress: float | None = None
+    time_of_peak_stress: float | None = None
+    #: peak_stress 가 None 인 사유.
+    peak_stress_reason: str = ""
     peak_element_id: int | None = None
     #: peak_element_id 가 None 인 사유 (시계열 잘림 등). 정상이면 빈 문자열.
     peak_element_reason: str = ""
@@ -385,7 +388,8 @@ class SingleResult:
     yield_stress: float = 0.0  # legacy global override (0 = use per-part)
 
     # 글로벌 요약
-    peak_stress_global: float = 0.0
+    #: 응력이 산출된 파트가 하나도 없으면 None.
+    peak_stress_global: float | None = None
     peak_stress_part_id: int | None = None
     peak_strain_global: float = 0.0
     #: 절점 최대 변위의 전체 최대. 아무 파트도 계측되지 않았으면 None.
@@ -419,6 +423,7 @@ class SingleResult:
                     "name": p.part_name,
                     "peak_stress": p.peak_stress,
                     "time_of_peak_stress": p.time_of_peak_stress,
+                    "peak_stress_reason": p.peak_stress_reason,
                     "peak_strain": p.peak_strain,
                     "peak_disp_mag": p.peak_disp_mag,
                     "peak_avg_disp_mag": p.peak_avg_disp_mag,

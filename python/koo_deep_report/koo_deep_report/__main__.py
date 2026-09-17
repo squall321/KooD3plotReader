@@ -1327,8 +1327,11 @@ def _aggregate(
         ps = PartSummary(
             part_id=pid,
             part_name=part_name,
-            peak_stress=st.global_max if st else 0.0,
-            time_of_peak_stress=st.time_of_max if st else 0.0,
+            # 응력 이력(stress_history)은 솔리드 전용이다. 없는 파트를 0 으로
+            # 채우면 '측정된 0 MPa' 로 읽혀 셸이 가장 안전한 파트로 보인다.
+            peak_stress=st.global_max if st else None,
+            time_of_peak_stress=st.time_of_max if st else None,
+            peak_stress_reason=("" if st else "응력 이력 없음 — 솔리드 전용 집계 (셸·두꺼운셸·빔은 미산출)"),
             peak_element_id=st.peak_element_id if st else None,
             peak_element_reason=(st.peak_element_reason if st else ""),
             peak_strain=sr.global_max if sr else 0.0,
@@ -1363,7 +1366,7 @@ def _aggregate(
                 ps.strain_source = "manual"
 
         # Compute ratios and safety factor
-        if ps.stress_limit > 0 and ps.peak_stress > 0:
+        if ps.stress_limit > 0 and ps.peak_stress is not None and ps.peak_stress > 0:
             ps.safety_factor = ps.stress_limit / ps.peak_stress
             ps.stress_ratio = ps.peak_stress / ps.stress_limit
         if ps.strain_limit > 0 and ps.peak_strain > 0:
@@ -1373,9 +1376,11 @@ def _aggregate(
 
     # 글로벌 요약
     if result.parts:
-        best = max(result.parts.values(), key=lambda p: p.peak_stress)
-        result.peak_stress_global = best.peak_stress
-        result.peak_stress_part_id = best.part_id
+        stressed = [p for p in result.parts.values() if p.peak_stress is not None]
+        if stressed:
+            best = max(stressed, key=lambda p: p.peak_stress)
+            result.peak_stress_global = best.peak_stress
+            result.peak_stress_part_id = best.part_id
         result.peak_strain_global = max(p.peak_strain for p in result.parts.values())
         # 절점 최대 변위가 하나도 계측되지 않았으면 0 이 아니라 None 이다.
         disps = [p.peak_disp_mag for p in result.parts.values()
@@ -1398,7 +1403,13 @@ def _print_summary(result: SingleResult) -> None:
     peak_label = f"Part {result.peak_stress_part_id}"
     if peak_part_name and peak_part_name.part_name:
         peak_label += f" ({peak_part_name.part_name})"
-    print(f"  피크 응력    : {result.peak_stress_global:.2f} MPa ({peak_label})")
+    if result.peak_stress_global is None:
+        print("  피크 응력    : 미산출 (응력 이력이 있는 파트 없음)")
+    else:
+        print(f"  피크 응력    : {result.peak_stress_global:.2f} MPa ({peak_label})")
+    n_nostress = sum(1 for p in result.parts.values() if p.peak_stress is None)
+    if n_nostress:
+        print(f"               ({n_nostress}개 파트는 응력 미산출 — 솔리드 전용 집계)")
     print(f"  피크 변형률  : {result.peak_strain_global:.4f}")
     if result.peak_disp_global is None:
         print("  피크 변위    : 미계측 (motion CSV 에 Max_Disp_Mag 열 없음)")

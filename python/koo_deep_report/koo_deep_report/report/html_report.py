@@ -178,6 +178,7 @@ def _build_js_data(result: SingleResult) -> dict:
                 "name": p.part_name,
                 "peak_stress": p.peak_stress,
                 "time_of_peak_stress": p.time_of_peak_stress,
+                "peak_stress_reason": p.peak_stress_reason,
                 "peak_element_id": p.peak_element_id,
                 "peak_element_reason": p.peak_element_reason,
                 "peak_strain": p.peak_strain,
@@ -761,6 +762,21 @@ function partLabel(pid, p) {
   return p && p.name ? 'Part ' + pid + ' (' + p.name + ')' : 'Part ' + pid;
 }
 
+// 응력 이력이 없는 파트(셸·두꺼운셸·빔)는 미산출이다. 0 으로 취급해 순위에
+// 올리면 '측정된 0 MPa' 로 읽힌다 — 정렬에서는 맨 뒤로, 표시에서는 뺀다.
+function hasStress(p) { return p && p.peak_stress !== null && p.peak_stress !== undefined; }
+function byStressDesc(a, b) {
+  return (hasStress(b[1]) ? b[1].peak_stress : -Infinity)
+       - (hasStress(a[1]) ? a[1].peak_stress : -Infinity);
+}
+function noStressCount() {
+  return Object.values(DATA.parts || {}).filter(p => !hasStress(p)).length;
+}
+function noStressNote() {
+  const n = noStressCount();
+  return n ? `<div class="hs-dim" style="margin-top:6px">${n}개 파트는 응력 이력 없음 — 응력 집계는 솔리드 요소만 본다 (셸·두꺼운셸·빔 미산출).</div>` : '';
+}
+
 // ── Overview ──────────────────────────────────────────────────────────
 function renderOverview() {
   const s = DATA.summary;
@@ -772,12 +788,15 @@ function renderOverview() {
 
   // 🔴 응력 시간이력 집계(stress_history)는 솔리드 전용이다. 셸·두꺼운 셸이 있는 덱에서
   //    '피크 응력' 을 모델 전체 최대로 읽으면 틀린다 → 있으면 명시한다.
-  const solidOnly = (DATA.hotspot || []).some(p => (p.element_type || 'solid') !== 'solid');
+  // 핫스팟 군집은 기본으로 꺼져 있다 — 그것에 의존하면 셸이 있어도 단서가 안 붙는다.
+  // 응력 이력이 없는 파트가 하나라도 있으면 이 집계는 솔리드 전용이다.
+  const solidOnly = noStressCount() > 0
+    || (DATA.hotspot || []).some(p => (p.element_type || 'solid') !== 'solid');
   let kpis = `
   <div class="kpi-card">
     <div class="kpi-label">피크 Von Mises 응력${solidOnly ? ' (솔리드만)' : ''}</div>
     <div class="kpi-value">${fmt(s.peak_stress)}</div>
-    <div class="kpi-unit">MPa${s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : ''}</div>
+    <div class="kpi-unit">${s.peak_stress === null || s.peak_stress === undefined ? '미산출 — 응력 이력이 있는 파트 없음' : 'MPa' + (s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : '')}</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">피크 소성 변형률</div>
@@ -811,8 +830,8 @@ function renderOverview() {
   </div>`;
 
   // Top 5 stress parts
-  const parts = filteredParts()
-    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+  const parts = filteredParts().filter(([,p]) => hasStress(p))
+    .sort(byStressDesc)
     .slice(0, 5);
   const maxStress = parts[0]?.[1].peak_stress || 1;
   const topBars = parts.map(([pid, p], i) => {
@@ -852,16 +871,17 @@ function renderOverview() {
 <div class="kpi-grid">${kpis}</div>
 <div class="sec-title">응력 상위 부품${solidOnly ? ' (솔리드만)' : ''}</div>
 <div class="chart-box">${topBars || '<div style="color:var(--fg2);padding:8px">응력 데이터 없음</div>'}
-${solidOnly ? '<div class="hs-dim" style="margin-top:6px">이 모델에는 셸·두꺼운 셸이 있다. 위 집계는 솔리드 요소만 본다 — 셸 계열 응력은 핫스팟 군집 탭에 있다.</div>' : ''}</div>
+${noStressNote()}</div>
 ${hsCard}`;
 }
 
 // ── Stress & Strain ──────────────────────────────────────────────────
 function renderStress() {
-  const parts = filteredParts().sort((a,b) => b[1].peak_stress - a[1].peak_stress);
-  const maxS = parts[0]?.[1].peak_stress || 1;
+  const parts = filteredParts().sort(byStressDesc);
+  const stressed = parts.filter(([,p]) => hasStress(p));
+  const maxS = stressed[0]?.[1].peak_stress || 1;
 
-  const stressBars = parts.map(([pid, p]) => {
+  const stressBars = stressed.map(([pid, p]) => {
     const pct = (p.peak_stress / maxS * 100).toFixed(1);
     const sf = p.safety_factor;
     const sfHtml = sf !== null && sf !== undefined
@@ -871,7 +891,7 @@ function renderStress() {
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
       <div class="bar-val">${fmt(p.peak_stress)} MPa${sfHtml}</div>
     </div>`;
-  }).join('');
+  }).join('') + noStressNote();
 
   const maxE = Math.max(...parts.map(([,p]) => p.peak_strain), 0) || 1;
   const strainBars = parts.filter(([,p]) => p.peak_strain > 0)
@@ -939,11 +959,11 @@ function renderStress() {
   const hasPrincipalStrain = maxPrincipalStrainParts.length > 0 || minPrincipalStrainParts.length > 0;
 
   const opts = filteredParts()
-    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+    .sort(byStressDesc)
     .map(([pid, p]) => `<option value="${pid}">${partLabel(pid, p)}</option>`).join('');
 
   return `
-<div class="sec-title">Von Mises 응력 순위</div>
+<div class="sec-title">Von Mises 응력 순위${noStressCount() ? ' (솔리드만)' : ''}</div>
 <div class="chart-box">${stressBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
 <div class="sec-title">Max Principal Stress (σ₁) 순위</div>
 <div class="chart-box">${maxPrincipalBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
@@ -1377,7 +1397,7 @@ function updateMotionChart() {
 // ── Deep Dive ─────────────────────────────────────────────────────────
 function renderDeepDive() {
   const opts = filteredParts()
-    .sort((a,b) => b[1].peak_stress - a[1].peak_stress)
+    .sort(byStressDesc)
     .map(([pid, p]) => `<option value="${pid}">${partLabel(pid, p)}</option>`).join('');
   return `
 <div class="part-selector">
@@ -1408,7 +1428,7 @@ function updateDeepDive() {
   const sf = p?.safety_factor;
   const sfClass = sf === null || sf === undefined ? '' : sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
   let kpiHtml = `
-  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">MPa (t=${fmt(p?.time_of_peak_stress,4)})</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">${hasStress(p) ? 'MPa (t=' + fmt(p?.time_of_peak_stress,4) + ')' : (p?.peak_stress_reason || '미산출')}</div></div>
   <div class="kpi-card"><div class="kpi-label">피크 변형률</div><div class="kpi-value">${fmt(p?.peak_strain,4)}</div><div class="kpi-unit">—</div></div>
   <div class="kpi-card"><div class="kpi-label">Max Principal (σ₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal)}</div><div class="kpi-unit">MPa</div></div>
   <div class="kpi-card"><div class="kpi-label">Min Principal (σ₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal)}</div><div class="kpi-unit">MPa</div></div>
