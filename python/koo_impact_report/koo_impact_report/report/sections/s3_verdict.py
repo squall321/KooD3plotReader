@@ -847,7 +847,17 @@ function _pickFlow() { return _flowFor(null); }
 // s9 selectPosition 이 부르는 훅 — 에너지 페이지가 선택 위치를 따라가게.
 function refreshEnergyFlowForPos(posId) {
   const flows = DATA.energy_flows || {};
-  if (!flows[posId]) return;   // 흐름 없는 위치면 현 상태 유지
+  if (!flows[posId]) {
+    // tier 캡(상위 K 위치)으로 잘린 위치다. 조용히 이전 위치 그래프를 남겨두면
+    // 그것이 선택 위치의 흐름으로 읽힌다 — 무엇이 떠 있는지 라벨에 명시한다.
+    const cap = ((DATA.meta || {}).tier || {}).energy_flow_topk || 0;
+    const lbl0 = document.getElementById('efd-pos-label');
+    if (lbl0) {
+      lbl0.textContent = (_EF_POS || '-') + ' \u2014 ' + posId + ' \uc758 \uc5d0\ub108\uc9c0 \ud750\ub984 \uc5c6\uc74c'
+        + (cap > 0 ? ' (\uc0c1\uc704 ' + cap + '\uac1c \uc704\uce58\ub9cc \uc801\uc7ac)' : '');
+    }
+    return;
+  }
   _EF_POS = posId;
   try {
     if (typeof initEnergyGraph === 'function') initEnergyGraph();

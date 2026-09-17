@@ -450,7 +450,15 @@ function renderS9Charts(posId, bundle) {
   while (legend.firstChild) legend.removeChild(legend.firstChild);
 
   if (!series.length || !tArr.length) {
-    _s9SvgMsg(accSvg, reportLang === 'ko' ? '가속도 시계열 없음' : 'no acc time series');
+    // '없음' 과 'tier 캡으로 버렸음' 은 다르다 — 계산은 됐는데 전송에서 빠진
+    // 경우를 그냥 '없음' 으로 적으면 데이터가 없는 것으로 읽힌다.
+    const _cap = ((DATA.meta || {}).tier || {}).part_motion_topk || 0;
+    const _capped = _cap > 0 && !(bundle && bundle.series && bundle.series.length);
+    _s9SvgMsg(accSvg, _capped
+      ? (reportLang === 'ko'
+          ? '가속도 시계열 미적재 — 상위 ' + _cap + '개 위치만 인라인'
+          : 'acc series not inlined — top ' + _cap + ' positions only')
+      : (reportLang === 'ko' ? '가속도 시계열 없음' : 'no acc time series'));
   } else {
     const top = series.slice().sort((a, b) => (b.peak_g || 0) - (a.peak_g || 0)).slice(0, 8);
     const W = 900, Hh = 300, pad = { l: 64, r: 12, t: 10, b: 26 };

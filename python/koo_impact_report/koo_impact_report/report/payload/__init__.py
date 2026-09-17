@@ -57,6 +57,14 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "sim_params": report.sim_params or {},
     }
     meta["impactor"] = _impactor_dict(report.impactor)
+    # tier 캡 — 위치 수가 많으면 에너지 흐름·가속도 곡선을 상위 K개만 싣는다.
+    # 무엇이 왜 빠졌는지 화면에서 읽을 수 있어야 한다 (조용한 절단 금지).
+    meta["tier"] = {
+        "name": _tier.name,
+        "emit_mode": _tier.emit_mode,
+        "energy_flow_topk": _tier.energy_flow_topk,
+        "part_motion_topk": _tier.part_motion_topk,
+    }
     # 구조화 로드 진단 (P1b) — binout 실패/런 로드 실패/impactor 불일치 등.
     # JS 배지·Finding 승격의 원천 데이터.
     meta["load_issues"] = list(getattr(report, "load_issues", []) or [])
