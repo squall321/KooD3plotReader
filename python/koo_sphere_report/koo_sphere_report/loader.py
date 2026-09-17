@@ -16,6 +16,18 @@ from .models import (
 _ANGLE_MATCH_TOL_DEG = 0.05
 
 
+def _deg_text(v: float) -> str:
+    """각도 → 0.1° 표기. 0 으로 반올림되면 부호를 떼어 낸다.
+
+    `v + 0.0` 은 IEEE 음의 0(-0.0)만 접는다. -0.04 처럼 크기가 0.05 미만인
+    **진짜 음수**는 `f"{v:.1f}"` 단계에서 '-0.0' 이 되어 부호가 그대로 남는다.
+    그러면 같은 0.0 자리가 '0.0' 과 '-0.0' 두 키로 갈리고, 대체 이름도
+    'P0' 과 'P-0' 으로 갈려 0.08° 차이가 부호 차이처럼 보인다.
+    """
+    s = f"{v + 0.0:.1f}"
+    return s[1:] if s == "-0.0" else s
+
+
 def _angle_key(roll: float, pitch: float, yaw: float) -> str:
     """각도 → DOE 조회 키. 부호 없는 0 으로 정규화한다.
 
@@ -23,12 +35,12 @@ def _angle_key(roll: float, pitch: float, yaw: float) -> str:
     키**가 된다. 실캠페인 Test_006 의 P0001 은 runner_config 에서 pitch=-0.0 이라
     DropSet 이 부호 없는 0 을 적는 순간 그 런은 이름과 분류를 통째로 잃는다.
     """
-    return "_".join(f"{v + 0.0:.1f}" for v in (roll, pitch, yaw))
+    return "_".join(_deg_text(v) for v in (roll, pitch, yaw))
 
 
 def _angle_text(v: float) -> str:
     """대체 이름에 쓰는 각도 표기. 0.1° 까지 남기고 -0 을 없앤다."""
-    s = f"{v + 0.0:.1f}"
+    s = _deg_text(v)
     return s[:-2] if s.endswith(".0") else s
 
 

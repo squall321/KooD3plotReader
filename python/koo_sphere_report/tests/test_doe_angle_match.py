@@ -108,6 +108,24 @@ def test_fallback_name_has_no_negative_zero():
     assert "-0" not in a.angle_name.replace("R-90", ""), a.angle_name
 
 
+def test_small_negative_rounds_to_unsigned_zero():
+    """-0.04° 처럼 0 으로 반올림되는 **진짜 음수**도 '-0' 을 남기면 안 된다.
+
+    `v + 0.0` 은 IEEE 음의 0 만 접는다. 크기가 0.05 미만인 음수는 '-0.0' 으로
+    반올림돼 대체 이름이 'P-0' 이 되고, +0.04 인 런은 'P0' 이라 0.08° 차이가
+    부호 차이처럼 보인다. 조회 키도 같은 이유로 '0.0' 짜리 DOE 를 놓친다.
+    """
+    from koo_sphere_report.loader import _angle_key, _angle_text
+    assert _angle_text(-0.04) == "0", _angle_text(-0.04)
+    assert _angle_text(-0.02) == "0", _angle_text(-0.02)
+    assert _angle_text(-0.05) == "-0.1", _angle_text(-0.05)   # 진짜 0.1° 는 그대로
+    assert _angle_text(-1.5) == "-1.5"
+    assert _angle_key(12.3, -0.04, 0.0) == _angle_key(12.3, 0.0, 0.0)
+
+    a = _resolve_angle(_ds(12.3, -0.04, 0.0), {})
+    assert "P-0" not in a.angle_name, a.angle_name
+
+
 def test_all():
     """pytest 진입점 — 이 파일의 모든 규칙을 한 번에 돌린다."""
     test_negative_zero_matches_positive_zero()
@@ -118,6 +136,7 @@ def test_all():
     test_fallback_name_separates_yaw()
     test_fallback_name_separates_sub_degree()
     test_fallback_name_has_no_negative_zero()
+    test_small_negative_rounds_to_unsigned_zero()
 
 
 if __name__ == "__main__":
