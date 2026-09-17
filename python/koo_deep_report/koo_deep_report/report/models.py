@@ -423,7 +423,8 @@ class SingleResult:
     #: 응력이 산출된 파트가 하나도 없으면 None.
     peak_stress_global: float | None = None
     peak_stress_part_id: int | None = None
-    peak_strain_global: float = 0.0
+    #: 변형률이 산출된 파트가 하나도 없으면 None.
+    peak_strain_global: float | None = None
     #: 절점 최대 변위의 전체 최대. 아무 파트도 계측되지 않았으면 None.
     peak_disp_global: float | None = None
     energy_ratio_min: float | None = None
@@ -440,7 +441,9 @@ class SingleResult:
                 "normal_termination": self.sim_info.normal_termination,
                 "termination_source": self.sim_info.termination_source,
                 "num_states": self.d3plot_result.num_states if self.d3plot_result else 0,
-                "t_end": self.d3plot_result.t_end if self.d3plot_result else 0.0,
+                # d3plot 을 못 읽었으면 해석 종료 시각을 모른다 — 0.0 으로 채우면
+                # 배치 표에 '0 초에 끝났다' 로 찍힌다.
+                "t_end": self.d3plot_result.t_end if self.d3plot_result else None,
                 "num_parts": len(self.parts),
             },
             "summary": {

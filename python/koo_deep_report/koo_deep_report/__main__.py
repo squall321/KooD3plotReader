@@ -1459,7 +1459,10 @@ def _print_summary(result: SingleResult) -> None:
     n_nostress = sum(1 for p in result.parts.values() if p.peak_stress is None)
     if n_nostress:
         print(f"               ({n_nostress}개 파트는 응력 미산출 — 솔리드 전용 집계)")
-    print(f"  피크 변형률  : {result.peak_strain_global:.4f}")
+    if result.peak_strain_global is None:
+        print("  피크 변형률  : 미산출 (집계된 파트 없음)")
+    else:
+        print(f"  피크 변형률  : {result.peak_strain_global:.4f}")
     if result.peak_disp_global is None:
         print("  피크 변위    : 미계측 (motion CSV 에 Max_Disp_Mag 열 없음)")
     else:

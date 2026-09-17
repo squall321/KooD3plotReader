@@ -368,9 +368,9 @@ for (const r of RESULTS) {{
     status: 'ok',
     tier: r.tier ?? -1,
     num_parts: m.num_parts ?? 0,
-    t_end: m.t_end ?? 0,
+    t_end: m.t_end ?? null,   // 기록이 없는 것은 '0 초에 끝났다' 가 아니다
     peak_stress: s.peak_stress_global ?? null,   // 미산출은 0 이 아니다
-    peak_strain: s.peak_strain_global ?? 0,
+    peak_strain: s.peak_strain_global ?? null,   // 미산출은 0 이 아니다
     peak_disp: s.peak_disp_global ?? null,   // 미계측은 0 이 아니다
     er_min: s.energy_ratio_min ?? null,
     sf: (() => {{
@@ -381,13 +381,15 @@ for (const r of RESULTS) {{
     _raw: r,
   }});
 }}
+// 실패·스킵 행은 해석이 아예 돌지 않았다. 네 계측값을 0 으로 채우면
+// 'T end 0, 피크 응력 0 MPa' 로 측정된 것처럼 읽힌다 — 결측은 null 이다.
 for (const f of FAILED) {{
-  ROWS.push({{ idx: idx++, label: f, status: 'fail', tier: -1, num_parts: 0, t_end: 0,
-    peak_stress: 0, peak_strain: 0, peak_disp: 0, er_min: null, sf: null, report_link: null }});
+  ROWS.push({{ idx: idx++, label: f, status: 'fail', tier: -1, num_parts: 0, t_end: null,
+    peak_stress: null, peak_strain: null, peak_disp: null, er_min: null, sf: null, report_link: null }});
 }}
 for (const sk of SKIPPED) {{
-  ROWS.push({{ idx: idx++, label: sk, status: 'skip', tier: -1, num_parts: 0, t_end: 0,
-    peak_stress: 0, peak_strain: 0, peak_disp: 0, er_min: null, sf: null, report_link: null }});
+  ROWS.push({{ idx: idx++, label: sk, status: 'skip', tier: -1, num_parts: 0, t_end: null,
+    peak_stress: null, peak_strain: null, peak_disp: null, er_min: null, sf: null, report_link: null }});
 }}
 
 // KPI
