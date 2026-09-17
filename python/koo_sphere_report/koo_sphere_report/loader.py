@@ -219,6 +219,29 @@ def load_part_names(output_dir: Path) -> dict[int, PartInfo]:
     return parts
 
 
+def round_keep_sig(v, decimals: int, sig: int = 4):
+    """소수 `decimals` 자리로 반올림하되 **유효숫자 `sig` 자리는 지킨다**.
+
+    캠페인 크기로 자릿수를 정하면 값의 크기를 보지 못한다 — 1144런 tier 의
+    '변형률 소수 4자리' 규칙이 유효소성변형률 4.2e-5 를 0.0 으로 만들었고,
+    화면 안내문은 그 0 을 "완전 탄성" 으로 읽어 준다. σ3 -0.0042 는 -0.0 이 되어
+    federate 가 그것을 실측으로 읽었다. 큰 값의 자릿수는 늘리지 않으므로
+    payload 크기는 그대로다. 비유한값은 0 이 아니라 None 이다.
+    """
+    if v is None:
+        return None
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    if v == 0.0:
+        return 0.0
+    nd = max(decimals, sig - 1 - math.floor(math.log10(abs(v))))
+    return round(v, nd)
+
+
 def extreme_indices(n: int, arrays: list, target: int | None) -> list[int]:
     """구간마다 각 배열의 최대·최소 위치를 남기는 인덱스 (처음·끝 포함, 오름차순).
 

@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
-from ..loader import extreme_indices
+from ..loader import extreme_indices, round_keep_sig
 from ..models import MotionData, Report
 
 
@@ -73,11 +73,13 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         ts_pts = 100 if n_results <= 50 else 30 if n_results <= 200 else 15 if n_results <= 500 else 10
 
         for pid, pr in sr.parts.items():
+            # 자릿수는 유효숫자를 지키며 줄인다 — 고정 소수점이면 SI 덱 변위
+            # 0.0004 m 나 GPa 응력 0.0863 이 0.0/0.09 로 뭉쳐 federate Δ 가 0% 가 된다.
             pd = {
-                "peak_stress": round(pr.peak_stress, 2),
-                "peak_strain": round(pr.peak_strain, 6),
-                "peak_g": round(pr.peak_g, 1),
-                "peak_disp": round(pr.peak_disp, 3),
+                "peak_stress": round_keep_sig(pr.peak_stress, 2),
+                "peak_strain": round_keep_sig(pr.peak_strain, 6),
+                "peak_g": round_keep_sig(pr.peak_g, 1),
+                "peak_disp": round_keep_sig(pr.peak_disp, 3),
                 "time_of_peak_stress": pr.stress.peak_time if pr.stress else 0.0,
                 "time_of_peak_g": pr.motion.peak_g_time if pr.motion else 0.0,
             }
@@ -85,18 +87,18 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
             # 최대 주응력 σ1 — 구버전 산출물엔 CSV 가 없어 키 자체를 넣지 않는다.
             # von Mises 로 대체하면 전혀 다른 물리량을 같은 칸에 넣는 셈이다.
             if pr.principal is not None:
-                pd["peak_principal_stress"] = round(pr.peak_principal, 2)
+                pd["peak_principal_stress"] = round_keep_sig(pr.peak_principal, 2)
                 pd["time_of_peak_principal"] = pr.principal.peak_time
             if pr.principal_min is not None and pr.min_principal is not None:
                 # σ3 은 압축측이라 최소값이 의미 있다 (부호 유지).
-                pd["min_principal_stress"] = round(pr.min_principal, 2)
+                pd["min_principal_stress"] = round_keep_sig(pr.min_principal, 2)
             # 주변형률 — 변형률 텐서가 실린 덱에서만. 없으면 키 자체를 안 넣는다.
             if pr.peak_principal_strain is not None:
-                pd["peak_principal_strain"] = round(pr.peak_principal_strain, 6)
+                pd["peak_principal_strain"] = round_keep_sig(pr.peak_principal_strain, 6)
             if pr.min_principal_strain is not None:
-                pd["min_principal_strain"] = round(pr.min_principal_strain, 6)
+                pd["min_principal_strain"] = round_keep_sig(pr.min_principal_strain, 6)
             if pr.peak_vm_strain is not None:
-                pd["peak_vm_strain"] = round(pr.peak_vm_strain, 6)
+                pd["peak_vm_strain"] = round_keep_sig(pr.peak_vm_strain, 6)
 
             # 파트별 에너지 (binout matsum). 계측 안 된 파트는 키 자체를 넣지
             # 않는다 — 0 으로 채우면 '흡수 없음' 으로 오독된다.
@@ -114,26 +116,26 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 if pr.stress and pr.stress.times:
                     idx = extreme_indices(len(pr.stress.times), [pr.stress.max_values], ts_pts)
                     pd["stress_ts"] = {
-                        "t": [round(pr.stress.times[i], 7) for i in idx],
-                        "max": [round(pr.stress.max_values[i], 1) for i in idx],
+                        "t": [round_keep_sig(pr.stress.times[i], 7) for i in idx],
+                        "max": [round_keep_sig(pr.stress.max_values[i], 1) for i in idx],
                     }
                 if pr.strain and pr.strain.times:
                     idx = extreme_indices(len(pr.strain.times), [pr.strain.max_values], ts_pts)
                     pd["strain_ts"] = {
-                        "t": [round(pr.strain.times[i], 7) for i in idx],
-                        "max": [round(pr.strain.max_values[i], 6) for i in idx],
+                        "t": [round_keep_sig(pr.strain.times[i], 7) for i in idx],
+                        "max": [round_keep_sig(pr.strain.max_values[i], 6) for i in idx],
                     }
                 if pr.motion and pr.motion.times:
                     g_factor = MotionData.G_FACTOR  # single source of truth
                     gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
                     pd["g_ts"] = {
-                        "t": [round(pr.motion.times[i], 7) for i in gidx],
-                        "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
+                        "t": [round_keep_sig(pr.motion.times[i], 7) for i in gidx],
+                        "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                     }
                     didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
                     pd["disp_ts"] = {
-                        "t": [round(pr.motion.times[i], 7) for i in didx],
-                        "mag": [round(pr.motion.avg_disp_mag[i], 2) for i in didx],
+                        "t": [round_keep_sig(pr.motion.times[i], 7) for i in didx],
+                        "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], 2) for i in didx],
                     }
 
             run_summary["parts"][str(pid)] = pd

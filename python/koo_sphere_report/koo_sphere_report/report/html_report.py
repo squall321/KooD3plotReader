@@ -6,7 +6,7 @@ import math
 from enum import Enum
 from pathlib import Path
 
-from ..loader import extreme_indices
+from ..loader import extreme_indices, round_keep_sig
 from ..models import MotionData, Report, Severity, SimulationResult
 
 
@@ -163,24 +163,26 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
             "parts": {},
         }
         for pid, pr in sr.parts.items():
+            # 자릿수는 유효숫자를 지키며 줄인다 — 캠페인 크기로 소수 자리를 정하면
+            # 작은 값(소성변형률 4.2e-5, GPa 응력 0.0863)이 통째로 0 이 된다.
             pd = {
-                "peak_stress": round(pr.peak_stress, s_prec),
-                "peak_strain": round(pr.peak_strain, e_prec),
-                "peak_g": round(pr.peak_g, 1),
-                "peak_disp": round(pr.peak_disp, s_prec),
+                "peak_stress": round_keep_sig(pr.peak_stress, s_prec),
+                "peak_strain": round_keep_sig(pr.peak_strain, e_prec),
+                "peak_g": round_keep_sig(pr.peak_g, 1),
+                "peak_disp": round_keep_sig(pr.peak_disp, s_prec),
             }
             # 최대 주응력 σ1 (있을 때만). von Mises 와 다른 물리량이라 별 칸.
             if pr.principal is not None:
-                pd["peak_principal_stress"] = round(pr.peak_principal, s_prec)
-                pd["time_of_peak_principal"] = round(pr.principal.peak_time, t_prec)
+                pd["peak_principal_stress"] = round_keep_sig(pr.peak_principal, s_prec)
+                pd["time_of_peak_principal"] = round_keep_sig(pr.principal.peak_time, t_prec)
             if pr.principal_min is not None and pr.min_principal is not None:
-                pd["min_principal_stress"] = round(pr.min_principal, s_prec)
+                pd["min_principal_stress"] = round_keep_sig(pr.min_principal, s_prec)
             if pr.peak_principal_strain is not None:
-                pd["peak_principal_strain"] = round(pr.peak_principal_strain, e_prec)
+                pd["peak_principal_strain"] = round_keep_sig(pr.peak_principal_strain, e_prec)
             if pr.min_principal_strain is not None:
-                pd["min_principal_strain"] = round(pr.min_principal_strain, e_prec)
+                pd["min_principal_strain"] = round_keep_sig(pr.min_principal_strain, e_prec)
             if pr.peak_vm_strain is not None:
-                pd["peak_vm_strain"] = round(pr.peak_vm_strain, e_prec)
+                pd["peak_vm_strain"] = round_keep_sig(pr.peak_vm_strain, e_prec)
 
             # 파트별 에너지 (binout matsum). 미계측 파트는 키를 넣지 않는다 —
             # 0 으로 채우면 화면에서 '흡수 없음' 으로 오독된다.
@@ -198,33 +200,33 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 idx = extreme_indices(len(pr.stress.times),
                                       [pr.stress.max_values, pr.stress.min_values], ts_pts)
                 pd["stress_ts"] = {
-                    "t": [round(pr.stress.times[i], t_prec) for i in idx],
-                    "max": [round(pr.stress.max_values[i], s_prec) for i in idx],
-                    "avg": [round(pr.stress.avg_values[i], s_prec) for i in idx],
+                    "t": [round_keep_sig(pr.stress.times[i], t_prec) for i in idx],
+                    "max": [round_keep_sig(pr.stress.max_values[i], s_prec) for i in idx],
+                    "avg": [round_keep_sig(pr.stress.avg_values[i], s_prec) for i in idx],
                 }
                 if include_extras and pr.stress.min_values:
-                    pd["stress_ts"]["min"] = [round(pr.stress.min_values[i], s_prec) for i in idx]
+                    pd["stress_ts"]["min"] = [round_keep_sig(pr.stress.min_values[i], s_prec) for i in idx]
                 if include_extras and pr.stress.max_element_ids:
                     pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in idx]
             if pr.strain and pr.strain.times:
                 idx = extreme_indices(len(pr.strain.times), [pr.strain.max_values], ts_pts)
                 pd["strain_ts"] = {
-                    "t": [round(pr.strain.times[i], t_prec) for i in idx],
-                    "max": [round(pr.strain.max_values[i], e_prec) for i in idx],
+                    "t": [round_keep_sig(pr.strain.times[i], t_prec) for i in idx],
+                    "max": [round_keep_sig(pr.strain.max_values[i], e_prec) for i in idx],
                 }
                 if pr.strain.avg_values:
-                    pd["strain_ts"]["avg"] = [round(pr.strain.avg_values[i], e_prec) for i in idx]
+                    pd["strain_ts"]["avg"] = [round_keep_sig(pr.strain.avg_values[i], e_prec) for i in idx]
             if pr.motion and pr.motion.times:
                 g_factor = MotionData.G_FACTOR  # single source of truth
                 gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
                 pd["g_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in gidx],
-                    "g": [round(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
+                    "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in gidx],
+                    "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                 }
                 didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
                 pd["disp_ts"] = {
-                    "t": [round(pr.motion.times[i], t_prec) for i in didx],
-                    "mag": [round(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
+                    "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in didx],
+                    "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
                 }
                 if include_components:
                     aidx = extreme_indices(
@@ -232,26 +234,26 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         [pr.motion.avg_acc_x, pr.motion.avg_acc_y, pr.motion.avg_acc_z],
                         comp_pts)
                     pd["acc_ts"] = {
-                        "t": [round(pr.motion.times[i], t_prec) for i in aidx],
-                        "x": [round(pr.motion.avg_acc_x[i] / g_factor, 0) for i in aidx],
-                        "y": [round(pr.motion.avg_acc_y[i] / g_factor, 0) for i in aidx],
-                        "z": [round(pr.motion.avg_acc_z[i] / g_factor, 0) for i in aidx],
+                        "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in aidx],
+                        "x": [round_keep_sig(pr.motion.avg_acc_x[i] / g_factor, 0) for i in aidx],
+                        "y": [round_keep_sig(pr.motion.avg_acc_y[i] / g_factor, 0) for i in aidx],
+                        "z": [round_keep_sig(pr.motion.avg_acc_z[i] / g_factor, 0) for i in aidx],
                     }
                     cidx = extreme_indices(
                         len(pr.motion.times),
                         [pr.motion.avg_disp_x, pr.motion.avg_disp_y, pr.motion.avg_disp_z],
                         comp_pts)
                     pd["disp_comp_ts"] = {
-                        "t": [round(pr.motion.times[i], t_prec) for i in cidx],
-                        "x": [round(pr.motion.avg_disp_x[i], s_prec) for i in cidx],
-                        "y": [round(pr.motion.avg_disp_y[i], s_prec) for i in cidx],
-                        "z": [round(pr.motion.avg_disp_z[i], s_prec) for i in cidx],
+                        "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in cidx],
+                        "x": [round_keep_sig(pr.motion.avg_disp_x[i], s_prec) for i in cidx],
+                        "y": [round_keep_sig(pr.motion.avg_disp_y[i], s_prec) for i in cidx],
+                        "z": [round_keep_sig(pr.motion.avg_disp_z[i], s_prec) for i in cidx],
                     }
                 # 다운샘플 전 참최대속도를 쓴다 (줄인 배열의 max 는 피크를 놓친다).
                 # 속도 열이 아예 없으면 0 이 아니라 키를 넣지 않는다.
                 _pv = pr.motion.peak_vel
                 if _pv is not None:
-                    pd["peak_vel"] = round(_pv, 1)
+                    pd["peak_vel"] = round_keep_sig(_pv, 1)
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 
@@ -2176,17 +2178,25 @@ function hasQty(qty) {
   return false;
 }
 
+// 고정 소수점으로 찍으면 작은 값이 화면에서 0 이 된다 (0.0863 MPa → '0.1',
+// 4.2e-5 변형률 → '0.0000'). 그 자릿수로 유효숫자가 3자리에 못 미치면
+// 유효숫자 표기로 바꾼다 — 값을 지어내는 게 아니라 있는 값을 보이게 하는 것이다.
+function fxv(v, nd) {
+  if (!isFinite(v)) return '—';
+  if (v !== 0 && Math.abs(v) < Math.pow(10, 2 - nd)) return v.toPrecision(3);
+  return v.toFixed(nd);
+}
 function formatValue(v, qty) {
-  if (qty === 'peak_stress') return v.toFixed(1) + ' MPa';
-  if (qty === 'peak_strain') return v.toFixed(4);
+  if (qty === 'peak_stress') return fxv(v, 1) + ' MPa';
+  if (qty === 'peak_strain') return fxv(v, 4);
   if (qty === 'peak_vm_strain' || qty === 'peak_principal_strain'
-      || qty === 'min_principal_strain') return v.toFixed(5);
-  if (qty === 'peak_principal_stress' || qty === 'min_principal_stress') return v.toFixed(1);
-  if (qty === 'peak_g') return (v/1e6).toFixed(2) + ' MG';
-  if (qty === 'peak_disp') return v.toFixed(2) + ' mm';
-  if (qty === 'peak_vel') return v.toFixed(1) + ' mm/s';
+      || qty === 'min_principal_strain') return fxv(v, 5);
+  if (qty === 'peak_principal_stress' || qty === 'min_principal_stress') return fxv(v, 1);
+  if (qty === 'peak_g') return fxv(v/1e6, 2) + ' MG';
+  if (qty === 'peak_disp') return fxv(v, 2) + ' mm';
+  if (qty === 'peak_vel') return fxv(v, 1) + ' mm/s';
   if (qty === 'safety_factor') return v > 0 ? v.toFixed(2) : 'N/A';
-  return v.toFixed(2);
+  return fxv(v, 2);
 }
 
 let _hoverDebounce = null;
@@ -5715,8 +5725,15 @@ function tolParse(name) {
 function tolAngleValue(r, qty) {
   let best = null;
   for (const k in (r.parts || {})) {
-    const v = getQtyValue(r.parts[k], qty);
-    if (v == null || !isFinite(v) || v === 0) continue;
+    const pd = r.parts[k];
+    if (!pd) continue;
+    // 건너뛰는 것은 **미계측**뿐이다. 반올림으로 0 이 된 값까지 버리면 그 각도가
+    // 통째로 빠져 '정각도(_NOM) 없음' 으로 읽힌다 — 값이 없던 게 아니라 작았을 뿐이다.
+    // safety_factor 만은 계산 불가일 때 0 을 주므로 0 = 미계측이다.
+    if (qty !== 'safety_factor' && pd[qty] == null) continue;
+    const v = getQtyValue(pd, qty);
+    if (!isFinite(v)) continue;
+    if (qty === 'safety_factor' && v === 0) continue;
     if (best == null || v > best) best = v;
   }
   return best;
