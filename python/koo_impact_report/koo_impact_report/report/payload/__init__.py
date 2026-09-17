@@ -24,6 +24,10 @@ from .analytics import _build_deep_payload
 from .insights import _build_insights_payload
 from .physics import _build_physics_payload
 
+#: 궤적 다운샘플에서 별도로 보존하는 접촉 on/off 전이 샘플의 상한.
+#: 채터링 런이 다운샘플을 무력화해 payload 를 부풀리는 것을 막는다.
+_CONTACT_EDGE_CAP = 64
+
 
 def _build_payload(report: ImpactReport, tier_override=None) -> dict:
     """Distill an ImpactReport into a compact JSON payload for embedding.
@@ -392,11 +396,26 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         if _ke_full:
             _am = _argmax([-v for v in _ke_full[:n]])
             _ke_min_idx = _am
+        # 접촉 on/off 전이는 스트라이드로 버리면 안 된다 — s5 접촉 타임라인은
+        # 칸 구간 안에 접촉 샘플이 하나라도 있으면 CONTACT 로 칠하는데,
+        # tier D(24점, step 42)에서는 20 µs 펄스가 절반 확률로 통째로 사라져
+        # 그 칸이 'free flight' 로 읽힌다.
+        _contact_full_src = list(getattr(traj, "contact_engaged", None) or [])
+        _edges = [i for i in range(min(n, len(_contact_full_src)))
+                  if _contact_full_src[i]
+                  and (i == 0 or not _contact_full_src[i - 1]
+                       or i + 1 >= len(_contact_full_src)
+                       or not _contact_full_src[i + 1])]
+        # 접촉이 채터링하면 전이가 수백 개가 되어 다운샘플을 무력화한다 —
+        # 그때는 스트라이드만으로도 접촉 구간이 충분히 남으므로 상한을 둔다.
+        if len(_edges) > _CONTACT_EDGE_CAP:
+            _edges = _edges[::-(-len(_edges) // _CONTACT_EDGE_CAP)]
         # tier C/D (pts=0): 시계열 인라인 없음 — 요약 스칼라만 (청크는 P4-3).
         if TRAJECTORY_MAX_PTS <= 0:
             _tidx = []
         else:
-            _tidx = _downsample_indices(n, TRAJECTORY_MAX_PTS, peak_idx=_ke_min_idx)
+            _tidx = _downsample_indices(n, TRAJECTORY_MAX_PTS,
+                                        peak_idx=_ke_min_idx, keep_idx=_edges)
         pos_list_xyz = []
         vel_list_xyz = []
         for i in _tidx:

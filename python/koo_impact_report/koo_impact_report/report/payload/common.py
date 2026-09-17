@@ -141,13 +141,22 @@ def _pid_cast(pid):
         return pid
 
 
-def _downsample_indices(n: int, max_pts: int, peak_idx: int | None = None) -> list[int]:
+def _downsample_indices(
+    n: int,
+    max_pts: int,
+    peak_idx: int | None = None,
+    keep_idx: list[int] | None = None,
+) -> list[int]:
     """스트라이드 다운샘플 인덱스 — 마지막 샘플과 peak 샘플을 항상 보존한다.
 
     true-peak-before-downsample 불변식 (SOTA P4): peak "스칼라"는 호출부가
     풀해상도에서 선계산하고, 여기서는 peak "샘플"이 곡선에서 사라지지 않도록
     splice 한다. step 은 ceil(n/max_pts) — 과거 ``n // 600`` 은 992//600=1 이라
     다운샘플이 사실상 미작동이었다 (임계값 설계 오류).
+
+    ``keep_idx`` 는 호출부가 "이 샘플이 사라지면 사실이 바뀐다" 고 판단한
+    인덱스들이다(예: 접촉 on/off 전이). 스트라이드는 짧은 사건을 통째로
+    건너뛴다 — tier D(24점, step 42)에서 20 µs 접촉 펄스는 절반이 사라진다.
     """
     if max_pts <= 0 or n <= max_pts:
         return list(range(n))
@@ -156,6 +165,9 @@ def _downsample_indices(n: int, max_pts: int, peak_idx: int | None = None) -> li
     keep.add(n - 1)
     if peak_idx is not None and 0 <= peak_idx < n:
         keep.add(int(peak_idx))
+    for i in (keep_idx or []):
+        if 0 <= int(i) < n:
+            keep.add(int(i))
     return sorted(keep)
 
 

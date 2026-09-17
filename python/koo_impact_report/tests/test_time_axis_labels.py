@@ -95,7 +95,12 @@ def test_time_label_helper_exists_and_is_used():
 
 
 def test_contact_timeline_axis_is_data_driven():
-    """접촉 타임라인이 0~1 ms 하드코딩을 버리고 tr.t 를 쓴다."""
+    """접촉 타임라인이 0~1 ms 하드코딩을 버리고 tr.t 를 쓴다.
+
+    이 시험은 소스 문자열 회귀만 막는다. 실제 동작(구간 OR 로 짧은 펄스를
+    잡는다, 2 ms 덱의 1.5 ms 접촉이 맞는 칸에 온다)은
+    tests/test_contact_timeline_cells.py 가 node 로 실행해 값으로 단언한다.
+    """
     html = generate_html(_report())
     assert "(i / 20).toFixed(1)" not in html
     assert "(i / 20).toFixed(2) + ' ms'" not in html
