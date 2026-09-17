@@ -134,6 +134,8 @@ def test_s9_unmeasured_part_row_is_not_printed_as_zero():
     assert pct_cell.strip() != "0%", f"퍼센트 칸이 0% 로 찍혔다: {unm}"
     assert s_cell.strip() not in ("0.0", "0"), f"응력 칸이 0.0 으로 찍혔다: {unm}"
     assert unm["barW"] in (None, "0px"), f"미계측인데 막대를 그렸다: {unm}"
+    assert unm["klass"] == "r-dim", unm
+    assert "미계측" in unm["cells"][8], f"배지 칸이 비어 '안전' 으로 읽힌다: {unm}"
 
 
 @pytest.mark.skipif(NODE is None, reason="node 없음 — JS 실행 검증 건너뜀")
