@@ -72,8 +72,11 @@ function s10SetImage(pi) {
   img.src = m.png;
   const sv = SR.stress[S10.set][pi], ev = SR.strain[S10.set][pi];
   const bits = ['<b>' + pos.id + '</b>'];
-  if (sv !== null) bits.push('σ_vm ' + sv.toFixed(2) + ' MPa');
-  if (ev !== null) bits.push('ε_p ' + ev.toFixed(5));
+  // 세트 피크는 덱 단위 그대로다 — 단위는 unit_labels 에서 오고(SI 면 Pa),
+  // 자릿수는 fmt() 가 크기에 맞춰 정한다 (toFixed(2) 는 0.1357 을 뭉갠다).
+  const su = _u('stress');
+  if (sv !== null) bits.push('σ_vm ' + fmt(sv) + (su ? ' ' + su : ''));
+  if (ev !== null) bits.push('ε_p ' + fmt(ev));
   if (m.mp4) bits.push('▶ 클릭 시 영상');
   info.innerHTML = bits.join(' · ');
 }
@@ -87,11 +90,10 @@ function s10Draw() {
   const vmin = finite.length ? Math.min(...finite) : 0;
   const vmax = finite.length ? Math.max(...finite) : 1;
   // 산출이 하나도 없는 지표는 범위를 지어내지 않는다 (결측 ≠ 0~1)
+  const su = _u('stress');
   document.getElementById('s10-range').textContent =
-    (S10.metric === 's' ? 'σ_vm [MPa] ' : 'ε_p ') +
-    (finite.length
-      ? vmin.toFixed(S10.metric === 's' ? 1 : 5) + ' ~ ' + vmax.toFixed(S10.metric === 's' ? 1 : 5)
-      : '산출 없음');
+    (S10.metric === 's' ? 'σ_vm' + (su ? ' [' + su + ']' : '') + ' ' : 'ε_p ') +
+    (finite.length ? fmt(vmin) + ' ~ ' + fmt(vmax) : '산출 없음');
 
   const W = meta.width, H = meta.height;
   ov.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -119,14 +121,14 @@ function s10Draw() {
              '" r="5" fill="' + (has ? col : 'rgba(120,130,160,.2)') +
              '" stroke="rgba(200,200,220,.8)" stroke-dasharray="2,2" stroke-width="1"' +
              ' style="cursor:pointer"><title>' + p.id + ' (세트 뷰 밖)' +
-             (has ? ': ' + vals[pi].toFixed(2) : '') + '</title></circle>';
+             (has ? ': ' + fmt(vals[pi]) : '') + '</title></circle>';
     } else {
       const r = has ? 9 : 5;
       svg += '<circle data-pos="' + p.id + '" cx="' + cxc.toFixed(1) + '" cy="' + cyc.toFixed(1) +
              '" r="' + r + '" fill="' + (has ? col : 'rgba(120,130,160,.25)') +
              '" stroke="' + (pi === S10.hover ? '#fff' : 'rgba(0,0,0,.55)') +
              '" stroke-width="' + (pi === S10.hover ? 2.5 : 1) + '" style="cursor:pointer">' +
-             '<title>' + p.id + (has ? ': ' + vals[pi].toFixed(2) : ' (미실행)') + '</title></circle>';
+             '<title>' + p.id + (has ? ': ' + fmt(vals[pi]) : ' (미실행)') + '</title></circle>';
     }
   }
   ov.innerHTML = svg;
