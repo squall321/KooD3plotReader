@@ -725,7 +725,7 @@ function renderPartChart(parts, metric) {{
     }}),
     marker: {{ color: colors[i % colors.length] }},
     hovertemplate: `${{name}}<br>%{{x}}: %{{y:.3f}}<extra></extra>`,
-  }})));
+  }}));
 
   Plotly.newPlot('chart-part-compare', traces, {{
     ...PLOT_LAYOUT,
