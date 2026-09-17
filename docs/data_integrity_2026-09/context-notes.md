@@ -52,3 +52,8 @@ sphere 보고서는 CSV 를 직접 읽어 전체였다. 두 경로를 비교한 
 - CSV 자릿수를 유효숫자(defaultfloat, 10)로 바꾼 뒤 소비처(sphere `_load_stress_strain_csv`, deep `_parse_motion_csv`)가 그대로 읽는다 — 배터리 덱 재실행으로 확인(시각 0.0002499985276, 피크 2.983241985).
 - 요소 품질 미산출 지표는 값 대신 null + `*_measured` 플래그. deep report JS 는 null 을 빈 구간으로 그린다(0 으로 위장하지 않음).
 - 작은 덱 보고서를 브라우저로 열어 JS 오류 0, 차트 12개 렌더(matsum 포함) 확인.
+
+### 2차(낮음) 병합과 골든 재기록
+- 낮음 23건을 네 묶음으로 나눠 수정했다. C++ 묶음의 첫 커밋(확장 JSON 이스케이프·자릿수)은 1차 G1 의 50953a9 와 같은 일이라 건너뛰었다.
+- impact 골든 4종(html_bytes·norm_data·tier_c·tier_d)은 이번 수정으로 바뀌는 것이 맞다. 재기록 전에 불변식(위치 수·인라인 ≤40·궤적 ≤62점·시계열 비우지 않음)이 그대로 통과함을 확인하고 KOO_GOLDEN_UPDATE=1 로 다시 기록했다.
+- **작업 산출물은 이제 `/tmp` 가 아니라 저장소 안 `.work/`(gitignore)와 `docs/data_integrity_2026-09/groups/`에 둔다** — 세션이 끊겨 `/tmp` 가 비워지면서 목록·스크립트를 한 번 잃었다 (사용자 지시).
