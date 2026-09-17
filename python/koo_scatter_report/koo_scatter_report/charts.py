@@ -166,7 +166,15 @@ def direction_map(points, w=560, h=380, vlabel="값") -> str:
     vs = [p[2] for p in pts]
     lo, hi = min(vs), max(vs)
     pad = (58, 66, 16, 34)
-    grid, px, py = _axes(w, h, pad, -180, 180, -90, 90, "roll [deg]", "pitch [deg]", 6, 4)
+    # 축 범위는 **데이터에서** 정한다. 캠페인마다 규약이 다르다 — Test_001 은
+    # roll ±180 / pitch ±90 이지만 Test_006(1144런)은 roll ±90 / pitch ±180 이다
+    # (sphere 로더가 "표준" 이라 부르는 쪽이 후자다). ±90 으로 못박아 두었을 때
+    # Test_006 은 1144런 중 572런이 축 밖으로 나갔고 465개는 viewBox 밖이라
+    # 브라우저가 잘라냈다 — 그런데 색막대 최대값은 그 안 보이는 점까지 셌다.
+    rx = 180.0 if max(abs(p[0]) for p in pts) > 90.0 else 90.0
+    ry = 180.0 if max(abs(p[1]) for p in pts) > 90.0 else 90.0
+    grid, px, py = _axes(w, h, pad, -rx, rx, -ry, ry, "roll [deg]", "pitch [deg]",
+                         6 if rx > 90.0 else 4, 6 if ry > 90.0 else 4)
     body = []
     for r, q, v in pts:
         body.append(f'<circle cx="{px(r):.1f}" cy="{py(q):.1f}" r="6" '
