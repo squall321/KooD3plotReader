@@ -152,7 +152,13 @@ def build_ua_yaml(d3plot: str, out_dir: str, cfg: CustomReportConfig) -> str:
     lines.append(f"  d3plot: {_yaml_str(d3plot)}")
     lines.append("output:")
     lines.append(f"  directory: {_yaml_str(out_dir)}")
-    lines.append("  json: true")
+    # json 을 끄는 이유 — KooChainRun 관례상 -o 는 Run_*/Output/report, 즉 deep 이
+    # analysis_result.json 을 쓰는 바로 그 폴더다. unified_analyzer 는 이 옵션이
+    # 참이면 그 파일을 조건 없이 다시 쓰고, 세트만 도는 실행에는 motion·
+    # element_quality·hotspot_clusters 가 없으므로 전부 빈 배열로 덮인다.
+    # 커스텀 보고서는 set_reports/<세트>/metrics.json 만 읽으므로 JSON 이 필요 없다.
+    lines.append("  # analysis_result.json 은 쓰지 않는다 — deep 산출물과 같은 폴더를 쓴다")
+    lines.append("  json: false")
     lines.append("  csv: true")
     lines.append("performance:")
     lines.append(f"  threads: {cfg.threads}")
