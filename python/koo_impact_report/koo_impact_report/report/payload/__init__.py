@@ -593,13 +593,21 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         })
     summary_rows.sort(key=lambda r: r["peak_g"], reverse=True)
 
-    # First-contact marker (use any trajectory's t_first_contact when available)
-    t_first_contact = None
-    for tr in trajectories.values():
+    # First-contact marker — 위치마다 다르다. 종전에는 아무 궤적이나 첫 번째
+    # 것을 골라 모든 위치의 차트에 같은 선을 그었다 (실측: 미접촉 런
+    # F5_DOE_001 의 노이즈 1e-06 이 전 위치의 t₁ 로 쓰였다).
+    t_first_contact_by_pos: dict[str, float] = {}
+    for _pid, tr in trajectories.items():
+        if (tr.get("behavior") or "") == "no-contact":
+            continue   # 닿지 않은 런의 t₁ 은 접촉 시각이 아니다
         tfc = tr.get("t_first_contact")
         if tfc is not None and tfc > 0:
-            t_first_contact = float(tfc)
-            break
+            t_first_contact_by_pos[str(_pid)] = float(tfc)
+    # 전역 fallback 은 위치가 하나일 때만 의미가 있다.
+    t_first_contact = (
+        next(iter(t_first_contact_by_pos.values()))
+        if len(t_first_contact_by_pos) == 1 else None
+    )
 
     # g_divisor: depends on the acc unit declared by the loader/CLI override.
     # Computed below from unit_labels; default 9810 (mm/s²) preserved when
@@ -621,6 +629,7 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "t_ref": part_motion_t_ref,
         "impactor_part_id": impactor_part_id,
         "t_first_contact": t_first_contact,
+        "t_first_contact_by_pos": t_first_contact_by_pos,
         "g_divisor": _g_div_pm,
         "g_mm_s2": _g_div_pm,  # backward-compat alias
         "acc_unit": _acc_for_div,

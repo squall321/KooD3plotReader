@@ -467,7 +467,9 @@ function renderS9Charts(posId, bundle) {
     const px = tv => pad.l + (tv - tMin) / (tMax - tMin || 1) * plotW;
     const py = av => pad.t + (1 - av / aMax) * plotH;
     // t_first_contact 점선
-    const tfc = (DATA.part_motion || {}).t_first_contact;
+    // 선택한 위치의 t₁ 을 쓴다 — 전역 한 개를 모든 위치에 긋던 것이 버그였다.
+    const _pmTfc = (DATA.part_motion || {});
+    const tfc = (_pmTfc.t_first_contact_by_pos || {})[posId];
     if (tfc != null && tfc >= tMin && tfc <= tMax) {
       accSvg.appendChild(svg('line', { x1: px(tfc), x2: px(tfc), y1: pad.t, y2: pad.t + plotH,
         stroke: '#b28cff', 'stroke-dasharray': '4,3', 'stroke-width': 1 }));

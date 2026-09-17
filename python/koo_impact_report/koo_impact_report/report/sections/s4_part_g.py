@@ -188,7 +188,8 @@ _JS_S4 = r"""function initPerPartPeakG() {
       tr.appendChild(el('td', { class: 'tl' }, r.part_name || ''));
       tr.appendChild(el('td', { class: 'num' }, fmt(r.peak_g, 0)));
       tr.appendChild(el('td', { class: 'num' }, ((r.peak_g || 0) / G).toFixed(2)));
-      tr.appendChild(el('td', { class: 'num' }, (r.t_peak_g != null ? (r.t_peak_g * 1000).toFixed(3) : '-')));
+        // 표 머리(ppg-th-time)와 같은 배율·단위를 쓴다 — 1000배 하고 's' 라벨 금지.
+      tr.appendChild(el('td', { class: 'num' }, (r.t_peak_g != null ? fmt(r.t_peak_g * _tScale().k, 3) : '-')));
       tr.appendChild(el('td', { class: 'num' }, fmt(r.peak_vel, 1)));
       tr.appendChild(el('td', { class: 'num' }, fmt(r.peak_disp, 3)));
       tbody.appendChild(tr);
@@ -251,11 +252,12 @@ _JS_S4 = r"""function initPerPartPeakG() {
         const xp = px(tv);
         lineSvg.appendChild(svg('line', { x1: xp, y1: pad.t + plotH, x2: xp, y2: pad.t + plotH + 4, stroke: 'rgba(255,255,255,0.30)', 'stroke-width': 0.6 }));
         const t = svg('text', { x: xp, y: pad.t + plotH + 16, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9, 'font-family': 'JetBrains Mono' });
-        t.appendChild(document.createTextNode((tv * 1000).toFixed(2)));
+        t.appendChild(document.createTextNode(fmt(tv * _tScale().k, 2)));
         lineSvg.appendChild(t);
       }
       const xLab = svg('text', { x: pad.l + plotW / 2, y: H - 4, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 9 });
-      xLab.appendChild(document.createTextNode('t' + (_u('time') ? '  (' + _u('time') + ')' : '')));
+      // 눈금이 ms 로 환산됐으면 축 라벨도 ms 여야 한다.
+      xLab.appendChild(document.createTextNode('t' + (_tScale().u ? '  (' + _tScale().u + ')' : '')));
       lineSvg.appendChild(xLab);
       // y ticks
       if (useLog) {
@@ -282,12 +284,18 @@ _JS_S4 = r"""function initPerPartPeakG() {
       const yLab = svg('text', { x: 8, y: pad.t + plotH / 2, fill: '#5c6383', 'font-size': 9, transform: 'rotate(-90 14 ' + (pad.t + plotH / 2) + ')' });
       yLab.appendChild(document.createTextNode('|a|' + (_u('acc') ? '  (' + _u('acc') + ')' : '') + (useLog ? '  [log]' : '')));
       lineSvg.appendChild(yLab);
-      // first-contact dashed line
-      if (pm.t_first_contact != null && pm.t_first_contact >= tMin && pm.t_first_contact <= tMax) {
-        const xc = px(pm.t_first_contact);
+      // first-contact dashed line — t₁ 은 위치마다 다르다. 그려진 곡선들이
+      // 한 위치에서 온 경우에만 그 위치의 t₁ 을 긋고, 여러 위치가 섞였으면
+      // 긋지 않는다 (아무 위치의 값이나 전 곡선에 긋던 것이 버그였다).
+      const tfcBy = pm.t_first_contact_by_pos || {};
+      const drawnPos = Array.from(new Set(series.map(s => s.pos_id).filter(v => v != null)));
+      const tfc = (drawnPos.length === 1) ? tfcBy[drawnPos[0]]
+        : (drawnPos.length === 0 ? pm.t_first_contact : null);
+      if (tfc != null && tfc >= tMin && tfc <= tMax) {
+        const xc = px(tfc);
         lineSvg.appendChild(svg('line', { x1: xc, y1: pad.t, x2: xc, y2: pad.t + plotH, stroke: 'rgba(180,110,255,0.7)', 'stroke-width': 1.0, 'stroke-dasharray': '4,3' }));
         const t = svg('text', { x: xc + 4, y: pad.t + 10, fill: '#b46eff', 'font-size': 9, 'font-family': 'JetBrains Mono' });
-        t.appendChild(document.createTextNode('t₁ = ' + (pm.t_first_contact * 1000).toFixed(2) + (_u('time') ? ' ' + _u('time') : '')));
+        t.appendChild(document.createTextNode('t₁ = ' + tfmt(tfc, 3)));
         lineSvg.appendChild(t);
       }
       // sort series by peak_g desc and assign colors

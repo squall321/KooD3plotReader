@@ -194,6 +194,19 @@ function _uDensity() {
   return (m && l) ? m + '/' + l + '³' : '';
 }
 function _uDensitySuffix() { const v = _uDensity(); return v ? ' (' + v + ')' : ''; }
+// 시간 표시 배율 — 솔버 시간 단위가 초(s)일 때만 ms 로 환산하고 라벨도 ms 로
+// 바꾼다. ms/µs 계열 덱을 1000배 해서 's' 라벨을 붙이면 2000배 과대 표기가 된다.
+function _tScale() {
+  const u = _u('time');
+  return (u === 's') ? { k: 1000.0, u: 'ms' } : { k: 1.0, u: u };
+}
+// 시각 한 개를 단위와 함께 찍는다. µs 규모(5e-6 s = 0.005 ms)가 서로 구분되게
+// toFixed(2) 대신 크기 인식 fmt() 를 쓴다.
+function tfmt(t, d) {
+  if (t == null || !isFinite(t)) return '-';
+  const s = _tScale();
+  return fmt(t * s.k, d == null ? 3 : d) + (s.u ? ' ' + s.u : '');
+}
 
 function applyUnitLabels() {
   // Inject unit labels into HTML placeholders. Empty when units unspecified.
@@ -204,7 +217,7 @@ function applyUnitLabels() {
   set('topkSUnit', _uSuffix('stress'));
   set('ppg-bar-cap-unit', _uSuffix('acc'));
   set('ppg-th-acc', _u('acc'));
-  set('ppg-th-time', _u('time'));
+  set('ppg-th-time', _tScale().u);   // 표에 찍는 값과 같은 단위여야 한다
   set('ppg-th-vel', _u('vel'));
   set('ppg-th-disp', _u('disp'));
 }

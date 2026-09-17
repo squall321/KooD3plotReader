@@ -703,11 +703,22 @@ function initContactTimeline() {
   const top = ranked.slice(0, 8);
   // header
   grid.appendChild(el('div', { class: 'lab', style: { color: 'var(--dim)' } }, 'IMPACT'));
+  // 시간축은 실제 궤적 t 에서 온다 — 0~1 ms 하드코딩은 tFinal 2 ms/0.5 ms 덱을
+  // 통째로 틀리게 만든다 (1.5 ms 접촉이 '0.8 ms' 칸에 찍혔다).
+  let tEnd = 0;
+  for (const it of top) {
+    const T = it.traj.t || [];
+    if (T.length && isFinite(T[T.length - 1])) tEnd = Math.max(tEnd, T[T.length - 1]);
+  }
+  const tS = _tScale();
   const head = el('div', { class: 'cseq-row', style: { fontSize: '8px', color: 'var(--dim)', fontFamily: 'JetBrains Mono, monospace' } });
   for (let i = 0; i < 21; i++) {
-    head.appendChild(el('div', { style: { textAlign: 'center' } }, (i % 5 === 0) ? (i / 20).toFixed(1) : ''));
+    head.appendChild(el('div', { style: { textAlign: 'center' } },
+      (i % 5 === 0) ? fmt(tEnd * (i / 20) * tS.k, 1) : ''));
   }
   grid.appendChild(head);
+  grid.appendChild(el('div', { class: 'lab', style: { color: 'var(--dim)', fontSize: '8px' } }, 't (' + (tS.u || '-') + ')'));
+  grid.appendChild(el('div', { class: 'cseq-row' }));
   for (const it of top) {
     const tr = it.traj;
     const c = BEHAVIOR_COLOR[tr.behavior] || BEHAVIOR_COLOR.unknown;
@@ -716,10 +727,20 @@ function initContactTimeline() {
     lab.appendChild(document.createTextNode(tr.face + ' · ' + tr.x.toFixed(0) + ',' + tr.y.toFixed(0)));
     grid.appendChild(lab);
     const row = el('div', { class: 'cseq-row' });
-    const T = tr.contact ? tr.contact.length : 0;
+    const Tt = tr.t || [];
+    const C = tr.contact || [];
+    const nS = Math.min(Tt.length, C.length);
     for (let i = 0; i < 21; i++) {
-      const idx = T > 0 ? Math.floor(i * (T - 1) / 20) : -1;
-      const engaged = idx >= 0 && tr.contact[idx];
+      // 점 샘플링은 record/20 보다 짧은 접촉(1 ms 기록의 40 µs 펄스)을 통째로
+      // 놓친다 — 칸이 덮는 시간 구간 안에 접촉 샘플이 하나라도 있으면 접촉이다.
+      const tLo = tEnd * i / 20, tHi = tEnd * (i + 1) / 20;
+      let engaged = false, idx = -1;
+      for (let k = 0; k < nS; k++) {
+        if (Tt[k] < tLo) continue;
+        if (i < 20 && Tt[k] >= tHi) break;
+        if (idx < 0) idx = k;
+        if (C[k]) { engaged = true; idx = k; break; }
+      }
       // intensity: based on KE drop rate at this index
       let intensity = 0;
       if (engaged && idx > 0) {
@@ -744,7 +765,8 @@ function initContactTimeline() {
         }
       }
       const cell = el('div', { class: 'cseq-cell', style: { background: cellColor } });
-      cell.title = it.key + ' · t=' + (i / 20).toFixed(2) + ' ms · ' + (engaged ? 'CONTACT' : 'free flight');
+      cell.title = it.key + ' · t=' + fmt(tEnd * (i / 20) * tS.k, 3) + ' ' + (tS.u || '')
+        + ' · ' + (engaged ? 'CONTACT' : 'free flight');
       row.appendChild(cell);
     }
     grid.appendChild(row);
@@ -940,7 +962,8 @@ function renderInspectorKEOverlay(rec) {
     const rows = [
       ['REBOUND', fmt(tr.rebound_speed, 0) + (_u('vel') ? ' ' + _u('vel') : '')],
       ['MAX PEN', fmt(tr.max_pen, 2) + (_u('disp') ? ' ' + _u('disp') : '')],
-      ['t₁ CONTACT', (tr.t_first_contact != null ? (tr.t_first_contact * 1000).toFixed(2) + (_u('time') ? ' ' + _u('time') : '') : '-')],
+      // 1000배 해 놓고 솔버 단위('s')를 붙이면 5e-06 s 가 '0.01 s' 로 2000배 과대 표기된다.
+      ['t₁ CONTACT', tfmt(tr.t_first_contact, 3)],
       ['KE RETAIN', (tr.ke_retention * 100).toFixed(0) + ' %']
     ];
     for (const r of rows) {
