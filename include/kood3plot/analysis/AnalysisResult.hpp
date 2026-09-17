@@ -295,8 +295,8 @@ struct AnalysisResult {
         if (!metadata.tool_built.empty())
             oss << indent << indent << "\"tool_built\": \"" << escapeJSON(metadata.tool_built) << "\"," << nl;
         oss << indent << indent << "\"num_states\": " << metadata.num_states << "," << nl;
-        oss << indent << indent << "\"start_time\": " << std::fixed << std::setprecision(8) << metadata.start_time << "," << nl;
-        oss << indent << indent << "\"end_time\": " << metadata.end_time << "," << nl;
+        oss << indent << indent << "\"start_time\": " << jnum(metadata.start_time) << "," << nl;
+        oss << indent << indent << "\"end_time\": " << jnum(metadata.end_time) << "," << nl;
         oss << indent << indent << "\"analyzed_parts\": " << arrayToJSON(metadata.analyzed_parts) << nl;
         oss << indent << "}," << nl;
 
@@ -482,12 +482,12 @@ private:
 
     static std::string timePointToJSON(const TimePointStats& tp, const std::string& indent) {
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(8);
+        // 수치는 jnum — 소수 8자리 고정은 작은 변형률·촘촘한 시각을 뭉갠다 (jnum 주석 참조)
         oss << "{";
-        oss << "\"time\": " << tp.time << ", ";
-        oss << "\"max\": " << tp.max_value << ", ";
-        oss << "\"min\": " << tp.min_value << ", ";
-        oss << "\"avg\": " << tp.avg_value << ", ";
+        oss << "\"time\": " << jnum(tp.time) << ", ";
+        oss << "\"max\": " << jnum(tp.max_value) << ", ";
+        oss << "\"min\": " << jnum(tp.min_value) << ", ";
+        oss << "\"avg\": " << jnum(tp.avg_value) << ", ";
         oss << "\"max_element_id\": " << tp.max_element_id << ", ";
         oss << "\"min_element_id\": " << tp.min_element_id;
         oss << "}";
@@ -509,32 +509,20 @@ private:
         oss << ind2 << "\"num_points\": " << stats.data.size() << "," << nl;
 
         if (!stats.data.empty()) {
-            oss << ind2 << "\"global_max\": " << std::fixed << std::setprecision(8) << stats.globalMax() << "," << nl;
-            oss << ind2 << "\"global_min\": " << stats.globalMin() << "," << nl;
-            oss << ind2 << "\"time_of_max\": " << stats.timeOfGlobalMax() << "," << nl;
+            oss << ind2 << "\"global_max\": " << jnum(stats.globalMax()) << "," << nl;
+            oss << ind2 << "\"global_min\": " << jnum(stats.globalMin()) << "," << nl;
+            oss << ind2 << "\"time_of_max\": " << jnum(stats.timeOfGlobalMax()) << "," << nl;
         }
 
         oss << ind2 << "\"data\": [";
 
-        // Limit output for readability (first 10, last 10 if > 20)
-        size_t n = stats.data.size();
-        if (n <= 20 || !pretty) {
-            for (size_t i = 0; i < n; ++i) {
-                if (i > 0) oss << ", ";
-                if (pretty) oss << nl << ind3;
-                oss << timePointToJSON(stats.data[i], ind3);
-            }
-        } else {
-            // Show first 10
-            for (size_t i = 0; i < 10; ++i) {
-                if (i > 0) oss << ", ";
-                oss << nl << ind3 << timePointToJSON(stats.data[i], ind3);
-            }
-            oss << "," << nl << ind3 << "\"...(omitted " << (n - 20) << " entries)...\"";
-            // Show last 10
-            for (size_t i = n - 10; i < n; ++i) {
-                oss << "," << nl << ind3 << timePointToJSON(stats.data[i], ind3);
-            }
+        // 전 상태를 쓴다. 예전엔 "읽기 좋게" 20점 초과 시 앞 10 + 뒤 10 + 문자열만
+        // 써서, 보고서 이력 그래프가 사건 구간을 통째로 잃었다 (8f9ea8c → 2026-09 수정).
+        const size_t n = stats.data.size();
+        for (size_t i = 0; i < n; ++i) {
+            if (i > 0) oss << ", ";
+            if (pretty) oss << nl << ind3;
+            oss << timePointToJSON(stats.data[i], ind3);
         }
 
         if (pretty && !stats.data.empty()) oss << nl << ind2;
@@ -562,32 +550,31 @@ private:
 
     static std::string surfaceTimePointToJSON(const SurfaceTimePointStats& tp) {
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(8);
         oss << "{";
-        oss << "\"time\": " << tp.time << ", ";
+        oss << "\"time\": " << jnum(tp.time) << ", ";
         oss << "\"normal_stress\": {";
-        oss << "\"max\": " << tp.normal_stress_max << ", ";
-        oss << "\"min\": " << tp.normal_stress_min << ", ";
-        oss << "\"avg\": " << tp.normal_stress_avg << ", ";
+        oss << "\"max\": " << jnum(tp.normal_stress_max) << ", ";
+        oss << "\"min\": " << jnum(tp.normal_stress_min) << ", ";
+        oss << "\"avg\": " << jnum(tp.normal_stress_avg) << ", ";
         oss << "\"max_element_id\": " << tp.normal_stress_max_element_id << "}, ";
         oss << "\"shear_stress\": {";
-        oss << "\"max\": " << tp.shear_stress_max << ", ";
-        oss << "\"avg\": " << tp.shear_stress_avg << ", ";
+        oss << "\"max\": " << jnum(tp.shear_stress_max) << ", ";
+        oss << "\"avg\": " << jnum(tp.shear_stress_avg) << ", ";
         oss << "\"max_element_id\": " << tp.shear_stress_max_element_id << "}, ";
         oss << "\"von_mises\": {";
-        oss << "\"max\": " << tp.von_mises_max << ", ";
-        oss << "\"min\": " << tp.von_mises_min << ", ";
-        oss << "\"avg\": " << tp.von_mises_avg << ", ";
+        oss << "\"max\": " << jnum(tp.von_mises_max) << ", ";
+        oss << "\"min\": " << jnum(tp.von_mises_min) << ", ";
+        oss << "\"avg\": " << jnum(tp.von_mises_avg) << ", ";
         oss << "\"max_element_id\": " << tp.von_mises_max_element_id << "}, ";
         oss << "\"max_principal\": {";
-        oss << "\"max\": " << tp.max_principal_max << ", ";
-        oss << "\"min\": " << tp.max_principal_min << ", ";
-        oss << "\"avg\": " << tp.max_principal_avg << ", ";
+        oss << "\"max\": " << jnum(tp.max_principal_max) << ", ";
+        oss << "\"min\": " << jnum(tp.max_principal_min) << ", ";
+        oss << "\"avg\": " << jnum(tp.max_principal_avg) << ", ";
         oss << "\"max_element_id\": " << tp.max_principal_max_element_id << "}, ";
         oss << "\"min_principal\": {";
-        oss << "\"max\": " << tp.min_principal_max << ", ";
-        oss << "\"min\": " << tp.min_principal_min << ", ";
-        oss << "\"avg\": " << tp.min_principal_avg << ", ";
+        oss << "\"max\": " << jnum(tp.min_principal_max) << ", ";
+        oss << "\"min\": " << jnum(tp.min_principal_min) << ", ";
+        oss << "\"avg\": " << jnum(tp.min_principal_avg) << ", ";
         oss << "\"min_element_id\": " << tp.min_principal_min_element_id << "}";
         oss << "}";
         return oss.str();
@@ -608,22 +595,12 @@ private:
         oss << ind2 << "\"num_faces\": " << stats.num_faces << "," << nl;
         oss << ind2 << "\"data\": [";
 
-        size_t n = stats.data.size();
-        if (n <= 20 || !pretty) {
-            for (size_t i = 0; i < n; ++i) {
-                if (i > 0) oss << ", ";
-                if (pretty) oss << nl << ind3;
-                oss << surfaceTimePointToJSON(stats.data[i]);
-            }
-        } else {
-            for (size_t i = 0; i < 10; ++i) {
-                if (i > 0) oss << ", ";
-                oss << nl << ind3 << surfaceTimePointToJSON(stats.data[i]);
-            }
-            oss << "," << nl << ind3 << "\"...(omitted " << (n - 20) << " entries)...\"";
-            for (size_t i = n - 10; i < n; ++i) {
-                oss << "," << nl << ind3 << surfaceTimePointToJSON(stats.data[i]);
-            }
+        // 전 상태를 쓴다 (partStatsToJSON 과 같은 이유)
+        const size_t n = stats.data.size();
+        for (size_t i = 0; i < n; ++i) {
+            if (i > 0) oss << ", ";
+            if (pretty) oss << nl << ind3;
+            oss << surfaceTimePointToJSON(stats.data[i]);
         }
 
         if (pretty && !stats.data.empty()) oss << nl << ind2;
@@ -651,10 +628,10 @@ private:
 
     static std::string doubleArrayToJSON(const std::vector<double>& arr) {
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(8) << "[";
+        oss << "[";
         for (size_t i = 0; i < arr.size(); ++i) {
             if (i > 0) oss << ",";
-            oss << arr[i];
+            oss << jnum(arr[i]);
         }
         oss << "]";
         return oss.str();
@@ -670,8 +647,8 @@ private:
         oss << ind2 << "\"element_id\": " << t.element_id << "," << nl;
         oss << ind2 << "\"part_id\": " << t.part_id << "," << nl;
         oss << ind2 << "\"reason\": \"" << t.reason << "\"," << nl;
-        oss << ind2 << std::fixed << std::setprecision(8) << "\"peak_value\": " << t.peak_value << "," << nl;
-        oss << ind2 << "\"peak_time\": " << t.peak_time << "," << nl;
+        oss << ind2 << "\"peak_value\": " << jnum(t.peak_value) << "," << nl;
+        oss << ind2 << "\"peak_time\": " << jnum(t.peak_time) << "," << nl;
         oss << ind2 << "\"num_points\": " << t.time.size() << "," << nl;
         oss << ind2 << "\"time\": " << doubleArrayToJSON(t.time) << "," << nl;
         oss << ind2 << "\"sxx\": " << doubleArrayToJSON(t.sxx) << "," << nl;

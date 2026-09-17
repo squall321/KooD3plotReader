@@ -14,6 +14,7 @@
 #include "kood3plot/analysis/AnalysisResult.hpp"
 #include <iostream>
 #include <cmath>
+#include <limits>
 #include <cassert>
 
 using namespace kood3plot::analysis;
@@ -235,8 +236,20 @@ bool test_special_characters() {
     return true;
 }
 
+static size_t countOccurrences(const std::string& s, const std::string& needle) {
+    size_t n = 0;
+    for (size_t pos = s.find(needle); pos != std::string::npos; pos = s.find(needle, pos + needle.size())) ++n;
+    return n;
+}
+
+/**
+ * 시계열은 **전 상태**를 JSON 에 담아야 한다.
+ * 예전 작성기는 20점을 넘으면 앞 10 + 뒤 10 + "...(omitted N entries)..." 문자열만 썼고,
+ * 이 시험은 그 잘림을 "통과 조건" 으로 굳혀 두었다. 보고서 이력 그래프가 20점으로
+ * 그려지고 사건 구간의 피크가 빠졌다 (4952상태 덱: 남은 20점 안 최대 136, 실제 472).
+ */
 bool test_large_dataset_json() {
-    std::cout << "  Testing large dataset JSON (truncation)... ";
+    std::cout << "  Testing large dataset JSON (no truncation)... ";
 
     AnalysisResult result;
     result.metadata.d3plot_path = "test";
@@ -245,20 +258,73 @@ bool test_large_dataset_json() {
     PartTimeSeriesStats stress;
     stress.part_id = 1;
     stress.quantity = "von_mises";
-
-    // Add 100 time points
     for (int i = 0; i < 100; ++i) {
         TimePointStats tp;
         tp.time = i * 0.001;
-        tp.max_value = 100.0 + i;
+        tp.max_value = (i == 57) ? 999.0 : 100.0 + i;   // 피크는 가운데
         stress.data.push_back(tp);
     }
     result.stress_history.push_back(stress);
 
-    std::string json = result.toJSON(true);
+    SurfaceAnalysisStats surf;
+    surf.description = "top";
+    for (int i = 0; i < 50; ++i) {
+        SurfaceTimePointStats tp;
+        tp.time = i * 0.001;
+        tp.von_mises_max = (i == 25) ? 777.0 : 1.0;
+        surf.data.push_back(tp);
+    }
+    result.surface_analysis.push_back(surf);
 
-    // Should contain truncation message for large datasets
-    TEST_ASSERT(json.find("omitted") != std::string::npos, "Should show omitted message for large datasets");
+    for (bool pretty : {true, false}) {
+        std::string json = result.toJSON(pretty);
+        TEST_ASSERT(json.find("omitted") == std::string::npos, "JSON must not contain an omitted placeholder");
+        // 이력 100점 + 표면 50점, 각 점마다 "time" 키가 하나
+        TEST_ASSERT(countOccurrences(json, "\"time\":") == 150, "every time point must be written");
+        TEST_ASSERT(json.find("999") != std::string::npos, "mid-series stress peak must be in the data");
+        TEST_ASSERT(json.find("777") != std::string::npos, "mid-series surface peak must be in the data");
+    }
+
+    std::cout << "PASSED\n";
+    return true;
+}
+
+/**
+ * 작은 값·촘촘한 시각이 자릿수 때문에 뭉개지면 안 된다. `std::fixed << setprecision(8)`
+ * 은 3e-9 를 0.00000000 으로, 1.4e-7 과 1.5e-7 을 같은 0.00000014/0.00000015 수준으로 줄인다.
+ * NaN/Inf 는 JSON 리터럴이 아니므로 null 이어야 한다.
+ */
+bool test_json_numeric_fidelity() {
+    std::cout << "  Testing JSON numeric fidelity (small values, NaN)... ";
+
+    AnalysisResult result;
+    result.metadata.d3plot_path = "test";
+
+    PartTimeSeriesStats strain;
+    strain.part_id = 2;
+    strain.quantity = "eff_plastic_strain";
+    TimePointStats a; a.time = 1.41e-7; a.max_value = 3.0e-9; a.avg_value = 1.234567e-12;
+    TimePointStats b; b.time = 1.46e-7; b.max_value = std::nan(""); b.min_value = std::numeric_limits<double>::infinity();
+    strain.data = {a, b};
+    result.strain_history.push_back(strain);
+
+    ElementTensorHistory t;
+    t.element_id = 5; t.part_id = 2; t.reason = "max";
+    t.peak_value = 2.5e-10; t.peak_time = 1.41e-7;
+    t.time = {1.41e-7, 1.46e-7}; t.sxx = {4.0e-11, std::nan("")};
+    t.syy = t.szz = t.sxy = t.syz = t.szx = {0.0, 0.0};
+    result.peak_element_tensors.push_back(t);
+
+    std::string json = result.toJSON(true);
+    TEST_ASSERT(json.find("3e-09") != std::string::npos, "3e-9 must survive (not 0.00000000)");
+    TEST_ASSERT(json.find("1.234567e-12") != std::string::npos, "1.234567e-12 must survive");
+    TEST_ASSERT(json.find("1.41e-07") != std::string::npos && json.find("1.46e-07") != std::string::npos,
+                "close sub-micro times must stay distinct");
+    TEST_ASSERT(json.find("2.5e-10") != std::string::npos && json.find("4e-11") != std::string::npos,
+                "tensor small values must survive");
+    TEST_ASSERT(json.find("nan") == std::string::npos && json.find("inf") == std::string::npos,
+                "NaN/Inf must not appear as bare literals");
+    TEST_ASSERT(countOccurrences(json, "null") >= 3, "NaN/Inf must be written as null");
 
     std::cout << "PASSED\n";
     return true;
@@ -285,6 +351,7 @@ int main() {
     if (test_json_save()) passed++; else failed++;
     if (test_special_characters()) passed++; else failed++;
     if (test_large_dataset_json()) passed++; else failed++;
+    if (test_json_numeric_fidelity()) passed++; else failed++;
 
     std::cout << "\nCSV Tests:\n";
     if (test_csv_export()) passed++; else failed++;
