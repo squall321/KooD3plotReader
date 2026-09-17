@@ -281,9 +281,12 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
         data["device_mesh_note"] = ("device_preview.json 없음 — make_stl 로 생성하면 "
                                     "각도 미리보기가 실제 형상으로 바뀝니다")
     # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
+    # detected=False 면 그 환산은 '검출된 것' 이 아니라 기본값이고, note 가 사유다.
     data["unit_system"] = {
         "id": MotionData.UNIT_SYSTEM,
         "g_factor": MotionData.G_FACTOR,
+        "detected": bool(MotionData.UNIT_SYSTEM),
+        "note": MotionData.UNIT_NOTE,
     }
     # 흐름 상세(시계열)는 tier 로 제한. 전 각도에 시계열을 실으면 100MB 를 넘는다.
     detail, note = _flow_detail_folders(flows)

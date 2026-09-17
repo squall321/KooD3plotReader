@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .loader import compute_angular_spacing, load_all
 from .models import (
-    AngleCondition, Finding, PartInfo, Report, Severity,
+    AngleCondition, Finding, MotionData, PartInfo, Report, Severity,
     SimulationParams, SimulationResult,
 )
 
@@ -59,6 +59,20 @@ def _generate_findings(report: Report) -> list[Finding]:
             title=f"{report.failed_runs} simulation(s) failed or missing",
             detail="Some DOE angles have no analysis results.",
             recommendation="Check simulation logs and re-run failed cases.",
+        ))
+
+    # --- 단위계 미검출 ---
+    # peak-G 는 단위계에 따라 1e6 배까지 달라진다. 못 정했으면 그 사실이 보고서에
+    # 있어야 한다 — stdout 한 줄은 아무도 다시 보지 않는다.
+    if not MotionData.UNIT_SYSTEM:
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title="단위계 미검출 — peak-G 는 기본 환산값입니다",
+            detail=(MotionData.UNIT_NOTE
+                    or f"덱 단위계를 판정하지 못했습니다. peak-G 는 환산 "
+                       f"{MotionData.G_FACTOR:g} 로 계산한 값입니다."),
+            recommendation=("덱의 *MAT 밀도와 *CONTROL_TERMINATION 종료시각으로 "
+                            "단위계를 확인한 뒤 peak-G 를 읽으십시오."),
         ))
 
     # --- Stress-based findings ---

@@ -91,6 +91,57 @@ _G_FACTOR_BY_UNIT = {
 }
 
 
+def _deck_file(output_dir: Path) -> Path | None:
+    """덱 키워드 파일 하나. test_dir 루트나 첫 run 폴더에 있다 (_find_kfile 은 run 전용)."""
+    for cand in [output_dir.parent, output_dir]:
+        if not cand or not cand.exists():
+            continue
+        ks = sorted(cand.glob("*.k")) + sorted(cand.glob("*.key"))
+        if ks:
+            return ks[0]
+    if output_dir.exists():
+        for run in sorted(output_dir.iterdir())[:3]:
+            if run.is_dir():
+                kf = _find_kfile(run)
+                if kf is not None:
+                    return kf
+    return None
+
+
+def _deck_end_time(output_dir: Path) -> float | None:
+    """*CONTROL_TERMINATION 의 ENDTIM. 못 읽으면 None.
+
+    밀도는 초와 밀리초를 구분하지 못한다 — ton-mm-s 와 ton-mm-ms 는 강철이 둘 다
+    7.85e-9 이다. 낙하·충격 덱의 해석 창은 보통 1~5 ms 라, 초 단위면
+    ENDTIM≈0.001~0.005, ms 단위면 1~5 로 1000배 차이가 난다. 이 차이를 밀도 판정과
+    대조하는 데만 쓴다 — 모순이면 단정하지 않고 미검출로 남긴다.
+    """
+    kf = _deck_file(output_dir)
+    if kf is None:
+        return None
+    try:
+        lines = kf.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return None
+    want = False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("*"):
+            want = s.upper().startswith("*CONTROL_TERMINATION")
+            continue
+        if not want or not s or s.startswith("$"):
+            continue
+        f = s.replace(",", " ").split()
+        if not f:
+            continue
+        try:
+            v = float(f[0])
+        except ValueError:
+            return None
+        return v if v > 0 else None
+    return None
+
+
 def _deck_density(output_dir: Path) -> float | None:
     """덱의 *MAT 카드에서 밀도 대푯값(중앙값). 못 읽으면 None.
 
@@ -99,22 +150,7 @@ def _deck_density(output_dir: Path) -> float | None:
     (ton-mm-s) 였다. 그 값으로 판정하면 정상 보고서를 SI 로 뒤집어 peak-G 가
     1000배 커진다(실측으로 확인).
     """
-    # 덱은 test_dir 루트나 첫 run 폴더에 있다. _find_kfile 은 run 폴더 전용이라
-    # 여기서 둘 다 훑는다 (없으면 None → 호출자가 기본값 유지).
-    kf = None
-    for cand in [output_dir.parent, output_dir]:
-        if not cand or not cand.exists():
-            continue
-        ks = sorted(cand.glob("*.k")) + sorted(cand.glob("*.key"))
-        if ks:
-            kf = ks[0]
-            break
-    if kf is None and output_dir.exists():
-        for run in sorted(output_dir.iterdir())[:3]:
-            if run.is_dir():
-                kf = _find_kfile(run)
-                if kf is not None:
-                    break
+    kf = _deck_file(output_dir)
     if kf is None:
         return None
     dens: list[float] = []
@@ -153,28 +189,52 @@ def _apply_unit_system(sim_params, output_dir: Path) -> None:
     없으면(패키지 부재) 조용히 기본값을 유지한다 — 세 패키지가 항상 함께
     설치되는 것은 아니므로 import 실패로 보고서를 죽이지 않는다.
 
-    판정 근거는 **덱의 *MAT 밀도**다. 애매하면 기본값을 유지하고 사유를 남긴다
-    — 틀린 단위로 자신 있게 환산하는 것보다 낫다.
+    판정 근거는 **덱의 *MAT 밀도**이되, *CONTROL_TERMINATION 의 종료시각과 대조한다.
+    밀도만으로는 초와 밀리초를 가를 수 없어서다(ton-mm-s 와 ton-mm-ms 는 강철이 둘 다
+    7.85e-9). 두 신호가 어긋나면 **단정하지 않고 미검출로 남기고 사유를 적는다**
+    — 틀린 단위로 자신 있게 환산하는 것보다 낫다. 미검출이어도 G 환산은 직전 값을
+    유지한다(화면이 통째로 비면 그것대로 못 쓴다). 사유는 payload·findings 로 나간다.
     """
     density = _deck_density(output_dir)
     if density is None:
-        print(f"[sphere] 덱 밀도를 못 읽어 단위계 판정 생략 — "
-              f"기본 {MotionData.UNIT_SYSTEM} 유지")
+        note = ("덱 *MAT 밀도를 읽지 못해 단위계를 판정하지 못했습니다 — peak-G 는 "
+                f"기본 환산 {MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+        print(f"[sphere] {note}")
+        MotionData.set_unit_system("", note=note)
         return
     try:
         from koo_impact_report.loader import _detect_unit_system
     except Exception:
-        print("[sphere] 단위계 검출기 없음(koo_impact_report 미설치) — "
-              f"기본 {MotionData.UNIT_SYSTEM} 유지")
+        note = ("단위계 검출기(koo_impact_report)가 없어 판정하지 못했습니다 — "
+                f"peak-G 는 기본 환산 {MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+        print(f"[sphere] {note}")
+        MotionData.set_unit_system("", note=note)
         return
 
     preset = _detect_unit_system(density)
     uid = str((preset or {}).get("id") or "")
     gf = _G_FACTOR_BY_UNIT.get(uid)
     if not uid or gf is None:
-        print(f"[sphere] 단위계 판정 불가 (덱 밀도={density:g}) — "
-              f"기본 {MotionData.UNIT_SYSTEM} 유지. peak-G 해석에 주의.")
+        note = (f"덱 밀도 {density:g} 로는 단위계를 판정할 수 없습니다 (g-mm-ms 등) — "
+                f"peak-G 는 기본 환산 {MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+        print(f"[sphere] {note}")
+        MotionData.set_unit_system("", note=note)
         return
+
+    # 시간 단위 교차 확인. 낙하 덱의 해석 창은 1~5 ms 라 초 단위면 ENDTIM 이
+    # 0.001~0.005 이다. 0.5 를 넘으면 그 덱의 시간 단위는 초가 아닐 가능성이 크고,
+    # 그러면 가속도도 mm/s² 가 아니다 (peak-G 가 1e6 배 어긋난다).
+    endtim = _deck_end_time(output_dir)
+    if endtim is not None and endtim >= 0.5 and uid in ("ton-mm-s", "SI"):
+        note = (f"덱 밀도({density:g})는 {uid} 를 가리키지만 *CONTROL_TERMINATION "
+                f"종료시각이 {endtim:g} 입니다 — 초 단위라면 비정상적으로 긴 해석 창이라 "
+                f"시간 단위가 ms 일 수 있습니다(그러면 peak-G 가 1e6 배 어긋납니다). "
+                f"단정하지 않고 미검출로 둡니다. peak-G 는 환산 "
+                f"{MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+        print(f"[sphere] {note}")
+        MotionData.set_unit_system("", note=note)
+        return
+
     if uid != MotionData.UNIT_SYSTEM:
         print(f"[sphere] 단위계 검출: {uid} (덱 밀도={density:g}) — "
               f"G 환산 {MotionData.G_FACTOR:g} → {gf:g}")
@@ -780,8 +840,10 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     try:
         _apply_unit_system(sim_params, output_dir)
     except Exception as _e:      # noqa: BLE001
-        print(f"[sphere] 단위계 검출 skip ({type(_e).__name__}: {_e}) — "
-              f"기본 {MotionData.UNIT_SYSTEM} 유지")
+        _note = (f"단위계 검출이 {type(_e).__name__} 으로 중단됐습니다 ({_e}) — "
+                 f"peak-G 는 기본 환산 {MotionData.G_FACTOR:g} 로 계산한 값입니다.")
+        print(f"[sphere] {_note}")
+        MotionData.set_unit_system("", note=_note)
 
     # Load part names
     part_info = load_part_names(output_dir)

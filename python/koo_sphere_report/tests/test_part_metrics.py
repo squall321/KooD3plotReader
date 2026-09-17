@@ -207,15 +207,22 @@ def test_deck_density_missing_returns_none(tmp_path):
 
 
 def test_unit_detection_keeps_default_when_deck_missing(tmp_path):
-    """판정 불가면 기본값 유지 — 틀린 단위로 자신 있게 환산하지 않는다."""
-    before_id, before_gf = MotionData.UNIT_SYSTEM, MotionData.G_FACTOR
+    """판정 불가면 환산 계수는 그대로 두되 **미검출로 표시**한다.
+
+    2026-09 전수조사에서 규칙이 한 단계 강해졌다. 예전에는 판정 불가여도
+    UNIT_SYSTEM 이 "ton-mm-s" 로 남아 payload 와 화면이 검출된 값처럼 보여 주었다
+    — 유일한 신호가 stdout 한 줄이었다. 이제는 id 를 비우고 사유를 남긴다.
+    환산 계수(G_FACTOR)는 직전 값을 유지한다(화면이 통째로 비면 그것대로 못 쓴다).
+    """
+    before = (MotionData.UNIT_SYSTEM, MotionData.G_FACTOR, MotionData.UNIT_NOTE)
     try:
         out = tmp_path / "e" / "output"; out.mkdir(parents=True)
         _apply_unit_system(object(), out)
-        assert MotionData.UNIT_SYSTEM == before_id
-        assert MotionData.G_FACTOR == before_gf
+        assert MotionData.UNIT_SYSTEM == ""
+        assert MotionData.UNIT_NOTE, "미검출 사유가 없다"
+        assert MotionData.G_FACTOR == before[1]
     finally:
-        MotionData.set_unit_system(before_id, before_gf)
+        MotionData.UNIT_SYSTEM, MotionData.G_FACTOR, MotionData.UNIT_NOTE = before
 
 
 def test_ton_mm_s_deck_is_not_flipped_to_si(tmp_path):

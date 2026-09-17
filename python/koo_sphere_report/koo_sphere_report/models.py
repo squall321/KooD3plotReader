@@ -139,11 +139,19 @@ class MotionData:
     G_FACTOR = 9810.0
     #: 검출된 단위계 id ("ton-mm-s" / "SI" / "" =미검출). 화면 표기용.
     UNIT_SYSTEM = "ton-mm-s"
+    #: 미검출일 때 **왜** 못 정했는지. 빈 문자열이면 정상 검출이다.
+    #: peak-G 가 어느 환산으로 나온 값인지 보고서에 실어 사람이 보게 한다.
+    UNIT_NOTE = ""
 
     @classmethod
-    def set_unit_system(cls, unit_id: str, g_factor: float) -> None:
-        """검출된 단위계를 적용. 알 수 없으면 호출하지 않아 기본값이 유지된다."""
+    def set_unit_system(cls, unit_id: str, g_factor: float = 0.0, note: str = "") -> None:
+        """검출 결과를 적용. unit_id 가 비어 있으면 '미검출' 이고 note 가 사유다.
+
+        미검출이라도 G_FACTOR 는 직전 값을 유지한다 — 환산을 멈추면 화면이
+        통째로 비지만, 그 값이 어떤 가정 위에 서 있는지는 UNIT_NOTE 로 드러난다.
+        """
         cls.UNIT_SYSTEM = str(unit_id or "")
+        cls.UNIT_NOTE = str(note or "")
         try:
             gf = float(g_factor)
         except (TypeError, ValueError):
