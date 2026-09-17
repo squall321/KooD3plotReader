@@ -487,28 +487,37 @@ def _statistical_outlier_findings(
     스킵. metric 전체 합산 max_findings 로 캡 (Finding 폭발 방지).
     """
     findings: list[Finding] = []
-    # 위치별 worst 값 집계
-    per_pos: dict[str, dict[str, float]] = {}
+    # 위치별 worst 값 집계 — 미계측(None)은 0 이 아니다. 0 으로 접으면 그
+    # 위치가 '응답이 이상하게 낮다' 는 거짓 이상치가 되고, median/MAD 까지
+    # 끌어내려 진짜 이상치의 z 를 부풀린다.
+    per_pos: dict[str, dict[str, float | None]] = {}
     for r in report.results:
-        d = per_pos.setdefault(r.position.pos_id, {"peak_g": 0.0, "peak_stress": 0.0})
-        d["peak_g"] = max(d["peak_g"], float(r.peak_g or 0.0))
-        d["peak_stress"] = max(d["peak_stress"], float(r.peak_stress or 0.0))
+        d = per_pos.setdefault(r.position.pos_id, {"peak_g": None, "peak_stress": None})
+        for _metric, _raw in (("peak_g", r.peak_g), ("peak_stress", r.peak_stress)):
+            if _raw is None:
+                continue
+            _v = float(_raw)
+            if d[_metric] is None or _v > d[_metric]:
+                d[_metric] = _v
 
     if len(per_pos) < min_positions:
         return findings
 
     candidates: list[tuple[float, str, str, float]] = []  # (|z|, pos_id, metric, val)
     for metric in ("peak_g", "peak_stress"):
-        vals = sorted(v[metric] for v in per_pos.values())
+        measured = {pid: d[metric] for pid, d in per_pos.items() if d[metric] is not None}
+        if len(measured) < min_positions:
+            continue  # 잰 위치가 모자라면 MAD 가 불안정하다 — z 를 내지 않는다
+        vals = sorted(measured.values())
         n = len(vals)
         med = vals[n // 2]
         mad = sorted(abs(v - med) for v in vals)[n // 2]
         if mad <= 0:
             continue  # 퇴화 분포(전부 동일) — z 무의미
-        for pos_id, d in per_pos.items():
-            z = 0.6745 * (d[metric] - med) / mad
+        for pos_id, val in measured.items():
+            z = 0.6745 * (val - med) / mad
             if abs(z) > z_threshold:
-                candidates.append((abs(z), pos_id, metric, d[metric]))
+                candidates.append((abs(z), pos_id, metric, val))
 
     candidates.sort(reverse=True)
     # C1-2 (QA): outlier 가 동시에 solver FAIL 런이면 '국소 취약부' 해석보다
