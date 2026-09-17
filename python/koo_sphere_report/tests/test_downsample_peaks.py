@@ -160,6 +160,36 @@ def test_point_budget_respected(tmp_path: Path):
     assert len(sts["t"]) == len(sts["max"]) == len(sts["avg"]), "배열 정렬이 깨졌다"
 
 
+def test_js_energy_integral_pairs_by_time_not_index():
+    """σ–ε 적분이 인덱스로 짝지으면 남의 시각 값을 곱하고 뒷부분을 잘라 낸다.
+
+    stress_ts 와 strain_ts 는 각자 구간 극값으로 뽑혀 **격자가 다르다**.
+    옛 방식(`Math.min(길이)` 로 자르고 인덱스로 곱하기)은 σ=10(일정),
+    ε=t(선형) 처럼 답이 뻔한 경우에도 10 대신 7.5 를 낸다.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+    import pytest
+
+    import jsutil
+    if not jsutil.node_bin():
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
+    from koo_sphere_report.report.html_report import _JS
+    src = jsutil.extract_functions(_JS, ["interpSeries", "stressStrainEnergy"]) + """
+const pd = {
+  stress_ts: {t:[0, 0.5, 1.0], avg:[10, 10, 10]},
+  strain_ts: {t:[0, 0.25, 0.75, 1.0], max:[0, 0.25, 0.75, 1.0]},
+};
+console.log(String(stressStrainEnergy(pd)));
+console.log(String(stressStrainEnergy({peak_stress: 1})));
+"""
+    out = jsutil.run_js(src)
+    val = float(out[0])
+    assert abs(val - 10.0) < 1e-9, f"σ·dε 적분이 {val} — 참값 10 (인덱스 짝짓기는 7.5)"
+    assert out[1] == "null", "시계열이 없는데 값을 만들어냈다"
+
+
 def test_all(tmp_path: Path):
     """pytest 진입점."""
     def _d(name: str) -> Path:
@@ -171,3 +201,4 @@ def test_all(tmp_path: Path):
     test_two_stage_keeps_peak_g(_d("c"))
     test_json_sidecar_keeps_peak(_d("d"))
     test_point_budget_respected(_d("e"))
+    test_js_energy_integral_pairs_by_time_not_index()

@@ -4303,6 +4303,40 @@ function buildCriticalElementSection(pid) {
   return html;
 }
 
+// 두 시계열은 **같은 시각 격자에 서 있지 않다**. 각 계열이 자기 구간 극값으로
+// 뽑히기 때문이다(피크를 지키려는 선택). 그래서 인덱스로 짝지으면 서로 다른
+// 시각의 응력과 변형률을 곱하고, 짧은 쪽 길이로 잘라 긴 쪽 뒷부분을 버린다.
+// 여기서는 시각 기준으로 선형 보간해 짝을 맞춘다.
+function interpSeries(ts, vs, t) {
+  if (!ts || !ts.length) return null;
+  if (t <= ts[0]) return vs[0];
+  if (t >= ts[ts.length-1]) return vs[vs.length-1];
+  let lo = 0, hi = ts.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ts[mid] <= t) lo = mid; else hi = mid; }
+  const span = ts[hi] - ts[lo];
+  return span > 0 ? vs[lo] + (vs[hi] - vs[lo]) * (t - ts[lo]) / span : vs[lo];
+}
+
+// ∫σ·dε (에너지 밀도 대용). 시계열이 없으면 **0 이 아니라 null** 을 준다 —
+// 0 은 '흡수 없음' 이라는 계측 결과로 읽힌다.
+function stressStrainEnergy(pd) {
+  const st = pd && pd.stress_ts, sn = pd && pd.strain_ts;
+  if (!(st && sn && st.t && st.avg && sn.t && sn.max)) return null;
+  if (st.t.length !== st.avg.length || sn.t.length !== sn.max.length) return null;
+  const times = Array.from(new Set(st.t.concat(sn.t))).sort((a,b) => a-b);
+  if (times.length < 2) return null;
+  let e = 0;
+  let prevS = interpSeries(st.t, st.avg, times[0]);
+  let prevE = interpSeries(sn.t, sn.max, times[0]);
+  for (let i = 1; i < times.length; i++) {
+    const curS = interpSeries(st.t, st.avg, times[i]);
+    const curE = interpSeries(sn.t, sn.max, times[i]);
+    e += (curS + prevS) / 2 * Math.max(0, curE - prevE);
+    prevS = curS; prevE = curE;
+  }
+  return e;
+}
+
 function buildEnergyAbsorptionSection(pid) {
   const pidStr = String(pid);
   const ko = reportLang === 'ko';
@@ -4314,16 +4348,8 @@ function buildEnergyAbsorptionSection(pid) {
     const pd = r.parts[pidStr];
     if (!pd) continue;
     // Better estimate: if we have stress_ts and strain_ts, integrate
-    let energy = 0;
-    if (pd.stress_ts && pd.strain_ts && pd.stress_ts.avg && pd.strain_ts.max) {
-      const st = pd.stress_ts, sn = pd.strain_ts;
-      const n = Math.min(st.avg.length, sn.max.length);
-      for (let i = 1; i < n; i++) {
-        const ds = Math.max(0, sn.max[i] - sn.max[i-1]); // strain increment
-        const avgS = (st.avg[i] + st.avg[i-1]) / 2;
-        energy += avgS * ds; // MPa * unitless = MPa (energy density proxy)
-      }
-    } else {
+    let energy = stressStrainEnergy(pd);
+    if (energy === null) {
       energy = pd.peak_stress * pd.peak_strain; // fallback proxy
     }
     energyPerAngle.push({ name: r.angle.name, cat: r.angle.category || 'other', energy });
@@ -4341,14 +4367,8 @@ function buildEnergyAbsorptionSection(pid) {
   if (worstResult) {
     let totalPartEnergy = 0;
     for (const [p, pd] of Object.entries(worstResult.parts)) {
-      let e = 0;
-      if (pd.stress_ts && pd.strain_ts && pd.stress_ts.avg && pd.strain_ts.max) {
-        const n = Math.min(pd.stress_ts.avg.length, pd.strain_ts.max.length);
-        for (let i = 1; i < n; i++) {
-          const ds = Math.max(0, pd.strain_ts.max[i] - pd.strain_ts.max[i-1]);
-          e += (pd.stress_ts.avg[i] + pd.stress_ts.avg[i-1]) / 2 * ds;
-        }
-      } else { e = pd.peak_stress * pd.peak_strain; }
+      let e = stressStrainEnergy(pd);
+      if (e === null) { e = pd.peak_stress * pd.peak_strain; }
       if (e > 0) { partShares.push({ pid: p, name: (DATA.parts[p]||{}).name || 'Part '+p, energy: e }); totalPartEnergy += e; }
     }
     partShares.sort((a,b) => b.energy - a.energy);
