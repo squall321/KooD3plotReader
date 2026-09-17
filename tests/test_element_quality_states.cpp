@@ -6,6 +6,8 @@
 //       build/libkood3plot.a -fopenmp -lz -o /tmp/t_quality && /tmp/t_quality
 //
 // 덱: /data/battery_study/case_01_phase1_stacked_tier-1 (22상태, 셸+두꺼운셸+솔리드)
+//
+// 종료 코드: 0 통과 · 1 실패 · 77 덱이 없어 건너뜀(통과가 아니라 '검증 못 함').
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include <cstdio>
@@ -46,15 +48,15 @@ int main(int argc, char** argv) {
     {
         D3plotReader probe(deck);
         if (probe.open() != ErrorCode::SUCCESS) {
-            printf("[SKIP] 덱을 열 수 없음: %s\n", deck.c_str());
-            return 0;
+            printf("[SKIP] 덱을 열 수 없음: %s — 검증 못 함\n", deck.c_str());
+            return 77;
         }
         n_states = probe.get_num_states();
     }
     printf("[준비] 상태 %zu개\n", n_states);
     if (n_states < 12) {
-        printf("[SKIP] 표본 10개와 구분되지 않는 짧은 덱\n");
-        return 0;
+        printf("[SKIP] 표본 10개와 구분되지 않는 짧은 덱 — 검증 못 함\n");
+        return 77;
     }
 
     UnifiedConfig cfg;

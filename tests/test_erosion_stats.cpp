@@ -6,6 +6,8 @@
 //       build/libkood3plot.a -fopenmp -lz -o /tmp/t_erosion && /tmp/t_erosion
 //
 // 덱: /data/koopark/Test_DTMIN_erode/dtmin_0p1 (MDLOPT=2, 마지막 상태에서 solid 6개 삭제)
+//
+// 종료 코드: 0 통과 · 1 실패 · 77 덱이 없어 건너뜀(통과가 아니라 '검증 못 함').
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
 #include "kood3plot/analysis/TimeHistoryAnalyzer.hpp"
@@ -46,23 +48,23 @@ int main(int argc, char** argv) {
 
     D3plotReader reader(path);
     if (reader.open() != ErrorCode::SUCCESS) {
-        printf("[SKIP] 덱을 열 수 없음: %s\n", path.c_str());
-        return 0;
+        printf("[SKIP] 덱을 열 수 없음: %s — 검증 못 함\n", path.c_str());
+        return 77;
     }
 
     const auto& cd = reader.get_control_data();
     printf("[준비] NEL8=%d NV3D=%d MDLOPT=%d states=%zu\n",
            cd.NEL8, cd.NV3D, cd.MDLOPT, reader.get_num_states());
     if (cd.MDLOPT != 2) {
-        printf("[SKIP] MDLOPT != 2 — 삭제 테이블이 없는 덱\n");
-        return 0;
+        printf("[SKIP] MDLOPT != 2 — 삭제 테이블이 없는 덱, 검증 못 함\n");
+        return 77;
     }
 
     auto mesh = reader.read_mesh();
 
     // 메모리 절약: 전체 상태를 읽은 뒤 마지막 두 상태만 남긴다.
     std::vector<data::StateData> all = reader.read_all_states();
-    if (all.size() < 2) { printf("[SKIP] 상태가 2개 미만\n"); return 0; }
+    if (all.size() < 2) { printf("[SKIP] 상태가 2개 미만 — 검증 못 함\n"); return 77; }
     std::vector<data::StateData> states;
     states.push_back(all[all.size() - 2]);
     states.push_back(all.back());

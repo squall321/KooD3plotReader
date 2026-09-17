@@ -9,6 +9,12 @@
  *
  * Run:
  *   ./test_surface_stress [d3plot_path]
+ *
+ * 종료 코드:
+ *   0  전부 통과
+ *   1  검사 실패
+ *   77 덱이 없어 통합 검사를 건너뜀 — 통과가 아니라 '검증 못 함' 이다.
+ *      (ctest 의 SKIP_RETURN_CODE 관례를 따른다)
  */
 
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
@@ -192,13 +198,24 @@ bool test_to_analysis_stats_conversion() {
 // Integration Tests (D3plot required)
 // ============================================================
 
+// 덱이 없어 건너뛴 검사의 수. 건너뜀은 통과가 아니므로 따로 센다.
+static int g_skipped = 0;
+
+// 건너뜀을 사유와 함께 기록한다. 호출부는 `return skipTest("사유");` 로 쓴다.
+// bool 을 돌려주는 것은 기존 호출 규약을 지키기 위해서이고, 집계는 g_skipped 로
+// 한다 — main 이 이 수만큼 passed 에서 뺀다.
+static bool skipTest(const std::string& why) {
+    ++g_skipped;
+    std::cout << "SKIPPED (" << why << ")\n";
+    return true;
+}
+
 bool test_with_d3plot(const std::string& d3plot_path) {
     std::cout << "  Testing with d3plot file: " << d3plot_path << "... ";
 
     D3plotReader reader(d3plot_path);
     if (reader.open() != ErrorCode::SUCCESS) {
-        std::cout << "SKIPPED (cannot open file)\n";
-        return true;
+        return skipTest("덱을 열 수 없음");
     }
 
     // Extract exterior surfaces
@@ -220,8 +237,7 @@ bool test_with_d3plot(const std::string& d3plot_path) {
     // Analyze first state only
     data::StateData state = reader.read_state(0);
     if (state.solid_data.empty() && state.shell_data.empty()) {
-        std::cout << "    SKIPPED (empty state data)\n";
-        return true;
+        return skipTest("상태 0 에 solid·shell 자료가 없음");
     }
 
     auto stats = analyzer.analyzeState(surfaces.faces, state);
@@ -243,8 +259,7 @@ bool test_direction_filtered_analysis(const std::string& d3plot_path) {
 
     D3plotReader reader(d3plot_path);
     if (reader.open() != ErrorCode::SUCCESS) {
-        std::cout << "SKIPPED\n";
-        return true;
+        return skipTest("덱을 열 수 없음");
     }
 
     // Extract exterior surfaces
@@ -252,8 +267,7 @@ bool test_direction_filtered_analysis(const std::string& d3plot_path) {
     auto surfaces = extractor.extractExteriorSurfaces();
 
     if (surfaces.faces.empty()) {
-        std::cout << "SKIPPED\n";
-        return true;
+        return skipTest("외피 면이 없음");
     }
 
     // Filter for bottom-facing surfaces (pointing in -Z direction)
@@ -264,8 +278,7 @@ bool test_direction_filtered_analysis(const std::string& d3plot_path) {
     std::cout << "    Bottom-facing faces (45 deg): " << bottom_faces.size() << "\n";
 
     if (bottom_faces.empty()) {
-        std::cout << "    SKIPPED (no bottom faces)\n";
-        return true;
+        return skipTest("-Z 방향 면이 없음");
     }
 
     // Analyze with progress callback
@@ -306,8 +319,7 @@ bool test_single_face_analysis(const std::string& d3plot_path) {
 
     D3plotReader reader(d3plot_path);
     if (reader.open() != ErrorCode::SUCCESS) {
-        std::cout << "SKIPPED\n";
-        return true;
+        return skipTest("덱을 열 수 없음");
     }
 
     // Extract surfaces
@@ -315,8 +327,7 @@ bool test_single_face_analysis(const std::string& d3plot_path) {
     auto surfaces = extractor.extractExteriorSurfaces();
 
     if (surfaces.faces.empty()) {
-        std::cout << "SKIPPED\n";
-        return true;
+        return skipTest("외피 면이 없음");
     }
 
     // Get first face
@@ -325,8 +336,7 @@ bool test_single_face_analysis(const std::string& d3plot_path) {
     // Read first state
     data::StateData state = reader.read_state(0);
     if (state.solid_data.empty()) {
-        std::cout << "SKIPPED (empty state)\n";
-        return true;
+        return skipTest("상태 0 에 solid 자료가 없음");
     }
 
     // Analyze single face
@@ -367,15 +377,13 @@ bool test_face_index_matches_state_data(const std::string& d3plot_path) {
 
     D3plotReader reader(d3plot_path);
     if (reader.open() != ErrorCode::SUCCESS) {
-        std::cout << "SKIPPED\n";
-        return true;
+        return skipTest("덱을 열 수 없음");
     }
     SurfaceExtractor extractor(reader);
     auto surfaces = extractor.extractSolidExteriorSurfaces();
     auto faces = SurfaceExtractor::filterByDirection(surfaces.faces, Vec3(0, 0, 1), 45.0);
     if (faces.empty()) {
-        std::cout << "SKIPPED (no +Z faces)\n";
-        return true;
+        return skipTest("+Z 방향 solid 외피 면이 없음");
     }
 
     const int nv3d = reader.get_control_data().NV3D;
@@ -452,9 +460,21 @@ int main(int argc, char* argv[]) {
     if (test_single_face_analysis(d3plot_path)) passed++; else failed++;
     if (test_face_index_matches_state_data(d3plot_path)) passed++; else failed++;
 
+    // 건너뛴 검사는 통과가 아니다 — passed 에서 덜어 내고 따로 보고한다.
+    passed -= g_skipped;
+
     std::cout << "\n========================================\n";
-    std::cout << "Results: " << passed << " passed, " << failed << " failed\n";
+    std::cout << "Results: " << passed << " passed, " << failed << " failed, "
+              << g_skipped << " skipped\n";
+    if (g_skipped > 0) {
+        std::cout << "덱(" << d3plot_path << ")을 열 수 없어 통합 검사 "
+                  << g_skipped << "건을 돌리지 못했습니다 — 검증되지 않았습니다.\n";
+        std::cout << "덱 경로를 인자로 넘기면 검사가 돕니다: "
+                  << "./test_surface_stress <d3plot 경로>\n";
+    }
     std::cout << "========================================\n";
 
-    return failed > 0 ? 1 : 0;
+    if (failed > 0) return 1;
+    if (g_skipped > 0) return 77;  // ctest 의 SKIP_RETURN_CODE 관례 — 통과와 구분한다
+    return 0;
 }
