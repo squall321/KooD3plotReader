@@ -96,7 +96,12 @@ _JS_S6 = r"""function _deepRenderFFT(data){
   const entries = Object.entries(perPart);
 
   if (!entries.length){
-    body.appendChild(el('div', {class:'deep-empty'}, ['데이터 없음 — 분석 가능한 가속도 신호가 없습니다.']));
+    // payload 가 왜 비었는지 실어 보낸다. '가속도 신호가 없습니다' 는
+    // 시각 축이 깨진 경우에는 거짓이다 — 신호는 있고 표본율을 모를 뿐이다.
+    const msg = payload.time_issue
+      ? ('주파수 분석 제외 — ' + payload.time_issue)
+      : '데이터 없음 — 분석 가능한 가속도 신호가 없습니다.';
+    body.appendChild(el('div', {class:'deep-empty'}, [msg]));
     return;
   }
 
@@ -184,7 +189,12 @@ function _deepRenderSRS(data) {
 
   const pay = (data && data.deep_analytics && data.deep_analytics.srs) || null;
   if (!pay || !pay.available || !pay.srs_curves || !pay.srs_curves.length) {
-    host.appendChild(el('div', {class: 'empty-note'}, ['가속도 데이터 없음 — SRS 계산 불가']));
+    // 내부 코드명('no_acc_data_at_position')은 사유가 아니다. payload 가 실제
+    // 사유 문장을 실어 보내면 그것을 쓰고, 없으면 종전 문구를 유지한다.
+    const rs = pay && typeof pay.reason === 'string' ? pay.reason : '';
+    const msg = (rs && /[가-힣]/.test(rs)) ? ('SRS 계산 불가 — ' + rs)
+                                          : '가속도 데이터 없음 — SRS 계산 불가';
+    host.appendChild(el('div', {class: 'empty-note'}, [msg]));
     return;
   }
 

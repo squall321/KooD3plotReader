@@ -296,6 +296,7 @@ def _build_srs_payload(report):
 
     # Collect part motions belonging to this pos_id
     candidates = []
+    time_issues: list[str] = []
     for key, pm in part_motions.items():
         try:
             kp, kpart = key
@@ -311,13 +312,20 @@ def _build_srs_payload(report):
         a_arr = np.asarray(a, dtype=np.float64)
         if t_arr.size < 8 or a_arr.size != t_arr.size:
             continue
-        if getattr(pm, "time_issue", None):
-            continue   # 시각 해상도가 깨진 런은 SRS 도 낼 수 없다
+        _ti = getattr(pm, "time_issue", None)
+        if _ti:
+            # 시각 해상도가 깨진 런은 SRS 도 낼 수 없다. 사유를 들고 나간다 —
+            # 가속도는 있는데 '가속도 없음' 이라고 말하면 거짓이다.
+            if str(_ti) not in time_issues:
+                time_issues.append(str(_ti))
+            continue
         if not np.any(np.isfinite(a_arr)) or np.nanmax(np.abs(a_arr)) <= 0:
             continue
         candidates.append((kpart, t_arr, a_arr))
 
     if not candidates:
+        if time_issues:
+            return {"available": False, "reason": "; ".join(time_issues[:4])}
         return {"available": False, "reason": "no_acc_data_at_position"}
 
     # Frequency band: 5..5000 Hz, 1/3 octave centers
