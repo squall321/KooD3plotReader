@@ -671,14 +671,18 @@ function getFilteredParts() {{
 
 function valClass(pdata, field) {{
   if (!pdata) return '';
+  // 생산자(PartSummary.stress_warning)의 어휘는 'none'|'ok'|'warn'|'crit' 이다.
+  // ratio 비교는 warning 필드가 없는 옛 result.json 용 대비책으로만 남긴다.
   if (field === 'peak_stress') {{
-    if (pdata.stress_warning === 'OVER') return 'val-danger';
-    if (pdata.stress_ratio && pdata.stress_ratio > 0.85) return 'val-warn';
+    if (pdata.stress_warning === 'crit') return 'val-danger';
+    if (pdata.stress_warning === 'warn') return 'val-warn';
+    if (!pdata.stress_warning && pdata.stress_ratio && pdata.stress_ratio > 0.85) return 'val-warn';
     return 'val-stress';
   }}
   if (field === 'peak_strain') {{
-    if (pdata.strain_warning === 'OVER') return 'val-danger';
-    if (pdata.strain_ratio && pdata.strain_ratio > 0.85) return 'val-warn';
+    if (pdata.strain_warning === 'crit') return 'val-danger';
+    if (pdata.strain_warning === 'warn') return 'val-warn';
+    if (!pdata.strain_warning && pdata.strain_ratio && pdata.strain_ratio > 0.85) return 'val-warn';
     return 'val-strain';
   }}
   return 'val-disp';
