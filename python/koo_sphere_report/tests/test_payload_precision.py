@@ -117,17 +117,62 @@ def test_sidecar_keeps_small_compressive_and_disp():
     assert pd["peak_disp"] == 0.0004, pd["peak_disp"]
 
 
+def _js():
+    """tests/ 를 경로에 넣고 jsutil 을 돌려준다 (node 없으면 None)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import jsutil
+    return jsutil if jsutil.node_bin() else None
+
+
 def test_js_tolerance_does_not_drop_measured_zero():
-    """공차 DOE 가 0 을 '값 없음' 으로 버리면 정각도(_NOM) 가 통째로 사라진다."""
+    """공차 DOE 가 0 을 '값 없음' 으로 버리면 정각도(_NOM) 가 통째로 사라진다.
+
+    소스에 옛 한 줄이 있는지 보는 대신 함수를 실제로 호출한다 — 중괄호만 붙여
+    같은 뜻으로 되돌려도 문자열 검사는 통과하기 때문이다.
+    """
+    import re
+
+    import pytest
+    js = _js()
+    if js is None:
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
     from koo_sphere_report.report.html_report import _JS
-    assert "if (v == null || !isFinite(v) || v === 0) continue;" not in _JS, (
-        "반올림으로 0 이 된 값을 미계측으로 버리고 있다")
+    mag = re.search(r"const _MAG_QTYS = \{[^}]*\};", _JS)
+    assert mag, "_MAG_QTYS 정의를 찾지 못했다"
+    src = ("const DATA = {yield_stress: 0};\n" + mag.group(0) + "\n"
+           + js.extract_functions(_JS, ["getQtyValue", "tolAngleValue"]) + """
+const zero = {parts: {'1': {peak_stress: 0.0}}};
+const gone = {parts: {'1': {}}};
+console.log(String(tolAngleValue(zero, 'peak_stress')));
+console.log(String(tolAngleValue(gone, 'peak_stress')));
+""")
+    out = js.run_js(src)
+    assert out[0] == "0", f"반올림으로 0 이 된 값을 미계측으로 버렸다 ({out[0]})"
+    assert out[1] == "null", f"미계측인데 값을 만들어냈다 ({out[1]})"
 
 
 def test_js_formats_small_values_with_significant_digits():
-    """화면 표기도 0.0863 MPa 를 '0.1 MPa' 로 만들면 안 된다."""
+    """화면 표기도 0.0863 MPa 를 '0.1 MPa' 로 만들면 안 된다.
+
+    'toPrecision' 이 소스에 있는지가 아니라 formatValue 가 무엇을 돌려주는지를
+    본다 — 호출 지점을 toFixed 로 되돌려도 정의만 남으면 문자열 검사는 통과한다.
+    """
+    import pytest
+    js = _js()
+    if js is None:
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
     from koo_sphere_report.report.html_report import _JS
-    assert "toPrecision" in _JS, "작은 값용 유효숫자 표기가 없다"
+    out = js.run_js(js.extract_functions(_JS, ["fxv", "formatValue"]) + """
+console.log(formatValue(0.0863, 'peak_stress'));
+console.log(formatValue(0.0891, 'peak_stress'));
+console.log(formatValue(4.2e-5, 'peak_strain'));
+console.log(formatValue(470.123456, 'peak_stress'));
+""")
+    assert out[0] == "0.0863 MPa", f"0.0863 MPa 가 '{out[0]}' 로 뭉갰다"
+    assert out[1] == "0.0891 MPa", f"0.0891 MPa 가 '{out[1]}' 로 뭉갰다"
+    assert out[0] != out[1], "서로 다른 응력이 한 표기로 뭉쳤다"
+    assert out[2] not in ("0.0000", "0"), f"변형률 4.2e-5 가 '{out[2]}' 로 사라졌다"
+    assert out[3] == "470.1 MPa", f"큰 값의 자릿수가 바뀌었다 ({out[3]})"
 
 
 def test_all():

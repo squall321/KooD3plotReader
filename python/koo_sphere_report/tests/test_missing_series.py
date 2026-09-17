@@ -105,6 +105,35 @@ def test_js_tells_unmeasured_strain_from_zero():
     assert "strainMeasured" in seg, "미계측일 때도 '완전 탄성' 문장이 나온다"
 
 
+def test_js_strain_counter_only_counts_measured_parts():
+    """계수기가 미계측까지 세면 '완전 탄성' 안내가 미계측 파트에도 나온다.
+
+    가드(`!m.strainMeasured`) 는 그대로 두고 계수기만 무조건 증가로 바꿔도
+    문자열 근접 검사는 통과한다 — 그 구멍을 그 줄을 실제로 돌려 막는다.
+    """
+    import re
+
+    import pytest
+    js = _js()
+    if js is None:
+        pytest.skip("node 가 없어 JS 동작을 확인하지 못했다")
+    from koo_sphere_report.report.html_report import _JS
+    m = re.search(r"^\s*(.*strainMeasured\+\+;)\s*$", _JS, re.M)
+    assert m, "변형률 계수기 줄을 찾지 못했다"
+    line = m.group(1)
+    out = js.run_js(f"""
+let strainMeasured = 0;
+let pd = {{}};
+{line}
+console.log(String(strainMeasured));
+pd = {{peak_strain: 0.0}};
+{line}
+console.log(String(strainMeasured));
+""")
+    assert out[0] == "0", "변형률을 안 잰 파트를 '계측됨' 으로 셌다"
+    assert out[1] == "1", "반올림으로 0 이 된 변형률을 미계측으로 버렸다"
+
+
 def _js():
     """tests/ 를 경로에 넣고 jsutil 을 돌려준다 (node 없으면 None)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -183,5 +212,6 @@ def test_all():
     test_findings_do_not_crash_on_missing_series()
     test_terminal_report_does_not_crash()
     test_js_tells_unmeasured_strain_from_zero()
+    test_js_strain_counter_only_counts_measured_parts()
     test_js_tooltip_shows_dash_for_unmeasured_velocity()
     test_js_kpi_card_shows_dash_when_velocity_never_measured()
