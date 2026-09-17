@@ -683,10 +683,48 @@ static std::string d3plotStamp(const fs::path& d3plot_path) {
     return std::to_string(t.time_since_epoch().count());
 }
 
+/// 설정 파일 **내용**의 짧은 지문 (FNV-1a 64). 경로만 보면 같은 파일을 고쳐
+/// 다시 돌린 경우를 못 잡는다. 읽지 못하면 빈 문자열 — 지문을 지어내지 않는다.
+static std::string configFingerprint(const std::string& config_path) {
+    if (config_path.empty()) return "";
+    std::ifstream ifs(config_path, std::ios::binary);
+    if (!ifs) return "";
+    uint64_t h = 1469598103934665603ULL;
+    char buf[4096];
+    while (ifs.read(buf, sizeof(buf)) || ifs.gcount() > 0) {
+        const std::streamsize n = ifs.gcount();
+        for (std::streamsize i = 0; i < n; ++i) {
+            h ^= static_cast<unsigned char>(buf[i]);
+            h *= 1099511628211ULL;
+        }
+    }
+    return std::to_string(h);
+}
+
+/// 지금 돌고 있는 실행 파일의 표식 (수정 시각-크기). 읽지 못하면 빈 문자열.
+///
+/// 🔴 Version::build_commit() 만으로는 부족하다. 그 값은 CMake configure 시각에
+///    한 번 계산돼 매크로로 박히고, 빌드 트리의 재구성 트리거 목록에 저장소
+///    이력 파일이 없어서 소스를 고쳐 `make` 만 하면 **옛 커밋 문자열이 그대로**
+///    남는다. 게다가 -dirty 접미사는 서로 다른 더티 트리를 구분하지 못한다.
+///    그래서 '분석기가 바뀌었나' 는 바이너리 자체로도 본다.
+static std::string toolBinaryStamp() {
+    std::error_code ec;
+    const fs::path exe = fs::read_symlink("/proc/self/exe", ec);
+    if (ec) return "";
+    const auto t = fs::last_write_time(exe, ec);
+    if (ec) return "";
+    const auto sz = fs::file_size(exe, ec);
+    if (ec) return "";
+    return std::to_string(t.time_since_epoch().count()) + "-" + std::to_string(sz);
+}
+
 /**
  * @brief Check if analysis was already completed for a d3plot
  * @param result_dir Result directory to check
  * @param d3plot_path 이 결과가 나온 d3plot (수정 시각 대조용)
+ * @param config_path 이번에 쓸 설정 파일 (내용 지문 대조용)
+ * @param reason 널이 아니면 '다시 도는 사유' 를 여기에 적는다 (완료면 비운다)
  * @return true if analysis was completed by this analyzer for this d3plot
  *
  * analysis_result.json 이 '있다' 는 것만으로는 완료가 아니다. JSON 은
@@ -695,27 +733,54 @@ static std::string d3plotStamp(const fs::path& d3plot_path) {
  *  - 단면뷰 단계에서 OOM 으로 죽으면 렌더 없는 결과가 '완료' 로 남고
  *  - 파일을 비운 직후 죽으면 0 바이트 JSON 이 '완료' 로 남고
  *  - 분석기를 고쳐 새로 빌드해도 옛 결과를 그대로 건너뛰고
- *  - 덱을 다시 돌려도 옛 결과를 그대로 건너뛴다.
- * 이제 맨 마지막에 쓰는 .analysis_info 의 완료 표시·도구 버전·d3plot 수정 시각을
- * 함께 본다. 근거가 없거나 어긋나면 '모른다' 가 아니라 '다시 한다' 로 간다.
+ *  - 덱을 다시 돌려도 옛 결과를 그대로 건너뛰고
+ *  - 설정(YAML)을 고쳐도 옛 설정으로 만든 결과를 그대로 건너뛴다.
+ * 이제 맨 마지막에 쓰는 .analysis_info 의 완료 표시·도구 버전·바이너리 표식·
+ * d3plot 수정 시각·설정 지문을 함께 본다. 근거가 없거나 어긋나면 '모른다' 가
+ * 아니라 '다시 한다' 로 간다.
  */
-bool isAnalysisCompleted(const fs::path& result_dir, const fs::path& d3plot_path) {
-    if (!fs::exists(result_dir / "analysis_result.json")) return false;
+bool isAnalysisCompleted(const fs::path& result_dir,
+                         const fs::path& d3plot_path,
+                         const std::string& config_path,
+                         std::string* reason) {
+    auto no = [&](const char* why) {
+        if (reason) *reason = why;
+        return false;
+    };
+    if (reason) reason->clear();
+
+    if (!fs::exists(result_dir / "analysis_result.json")) return no("결과 JSON 없음");
 
     std::ifstream ifs(result_dir / ".analysis_info");
-    if (!ifs) return false;   // 완료 표시가 없다 — 옛 판이거나 도중에 죽었다
+    if (!ifs) return no("완료 표시 없음 (옛 판이거나 도중에 죽음)");
 
-    std::string line, tool, stamp;
+    std::string line, tool, binary, stamp, cfg_hash;
     bool completed = false;
+    bool has_binary_key = false;
     while (std::getline(ifs, line)) {
         if (line.rfind("tool_version: ", 0) == 0)      tool = line.substr(14);
+        else if (line.rfind("tool_binary: ", 0) == 0)  { binary = line.substr(13); has_binary_key = true; }
         else if (line.rfind("d3plot_mtime: ", 0) == 0) stamp = line.substr(14);
+        else if (line.rfind("config_hash: ", 0) == 0)  cfg_hash = line.substr(13);
         else if (line.rfind("completed: ", 0) == 0)    completed = (line.substr(11) == "yes");
     }
-    if (!completed) return false;
-    if (tool != Version::build_commit()) return false;   // 분석기가 바뀌었다
+    if (!completed) return no("완료 표시 없음 (도중에 죽음)");
+    if (tool != Version::build_commit()) return no("분석기 버전이 다름");
+
+    // 바이너리 표식이 없으면 옛 판 산출물이다 — 같은 분석기라고 단정하지 않는다.
+    const std::string now_binary = toolBinaryStamp();
+    if (!has_binary_key) return no("분석기 표식 없음 (옛 판 산출물)");
+    if (now_binary.empty()) return no("분석기 표식을 읽지 못함");
+    if (binary != now_binary) return no("분석기 바이너리가 다름");
+
+    const std::string now_cfg = configFingerprint(config_path);
+    if (now_cfg.empty()) return no("설정 파일을 읽지 못함");
+    if (cfg_hash != now_cfg) return no("설정 내용이 다름");
+
     const std::string now = d3plotStamp(d3plot_path);
-    return !now.empty() && now == stamp;                 // 덱을 다시 돌렸다
+    if (now.empty()) return no("d3plot 수정 시각을 읽지 못함");
+    if (now != stamp) return no("d3plot 이 다시 쓰임");
+    return true;
 }
 
 /**
@@ -737,9 +802,11 @@ void saveAnalysisMetadata(const fs::path& result_dir,
         ofs << "d3plot_path: " << d3plot_path.string() << "\n";
         ofs << "config_file: " << config_path << "\n";
         ofs << "analyzed_at: " << std::ctime(&time_t);
-        // --skip-existing 의 판정 근거 (아래 두 줄이 없으면 '완료' 로 안 본다)
+        // --skip-existing 의 판정 근거 (아래 네 줄이 없거나 어긋나면 다시 돈다)
         ofs << "tool_version: " << Version::build_commit() << "\n";
+        ofs << "tool_binary: " << toolBinaryStamp() << "\n";
         ofs << "d3plot_mtime: " << d3plotStamp(d3plot_path) << "\n";
+        ofs << "config_hash: " << configFingerprint(config_path) << "\n";
         ofs << "completed: yes\n";
     }
 }
@@ -897,10 +964,16 @@ int runRecursiveAnalysis(const fs::path& root_dir,
         }
 
         // Check if already analyzed
-        if (skip_existing && isAnalysisCompleted(result_dir, d3plot_path)) {
-            std::cout << "  Skipped (already analyzed)\n\n";
-            ++skip_count;
-            continue;
+        if (skip_existing) {
+            std::string stale_reason;
+            if (isAnalysisCompleted(result_dir, d3plot_path, config_path, &stale_reason)) {
+                std::cout << "  Skipped (already analyzed)\n\n";
+                ++skip_count;
+                continue;
+            }
+            // 왜 다시 도는지 그 런 줄에 적는다 — 없으면 '--skip-existing 이
+            // 고장났다' 로 읽힌다 (scripts/post_analyze.sh 의 _stale_reason 과 같은 뜻).
+            std::cout << "  Re-analyzing: " << stale_reason << "\n";
         }
 
         // Run analysis
@@ -953,7 +1026,9 @@ void printUsage(const char* prog_name) {
     std::cout << "  --config <file>     Load configuration from YAML file\n";
     std::cout << "  --recursive <dir>   Scan directory recursively for d3plot files\n";
     std::cout << "  --output <dir>      Output directory for recursive mode (default: ./analysis_results)\n";
-    std::cout << "  --skip-existing     Skip already analyzed d3plot folders\n";
+    std::cout << "  --skip-existing     Skip runs whose result folder carries a completion\n";
+    std::cout << "                      marker matching this analyzer, this config and this\n";
+    std::cout << "                      d3plot (see Recursive Analysis Mode below)\n";
     std::cout << "  --threads N         Set number of OpenMP threads (0=auto)\n";
     std::cout << "  --analysis-only     Run only analysis jobs (skip rendering)\n";
     std::cout << "  --render-only       Run only render jobs (skip analysis)\n";
@@ -968,7 +1043,12 @@ void printUsage(const char* prog_name) {
     std::cout << "  Scans specified directory for all d3plot files in subdirectories.\n";
     std::cout << "  Applies same analysis config to each d3plot.\n";
     std::cout << "  Creates result folders mirroring source directory structure.\n";
-    std::cout << "  Use --skip-existing for incremental analysis.\n\n";
+    std::cout << "  Use --skip-existing for incremental analysis. A run is skipped only when\n";
+    std::cout << "  its result folder holds .analysis_info with completed: yes AND the same\n";
+    std::cout << "  analyzer build, the same config file contents and the same d3plot\n";
+    std::cout << "  modification time. Anything else is re-analyzed and the reason is\n";
+    std::cout << "  printed on that run's line. Results from older builds carry no marker,\n";
+    std::cout << "  so they are re-analyzed once.\n\n";
 
     std::cout << "Exit codes:\n";
     std::cout << "  0  all runs succeeded\n";

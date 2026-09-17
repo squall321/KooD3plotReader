@@ -147,7 +147,7 @@ unified_analyzer \
 | `--recursive <dir>` | 하위 디렉토리에서 d3plot 재귀 탐색 |
 | `--config <yaml>` | 분석 설정 파일 |
 | `--output <dir>` | 결과 출력 루트 디렉토리 |
-| `--skip-existing` | `analysis_result.json`이 있으면 건너뜀 |
+| `--skip-existing` | 같은 분석기·같은 설정 내용·같은 d3plot 수정 시각으로 끝까지 돈 결과(`.analysis_info` 완료 표시)만 건너뜀. 그 외에는 다시 분석하고 사유를 그 런 줄에 찍는다 |
 | `--threads <N>` | 병렬 스레드 수 (기본: CPU 코어 수) |
 | `--render-only` | 렌더링만 수행 (분석 건너뜀) |
 

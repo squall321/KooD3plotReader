@@ -381,6 +381,18 @@ static void test_result_folder_collision_detected() {
         findCollidingResultFolders({dirs[0], dirs[2]}, base / "output").empty());
 }
 
+/// .analysis_info 의 한 줄 값을 바꿔치기한다 (옛 판·다른 빌드 흉내).
+static void patchInfoLine(const fs::path& info, const std::string& key,
+                          const std::string& value) {
+    std::ifstream in(info);
+    std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const size_t p = all.find(key);
+    if (p == std::string::npos) return;
+    all.replace(p + key.size(), all.find('\n', p) - p - key.size(), value);
+    writeFile(info, all);
+}
+
 static void test_completion_marker() {
     std::cout << "--skip-existing 완료 판정:\n";
     const fs::path base = makeTree();
@@ -388,35 +400,56 @@ static void test_completion_marker() {
     writeFile(d3plot, "x");
     const fs::path rd = base / "analysis_results" / "Run_1";
     fs::create_directories(rd);
+    const fs::path cfg = base / "cfg.yaml";
+    writeFile(cfg, "analysis_jobs:\n  - name: VM\n    type: von_mises\n");
+    const std::string cfgs = cfg.string();
+    std::string reason;
 
-    chk("결과가 아예 없으면 미완료", !isAnalysisCompleted(rd, d3plot));
+    chk("결과가 아예 없으면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
+    chk("사유가 비어 있지 않다", !reason.empty(), reason);
 
     // 렌더 도중 죽은 경우: JSON 만 (심지어 0바이트) 남는다
     writeFile(rd / "analysis_result.json", "");
-    chk("0바이트 JSON 만 있으면 미완료", !isAnalysisCompleted(rd, d3plot));
+    chk("0바이트 JSON 만 있으면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
 
     writeFile(rd / "analysis_result.json", "{\"metadata\": {}}");
-    chk("완료 표시가 없으면 미완료 (옛 판 결과 포함)", !isAnalysisCompleted(rd, d3plot));
+    chk("완료 표시가 없으면 미완료 (옛 판 결과 포함)",
+        !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
 
-    saveAnalysisMetadata(rd, d3plot, "cfg.yaml");
-    chk("끝까지 돈 결과는 완료", isAnalysisCompleted(rd, d3plot));
+    saveAnalysisMetadata(rd, d3plot, cfgs);
+    chk("끝까지 돈 결과는 완료", isAnalysisCompleted(rd, d3plot, cfgs, &reason));
+
+    // 설정 내용이 바뀌었다 → 옛 산출물을 건너뛰면 안 된다
+    writeFile(cfg, "analysis_jobs:\n  - name: VM\n    type: von_mises\n  - name: EQ\n"
+                   "    type: element_quality\n");
+    chk("설정 내용이 바뀌면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
+    chk("사유가 설정 변경이라고 말한다",
+        reason.find("설정") != std::string::npos, reason);
+
+    // 같은 내용을 다른 파일에 적었으면 다시 돌 이유가 없다 (경로가 아니라 내용)
+    const fs::path cfg2 = base / "cfg_copy.yaml";
+    writeFile(cfg2, "analysis_jobs:\n  - name: VM\n    type: von_mises\n  - name: EQ\n"
+                    "    type: element_quality\n");
+    saveAnalysisMetadata(rd, d3plot, cfgs);
+    chk("경로만 다르고 내용이 같으면 완료",
+        isAnalysisCompleted(rd, d3plot, cfg2.string(), &reason), reason);
 
     // 덱을 다시 돌렸다 → 옛 결과를 건너뛰면 안 된다
     fs::last_write_time(d3plot, fs::last_write_time(d3plot) + std::chrono::hours(1));
-    chk("d3plot 이 새로 쓰이면 미완료", !isAnalysisCompleted(rd, d3plot));
+    chk("d3plot 이 새로 쓰이면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
 
     // 분석기가 바뀌었다 → 옛 결과를 건너뛰면 안 된다
-    saveAnalysisMetadata(rd, d3plot, "cfg.yaml");
-    {
-        std::ifstream in(rd / ".analysis_info");
-        std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        in.close();
-        const std::string k = "tool_version: ";
-        const size_t p = all.find(k);
-        all.replace(p + k.size(), all.find('\n', p) - p - k.size(), "older-build");
-        writeFile(rd / ".analysis_info", all);
-    }
-    chk("분석기 버전이 다르면 미완료", !isAnalysisCompleted(rd, d3plot));
+    saveAnalysisMetadata(rd, d3plot, cfgs);
+    patchInfoLine(rd / ".analysis_info", "tool_version: ", "older-build");
+    chk("분석기 버전이 다르면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
+
+    // 커밋 문자열은 configure 시각에 얼려져 있어 소스를 고쳐 다시 빌드해도
+    // 같은 값이 나온다 — 실행 바이너리 자체의 표식도 함께 봐야 한다
+    saveAnalysisMetadata(rd, d3plot, cfgs);
+    patchInfoLine(rd / ".analysis_info", "tool_binary: ", "0-0");
+    chk("실행 바이너리가 다르면 미완료", !isAnalysisCompleted(rd, d3plot, cfgs, &reason));
+    chk("사유가 분석기 변경이라고 말한다",
+        reason.find("분석기") != std::string::npos, reason);
 }
 
 /// 재귀 배치 종료코드 — 스캔 불완전은 분석 실패와 구분돼야 한다.

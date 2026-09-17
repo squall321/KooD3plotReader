@@ -910,7 +910,7 @@ single_analyzer batch /data/doe_L27 \
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
 | `path` | (필수) | 배치 루트 디렉토리 |
-| `--skip-existing` | false | result.json 존재 시 스킵 |
+| `--skip-existing` | false | 산출물이 최신일 때만 스킵 — 스키마 마커·도구 커밋을 보는 `_outputs_are_current()` 판정이다(파일 존재만으로는 스킵하지 않는다) |
 | `--threads` | 1 | 배치 병렬 수 |
 | + 위 단일 옵션 전체 | | |
 
