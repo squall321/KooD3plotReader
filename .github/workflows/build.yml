@@ -68,7 +68,7 @@ jobs:
         run: cmake --build build --config Release --parallel 4
 
       - name: Run tests
-        run: ctest --test-dir build --build-config Release --output-on-failure --timeout 120
+        run: ctest --test-dir build --build-config Release --output-on-failure --timeout 120 --no-tests=error
 
       - name: Build koo_deep_report CLI exe (PyInstaller)
         shell: bash

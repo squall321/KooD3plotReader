@@ -1,21 +1,30 @@
 # Unit tests for KooD3plotReader
+#
+# 등록 규약 — 두 갈래다.
+#   (가) 덱이 필요 없는 시험: add_executable + add_test. `ctest` 가 실제로 돌린다.
+#   (나) 실덱이 있어야 도는 시험: add_executable 만 한다. 덱이 없는 머신(CI·새 클론)
+#        에서는 검사가 건너뛰어지므로 ctest 에 올리면 초록불만 늘고 보증은 늘지
+#        않는다. 대신 빌드 대상으로는 올려 두어 헤더·API 변경으로 깨지면 CI 가
+#        컴파일 단계에서 잡는다. 실행은 각 파일 머리말의 g++ 명령으로 한다.
 
 # VectorMath tests
 add_executable(test_vector_math test_vector_math.cpp)
 target_link_libraries(test_vector_math PRIVATE kood3plot)
 target_include_directories(test_vector_math PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME VectorMath COMMAND test_vector_math)
 
 # AnalysisResult tests
 add_executable(test_analysis_result test_analysis_result.cpp)
 target_link_libraries(test_analysis_result PRIVATE kood3plot)
 target_include_directories(test_analysis_result PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME AnalysisResult COMMAND test_analysis_result)
 
-# SurfaceExtractor tests
+# SurfaceExtractor tests — (나) results/d3plot 필요
 add_executable(test_surface_extractor test_surface_extractor.cpp)
 target_link_libraries(test_surface_extractor PRIVATE kood3plot)
 target_include_directories(test_surface_extractor PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
-# SurfaceStressAnalyzer tests
+# SurfaceStressAnalyzer tests — (나) results/d3plot 필요
 add_executable(test_surface_stress test_surface_stress.cpp)
 target_link_libraries(test_surface_stress PRIVATE kood3plot)
 target_include_directories(test_surface_stress PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -24,20 +33,37 @@ target_include_directories(test_surface_stress PRIVATE ${CMAKE_SOURCE_DIR}/inclu
 add_executable(test_surface_strain_math test_surface_strain_math.cpp)
 target_link_libraries(test_surface_strain_math PRIVATE kood3plot)
 target_include_directories(test_surface_strain_math PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME SurfaceStrainMath COMMAND test_surface_strain_math)
 
 # BeamAnalyzer tests (합성 d3plot 왕복) — Writer 로 테스트 데이터를 만든다
 if(TARGET kood3plot_writer)
     add_executable(test_beam_analyzer test_beam_analyzer.cpp)
     target_link_libraries(test_beam_analyzer PRIVATE kood3plot kood3plot_writer)
     target_include_directories(test_beam_analyzer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME BeamAnalyzer COMMAND test_beam_analyzer)
+endif()
+
+# MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
+if(TARGET kood3plot_writer)
+    add_executable(test_motion_analyzer test_motion_analyzer.cpp)
+    target_link_libraries(test_motion_analyzer PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_motion_analyzer PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME MotionAnalyzer COMMAND test_motion_analyzer)
 endif()
 
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)
 target_include_directories(test_keyword_set_parser PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME KeywordSetParser COMMAND test_keyword_set_parser)
 
-# TimeHistoryAnalyzer tests
+# *SET_SEGMENT 부모 solid 조회 tests (합성 메시)
+add_executable(test_segment_parent_lookup test_segment_parent_lookup.cpp)
+target_link_libraries(test_segment_parent_lookup PRIVATE kood3plot)
+target_include_directories(test_segment_parent_lookup PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME SegmentParentLookup COMMAND test_segment_parent_lookup)
+
+# TimeHistoryAnalyzer tests — (나) results/d3plot 필요
 add_executable(test_time_history test_time_history.cpp)
 target_link_libraries(test_time_history PRIVATE kood3plot)
 target_include_directories(test_time_history PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -48,6 +74,26 @@ target_include_directories(test_time_history PRIVATE ${CMAKE_SOURCE_DIR}/include
 add_executable(test_extended_json test_extended_json.cpp)
 target_link_libraries(test_extended_json PRIVATE kood3plot)
 target_include_directories(test_extended_json PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME ExtendedJSON COMMAND test_extended_json)
+
+# ------------------------------------------------------------
+# (나) 실덱이 있어야 도는 시험 — 빌드 대상으로만 올린다(ctest 미등록).
+#   test_element_quality_states : /data/koopark/Test_DTMIN_erode/dtmin_0p1
+#   test_erosion_stats          : /data/koopark/Test_DTMIN_erode/dtmin_0p1
+#   test_part_name_lookup       : /data/battery_study/case_01_phase1_stacked_tier-1
+#   test_series_element_ids     : /data/battery_study/case_01_phase1_stacked_tier-1
+#   test_stress_unit_label      : /data/battery_study/case_01_phase1_stacked_tier-1
+# ------------------------------------------------------------
+foreach(_deck_test
+        test_element_quality_states
+        test_erosion_stats
+        test_part_name_lookup
+        test_series_element_ids
+        test_stress_unit_label)
+    add_executable(${_deck_test} ${_deck_test}.cpp)
+    target_link_libraries(${_deck_test} PRIVATE kood3plot)
+    target_include_directories(${_deck_test} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endforeach()
 
 # ============================================================
 # Phase 1: HDF5 Quantization System Tests
