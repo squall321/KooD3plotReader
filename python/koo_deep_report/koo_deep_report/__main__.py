@@ -1173,8 +1173,18 @@ def run_batch(args: argparse.Namespace) -> None:
         fail_path.write_text("\n".join(failed), encoding="utf-8")
         print(f"\n실패: {len(failed)}개 → {fail_path}")
 
-    # batch_report.html
-    results, _ = load_results_from_dir(output_root)
+    # batch_report.html — 이번 배치가 만든 케이스만 읽는다. output_root 를
+    # 통째로 훑으면 옛 이름으로 남은 폴더까지 함께 세어져 같은 해석이 두 줄로
+    # 나오고 KPI·평균 응력·파트 비교 열이 틀어진다.
+    results, found_dirs = load_results_from_dir(output_root, case_names=case_names)
+    orphans = [d for d in found_dirs if d not in set(case_names)]
+    notes: list[str] = []
+    if orphans:
+        shown = ", ".join(orphans[:5]) + (" …" if len(orphans) > 5 else "")
+        msg = (f"이번 배치에 없는 산출물 폴더 {len(orphans)}개를 표에서 뺐습니다 "
+               f"(출력 폴더 이름 규칙이 바뀌기 전에 만들어진 것일 수 있습니다): {shown}")
+        notes.append(msg)
+        print(f"\n[batch] ※ {msg}")
     batch_html = output_root / "batch_report.html"
     generate_batch_html(
         results=results,
@@ -1183,6 +1193,7 @@ def run_batch(args: argparse.Namespace) -> None:
         output_root=output_root,
         output_path=batch_html,
         yield_stress=getattr(args, "yield_stress", 0.0),
+        notes=notes,
     )
     print(f"[batch] 완료. 출력: {output_root}")
     print(f"[batch] 배치 리포트: {batch_html}")

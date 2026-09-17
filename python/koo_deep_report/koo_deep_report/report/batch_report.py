@@ -1,6 +1,7 @@
 """Batch summary HTML report for multiple koo_deep_report runs."""
 from __future__ import annotations
 import json
+from html import escape as html_escape
 from pathlib import Path
 
 
@@ -15,14 +16,26 @@ def generate_batch_html(
     output_root: Path,         # base output dir (for relative report links)
     output_path: Path,         # where to write batch_report.html
     yield_stress: float = 0.0,
+    notes: list[str] | None = None,   # 보고서 머리에 실을 사유 (뺀 폴더 등)
 ) -> None:
-    html = _build_html(results, failed, skipped, output_root, yield_stress)
+    html = _build_html(results, failed, skipped, output_root, yield_stress, notes)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
 
 
-def load_results_from_dir(output_root: Path) -> tuple[list[dict], list[str]]:
-    """Scan output_root for result.json files. Returns (results, case_dirs_with_json)."""
+def load_results_from_dir(
+    output_root: Path,
+    case_names: list[str] | None = None,
+) -> tuple[list[dict], list[str]]:
+    """Scan output_root for result.json files. Returns (results, case_dirs_with_json).
+
+    case_names 를 주면 그 폴더의 결과만 results 에 담는다 — 출력 폴더 이름
+    규칙이 바뀐 뒤 같은 --output 으로 다시 돌리면 옛 이름 폴더가 고아로
+    남는데, 그것까지 읽으면 같은 해석이 두 줄로 세어져 KPI·평균 응력·
+    파트 비교 열이 전부 틀어진다. found_dirs 는 걸러내기 전 목록이라
+    호출자가 무엇을 뺐는지 알려줄 수 있다.
+    """
+    wanted = set(case_names) if case_names is not None else None
     results = []
     found_dirs = []
     for p in sorted(output_root.iterdir()):
@@ -31,8 +44,9 @@ def load_results_from_dir(output_root: Path) -> tuple[list[dict], list[str]]:
             try:
                 d = json.loads(rj.read_text(encoding="utf-8"))
                 if d.get("schema", "").startswith("koo_deep_report"):
-                    results.append(d)
                     found_dirs.append(p.name)
+                    if wanted is None or p.name in wanted:
+                        results.append(d)
             except Exception:
                 pass
     return results, found_dirs
@@ -48,6 +62,7 @@ def _build_html(
     skipped: list[str],
     output_root: Path,
     yield_stress: float,
+    notes: list[str] | None = None,
 ) -> str:
     n_ok = len(results)
     n_fail = len(failed)
@@ -57,6 +72,12 @@ def _build_html(
     data_js = json.dumps(results, ensure_ascii=False)
     failed_js = json.dumps(failed, ensure_ascii=False)
     skipped_js = json.dumps(skipped, ensure_ascii=False)
+
+    # 표에서 무엇을 뺐는지는 콘솔이 아니라 보고서에 남아야 읽는 사람이 본다.
+    notes_html = ""
+    if notes:
+        items = "".join(f"<li>{html_escape(x)}</li>" for x in notes)
+        notes_html = (f'<div class="batch-notes"><b>알림</b><ul>{items}</ul></div>')
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -205,6 +226,14 @@ tbody tr.row-skip {{ opacity: 0.45; font-style: italic; }}
 }}
 .part-filter .clear-btn:hover {{ color: var(--fg); border-color: var(--accent); background: rgba(88,166,255,0.08); }}
 
+/* 표에서 뺀 것·알릴 것 */
+.batch-notes {{
+  border: 1px solid var(--warn); border-left-width: 4px; border-radius: 8px;
+  background: rgba(210,153,34,0.08); color: var(--fg2);
+  padding: 10px 14px; margin-bottom: 16px; font-size: 13px;
+}}
+.batch-notes ul {{ margin: 6px 0 0 18px; padding: 0; }}
+
 /* Part comparison table */
 .part-table thead th {{ position: sticky; top: 0; z-index: 1; }}
 .part-table .val-stress {{ color: var(--accent2); }}
@@ -223,6 +252,7 @@ tbody tr.row-skip {{ opacity: 0.45; font-style: italic; }}
   </div>
 </header>
 <div class="container">
+  {notes_html}
   <div class="kpi-row" id="kpi-row"></div>
 
   <!-- Tab navigation -->
