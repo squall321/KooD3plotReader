@@ -51,6 +51,13 @@ if(TARGET kood3plot_writer)
     add_test(NAME MotionAnalyzer COMMAND test_motion_analyzer)
 endif()
 
+# TET10(NEL8<0) 덱의 표면 응력 침식 제외 tests — Writer 로 합성 덱을 만든다
+if(TARGET kood3plot_writer)
+    add_executable(test_surface_stress_tet10 test_surface_stress_tet10.cpp)
+    target_link_libraries(test_surface_stress_tet10 PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_surface_stress_tet10 PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)

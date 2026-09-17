@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <limits>
 #include <iostream>
@@ -28,7 +29,10 @@ bool SurfaceStressAnalyzer::initialize() {
     const auto& control_data = reader_.get_control_data();
 
     nv3d_ = control_data.NV3D;
-    num_solid_elements_ = control_data.NEL8;
+    // NEL8 < 0 은 10절점 사면체(절점 2개가 더 실림) 표식이지 요소 수가 아니다.
+    // 부호를 그대로 담으면 아래 침식 마스크가 0 개로 만들어져 제외가 꺼진다.
+    // 나머지 배관(GeometryParser·StateDataParser·SinglePassAnalyzer)도 |NEL8| 을 쓴다.
+    num_solid_elements_ = std::abs(control_data.NEL8);
 
     return true;
 }
