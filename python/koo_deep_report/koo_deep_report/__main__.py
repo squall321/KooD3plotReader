@@ -1451,7 +1451,11 @@ def _print_summary(result: SingleResult) -> None:
     if result.peak_stress_global is None:
         print("  피크 응력    : 미산출 (응력 이력이 있는 파트 없음)")
     else:
-        print(f"  피크 응력    : {result.peak_stress_global:.2f} MPa ({peak_label})")
+        # 단위 라벨은 해석기가 준 값을 쓴다 — d3plot 은 단위계를 싣지 않아 'MPa' 를
+        # 지어내면 kg-mm-ms(GPa)·SI(Pa) 덱을 3~6자리 틀리게 읽는다.
+        _su = next((x.unit for x in (result.d3plot_result.stress or []) if x.unit), "") if result.d3plot_result else ""
+        _su = "덱 단위" if (not _su or _su == "deck_units") else _su
+        print(f"  피크 응력    : {result.peak_stress_global:.4g} {_su} ({peak_label})")
     n_nostress = sum(1 for p in result.parts.values() if p.peak_stress is None)
     if n_nostress:
         print(f"               ({n_nostress}개 파트는 응력 미산출 — 솔리드 전용 집계)")
@@ -1483,7 +1487,7 @@ def _print_summary(result: SingleResult) -> None:
             icon = warn_icon[level]
             details = []
             if ps.stress_warning in ("warn", "crit"):
-                details.append(f"σ={ps.peak_stress:.1f}/{ps.stress_limit:.1f}MPa ({ps.stress_ratio:.0%})")
+                details.append(f"σ={ps.peak_stress:.4g}/{ps.stress_limit:.4g} ({ps.stress_ratio:.0%})")
             if ps.strain_warning in ("warn", "crit"):
                 details.append(f"ε={ps.peak_strain:.4f}/{ps.strain_limit:.4f} ({ps.strain_ratio:.0%})")
             print(f"  {icon} Part {ps.part_id} ({ps.part_name}): {', '.join(details)}")

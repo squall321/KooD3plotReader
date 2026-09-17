@@ -212,10 +212,16 @@ def _build_js_data(result: SingleResult) -> dict:
         "renders": [],
         "element_quality": [],
         "metadata": {},
+        "units": {"stress": "덱 단위"},
     }
 
     if dr:
         data["metadata"] = dr.metadata
+        # 응력 단위는 해석기가 준 라벨을 그대로 쓴다. d3plot 은 단위계를 싣지 않아
+        # 해석기가 "deck_units"(단위계 미상)를 준다 — 보고서가 'MPa' 를 지어내면
+        # kg-mm-ms 덱(GPa)·SI 덱(Pa)에서 3자리·6자리를 틀리게 읽는다.
+        _u = next((x.unit for x in (dr.stress or []) if x.unit), "")
+        data["units"]["stress"] = "덱 단위" if (not _u or _u == "deck_units") else _u
         data["stress"] = [_series_to_dict(s) for s in dr.stress]
         data["strain"] = [_series_to_dict(s) for s in dr.strain]
         data["max_principal"] = [_series_to_dict(s) for s in dr.max_principal]
@@ -647,6 +653,8 @@ const PLOT_LAYOUT = {
 const PLOT_CONFIG = {responsive: true, displayModeBar: false};
 const COLORS = ['#4ecca3','#e94560','#f5a623','#7b68ee','#00bcd4','#ff9800','#9c27b0','#4caf50'];
 
+const U_S = (DATA.units && DATA.units.stress) || '덱 단위';   // 응력 단위 라벨 (해석기가 준 값)
+
 // 고정 소수 자릿수만 쓰면 서로 다른 값이 같은 문자열이 된다. 표본에서
 // 파트별 피크 시각 7.977e-5 · 8.584e-5 · 8.786e-5 가 전부 't=0.0001' 로
 // 찍혔고, GPa 단위 덱의 0.0042 는 '0.00' 이 되어 '측정값 0' 으로 읽혔다.
@@ -798,7 +806,7 @@ function renderOverview() {
   <div class="kpi-card">
     <div class="kpi-label">피크 Von Mises 응력${solidOnly ? ' (솔리드만)' : ''}</div>
     <div class="kpi-value">${fmt(s.peak_stress)}</div>
-    <div class="kpi-unit">${s.peak_stress === null || s.peak_stress === undefined ? '미산출 — 응력 이력이 있는 파트 없음' : 'MPa' + (s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : '')}</div>
+    <div class="kpi-unit">${s.peak_stress === null || s.peak_stress === undefined ? '미산출 — 응력 이력이 있는 파트 없음' : U_S + (s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : '')}</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">피크 소성 변형률</div>
@@ -815,7 +823,7 @@ function renderOverview() {
     kpis += `<div class="kpi-card">
     <div class="kpi-label">Safety Factor</div>
     <div class="kpi-value ${sfClass}">${fmt(sf, 3)}</div>
-    <div class="kpi-unit">σ_yield=${fmt(yld)} MPa</div>
+    <div class="kpi-unit">σ_yield=${fmt(yld)} ${U_S}</div>
     </div>`;
   }
   if (er !== null) {
@@ -841,7 +849,7 @@ function renderOverview() {
     return `<div class="bar-row">
       <div class="bar-label" title="${p.name}">${partLabel(pid, p)}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(p.peak_stress)} MPa</div>
+      <div class="bar-val">${fmt(p.peak_stress)} ${U_S}</div>
     </div>`;
   }).join('');
 
@@ -891,7 +899,7 @@ function renderStress() {
     return `<div class="bar-row">
       <div class="bar-label" title="${p.name}">${partLabel(pid, p)}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(p.peak_stress)} MPa${sfHtml}</div>
+      <div class="bar-val">${fmt(p.peak_stress)} ${U_S}${sfHtml}</div>
     </div>`;
   }).join('') + noStressNote();
 
@@ -916,7 +924,7 @@ function renderStress() {
     return `<div class="bar-row">
       <div class="bar-label" title="${p.name}">${partLabel(pid, p)}</div>
       <div class="bar-track"><div class="bar-fill" style="background:#e67e22;width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(p.peak_max_principal)} MPa</div>
+      <div class="bar-val">${fmt(p.peak_max_principal)} ${U_S}</div>
     </div>`;
   }).join('');
 
@@ -929,7 +937,7 @@ function renderStress() {
     return `<div class="bar-row">
       <div class="bar-label" title="${p.name}">${partLabel(pid, p)}</div>
       <div class="bar-track"><div class="bar-fill" style="background:#8e44ad;width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(p.peak_min_principal)} MPa</div>
+      <div class="bar-val">${fmt(p.peak_min_principal)} ${U_S}</div>
     </div>`;
   }).join('');
 
@@ -997,7 +1005,7 @@ function initStressCharts() {
       mode: 'lines', line: {color: COLORS[i % COLORS.length]},
     }));
     Plotly.newPlot('stress-overlay-chart', traces,
-      {...PLOT_LAYOUT, title:{text:'Von Mises Max — 전체 부품 (MPa)',font:{size:13}}}, PLOT_CONFIG);
+      {...PLOT_LAYOUT, title:{text:`Von Mises Max — 전체 부품 (${U_S})`,font:{size:13}}}, PLOT_CONFIG);
   }
   updateStressChart();
 }
@@ -1117,7 +1125,7 @@ function updateTensorChart() {
   const pInfo = DATA.parts[String(t.part_id)];
   const pLabel = pInfo?.name ? `Part ${t.part_id} (${pInfo.name})` : `Part ${t.part_id}`;
   Plotly.newPlot('tensor-components-chart', traces1,
-    {...PLOT_LAYOUT, title:{text:`응력 텐서 6성분 — ${pLabel}, Elem ${t.element_id} (MPa)`,font:{size:13}}}, PLOT_CONFIG);
+    {...PLOT_LAYOUT, title:{text:`응력 텐서 6성분 — ${pLabel}, Elem ${t.element_id} (${U_S})`,font:{size:13}}}, PLOT_CONFIG);
 
   // Compute principals at each time step
   const s1=[], s2=[], s3=[], vmArr=[];
@@ -1145,7 +1153,7 @@ function updateTensorChart() {
     {x:t.time, y:s2, name:'σ₂ (mid)', line:{color:'#f39c12'}},
     {x:t.time, y:s3, name:'σ₃ (min)', line:{color:'#3498db'}},
     {x:t.time, y:vmArr, name:'Von Mises', line:{color:'#2c3e50',dash:'dot'}},
-  ], {...PLOT_LAYOUT, title:{text:`주응력 & Von Mises — Elem ${t.element_id} (MPa)`,font:{size:13}}}, PLOT_CONFIG);
+  ], {...PLOT_LAYOUT, title:{text:`주응력 & Von Mises — Elem ${t.element_id} (${U_S})`,font:{size:13}}}, PLOT_CONFIG);
 
   // Setup time slider
   const slider = document.getElementById('tensor-time-slider');
@@ -1253,9 +1261,9 @@ function updateEllipsoidAndMohr() {
     ...PLOT_LAYOUT, margin:{l:0,r:0,t:40,b:0},
     title:{text:`Stress Ellipsoid (t=${fmt(timeVal,5)})`,font:{size:12}},
     scene:{
-      xaxis:{title:'σ₁ (MPa)',range:[-maxR,maxR]},
-      yaxis:{title:'σ₂ (MPa)',range:[-maxR,maxR]},
-      zaxis:{title:'σ₃ (MPa)',range:[-maxR,maxR]},
+      xaxis:{title:`σ₁ (${U_S})`,range:[-maxR,maxR]},
+      yaxis:{title:`σ₂ (${U_S})`,range:[-maxR,maxR]},
+      zaxis:{title:`σ₃ (${U_S})`,range:[-maxR,maxR]},
       aspectmode:'cube',
       camera:{eye:{x:1.5,y:1.5,z:1.0}},
     },
@@ -1282,8 +1290,8 @@ function updateEllipsoidAndMohr() {
   Plotly.newPlot('mohr-circle-chart', mohrTraces, {
     ...PLOT_LAYOUT, margin:{l:50,r:20,t:40,b:50},
     title:{text:`Mohr's Circles (t=${fmt(timeVal,5)})`,font:{size:12}},
-    xaxis:{title:'σ (MPa)',range:[mohrMin*1.15,mohrMax*1.15],zeroline:true,zerolinewidth:1},
-    yaxis:{title:'τ (MPa)',range:[-tauMax*1.3,tauMax*1.3],zeroline:true,zerolinewidth:1,scaleanchor:'x'},
+    xaxis:{title:`σ (${U_S})`,range:[mohrMin*1.15,mohrMax*1.15],zeroline:true,zerolinewidth:1},
+    yaxis:{title:`τ (${U_S})`,range:[-tauMax*1.3,tauMax*1.3],zeroline:true,zerolinewidth:1,scaleanchor:'x'},
     showlegend:true, legend:{x:0,y:1,font:{size:10}},
   }, PLOT_CONFIG);
 
@@ -1294,7 +1302,7 @@ function updateEllipsoidAndMohr() {
   document.getElementById('tensor-table-container').innerHTML = `
     <div class="sec-title">텐서 상세 (t = ${fmt(timeVal,6)})</div>
     <table class="data-table">
-      <tr><th>성분</th><th>값 (MPa)</th></tr>
+      <tr><th>성분</th><th>값 (${U_S})</th></tr>
       <tr><td>σxx</td><td class="num">${fmt(t.sxx[si])}</td></tr>
       <tr><td>σyy</td><td class="num">${fmt(t.syy[si])}</td></tr>
       <tr><td>σzz</td><td class="num">${fmt(t.szz[si])}</td></tr>
@@ -1430,16 +1438,16 @@ function updateDeepDive() {
   const sf = p?.safety_factor;
   const sfClass = sf === null || sf === undefined ? '' : sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
   let kpiHtml = `
-  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">${hasStress(p) ? 'MPa (t=' + fmt(p?.time_of_peak_stress,4) + ')' : (p?.peak_stress_reason || '미산출')}</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">${hasStress(p) ? U_S + ' (t=' + fmt(p?.time_of_peak_stress,4) + ')' : (p?.peak_stress_reason || '미산출')}</div></div>
   <div class="kpi-card"><div class="kpi-label">피크 변형률</div><div class="kpi-value">${fmt(p?.peak_strain,4)}</div><div class="kpi-unit">—</div></div>
-  <div class="kpi-card"><div class="kpi-label">Max Principal (σ₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal)}</div><div class="kpi-unit">MPa</div></div>
-  <div class="kpi-card"><div class="kpi-label">Min Principal (σ₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal)}</div><div class="kpi-unit">MPa</div></div>
+  <div class="kpi-card"><div class="kpi-label">Max Principal (σ₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal)}</div><div class="kpi-unit">${U_S}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Min Principal (σ₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal)}</div><div class="kpi-unit">${U_S}</div></div>
   ${p?.peak_max_principal_strain ? `<div class="kpi-card"><div class="kpi-label">Max Principal Strain (ε₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal_strain,4)}</div><div class="kpi-unit">—</div></div>` : ''}
   ${p?.peak_min_principal_strain ? `<div class="kpi-card"><div class="kpi-label">Min Principal Strain (ε₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal_strain,4)}</div><div class="kpi-unit">—</div></div>` : ''}
   <div class="kpi-card"><div class="kpi-label">피크 변위</div><div class="kpi-value">${fmt(p?.peak_disp_mag)}</div><div class="kpi-unit">${p?.peak_disp_mag === null || p?.peak_disp_mag === undefined ? (p?.peak_disp_reason || '미계측') : 'mm (절점 최대' + (p?.peak_disp_node ? ' #' + p.peak_disp_node : '') + ')'}</div></div>
   <div class="kpi-card"><div class="kpi-label">피크 가속도</div><div class="kpi-value">${fmt(p?.peak_acc_mag)}</div><div class="kpi-unit">—</div></div>`;
   if (sf !== null && sf !== undefined) {
-    kpiHtml += `<div class="kpi-card"><div class="kpi-label">Safety Factor</div><div class="kpi-value ${sfClass}">${fmt(sf,3)}</div><div class="kpi-unit">σ_yield=${fmt(DATA.yield_stress)} MPa</div></div>`;
+    kpiHtml += `<div class="kpi-card"><div class="kpi-label">Safety Factor</div><div class="kpi-value ${sfClass}">${fmt(sf,3)}</div><div class="kpi-unit">σ_yield=${fmt(DATA.yield_stress)} ${U_S}</div></div>`;
   }
   if (p?.peak_element_id) {
     kpiHtml += `<div class="kpi-card"><div class="kpi-label">피크 Element</div><div class="kpi-value" style="font-size:1rem">#${p.peak_element_id}</div><div class="kpi-unit">max stress 위치</div></div>`;
@@ -1482,7 +1490,7 @@ function updateDeepDive() {
   if (st) Plotly.newPlot('dd-stress-chart',
     [{x:st.t, y:st.max_vals, name:'Max', line:{color:COLORS[0]}},
      {x:st.t, y:st.avg_vals, name:'Avg', line:{color:COLORS[0],dash:'dot'}}],
-    {...PLOT_LAYOUT, title:{text:'Von Mises Stress (MPa)',font:{size:12}}}, PLOT_CONFIG);
+    {...PLOT_LAYOUT, title:{text:`Von Mises Stress (${U_S})`,font:{size:12}}}, PLOT_CONFIG);
   if (sr) Plotly.newPlot('dd-strain-chart',
     [{x:sr.t, y:sr.max_vals, name:'Max', line:{color:COLORS[2]}},
      {x:sr.t, y:sr.avg_vals, name:'Avg', line:{color:COLORS[2],dash:'dot'}}],
@@ -2439,7 +2447,7 @@ let _hsCurrent = null;
 // 응력 피크만 보면 '짧게 튄 응력' 과 '실제 손상' 이 구분되지 않는다.
 // 소성일 w_p=∫σ_vm dε_p 는 탄성 스파이크가 Δε_p=0 이라 기여하지 않는다.
 const HS_METRICS = [
-  ['stress', '응력 피크 [MPa]',            'stress_max',   null],
+  ['stress', `응력 피크 [${U_S}]`,            'stress_max',   null],
   ['strain', '변형률 피크 [-]',             'strain_max',   'strain_available'],
   ['energy', '소성일 ∫σ dε_p [mJ]',         'energy_total', 'energy_available'],
   ['energy_density', '소성일 밀도 [mJ/mm³]', 'energy_max',   'energy_available'],
