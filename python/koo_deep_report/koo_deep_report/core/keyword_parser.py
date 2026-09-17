@@ -596,7 +596,15 @@ def _mat_name_to_number(name: str, full_line: str) -> int:
 # Convenience: find and parse keyword file near d3plot
 # ---------------------------------------------------------------------------
 def find_and_parse_keyword(d3plot_path: str | Path) -> KeywordData | None:
-    """Find keyword file near d3plot and parse it for material data."""
+    """Find keyword file near d3plot and parse it for material data.
+
+    후보 중 하나만 골라 읽으면 다중 파일 덱을 놓친다. 마스터 덱은 *INCLUDE
+    몇 줄만 든 몇백 바이트짜리라, '크기 내림차순 + 첫 성공' 규칙으로는 결코
+    닿지 못하고 수 MB 짜리 메시 파일에서 멈춘다 — 그러면 *MAT_ 카드가 통째로
+    빠져 전 파트가 stress_source='none' 이 되고 안전율·경고색이 사라진다.
+    후보를 모두 읽고 가장 많이 담은 것을 쓴다 (*INCLUDE 는 parse_keyword_file
+    이 따라가므로, 마스터를 읽으면 메시·재료가 함께 들어온다).
+    """
     d3plot = Path(d3plot_path)
     if d3plot.is_file():
         search_dir = d3plot.parent
@@ -622,13 +630,36 @@ def find_and_parse_keyword(d3plot_path: str | Path) -> KeywordData | None:
         p.stat().st_size  # smaller files less likely to be the main keyword
     ))
 
-    # Sort by size descending (main keyword file is usually the largest)
+    # Sort by size descending (동점일 때 큰 파일이 이기도록 — 선택 자체는 아래 점수로 한다)
     candidates.sort(key=lambda p: -p.stat().st_size if p.exists() else 0)
 
+    best: KeywordData | None = None
+    best_score: tuple[int, int] = (-1, -1)
+    seen_cand: set[str] = set()
     for cand in candidates:
-        if cand.exists() and cand.stat().st_size > 100:
-            result = parse_keyword_file(cand)
-            if result.parts or result.materials:
-                return result
+        try:
+            key = str(cand.resolve())
+        except OSError:
+            key = str(cand)
+        if key in seen_cand:
+            continue
+        seen_cand.add(key)
+        if not (cand.exists() and cand.stat().st_size > 100):
+            continue
+        result = parse_keyword_file(cand)
+        if not (result.parts or result.materials):
+            continue
+        # 재료가 있는 쪽을 먼저 본다 — 파트만 있는 메시 파일은 설계기준을
+        # 하나도 주지 못한다. 그 다음은 담은 양이 많은 쪽이다.
+        score = (1 if result.materials else 0,
+                 len(result.parts) + len(result.materials))
+        if score > best_score:
+            best, best_score = result, score
 
-    return None
+    if best is not None and not best.materials:
+        # 재료 카드를 못 찾았다는 사실을 남긴다 — 조용히 지나가면 전 파트가
+        # '기준 없음' 인 이유를 읽는 사람이 알 길이 없다.
+        best.warnings.append(
+            f"*MAT_ 카드를 찾지 못했다 ({best.source_path}) — 응력·변형률 "
+            "기준이 없어 전 파트가 '기준 없음' 이 된다")
+    return best
