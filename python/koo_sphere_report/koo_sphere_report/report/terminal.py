@@ -70,13 +70,14 @@ def print_report(report: Report) -> None:
                 pr = sr.parts.get(pid)
                 if pr is None:
                     continue
-                if pr.peak_stress > ws:
+                # 미계측(None)은 건너뛴다 (CSV 가 없는 파트의 0 을 섞지 않는다)
+                if pr.peak_stress is not None and pr.peak_stress > ws:
                     ws = pr.peak_stress
                     wa = sr.angle.label
-                if pr.peak_g > wg:
+                if pr.peak_g is not None and pr.peak_g > wg:
                     wg = pr.peak_g
                     wga = sr.angle.label
-                if pr.peak_strain > wst:
+                if pr.peak_strain is not None and pr.peak_strain > wst:
                     wst = pr.peak_strain
 
             if ws > 0 or wg > 0:

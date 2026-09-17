@@ -75,13 +75,15 @@ def _generate_findings(report: Report) -> list[Finding]:
             pr = sr.parts.get(pid)
             if pr is None:
                 continue
-            if pr.peak_stress > worst_stress:
+            # 미계측(None)은 건너뛴다 — 0 으로 비교하면 CSV 가 없는 파트가
+            # '응력 0·가속도 0' 으로 findings 에 섞인다.
+            if pr.peak_stress is not None and pr.peak_stress > worst_stress:
                 worst_stress = pr.peak_stress
                 worst_angle = sr.angle.label
-            if pr.peak_g > worst_g:
+            if pr.peak_g is not None and pr.peak_g > worst_g:
                 worst_g = pr.peak_g
                 worst_g_angle = sr.angle.label
-            if pr.peak_strain > worst_strain:
+            if pr.peak_strain is not None and pr.peak_strain > worst_strain:
                 worst_strain = pr.peak_strain
                 worst_strain_angle = sr.angle.label
 

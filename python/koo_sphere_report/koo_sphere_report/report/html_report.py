@@ -2235,10 +2235,10 @@ function updateMollInfo(ri) {
          ? `<div style="margin-top:3px;color:#e0af68;font-size:11px">⚠ 이름 방향과 실제 낙하 방향이 ${m.toFixed(0)}° 어긋남 — 덱(실낙하) 기준으로 표시</div>` : ''; })()}
     <div style="margin-top:4px">Roll: ${fixAng(r.angle.roll)} | Pitch: ${fixAng(r.angle.pitch)}</div>
     <div style="margin-top:6px;color:var(--fg2)">
-      Stress: <b>${(pd.peak_stress||0).toFixed(1)} MPa</b><br>
-      Strain: <b>${(pd.peak_strain||0).toFixed(4)}</b><br>
-      G-Force: <b>${((pd.peak_g||0)/1e6).toFixed(2)} MG</b><br>
-      Disp: <b>${(pd.peak_disp||0).toFixed(2)} mm</b><br>
+      Stress: <b>${pd.peak_stress == null ? '—' : fxv(pd.peak_stress, 1) + ' MPa'}</b><br>
+      Strain: <b>${pd.peak_strain == null ? '—' : fxv(pd.peak_strain, 4)}</b><br>
+      G-Force: <b>${pd.peak_g == null ? '—' : fxv(pd.peak_g/1e6, 2) + ' MG'}</b><br>
+      Disp: <b>${pd.peak_disp == null ? '—' : fxv(pd.peak_disp, 2) + ' mm'}</b><br>
       Vel: <b>${(pd.peak_vel||0).toFixed(1)} mm/s</b>
     </div>`;
 }
@@ -3579,6 +3579,8 @@ function computePartDeepDive(pid) {
   let worstStress={val:0,angle:'',ri:-1,category:''}, worstG={val:0,angle:'',ri:-1};
   let worstStrain={val:0,angle:'',ri:-1}, worstDisp={val:0,angle:'',ri:-1}, worstVel={val:0,angle:'',ri:-1};
   const allStress=[], allG=[], allStrain=[], allDisp=[], allVel=[];
+  // 변형률을 실제로 잰 각도 수. 0 이면 '소성 변형률 0' 이 아니라 '안 쟀다' 이다.
+  let strainMeasured = 0;
   const byCat = {};
   let totalAccX=0, totalAccY=0, totalAccZ=0, accCount=0;
   const timeDomainFeatures = [];
@@ -3597,6 +3599,7 @@ function computePartDeepDive(pid) {
     if (pd.peak_strain > worstStrain.val) worstStrain = {val:pd.peak_strain, angle:r.angle.name, ri};
     if (pd.peak_disp > worstDisp.val) worstDisp = {val:pd.peak_disp, angle:r.angle.name, ri};
     if ((pd.peak_vel||0) > worstVel.val) worstVel = {val:pd.peak_vel||0, angle:r.angle.name, ri};
+    if (pd.peak_strain != null) strainMeasured++;
     allStress.push(pd.peak_stress); allG.push(pd.peak_g);
     allStrain.push(pd.peak_strain); allDisp.push(pd.peak_disp); allVel.push(pd.peak_vel||0);
     if (!byCat[cat]) byCat[cat] = {stresses:[], gs:[], count:0, angles:[]};
@@ -3653,7 +3656,7 @@ function computePartDeepDive(pid) {
     stressRange: { min: Math.min(...allStress, 0), max: Math.max(...allStress, 0), mean: meanStress, std: stdStress },
     byCat, catRanking, axisFracs, accCount,
     siblingMetrics, group, timeDomainFeatures, avgTimeToPeak, avgNumPeaks,
-    globalRank, totalParts
+    globalRank, totalParts, strainMeasured
   };
 }
 
@@ -3808,6 +3811,11 @@ function buildNarrative(m) {
     sentences.push(ko
       ? `미소한 소성 변형률(${m.worstStrain.val.toFixed(4)})이 관찰되었습니다. 사실상 탄성 범위 내 거동입니다.`
       : `Minimal plastic strain (${m.worstStrain.val.toFixed(4)}) was observed. Deformation is essentially elastic for this part.`);
+  } else if (!m.strainMeasured) {
+    // 안 잰 것을 '0' 으로 말하면 거짓말이다 — 미계측과 탄성은 다르다.
+    sentences.push(ko
+      ? `소성 변형률은 ${B('이 부품에서 계측되지 않았습니다')} (eff_plastic_strain CSV 없음). 탄성 여부는 이 보고서로 판단할 수 없습니다.`
+      : `Plastic strain was ${B('not measured')} for this part (no eff_plastic_strain CSV). This report cannot tell whether it stayed elastic.`);
   } else {
     sentences.push(ko
       ? `모든 방향에서 ${G('소성 변형률이 0')}입니다. 본 부품은 모든 시험 하중 조건에서 완전 탄성 상태를 유지합니다.`

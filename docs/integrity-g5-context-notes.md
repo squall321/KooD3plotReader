@@ -31,3 +31,15 @@
 - JS 는 두 곳만 건드렸다. `tolAngleValue` 가 0 을 미계측으로 버리던 것과
   `formatValue` 의 고정 소수점. safety_factor 만은 계산 불가 시 0 을 주므로
   0 = 미계측 규칙을 유지했다.
+
+## S5 미계측 0 위장 (2026-09-17)
+- html payload 는 키를 **null 로 싣고**, report.json 은 **키를 뺀다**. 이유가 다르다.
+  · JS 는 `pd[qty] == null` 로 미계측을 이미 구분하지만, 키가 아예 없으면
+    `Math.max(a, undefined)`·`total += undefined` 가 NaN 이 되어 집계가 통째로
+    깨진다. null 은 0 으로 취급돼 지금 동작과 같다.
+  · federate 는 `_num(pdata.get(src))` 로 읽으므로 키가 없으면 no_metric 이 된다.
+    이것이 이 결함이 요구한 결과다.
+- analyzer·terminal 의 비교는 None 을 만나면 TypeError 로 보고서를 죽인다 —
+  `is not None and` 로 막았다.
+- 화면 서술 "소성 변형률이 0 = 완전 탄성" 은 미계측일 때 거짓말이라
+  `strainMeasured` 카운트를 두고 문장을 분리했다.

@@ -75,14 +75,19 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         for pid, pr in sr.parts.items():
             # 자릿수는 유효숫자를 지키며 줄인다 — 고정 소수점이면 SI 덱 변위
             # 0.0004 m 나 GPa 응력 0.0863 이 0.0/0.09 로 뭉쳐 federate Δ 가 0% 가 된다.
-            pd = {
-                "peak_stress": round_keep_sig(pr.peak_stress, 2),
-                "peak_strain": round_keep_sig(pr.peak_strain, 6),
-                "peak_g": round_keep_sig(pr.peak_g, 1),
-                "peak_disp": round_keep_sig(pr.peak_disp, 3),
-                "time_of_peak_stress": pr.stress.peak_time if pr.stress else 0.0,
-                "time_of_peak_g": pr.motion.peak_g_time if pr.motion else 0.0,
-            }
+            # CSV 가 없는 지표는 **키 자체를 넣지 않는다** — 0 을 실으면 federate 가
+            # 그것을 실측으로 읽어 '-100% 개선' 으로 보고한다(실제로 그랬다).
+            pd = {}
+            for _k, _v, _dec in (("peak_stress", pr.peak_stress, 2),
+                                 ("peak_strain", pr.peak_strain, 6),
+                                 ("peak_g", pr.peak_g, 1),
+                                 ("peak_disp", pr.peak_disp, 3)):
+                if _v is not None:
+                    pd[_k] = round_keep_sig(_v, _dec)
+            if pr.stress is not None:
+                pd["time_of_peak_stress"] = pr.stress.peak_time
+            if pr.motion is not None:
+                pd["time_of_peak_g"] = pr.motion.peak_g_time
 
             # 최대 주응력 σ1 — 구버전 산출물엔 CSV 가 없어 키 자체를 넣지 않는다.
             # von Mises 로 대체하면 전혀 다른 물리량을 같은 칸에 넣는 셈이다.

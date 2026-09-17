@@ -228,8 +228,14 @@ class PartResult:
     vm_strain: TimeSeriesData | None = None
 
     @property
-    def peak_stress(self) -> float:
-        return self.stress.peak if self.stress else 0.0
+    def peak_stress(self) -> float | None:
+        """von Mises 피크. CSV 가 없으면 None — 0 은 '응력이 없었다' 는 뜻이 된다.
+
+        실제 구성에서 흔하다. common_analysis.yaml 이 von_mises 는 Front*,
+        eff_plastic_strain/part_motion 은 PKG* 에 걸면 Front 파트에는 응력 CSV 만
+        생긴다. 그 0 을 federate 가 실측으로 읽어 '-100% 개선' 으로 보고했다.
+        """
+        return self.stress.peak if self.stress else None
 
     @property
     def peak_principal(self) -> float | None:
@@ -259,16 +265,19 @@ class PartResult:
         return ts.trough if ts is not None else None
 
     @property
-    def peak_strain(self) -> float:
-        return self.strain.peak if self.strain else 0.0
+    def peak_strain(self) -> float | None:
+        """유효소성변형률 피크. CSV 가 없으면 None (0 이면 '완전 탄성' 으로 읽힌다)."""
+        return self.strain.peak if self.strain else None
 
     @property
-    def peak_g(self) -> float:
-        return self.motion.peak_g if self.motion else 0.0
+    def peak_g(self) -> float | None:
+        """피크 G. motion CSV 가 없으면 None."""
+        return self.motion.peak_g if self.motion else None
 
     @property
-    def peak_disp(self) -> float:
-        return self.motion.peak_disp if self.motion else 0.0
+    def peak_disp(self) -> float | None:
+        """최대 변위. motion CSV 가 없으면 None."""
+        return self.motion.peak_disp if self.motion else None
 
 
 @dataclass
