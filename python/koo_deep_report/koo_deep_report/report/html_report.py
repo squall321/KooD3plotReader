@@ -644,10 +644,19 @@ const PLOT_LAYOUT = {
 const PLOT_CONFIG = {responsive: true, displayModeBar: false};
 const COLORS = ['#4ecca3','#e94560','#f5a623','#7b68ee','#00bcd4','#ff9800','#9c27b0','#4caf50'];
 
+// 고정 소수 자릿수만 쓰면 서로 다른 값이 같은 문자열이 된다. 표본에서
+// 파트별 피크 시각 7.977e-5 · 8.584e-5 · 8.786e-5 가 전부 't=0.0001' 로
+// 찍혔고, GPa 단위 덱의 0.0042 는 '0.00' 이 되어 '측정값 0' 으로 읽혔다.
+// 고정 표기가 유효숫자 2자리도 못 남기면 지수 표기로 바꾼다 (hsMetricFmt 와 같은 방침).
 function fmt(v, dec=2) {
   if (v === null || v === undefined) return '—';
-  if (Math.abs(v) >= 1e6) return v.toExponential(2);
-  return Number(v).toFixed(dec);
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  if (n === 0) return '0';
+  const a = Math.abs(n);
+  if (a >= 1e6) return n.toExponential(2);
+  if (a < Math.pow(10, 1 - dec)) return n.toExponential(3);
+  return n.toFixed(dec);
 }
 function fmtPct(v, dec=1) { return v === null ? '—' : fmt(v*100, dec) + '%'; }
 
