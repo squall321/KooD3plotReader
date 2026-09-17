@@ -269,6 +269,12 @@ _PART_STD_RE = re.compile(
 _PART_COMPOSITE_RE = re.compile(
     r"^\*PART_COMPOSITE(_(LONG|TSHELL|IGA_SHELL|CONTACT|TITLE))*\s*$")
 
+# 베이스 재료가 아닌 *MAT_ 카드. *MAT_ADD_* 는 이미 있는 MID 에 붙는 보조
+# 카드(EROSION/DAMAGE_*/THERMAL_EXPANSION/SOC_EXPANSION/EROSION_DIEM …)이고,
+# *MAT_THERMAL_* 은 TMID 네임스페이스의 열물성이다. 둘 다 카드 배치가
+# 베이스 재료와 달라 여기서 읽으면 그 MID 의 RO/E/PR/SIGY 가 0 이 된다.
+_MAT_AUX_RE = re.compile(r"^\*MAT_(ADD_|THERMAL_)")
+
 _MAX_INCLUDE_DEPTH = 8
 
 
@@ -341,6 +347,16 @@ def _parse_into(path: Path, data: KeywordData, seen: set[str], depth: int) -> No
                 i = _parse_include(lines, i, path, data, seen, depth)
                 continue
 
+            if _MAT_AUX_RE.match(upper):
+                # 베이스 재료가 아니다. *MAT_ADD_* 는 이미 있는 MID 에 파단·
+                # 손상 기준을 덧붙이는 보조 카드이고(카드 1 = MID EXCL MXPRES
+                # …), *MAT_THERMAL_* 은 TMID 네임스페이스의 열물성이다
+                # (카드 1 = TMID TRO TGRLC …). 베이스 재료로 읽으면
+                # RO/E/PR/SIGY 자리에 엉뚱한 값이 들어오고, 같은 번호의
+                # 구조 재료를 통째로 덮어써 항복응력이 0 이 된다.
+                i = _skip_card_block(lines, i)
+                continue
+
             # *MAT_*  — capture both *MAT_RIGID_TITLE and *MAT_MOONEY-RIVLIN_RUBBER
             mat_match = re.match(r'\*MAT_([\w-]+)', upper)
             if mat_match:
@@ -350,6 +366,14 @@ def _parse_into(path: Path, data: KeywordData, seen: set[str], depth: int) -> No
                 continue
 
         i += 1
+
+
+def _skip_card_block(lines: list[str], i: int) -> int:
+    """i 의 키워드 줄과 그 데이터 카드를 건너뛰고 다음 '*' 줄 위치를 돌려준다."""
+    i += 1
+    while i < len(lines) and not lines[i].strip().startswith("*"):
+        i += 1
+    return i
 
 
 def _parse_include(lines: list[str], i: int, src: Path, data: KeywordData,
