@@ -42,6 +42,13 @@ add_executable(test_time_history test_time_history.cpp)
 target_link_libraries(test_time_history PRIVATE kood3plot)
 target_include_directories(test_time_history PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# toExtendedJSON 수치 표기·비유한값·미산출 표기 tests
+# (tests/test_unified_analyzer_output.cpp 은 실행 파일 소스를 통째로 가져오므로
+#  CMake 대신 g++ 로 돌린다 — 그 파일 머리말의 명령 참고)
+add_executable(test_extended_json test_extended_json.cpp)
+target_link_libraries(test_extended_json PRIVATE kood3plot)
+target_include_directories(test_extended_json PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # ============================================================
 # Phase 1: HDF5 Quantization System Tests
 # ============================================================
