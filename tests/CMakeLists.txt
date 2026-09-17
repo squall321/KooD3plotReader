@@ -63,6 +63,11 @@ add_executable(test_config_inline_mapping test_config_inline_mapping.cpp)
 target_link_libraries(test_config_inline_mapping PRIVATE kood3plot)
 target_include_directories(test_config_inline_mapping PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
+add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
+target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)
+target_include_directories(test_element_quality_downsample PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)

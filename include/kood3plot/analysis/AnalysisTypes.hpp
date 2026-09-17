@@ -288,6 +288,10 @@ struct ElementQualityStats {
     size_t num_elements = 0;
     std::vector<ElementQualityTimePoint> data;
 
+    /// 아래 요약값이 실제로 본 상태 수. data 는 다운샘플될 수 있으므로
+    /// data.size() 와 다를 수 있다 — 소비처가 둘을 혼동하지 않게 따로 싣는다.
+    size_t num_states_analyzed = 0;
+
     // Peak values across all time
     bool aspect_measured = false;
     double peak_aspect_ratio = 0.0;
@@ -356,6 +360,78 @@ struct ElementQualityStats {
             if (tp.n_negative_jacobian > max_negative_jacobian_count)
                 max_negative_jacobian_count = tp.n_negative_jacobian;
         }
+        num_states_analyzed = data.size();
+    }
+
+    /// data[] 를 max_points 이하로 줄인다 (요약값은 건드리지 않는다).
+    ///
+    /// 전 상태 순회로 바뀐 뒤 파트당 점 수가 상태 수와 같아졌다 — 992상태 덱이면
+    /// 점 하나에 15키(약 350B)라 이 절만 MB 단위로 불어나고, deep 보고서는 그걸
+    /// 단일 HTML 안 리터럴로 내보낸다. 소비처의 다른 시계열은 전부
+    /// _downsample_group(n_max=500) 을 거치는데 이 절만 빠져 있었다.
+    ///
+    /// 그냥 솎으면 충격 순간에만 뒤집혔다 회복하는 스텝이 사라져, 그래프가
+    /// 요약값(피크)과 어긋난다. 그래서 각 지표의 전역 극값 시점과 양 끝은 반드시
+    /// 남기고, 나머지는 등간격으로 고른다.
+    void downsampleData(size_t max_points) {
+        if (max_points < 3 || data.size() <= max_points) {
+            if (num_states_analyzed == 0) num_states_analyzed = data.size();
+            return;
+        }
+        const size_t n = data.size();
+        if (num_states_analyzed == 0) num_states_analyzed = n;
+
+        std::vector<bool> keep(n, false);
+        keep[0] = true;
+        keep[n - 1] = true;
+
+        // 지표별 전역 극값 시점 — 그래프에서 이 점이 사라지면 요약과 어긋난다.
+        size_t i_ar = 0, i_jac = 0, i_neg = 0, i_vmin = 0, i_vmax = 0, i_wp = 0, i_sk = 0;
+        bool has_jac = false, has_vol = false, has_wp = false, has_sk = false, has_ar = false;
+        for (size_t i = 0; i < n; ++i) {
+            const auto& tp = data[i];
+            if (tp.aspect_measured && (!has_ar || tp.aspect_ratio_max > data[i_ar].aspect_ratio_max)) {
+                i_ar = i; has_ar = true;
+            }
+            if (tp.jacobian_measured && (!has_jac || tp.jacobian_min < data[i_jac].jacobian_min)) {
+                i_jac = i; has_jac = true;
+            }
+            if (tp.n_negative_jacobian > data[i_neg].n_negative_jacobian) i_neg = i;
+            if (tp.volume_measured) {
+                if (!has_vol || tp.volume_change_min < data[i_vmin].volume_change_min) i_vmin = i;
+                if (!has_vol || tp.volume_change_max > data[i_vmax].volume_change_max) i_vmax = i;
+                has_vol = true;
+            }
+            if (tp.warpage_measured && (!has_wp || tp.warpage_max > data[i_wp].warpage_max)) {
+                i_wp = i; has_wp = true;
+            }
+            if (tp.skewness_measured && (!has_sk || tp.skewness_max > data[i_sk].skewness_max)) {
+                i_sk = i; has_sk = true;
+            }
+        }
+        if (has_ar)  keep[i_ar] = true;
+        if (has_jac) keep[i_jac] = true;
+        keep[i_neg] = true;
+        if (has_vol) { keep[i_vmin] = true; keep[i_vmax] = true; }
+        if (has_wp)  keep[i_wp] = true;
+        if (has_sk)  keep[i_sk] = true;
+
+        size_t forced = 0;
+        for (size_t i = 0; i < n; ++i) if (keep[i]) ++forced;
+
+        // 남은 자리는 등간격으로 채운다 (이미 잡힌 자리는 건너뛴다).
+        if (max_points > forced) {
+            const size_t slots = max_points - forced;
+            for (size_t k = 0; k < slots; ++k) {
+                const size_t i = (n - 1) * k / (slots > 1 ? slots - 1 : 1);
+                keep[i] = true;
+            }
+        }
+
+        std::vector<ElementQualityTimePoint> out;
+        out.reserve(max_points);
+        for (size_t i = 0; i < n; ++i) if (keep[i]) out.push_back(data[i]);
+        data.swap(out);
     }
 
     size_t size() const { return data.size(); }
@@ -740,6 +816,8 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                   << ", \"part_name\": \"" << escapeJSON(q.part_name) << "\""
                   << ", \"element_type\": \"" << escapeJSON(q.element_type) << "\""
                   << ", \"num_elements\": " << q.num_elements
+                  // 요약값이 본 상태 수. data[] 는 상한이 걸려 더 짧을 수 있다.
+                  << ", \"num_states_analyzed\": " << q.num_states_analyzed
                   << ", \"aspect_measured\": " << (q.aspect_measured ? "true" : "false")
                   << ", \"peak_aspect_ratio\": " << jnum(q.peak_aspect_ratio)
                   << ", \"aspect_unavailable_count\": " << q.max_aspect_unavailable_count

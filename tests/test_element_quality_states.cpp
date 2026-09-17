@@ -12,6 +12,7 @@
 // 종료 코드: 0 통과 · 1 실패 · 77 덱이 없거나 덱이 부적합해 건너뜀('검증 못 함').
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <set>
@@ -73,17 +74,21 @@ int main(int argc, char** argv) {
     UnifiedAnalyzer analyzer;
     auto res = analyzer.analyze(cfg);
 
-    printf("\n[A] 시점 개수 — 상태 수와 같아야 한다\n");
+    // 요약값은 전 상태에서 나오고(num_states_analyzed), 산출물에 싣는 data[] 만
+    // 상한(kElementQualityMaxPoints=500)이 걸린다.
+    printf("\n[A] 요약은 전 상태를 보고, 시계열은 상한 이하\n");
     {
-        size_t bad = 0;
+        size_t bad_states = 0, bad_points = 0;
         for (const auto& qs : res.element_quality) {
-            if (qs.data.size() != n_states) ++bad;
+            if (qs.num_states_analyzed != n_states) ++bad_states;
+            if (qs.data.size() > std::min<size_t>(n_states, 500)) ++bad_points;
         }
-        chk("모든 파트의 data[] 길이 == 상태 수", bad == 0,
+        chk("모든 파트의 num_states_analyzed == 상태 수", bad_states == 0,
             "파트 " + std::to_string(res.element_quality.size()) +
-            "개 중 어긋남 " + std::to_string(bad) + "개" +
-            (res.element_quality.empty() ? "" :
-             " (첫 파트 " + std::to_string(res.element_quality.front().data.size()) + "점)"));
+            "개 중 어긋남 " + std::to_string(bad_states) + "개");
+        chk("data[] 길이가 min(상태 수, 500) 이하", bad_points == 0,
+            res.element_quality.empty() ? "" :
+            "첫 파트 " + std::to_string(res.element_quality.front().data.size()) + "점");
     }
 
     printf("\n[B] 표본 10개였다면 놓쳤을 극값이 실제로 있는지\n");
@@ -97,7 +102,7 @@ int main(int argc, char** argv) {
         double best_ratio = 0.0;
         std::string first;
         for (const auto& qs : res.element_quality) {
-            if (qs.data.size() != n_states) continue;
+            if (qs.data.size() != n_states) continue;   // 다운샘플된 파트는 제외
             double full_ar = -1e300, samp_ar = -1e300;
             for (size_t i = 0; i < qs.data.size(); ++i) {
                 if (!qs.data[i].aspect_measured) continue;

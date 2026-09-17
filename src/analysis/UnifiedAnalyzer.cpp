@@ -1570,6 +1570,11 @@ void UnifiedAnalyzer::processBeamJobs(
     }
 }
 
+/// 요소 품질 시계열을 산출물에 실을 때의 점 개수 상한.
+/// 소비처(koo_deep_report 의 _downsample_group)가 다른 모든 시계열에 쓰는 값과
+/// 같게 맞춘다. 요약값은 이 상한과 무관하게 전 상태에서 나온다.
+static constexpr size_t kElementQualityMaxPoints = 500;
+
 void UnifiedAnalyzer::processElementQualityJobs(
     D3plotReader& reader,
     const std::vector<AnalysisJob>& jobs,
@@ -1923,9 +1928,14 @@ void UnifiedAnalyzer::processElementQualityJobs(
         }
     }
 
-    // Compute global stats and add to result
+    // Compute global stats and add to result.
+    // 요약값은 **전 상태**에서 구하고(위 순회), 산출물에 싣는 시계열만 상한을 둔다.
+    // 전 상태 순회로 바뀐 뒤 이 절만 상태 수에 비례해 부풀어(992상태면 파트당
+    // 992점 × 15키) deep 보고서의 단일 HTML 을 MB 단위로 키웠다. 소비처의 다른
+    // 시계열이 쓰는 상한(_downsample_group 의 n_max=500)에 맞춘다.
     for (auto& [pid, qs] : stats_map) {
         qs.computeGlobalStats();
+        qs.downsampleData(kElementQualityMaxPoints);
         result.element_quality.push_back(std::move(qs));
     }
 
