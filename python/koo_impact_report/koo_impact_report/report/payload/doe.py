@@ -499,9 +499,16 @@ def _build_toa_payload(report):
         behavior_by_pos[str(pos_id)] = getattr(traj, "behavior_class", "unknown") or "unknown"
 
     # t_first_contact per position
+    # behavior_class 가 'no-contact' 인 런은 애초에 닿지 않았다. 그런 런의
+    # t_first_contact 는 rcforc 노이즈에서 나온 값이라 TOA(도달 시각)의 분모·
+    # 평균을 오염시킨다 — 위치 자체를 뺀다.
     t_contact_by_pos = {}
+    n_skipped_no_contact = 0
     for pos_id, traj in raw_traj.items():
         if traj is None:
+            continue
+        if (getattr(traj, "behavior_class", "") or "") == "no-contact":
+            n_skipped_no_contact += 1
             continue
         tfc = getattr(traj, "t_first_contact", None)
         if tfc is None:
@@ -610,6 +617,9 @@ def _build_toa_payload(report):
         "earliest_part": earliest_part,
         "latest_part": latest_part,
         "behavior_by_pos": behavior_by_pos,
+        # TOA 통계에서 제외한 미접촉 런 수 — n_positions 가 전체 DOE 수보다
+        # 작은 이유를 화면에서 읽을 수 있게 같이 내보낸다.
+        "n_excluded_no_contact": n_skipped_no_contact,
     }
 
 

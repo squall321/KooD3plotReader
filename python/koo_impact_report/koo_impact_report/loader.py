@@ -880,6 +880,7 @@ def _compute_contact_mask(
     target_times: list[float],
     peak_ratio: float = 0.10,
     baseline_multiplier: float = 5.0,
+    force_floor: float | None = None,
 ) -> list[bool]:
     """Build a per-timestep ``contact_engaged`` boolean mask from rcforc data.
 
@@ -891,6 +892,14 @@ def _compute_contact_mask(
          above the pre-contact baseline (the median of the lowest 20 % of
          force samples). This rejects steady-state preload that would
          otherwise be picked up at low peak_ratio.
+      3. AND the force must exceed ``force_floor`` — an **absolute** floor
+         derived by the caller from the impactor's momentum scale
+         (``_contact_force_floor``). Criteria 1-2 are both relative to the
+         interface's own signal, so an interface carrying nothing but
+         0.014 N of numerical noise still clears 10 % of its own peak and a
+         free-flight run gets a bogus ``t_first_contact``. ``None`` means
+         the caller could not derive the scale; the floor is then not
+         applied and the run keeps the (weaker) relative-only judgement.
 
     Only ``side == -1`` (total) interfaces are considered when present, so
     each contact contributes once (not twice via master+slave).
@@ -919,6 +928,8 @@ def _compute_contact_mask(
         thresh_peak = peak_ratio * peak
         thresh_base = baseline_multiplier * baseline
         thresh = max(thresh_peak, thresh_base)
+        if force_floor is not None and force_floor > 0.0:
+            thresh = max(thresh, float(force_floor))
         for ti, t in enumerate(target_times):
             if rc.t[0] <= t <= rc.t[-1]:
                 lo, hi = 0, len(rc.t) - 1
@@ -931,6 +942,37 @@ def _compute_contact_mask(
                 if fmag[lo] > thresh:
                     mask[ti] = True
     return mask
+
+
+#: 접촉 힘 바닥 = 임팩터를 기록 시간 안에 세우는 데 드는 평균 힘의 1%.
+#: 실측(Test_Impact_A, 8 mm 강구 1.68e-5 tonne · 4905 mm/s · 1 ms)에서
+#: 평균 힘 82 N → 바닥 0.82 N. 자유비행 런의 최대 인터페이스 0.61 N 은
+#: 걸러지고, 실제 접촉 런의 가장 약한 34 N 인터페이스는 살아남는다.
+_CONTACT_FORCE_FLOOR_RATIO = 0.01
+
+
+def _contact_force_floor(
+    mass: float | None,
+    incident_speed: float,
+    t_record: float,
+) -> float | None:
+    """접촉 판정의 절대 바닥 힘. 규모를 못 구하면 None (0 이 아니다).
+
+    ``mass × incident_speed / t_record`` 는 임팩터를 기록 구간 안에 정지시키는
+    평균 힘이고, 단위계는 입력(질량·속도·시간)을 그대로 따른다. 그 1% 미만인
+    인터페이스는 임팩트 물리에 기여하지 못하므로 접촉으로 세지 않는다.
+    """
+    try:
+        m = float(mass) if mass is not None else 0.0
+        v = float(incident_speed)
+        t = float(t_record)
+    except (TypeError, ValueError):
+        return None
+    if not (m > 0.0 and v > 0.0 and t > 0.0):
+        return None
+    if not (math.isfinite(m) and math.isfinite(v) and math.isfinite(t)):
+        return None
+    return _CONTACT_FORCE_FLOOR_RATIO * m * v / t
 
 
 _UNIT_PRESETS = {
@@ -1388,7 +1430,16 @@ def load_impactor_trajectory_from_d3plot(
     # Derive contact_engaged from rcforc if available
     try:
         if 'binout' in locals() and binout and binout.rcforc:
-            traj.contact_engaged = _compute_contact_mask(binout.rcforc, traj.times)
+            _v_inc = max(
+                (math.sqrt(vx * vx + vy * vy + vz * vz)
+                 for vx, vy, vz in zip(traj.vel_x, traj.vel_y, traj.vel_z)),
+                default=0.0,
+            )
+            traj.contact_engaged = _compute_contact_mask(
+                binout.rcforc, traj.times,
+                force_floor=_contact_force_floor(
+                    impactor_mass, _v_inc, traj.times[-1] - traj.times[0]),
+            )
     except Exception:
         pass
 
@@ -1598,6 +1649,7 @@ def load_single_d3plot_report(
                             "msg": _bin_err.get("msg", "")})
 
     impactor_mass: float | None = None
+    v0_mag = 0.0
     if impactor_spec is not None and impactor_pid is not None:
         v0 = impactor_spec.initial_velocity
         v0_mag = math.sqrt(v0[0] ** 2 + v0[1] ** 2 + v0[2] ** 2)
@@ -1651,7 +1703,18 @@ def load_single_d3plot_report(
 
         # Derive contact_engaged from rcforc (data-driven, unit-agnostic).
         if rcforc:
-            traj.contact_engaged = _compute_contact_mask(rcforc, traj.times)
+            _floor = _contact_force_floor(
+                impactor_mass, v0_mag,
+                (traj.times[-1] - traj.times[0]) if traj.times else 0.0)
+            if _floor is None:
+                load_issues.append({
+                    "kind": "contact-floor-unavailable", "pos_name": None,
+                    "exc_class": None,
+                    "msg": "임팩터 질량·초기속도를 못 구해 접촉 힘 절대 바닥을 "
+                           "적용하지 못했다 — 노이즈 인터페이스가 접촉으로 "
+                           "잡힐 수 있다"})
+            traj.contact_engaged = _compute_contact_mask(
+                rcforc, traj.times, force_floor=_floor)
 
         _compute_trajectory_summaries(traj)
 
