@@ -197,40 +197,48 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 # 매 N번째 행 대신 구간별 최대·최소를 남긴다 — 이 배열의 argmax 로
                 # 화면이 Peak G·CAI·핫스팟 요소를 다시 계산하므로, 피크가 빠지면
                 # 그 KPI 들이 통째로 틀린다 (전수조사 2026-09).
-                idx = extreme_indices(len(pr.stress.times),
+                # 열마다 길이가 다를 수 있다 (--from-json 은 t/max 만 복원한다).
+                # 길이가 맞는 열만 싣는다 — 없는 열을 채우면 그게 날조다.
+                _n = len(pr.stress.times)
+                idx = extreme_indices(_n,
                                       [pr.stress.max_values, pr.stress.min_values], ts_pts)
                 pd["stress_ts"] = {
                     "t": [round_keep_sig(pr.stress.times[i], t_prec) for i in idx],
                     "max": [round_keep_sig(pr.stress.max_values[i], s_prec) for i in idx],
-                    "avg": [round_keep_sig(pr.stress.avg_values[i], s_prec) for i in idx],
                 }
-                if include_extras and pr.stress.min_values:
+                if len(pr.stress.avg_values) == _n:
+                    pd["stress_ts"]["avg"] = [round_keep_sig(pr.stress.avg_values[i], s_prec) for i in idx]
+                if include_extras and len(pr.stress.min_values) == _n:
                     pd["stress_ts"]["min"] = [round_keep_sig(pr.stress.min_values[i], s_prec) for i in idx]
-                if include_extras and pr.stress.max_element_ids:
+                if include_extras and len(pr.stress.max_element_ids) == _n:
                     pd["stress_ts"]["elem"] = [pr.stress.max_element_ids[i] for i in idx]
             if pr.strain and pr.strain.times:
-                idx = extreme_indices(len(pr.strain.times), [pr.strain.max_values], ts_pts)
+                _n = len(pr.strain.times)
+                idx = extreme_indices(_n, [pr.strain.max_values], ts_pts)
                 pd["strain_ts"] = {
                     "t": [round_keep_sig(pr.strain.times[i], t_prec) for i in idx],
                     "max": [round_keep_sig(pr.strain.max_values[i], e_prec) for i in idx],
                 }
-                if pr.strain.avg_values:
+                if len(pr.strain.avg_values) == _n:
                     pd["strain_ts"]["avg"] = [round_keep_sig(pr.strain.avg_values[i], e_prec) for i in idx]
             if pr.motion and pr.motion.times:
                 g_factor = MotionData.G_FACTOR  # single source of truth
-                gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
-                pd["g_ts"] = {
-                    "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in gidx],
-                    "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
-                }
-                didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
-                pd["disp_ts"] = {
-                    "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in didx],
-                    "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
-                }
-                if include_components:
+                _n = len(pr.motion.times)
+                if len(pr.motion.avg_acc_mag) == _n:
+                    gidx = extreme_indices(_n, [pr.motion.avg_acc_mag], ts_pts)
+                    pd["g_ts"] = {
+                        "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in gidx],
+                        "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
+                    }
+                if len(pr.motion.avg_disp_mag) == _n:
+                    didx = extreme_indices(_n, [pr.motion.avg_disp_mag], ts_pts)
+                    pd["disp_ts"] = {
+                        "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in didx],
+                        "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
+                    }
+                if include_components and len(pr.motion.avg_acc_x) == _n:
                     aidx = extreme_indices(
-                        len(pr.motion.times),
+                        _n,
                         [pr.motion.avg_acc_x, pr.motion.avg_acc_y, pr.motion.avg_acc_z],
                         comp_pts)
                     pd["acc_ts"] = {
@@ -239,8 +247,9 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         "y": [round_keep_sig(pr.motion.avg_acc_y[i] / g_factor, 0) for i in aidx],
                         "z": [round_keep_sig(pr.motion.avg_acc_z[i] / g_factor, 0) for i in aidx],
                     }
+                if include_components and len(pr.motion.avg_disp_x) == _n:
                     cidx = extreme_indices(
-                        len(pr.motion.times),
+                        _n,
                         [pr.motion.avg_disp_x, pr.motion.avg_disp_y, pr.motion.avg_disp_z],
                         comp_pts)
                     pd["disp_comp_ts"] = {

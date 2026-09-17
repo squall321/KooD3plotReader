@@ -131,17 +131,22 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                         "max": [round_keep_sig(pr.strain.max_values[i], 6) for i in idx],
                     }
                 if pr.motion and pr.motion.times:
+                    # 길이가 맞는 열만 싣는다 (--from-json 으로 되살린 Report 는
+                    # g_ts 만 있고 disp 는 없을 수 있다).
                     g_factor = MotionData.G_FACTOR  # single source of truth
-                    gidx = extreme_indices(len(pr.motion.times), [pr.motion.avg_acc_mag], ts_pts)
-                    pd["g_ts"] = {
-                        "t": [round_keep_sig(pr.motion.times[i], 7) for i in gidx],
-                        "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
-                    }
-                    didx = extreme_indices(len(pr.motion.times), [pr.motion.avg_disp_mag], ts_pts)
-                    pd["disp_ts"] = {
-                        "t": [round_keep_sig(pr.motion.times[i], 7) for i in didx],
-                        "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], 2) for i in didx],
-                    }
+                    _n = len(pr.motion.times)
+                    if len(pr.motion.avg_acc_mag) == _n:
+                        gidx = extreme_indices(_n, [pr.motion.avg_acc_mag], ts_pts)
+                        pd["g_ts"] = {
+                            "t": [round_keep_sig(pr.motion.times[i], 7) for i in gidx],
+                            "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
+                        }
+                    if len(pr.motion.avg_disp_mag) == _n:
+                        didx = extreme_indices(_n, [pr.motion.avg_disp_mag], ts_pts)
+                        pd["disp_ts"] = {
+                            "t": [round_keep_sig(pr.motion.times[i], 7) for i in didx],
+                            "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], 2) for i in didx],
+                        }
 
             run_summary["parts"][str(pid)] = pd
         summary["results_summary"].append(run_summary)

@@ -7,32 +7,82 @@ import json
 from pathlib import Path
 
 from .models import (
-    AngleCondition, Finding, MotionData, PartInfo, PartResult,
+    AngleCondition, Finding, MotionData, PartEnergy, PartInfo, PartResult,
     Report, Severity, SimulationParams, SimulationResult, TimeSeriesData,
 )
 
 
-def _make_stress_ts(peak: float, peak_time: float) -> TimeSeriesData:
-    if peak <= 0:
-        return TimeSeriesData()
-    return TimeSeriesData(
-        times=[0.0, peak_time],
-        max_values=[0.0, peak],
-        min_values=[0.0, 0.0],
-        avg_values=[0.0, peak],
-    )
+def _num(v):
+    """숫자만 통과. 문자열·bool·null 은 None (0 으로 바꾸지 않는다)."""
+    if v is None or isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v)
 
 
-def _make_motion(peak_g: float, peak_disp: float, peak_g_time: float) -> MotionData:
+def _series(ts_raw, peak, peak_time=None, min_value=None) -> TimeSeriesData | None:
+    """저장된 시계열(있으면)과 참피크를 그대로 복원한다.
+
+    **없는 파형을 지어내지 않는다.** 예전에는 피크 스칼라만으로 [0, peak] 2점
+    램프를 만들고 avg 를 peak 과 같게 채웠다 — Impact Pulse 가 그 2점으로 펄스
+    폭과 충격량을 계산했고, 에너지 흡수는 15배 큰 값을 냈다. 시계열이 없으면
+    배열은 비워 두고 스칼라 피크만 남긴다(화면은 그 탭을 비운다).
+    """
+    t = list((ts_raw or {}).get("t") or [])
+    mx = list((ts_raw or {}).get("max") or [])
+    av = list((ts_raw or {}).get("avg") or [])
+    if peak is None and min_value is None and not mx:
+        return None
+    ts = TimeSeriesData()
+    if t and len(t) == len(mx):
+        ts.times, ts.max_values = t, mx
+        if len(av) == len(t):
+            ts.avg_values = av
+    ts.true_peak = peak if peak is not None else (max(mx) if mx else None)
+    if peak_time is not None:
+        ts.true_peak_time = peak_time
+    if min_value is not None:
+        ts.true_min = min_value
+    return ts
+
+
+def _motion(pd: dict) -> MotionData | None:
+    """g_ts/disp_ts 와 피크 스칼라로 MotionData 복원. 아무것도 없으면 None."""
     G = MotionData.G_FACTOR  # mm/s² per G — single source of truth
+    g_ts = pd.get("g_ts") or {}
+    d_ts = pd.get("disp_ts") or {}
+    peak_g = _num(pd.get("peak_g"))
+    peak_disp = _num(pd.get("peak_disp"))
+    peak_g_time = _num(pd.get("time_of_peak_g"))
+    gt = list(g_ts.get("t") or [])
+    gv = list(g_ts.get("g") or [])
+    dt = list(d_ts.get("t") or [])
+    dv = list(d_ts.get("mag") or [])
+    if not gv and not dv and peak_g is None and peak_disp is None:
+        return None
     mo = MotionData()
-    if peak_g > 0:
-        t = peak_g_time if peak_g_time > 0 else 0.001
-        mo.times = [0.0, t]
-        gval = peak_g * G
-        mo.avg_acc_mag = [0.0, gval]
-        mo.max_disp_mag = [0.0, peak_disp] if peak_disp > 0 else []
+    if gt and len(gt) == len(gv):
+        mo.times = gt
+        mo.avg_acc_mag = [v * G for v in gv]
+    if dt and len(dt) == len(dv):
+        if not mo.times:
+            mo.times = dt
+        if len(dv) == len(mo.times):
+            mo.avg_disp_mag = dv
+    mo.true_peak_g = peak_g
+    mo.true_peak_g_time = peak_g_time
+    mo.true_peak_disp = peak_disp
     return mo
+
+
+def _energy(raw) -> PartEnergy | None:
+    """저장된 에너지 요약. 없으면 None — 0 으로 채우면 '흡수 없음' 으로 읽힌다."""
+    if not isinstance(raw, dict):
+        return None
+    return PartEnergy(
+        peak_ie=_num(raw.get("peak_ie")), peak_ie_time=_num(raw.get("peak_ie_time")),
+        peak_ke=_num(raw.get("peak_ke")), peak_ke_time=_num(raw.get("peak_ke_time")),
+        final_ie=_num(raw.get("final_ie")), final_ke=_num(raw.get("final_ke")),
+    )
 
 
 def _filter_clusters(items: list, part_ids: set[int] | None) -> list[dict]:
@@ -167,20 +217,24 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
         for pid_str, pd in r.get("parts", {}).items():
             pid = int(pid_str)
             pi = part_info.get(pid) or PartInfo(part_id=pid, part_name=f"Part {pid}")
-            stress = _make_stress_ts(
-                pd.get("peak_stress", 0.0),
-                pd.get("time_of_peak_stress", 0.001),
-            )
-            strain = _make_stress_ts(
-                pd.get("peak_strain", 0.0),
-                pd.get("time_of_peak_stress", 0.001),
-            )
-            motion = _make_motion(
-                pd.get("peak_g", 0.0),
-                pd.get("peak_disp", 0.0),
-                pd.get("time_of_peak_g", 0.001),
-            )
-            parts[pid] = PartResult(part=pi, stress=stress, strain=strain, motion=motion)
+            # 저장된 것을 읽을 뿐, 없는 것은 만들지 않는다. 변형률 피크 시각은
+            # 응력의 것을 빌려 쓰지 않는다 — 서로 다른 사건이다.
+            pr = PartResult(part=pi)
+            pr.stress = _series(pd.get("stress_ts"), _num(pd.get("peak_stress")),
+                                _num(pd.get("time_of_peak_stress")))
+            pr.strain = _series(pd.get("strain_ts"), _num(pd.get("peak_strain")))
+            pr.motion = _motion(pd)
+            pr.energy = _energy(pd.get("energy"))
+            # 주응력·주변형률 — 사이드카에 스칼라로만 실린다. 없으면 None.
+            pr.principal = _series(None, _num(pd.get("peak_principal_stress")),
+                                   _num(pd.get("time_of_peak_principal")))
+            pr.principal_min = _series(None, None,
+                                       min_value=_num(pd.get("min_principal_stress")))
+            pr.principal_strain = _series(None, _num(pd.get("peak_principal_strain")))
+            pr.principal_strain_min = _series(
+                None, None, min_value=_num(pd.get("min_principal_strain")))
+            pr.vm_strain = _series(None, _num(pd.get("peak_vm_strain")))
+            parts[pid] = pr
 
         hs = r.get("hotspot_clusters")
         hs = _filter_clusters(hs, hotspot_part_ids) if isinstance(hs, list) else []
