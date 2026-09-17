@@ -5,9 +5,11 @@
 //   g++ -std=c++17 -O2 -I include tests/test_element_quality_states.cpp \
 //       build/libkood3plot.a -fopenmp -lz -o /tmp/t_quality && /tmp/t_quality
 //
-// 덱: /data/battery_study/case_01_phase1_stacked_tier-1 (22상태, 셸+두꺼운셸+솔리드)
+// 덱: /data/koopark/Test_DTMIN_erode/dtmin_0p1 (497상태, 일시적 좌굴로 종횡비가 크게 튄다)
+//   배터리 case_01(22상태)은 쓰지 않는다 — 전 상태와 표본 10개의 peak_AR 격차가
+//   최대 1.003배(0.3%)뿐이라 [B] 가 무엇도 입증하지 못한 채 통과한다.
 //
-// 종료 코드: 0 통과 · 1 실패 · 77 덱이 없어 건너뜀(통과가 아니라 '검증 못 함').
+// 종료 코드: 0 통과 · 1 실패 · 77 덱이 없거나 덱이 부적합해 건너뜀('검증 못 함').
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/UnifiedAnalyzer.hpp"
 #include <cstdio>
@@ -42,7 +44,7 @@ static std::set<size_t> oldSampleIndices(size_t n_states) {
 int main(int argc, char** argv) {
     const std::string deck = (argc > 1)
         ? argv[1]
-        : "/data/battery_study/case_01_phase1_stacked_tier-1/d3plot";
+        : "/data/koopark/Test_DTMIN_erode/dtmin_0p1/d3plot";
 
     size_t n_states = 0;
     {
@@ -86,8 +88,13 @@ int main(int argc, char** argv) {
 
     printf("\n[B] 표본 10개였다면 놓쳤을 극값이 실제로 있는지\n");
     {
+        // 허용오차 없는 부등호만 보면 0.007% 차이도 통과한다 — 상태 간 종횡비의
+        // 미세한 흔들림이지 '표본이 피크를 놓쳤다' 는 증거가 아니다. 공학적으로
+        // 의미 있는 폭을 요구한다.
+        const double kMinRatio = 1.2;
         const std::set<size_t> sampled = oldSampleIndices(n_states);
         int missed_parts = 0;
+        double best_ratio = 0.0;
         std::string first;
         for (const auto& qs : res.element_quality) {
             if (qs.data.size() != n_states) continue;
@@ -98,18 +105,29 @@ int main(int argc, char** argv) {
                 if (v > full_ar) full_ar = v;
                 if (sampled.count(i) && v > samp_ar) samp_ar = v;
             }
-            if (full_ar > samp_ar && full_ar > 0) {
+            if (samp_ar <= 0 || full_ar <= 0) continue;  // 표본이 아무것도 계측 못 함
+            const double ratio = full_ar / samp_ar;
+            if (ratio > best_ratio) best_ratio = ratio;
+            if (ratio >= kMinRatio) {
                 ++missed_parts;
                 if (first.empty()) {
-                    char buf[192];
+                    char buf[224];
                     snprintf(buf, sizeof(buf),
-                             "파트 %d peak_AR 전상태=%.6g 표본10=%.6g",
-                             qs.part_id, full_ar, samp_ar);
+                             "파트 %d peak_AR 전상태=%.6g 표본10=%.6g (%.2f배)",
+                             qs.part_id, full_ar, samp_ar, ratio);
                     first = buf;
                 }
             }
         }
-        chk("표본 10개가 과소평가하는 파트가 있음", missed_parts > 0,
+        if (missed_parts == 0) {
+            // 이 덱으로는 수정의 효과를 보일 수 없다. 조용히 통과시키지 않는다.
+            printf("[검증 불가] 이 덱은 전 상태와 표본 10개의 peak_AR 격차가 최대 %.4f 배로\n"
+                   "            요구치 %.2f 배에 못 미칩니다. 일시적 좌굴이 있는 덱이 필요합니다\n"
+                   "            (예: /data/koopark/Test_DTMIN_erode/dtmin_0p1).\n",
+                   best_ratio, kMinRatio);
+            return 77;
+        }
+        chk("표본 10개가 의미 있는 폭으로 과소평가하는 파트가 있음", missed_parts > 0,
             std::to_string(missed_parts) + "개" + (first.empty() ? "" : " — " + first));
     }
 
