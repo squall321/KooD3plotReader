@@ -4,7 +4,7 @@ from __future__ import annotations
 from ...models import (
     ImpactReport,
 )
-from .common import _pid_cast
+from .common import _pid_cast, _r4
 
 
 def _pos_id(r):
@@ -297,11 +297,12 @@ def _build_damage_index(report):
                 "peak_pos_id": _pid_cast(best_pos) if best_pos is not None else None,
                 "max_peak_g": round(float(mx_pg), 2),
                 "max_peak_stress": round(float(mx_ps), 2),
-                "max_peak_strain": round(float(mx_pe), 5),
+                "max_peak_strain": _r4(mx_pe),
                 "n_positions": int(len(lst)),
             })
 
-    # sort desc by di, keep top 15
+    # sort desc by di, keep top 15 (몇 개를 실었는지는 summary 로 알린다 —
+    # 화면이 "대상 부품 25/25" 라 적으면서 15개만 보여주면 거짓이 된다)
     per_part.sort(key=lambda d: d["di"], reverse=True)
     per_part_top = per_part[:15]
 
@@ -351,6 +352,7 @@ def _build_damage_index(report):
             "max_di_position": max_di_pos,
             "n_parts_total": len(part_ids_all),
             "n_parts_with_data": len(per_part),
+            "n_parts_listed": len(per_part_top),
         },
     }
 

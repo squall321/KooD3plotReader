@@ -289,6 +289,8 @@ def _build_corr_network_payload(report) -> dict:
       - parts_listed: ordered metadata for matrix rows/cols
       - n_positions:  number of positions used in correlation
       - max_parts:    N used (top-N by mean peak_g)
+      - n_parts_total: parts that had usable peak_g data (N 을 잘라낸 모집단 —
+                       소비자가 "상위 N/전체 M" 이라 정직하게 말할 수 있게)
     """
     import math
 
@@ -302,6 +304,7 @@ def _build_corr_network_payload(report) -> dict:
             "parts_listed": [],
             "n_positions": 0,
             "max_parts": 0,
+            "n_parts_total": 0,
         }
 
     # part_id -> name / group
@@ -340,6 +343,7 @@ def _build_corr_network_payload(report) -> dict:
             "parts_listed": [],
             "n_positions": len(pos_id_set),
             "max_parts": 0,
+            "n_parts_total": len(by_part),
         }
 
     pos_ids = sorted(pos_id_set)
@@ -369,6 +373,7 @@ def _build_corr_network_payload(report) -> dict:
             ],
             "n_positions": len(pos_ids),
             "max_parts": len(top_parts),
+            "n_parts_total": len(part_means),
         }
 
     # Vectors per part (in pos_ids order)
@@ -473,6 +478,7 @@ def _build_corr_network_payload(report) -> dict:
         "parts_listed": parts_listed,
         "n_positions": len(pos_ids),
         "max_parts": len(top_parts),
+        "n_parts_total": len(part_means),
     }
 
 

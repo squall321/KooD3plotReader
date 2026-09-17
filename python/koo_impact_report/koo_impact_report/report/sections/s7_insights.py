@@ -174,7 +174,10 @@ function _insightRenderDamageIndex(data){
   const mp = summary.max_di_part ? `${summary.max_di_part} @ pos ${summary.max_di_position ?? '—'}` : '—';
   cap.innerHTML = `<b>DI 산정 방식:</b> ${sourceLabel} &nbsp;·&nbsp; ` +
                   `<b>최대 DI:</b> ${(summary.max_di_value ?? 0).toFixed(3)} (${mp}) &nbsp;·&nbsp; ` +
-                  `<b>대상 부품:</b> ${summary.n_parts_with_data}/${summary.n_parts_total}`;
+                  `<b>대상 부품:</b> ${summary.n_parts_with_data}/${summary.n_parts_total}` +
+                  // 표에는 상위 몇 개만 싣는다 — 적은 수를 보여주며 전체를 센 척하지 않는다.
+                  (summary.n_parts_listed != null && summary.n_parts_listed < summary.n_parts_with_data
+                    ? ` (DI 상위 ${summary.n_parts_listed}개 표시)` : '');
   body.appendChild(cap);
 
   // Two-column layout

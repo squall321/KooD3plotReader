@@ -1186,6 +1186,13 @@ function _doeRenderCorrNetwork(doe) {
   const M = data.corr_matrix;
   const nPos = data.n_positions || 0;
   const thr = (typeof data.corr_threshold === 'number') ? data.corr_threshold : 0.7;
+  // 행렬은 평균 peak_g 상위 N개만 담는다 — 잘려나간 부품까지 대변하지 않도록
+  // 평가 범위를 그대로 적는다 (n_parts_total = 데이터가 있던 부품 수).
+  const nTotal = (typeof data.n_parts_total === 'number' && data.n_parts_total >= N)
+    ? data.n_parts_total : N;
+  const scopeTxt = (nTotal > N)
+    ? ('평균 G 상위 ' + N + '개 부품 (전체 ' + nTotal + '개 중)')
+    : (N + '개 부품 전체');
 
   // Layout: heatmap (left, flex) + cluster summary (right, fixed width)
   const wrap = el('div', { class: 'doe-corr-wrap',
@@ -1295,7 +1302,8 @@ function _doeRenderCorrNetwork(doe) {
   // Footer note: n + threshold
   svgRoot.appendChild(svg('text', {
     x: labelPad, y: vbH - 6, fill: 'var(--dim)', 'font-size': 10,
-  }, [document.createTextNode('n_positions = ' + nPos + '   ·   strong if |r| ≥ ' + thr.toFixed(2))]));
+  }, [document.createTextNode('n_positions = ' + nPos + '   ·   ' + scopeTxt +
+       '   ·   strong if |r| ≥ ' + thr.toFixed(2))]));
 
   wrap.appendChild(svgRoot);
 
@@ -1316,7 +1324,9 @@ function _doeRenderCorrNetwork(doe) {
       style: { color: 'var(--dim)', 'font-size': 11, padding: '12px',
                background: 'var(--bg2)', 'border-radius': '6px',
                border: '1px solid var(--line)' }
-    }, [document.createTextNode('|r| ≥ ' + thr.toFixed(2) + ' 인 강한 상관 부품 쌍 없음. 모든 부품이 독립적 응답.')]));
+    }, [document.createTextNode(scopeTxt + ' 안에서는 |r| ≥ ' + thr.toFixed(2) +
+         ' 인 강한 상관 부품 쌍 없음 — 서로 독립적으로 응답한다.' +
+         (nTotal > N ? ' 나머지 ' + (nTotal - N) + '개 부품은 상관 계산에 들어가지 않았다.' : ''))]));
   }
 
   // Cluster color from gColor by cluster index spread
