@@ -1561,6 +1561,12 @@ function _idwMetricLabel(k) {
 function _idwMetricUnit(k) {
   return k === 'peak_stress' ? _u('stress') : _u('acc');
 }
+// 지표마다 표본 수가 다르다 (한쪽만 잰 낙하점이 있다). 옛 payload 는
+// n_samples 가 없으므로 그때만 측정점 총수로 되돌아간다.
+function _idwNSamples(adv) {
+  const n = (adv.n_samples || {})[IDW_STATE.metric];
+  return (n != null) ? n : (adv.measured_points || []).length;
+}
 
 function _doeRenderIdwPredictor(doe) {
   const host = document.getElementById('idw-pred-panel');
@@ -1604,8 +1610,18 @@ function _doeRenderIdwPredictor(doe) {
   const bb = gf.bbox;
   const arr = gf[IDW_STATE.metric] || [];
   if (NX < 2 || NY < 2 || arr.length !== NX * NY) {
+    // 표본이 모자라 면을 만들지 않은 경우와 형상이 깨진 경우를 구분해서
+    // 알린다 — payload 가 사유를 실어 보낸다.
+    const note = (adv.metric_notes || {})[IDW_STATE.metric];
+    const msg = note ? ('보간면 없음 — ' + note) : 'IDW 그리드 형상 오류';
     while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
-    svgEl.appendChild(svg('text', { x: 200, y: 200, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 11 }, [document.createTextNode('IDW 그리드 형상 오류')]));
+    svgEl.appendChild(svg('text', { x: 270, y: 120, 'text-anchor': 'middle', fill: '#5c6383', 'font-size': 11 }, [document.createTextNode(msg)]));
+    const _ctxN = canvasEl.getContext('2d');
+    _ctxN.fillStyle = '#0e1320';
+    _ctxN.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    info.innerHTML = '';
+    const _looBarN = document.getElementById('idw-pred-loo');
+    if (_looBarN) { _looBarN.style.display = 'none'; _looBarN.innerHTML = ''; }
     return;
   }
 
@@ -1716,17 +1732,22 @@ function _doeRenderIdwPredictor(doe) {
       else if (pct < 2 * medianErrPct) dotFill = '#f39c12';   // orange
       else dotFill = '#e74c3c';                               // red
     }
-    g.appendChild(svg('circle', { cx: cx, cy: cy, r: 4.2, fill: dotFill, stroke: '#ffffff', 'stroke-width': 1.2 }));
     const v = (IDW_STATE.metric === 'peak_stress') ? m.peak_stress : m.peak_g;
+    // 이 지표를 못 잰 낙하점은 보간 표본이 아니다 — 속 빈 점으로 구분한다.
+    const unm = (v == null);
+    g.appendChild(svg('circle', unm
+      ? { cx: cx, cy: cy, r: 4.2, fill: 'none', stroke: '#6a7282', 'stroke-width': 1.2, 'stroke-dasharray': '2 2' }
+      : { cx: cx, cy: cy, r: 4.2, fill: dotFill, stroke: '#ffffff', 'stroke-width': 1.2 }));
     const u = _idwMetricUnit(IDW_STATE.metric);
     let tipExtra = '';
-    if (IDW_STATE.metric === 'peak_g' && ep) {
+    if (!unm && IDW_STATE.metric === 'peak_g' && ep) {
       tipExtra = '\nLOO 예측 = ' + fmt(ep.predicted, 1) +
         '\nLOO 오차 = ' + fmt(ep.error_abs, 2) + ' (' + Number(ep.error_pct).toFixed(1) + '%)';
     }
     g.appendChild(svg('title', null, [document.createTextNode(
       m.pos_id + '\nx=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2) +
-      '\n측정 ' + _idwMetricLabel(IDW_STATE.metric) + ' = ' + fmt(v, 1) + (u ? ' ' + u : '') +
+      '\n측정 ' + _idwMetricLabel(IDW_STATE.metric) + ' = ' +
+      (unm ? '미계측 (보간 표본 아님)' : fmt(v, 1) + (u ? ' ' + u : '')) +
       tipExtra
     )]));
     svgEl.appendChild(g);
@@ -1758,7 +1779,7 @@ function _doeRenderIdwPredictor(doe) {
       '(' + mx.toFixed(2) + ', ' + my.toFixed(2) + ')' +
       '   ' + _idwMetricLabel(IDW_STATE.metric) + ' ≈ <b>' + fmt(peakV, 1) + '</b>' +
       (u2 ? ' <span class="u">' + u2 + '</span>' : '') +
-      '   ·   측정점 ' + (adv.measured_points || []).length + ' 개 기반 IDW(p=' + (adv.power || 2) + ') 보간';
+      '   ·   측정점 ' + _idwNSamples(adv) + ' 개 기반 IDW(p=' + (adv.power || 2) + ') 보간';
   } else {
     info.innerHTML = '';
   }

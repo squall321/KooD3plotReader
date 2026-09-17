@@ -709,13 +709,17 @@ def _build_idw_predictor_payload(report):
 
     # 반올림은 표시용이지 계산용이 아니다. 좌표를 1자리로 깎으면 m 단위 덱
     # (-0.04..0.04) 의 낙하점이 모두 한 점으로 뭉쳐 보간면과 LOO 가 뜻을 잃는다.
+    # 지표별로 표본이 다르다. 가속도는 쟀지만 응력을 못 잰 위치를 응력면
+    # 표본으로 삼으면 (pos_s.get(pid, 0.0) → 0.0) 그 낙하점이 '0 MPa 로
+    # 측정' 으로 응력면에 박히고 주변까지 끌어내린다.
     measured = []
-    samples = []
+    samples_g = []
+    samples_s = []
     for pid, (x, y) in pos_xy.items():
         if pid not in pos_g and pid not in pos_s:
             continue   # 이 위치는 한 파트도 재지 못했다 — 표본에서 제외
-        g = _r4(pos_g.get(pid, 0.0))
-        s = _r4(pos_s.get(pid, 0.0))
+        g = _r4(pos_g[pid]) if pid in pos_g else None
+        s = _r4(pos_s[pid]) if pid in pos_s else None
         measured.append({
             "pos_id": pid,
             "x": _r4(x),
@@ -723,7 +727,10 @@ def _build_idw_predictor_payload(report):
             "peak_g": g,
             "peak_stress": s,
         })
-        samples.append((x, y, g, s))
+        if g is not None:
+            samples_g.append((x, y, g, pid))
+        if s is not None:
+            samples_s.append((x, y, s, pid))
     if len(measured) < 2:
         return None
 
@@ -734,39 +741,50 @@ def _build_idw_predictor_payload(report):
     dy = (ymax - ymin) / (NY - 1)
     eps2 = ((dx * dx + dy * dy) * 1e-6) or 1e-12  # snap radius
 
-    grid_g = [0.0] * (NX * NY)
-    grid_s = [0.0] * (NX * NY)
+    def _interpolate(samples):
+        """표본이 2개 미만이면 면을 지어내지 않는다 (None)."""
+        if len(samples) < 2:
+            return None
+        grid = [0.0] * (NX * NY)
+        for j in range(NY):
+            gy = ymin + j * dy
+            for i in range(NX):
+                gx = xmin + i * dx
+                idx = j * NX + i
+                wsum = 0.0
+                acc = 0.0
+                exact = -1
+                for k, (sx, sy, sv, _pid) in enumerate(samples):
+                    ddx = gx - sx
+                    ddy = gy - sy
+                    d2 = ddx * ddx + ddy * ddy
+                    if d2 <= eps2:
+                        exact = k
+                        break
+                    w = 1.0 / d2  # p=2 → 1/d^2
+                    wsum += w
+                    acc += w * sv
+                if exact >= 0:
+                    grid[idx] = samples[exact][2]
+                elif wsum > 0:
+                    grid[idx] = acc / wsum
+        return [_r4(v) for v in grid]
 
-    for j in range(NY):
-        gy = ymin + j * dy
-        for i in range(NX):
-            gx = xmin + i * dx
-            idx = j * NX + i
-            wsum = 0.0
-            vg = 0.0
-            vs = 0.0
-            exact = -1
-            for k, (sx, sy, sg, ss) in enumerate(samples):
-                ddx = gx - sx
-                ddy = gy - sy
-                d2 = ddx * ddx + ddy * ddy
-                if d2 <= eps2:
-                    exact = k
-                    break
-                w = 1.0 / d2  # p=2 → 1/d^2
-                wsum += w
-                vg += w * sg
-                vs += w * ss
-            if exact >= 0:
-                grid_g[idx] = samples[exact][2]
-                grid_s[idx] = samples[exact][3]
-            elif wsum > 0:
-                grid_g[idx] = vg / wsum
-                grid_s[idx] = vs / wsum
+    grid_g_r = _interpolate(samples_g)
+    grid_s_r = _interpolate(samples_s)
+    if grid_g_r is None and grid_s_r is None:
+        return None
 
-    # Round to keep payload small (4 sig-figs)
-    grid_g_r = [_r4(v) for v in grid_g]
-    grid_s_r = [_r4(v) for v in grid_s]
+    # 왜 면이 비었는지 화면에 실어 보낸다 — 조용히 빈 패널을 내보내지 않는다.
+    metric_notes = {}
+    if grid_g_r is None:
+        metric_notes["peak_g"] = (
+            f"가속도를 잰 낙하점이 {len(samples_g)}개뿐이다 — 보간에는 2개 이상이 필요하다."
+        )
+    if grid_s_r is None:
+        metric_notes["peak_stress"] = (
+            f"응력을 잰 낙하점이 {len(samples_s)}개뿐이다 — 보간에는 2개 이상이 필요하다."
+        )
 
     # Predicted max indices
     def _argmax(arr):
@@ -780,23 +798,24 @@ def _build_idw_predictor_payload(report):
                 best = ii
         return best
 
-    max_idx_g = _argmax(grid_g_r)
-    max_idx_s = _argmax(grid_s_r)
+    max_idx_g = _argmax(grid_g_r or [])
+    max_idx_s = _argmax(grid_s_r or [])
 
     # Leave-One-Out cross-validation on peak_g (same p=2 IDW, same snap radius)
+    # 표본은 peak_g 를 실제로 잰 낙하점뿐이다 — 못 잰 위치를 0 으로 끼우면
+    # 예측·실측 양쪽이 오염된다.
     loo_validation = None
-    if len(samples) >= 3:
+    if len(samples_g) >= 3:
         per_point = []
         sq_errs = []
         err_pcts = []
         max_err_abs = -1.0
         max_err_pos_id = None
-        for i_drop, m in enumerate(measured):
-            sx_i, sy_i, actual_g, _ = samples[i_drop]
+        for i_drop, (sx_i, sy_i, actual_g, pid_i) in enumerate(samples_g):
             wsum = 0.0
             vg = 0.0
             exact = -1
-            for k, (sx, sy, sg, _ss) in enumerate(samples):
+            for k, (sx, sy, sg, _pid) in enumerate(samples_g):
                 if k == i_drop:
                     continue
                 ddx = sx_i - sx
@@ -809,7 +828,7 @@ def _build_idw_predictor_payload(report):
                 wsum += w
                 vg += w * sg
             if exact >= 0:
-                predicted = samples[exact][2]
+                predicted = samples_g[exact][2]
             elif wsum > 0:
                 predicted = vg / wsum
             else:
@@ -820,9 +839,9 @@ def _build_idw_predictor_payload(report):
             sq_errs.append(err_abs * err_abs)
             err_pcts.append(err_pct)
             per_point.append({
-                "pos_id": m["pos_id"],
-                "x": m["x"],
-                "y": m["y"],
+                "pos_id": pid_i,
+                "x": _r4(sx_i),
+                "y": _r4(sy_i),
                 "actual": _r4(actual_g),
                 "predicted": _r4(predicted),
                 "error_abs": _r4(err_abs),
@@ -830,7 +849,7 @@ def _build_idw_predictor_payload(report):
             })
             if err_abs > max_err_abs:
                 max_err_abs = err_abs
-                max_err_pos_id = m["pos_id"]
+                max_err_pos_id = pid_i
         rmse_peak_g = math.sqrt(sum(sq_errs) / len(sq_errs)) if sq_errs else 0.0
         median_err_pct = statistics.median(err_pcts) if err_pcts else 0.0
         loo_validation = {
@@ -853,6 +872,8 @@ def _build_idw_predictor_payload(report):
             "peak_stress": max_idx_s,
         },
         "measured_points": measured,
+        "n_samples": {"peak_g": len(samples_g), "peak_stress": len(samples_s)},
+        "metric_notes": metric_notes,
         "power": 2,
         "loo_validation": loo_validation,
     }
