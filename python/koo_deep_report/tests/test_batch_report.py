@@ -79,6 +79,61 @@ node_check("batch", html)
 
 print()
 
+# ---------------------------------------------------------------------------
+print("[2] 배치 표의 숫자가 0 이나 같은 문자열로 뭉개지지 않는다")
+
+
+def run_js(snippet: str, tag: str):
+    """생성된 HTML 의 JS 조각 + 표현식을 node 로 돌려 결과를 받는다."""
+    if not NODE:
+        print(f"  -- node 없음 — {tag} 건너뜀")
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "x.js"
+        f.write_text(snippet, encoding="utf-8")
+        r = subprocess.run([NODE, str(f)], capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"{tag} 실행 실패: {r.stderr.strip()[:300]}")
+            return None
+        return json.loads(r.stdout.strip())
+
+
+# 페이지의 실제 포매터 원문을 뽑는다.
+fmt_src = re.search(r"function fmt\(v, d=2\) \{[\s\S]*?\n\}", html) \
+    or re.search(r"function fmt\(v, d=2\) \{.*\n", html)
+sig_src = re.search(r"function fmtSig\([\s\S]*?\n\}", html)
+val_src = re.search(r"function fmtVal\(v, field\) \{[\s\S]*?\n\}", html)
+chkb("fmt() 원문을 찾았다", fmt_src is not None)
+chkb("fmtSig() 원문을 찾았다", sig_src is not None)
+chkb("fmtVal() 원문을 찾았다", val_src is not None)
+
+if NODE and fmt_src and sig_src and val_src:
+    src = fmt_src.group(0) + "\n" + sig_src.group(0) + "\n" + val_src.group(0) + "\n"
+    # t_end: 초 단위 덱 (표본 result.json 이 0.00100001) — 옛 코드는 '0.0'.
+    out = run_js(src + "console.log(JSON.stringify(["
+                 "fmtSig(0.00100001), fmtSig(0.05), fmtSig(1.2e-4), fmtSig(30.0),"
+                 "fmt(4e-5,4), fmt(1.2e-4,4), fmt(0,2), fmt(null,2),"
+                 "fmtVal(4e-5,'peak_strain'), fmtVal(3e-9,'peak_strain'),"
+                 "fmtVal(0,'peak_strain'), fmtVal(null,'peak_strain'),"
+                 "fmt(300.0,2), fmtVal(300.0,'peak_stress')]));", "배치 포매터")
+    if out:
+        chk("t_end 0.00100001", out[0], "0.001")
+        chk("t_end 0.05", out[1], "0.05")
+        chk("t_end 1.2e-4", out[2], "1.200e-4")
+        chk("t_end 30", out[3], "30")
+        chk("변형률 4e-5", out[4], "4.000e-5")
+        chkb("4e-5 와 1.2e-4 가 다른 문자열", out[4] != out[5])
+        chk("진짜 0 은 0", out[6], "0")
+        chk("결측은 —", out[7], "—")
+        chk("파트표 변형률 4e-5", out[8], "4.000e-5")
+        chk("파트표 변형률 3e-9", out[9], "3.000e-9")
+        chk("파트표 진짜 0 은 0", out[10], "0")
+        chk("파트표 결측은 —", out[11], "—")
+        chk("정상 범위 응력은 그대로", out[12], "300.00")
+        chk("파트표 정상 범위 응력", out[13], "300.00")
+
+print()
+
 
 def test_all():
     """pytest 진입점."""

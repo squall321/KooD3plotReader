@@ -404,8 +404,6 @@ function renderKPIs() {{
   const n_skip = SKIPPED.length;
   const n_tot  = n_ok + n_fail + n_skip;
 
-  const fmt = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
-
   document.getElementById('kpi-row').innerHTML = `
     <div class="kpi-card">
       <div class="kpi-label">전체 케이스</div>
@@ -466,7 +464,30 @@ function sortRows() {{
   }});
 }}
 
-function fmt(v, d=2) {{ return v == null || v === 0 ? '—' : Number(v).toFixed(d); }}
+// 고정 소수 자릿수만 쓰면 서로 다른 값이 같은 문자열이 된다. 초 단위 덱의
+// t_end 0.001~0.05 는 전부 '0.0', 소성 변형률 4e-5 는 '0.0000' 이 되어
+// '측정값 0' 으로 읽힌다. 고정 표기가 유효숫자 2자리도 못 남기면 지수로 쓴다.
+// 진짜 0 은 '0', 결측만 '—' 다 — 둘을 같은 문자로 찍으면 구분이 사라진다.
+function fmt(v, d=2) {{
+  if (v == null) return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  if (n === 0) return '0';
+  const a = Math.abs(n);
+  if (a >= 1e6) return n.toExponential(2);
+  if (a < Math.pow(10, 1 - d)) return n.toExponential(3);
+  return n.toFixed(d);
+}}
+// 유효숫자 기준 표기 — t_end 처럼 자릿수가 덱마다 크게 달라지는 값에 쓴다.
+function fmtSig(v, sig=4) {{
+  if (v == null) return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  if (n === 0) return '0';
+  const a = Math.abs(n);
+  if (a >= 1e6 || a < 1e-3) return n.toExponential(sig - 1);
+  return String(Number(n.toPrecision(sig)));
+}}
 function fmtE(v) {{ return v == null ? '—' : Number(v).toFixed(4); }}
 
 function tierBadge(t) {{
@@ -517,7 +538,7 @@ function renderTable() {{
       <td>${{statusBadge(r.status)}}</td>
       <td>${{tierBadge(r.tier)}}</td>
       <td>${{r.num_parts || '—'}}</td>
-      <td>${{r.t_end ? Number(r.t_end).toFixed(1) : '—'}}</td>
+      <td>${{fmtSig(r.t_end)}}</td>
       <td>${{fmt(r.peak_stress)}}</td>
       <td>${{fmt(r.peak_strain, 4)}}</td>
       <td>${{fmt(r.peak_disp)}}</td>
@@ -662,9 +683,7 @@ function valClass(pdata, field) {{
 }}
 
 function fmtVal(v, field) {{
-  if (v == null || v === 0) return '—';
-  if (field === 'peak_strain') return Number(v).toFixed(4);
-  return Number(v).toFixed(2);
+  return fmt(v, field === 'peak_strain' ? 4 : 2);
 }}
 
 function renderPartComparison() {{
