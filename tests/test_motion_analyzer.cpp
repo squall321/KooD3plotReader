@@ -11,9 +11,14 @@
 //      (첫 상태 속도가 차분 불가라고 0 으로 나가면 안 된다)
 //
 // Run:
+//   # --target unified_analyzer 만으로는 kood3plot_writer 가 빌드되지 않는다
+//   # (unified_analyzer 는 kood3plot 만 링크한다). 대상에 함께 적어야 한다.
+//   cmake --build build -j4 --target unified_analyzer kood3plot_writer
 //   g++ -std=c++17 -O2 -I include tests/test_motion_analyzer.cpp \
 //       build/libkood3plot.a build/libkood3plot_writer.a -fopenmp -lz -o /tmp/t_motion
 //   /tmp/t_motion
+//
+// ctest 에 등록되어 있으므로 `ctest -R MotionAnalyzer` 로도 돌릴 수 있다.
 
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/MotionAnalyzer.hpp"
