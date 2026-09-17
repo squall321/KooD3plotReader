@@ -84,6 +84,29 @@ def test_undetected_unit_writes_no_labels():
     assert d["unit_system"]["note"]
 
 
+def test_non_ton_mm_s_deck_says_screen_labels_are_fixed():
+    """같은 런의 사이드카는 Pa·m 이라 적는데 화면은 MPa·mm 로 못박혀 있다.
+
+    값은 덱 단위 그대로 나가므로 화면의 **단위 글자만** 틀린다. 그 사실을
+    보고서에 실어 사람이 알게 한다 — 검출에 성공한 덱에서는 단위 경고가
+    뜨지 않아, 지금은 MPa 표기를 교정할 단서가 보고서 안에 하나도 없다.
+    """
+    from koo_sphere_report.analyzer import _generate_findings
+    MotionData.set_unit_system("SI", 9.80665,
+                               labels={"acc": "G", "stress": "Pa", "disp": "m",
+                                       "vel": "m/s"})
+    texts = " ".join(f.title + " " + f.detail for f in _generate_findings(_report()))
+    assert "MPa" in texts and "Pa" in texts, texts
+    assert "화면" in texts, "화면 표기가 고정이라는 사실이 보고서에 없다"
+
+    # ton-mm-s 덱에서는 어긋남이 없으므로 이 경고가 뜨면 안 된다.
+    MotionData.set_unit_system("ton-mm-s", 9806.65,
+                               labels={"acc": "G", "stress": "MPa", "disp": "mm",
+                                       "vel": "mm/s"})
+    texts = " ".join(f.title for f in _generate_findings(_report()))
+    assert "화면 단위" not in texts, texts
+
+
 def test_old_sidecar_without_unit_system_is_not_claimed_detected():
     """옛 사이드카에는 unit_system 키가 없다 — 판정한 적 없음을 그대로 적는다.
 
@@ -123,6 +146,7 @@ def test_all():
         test_sidecar_carries_detected_unit_labels()
         test_si_deck_labels_are_pa_and_m()
         test_undetected_unit_writes_no_labels()
+        test_non_ton_mm_s_deck_says_screen_labels_are_fixed()
         test_old_sidecar_without_unit_system_is_not_claimed_detected()
     finally:
         (MotionData.UNIT_SYSTEM, MotionData.G_FACTOR,

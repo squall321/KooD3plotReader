@@ -80,6 +80,28 @@ def _generate_findings(report: Report) -> list[Finding]:
                             "단위계를 확인한 뒤 peak-G 를 읽으십시오."),
         ))
 
+    # --- 화면 단위 표기와 덱 단위의 불일치 ---
+    # 표·지도·툴팁의 단위 글자는 ton-mm-s(MPa·mm·mm/s) 로 **고정**돼 있다. 값은
+    # 덱 단위 그대로 실리므로 SI 덱(Pa·m)이면 글자만 틀린다. 검출에 성공하면 위
+    # 미검출 경고도 안 뜨므로, 그 사실을 여기서 말하지 않으면 보고서 안에 단서가
+    # 하나도 남지 않는다 (같은 런의 report.json 은 Pa·m 이라고 적는다).
+    _SCREEN_UNITS = {"stress": "MPa", "disp": "mm", "vel": "mm/s"}
+    _labels = MotionData.UNIT_LABELS or {}
+    _off = {k: _labels[k] for k, fixed in _SCREEN_UNITS.items()
+            if _labels.get(k) and _labels[k] != fixed}
+    if _off:
+        findings.append(Finding(
+            severity=Severity.WARNING,
+            title=f"화면 단위 표기가 이 덱의 단위와 다릅니다 ({MotionData.UNIT_SYSTEM})",
+            detail=("화면의 단위 글자는 ton-mm-s 기준(응력 MPa, 변위 mm, 속도 mm/s)"
+                    "으로 고정돼 있습니다. 이 덱의 단위는 "
+                    + ", ".join(f"{k}={v}" for k, v in sorted(_off.items()))
+                    + " 이고 값은 환산 없이 덱 단위 그대로 실려 있습니다 — "
+                      "숫자는 맞고 옆에 붙은 단위 글자만 틀립니다."),
+            recommendation=("report.json 의 unit_labels 를 기준으로 읽으십시오 "
+                            "(federate 비교도 그 라벨을 씁니다)."),
+        ))
+
     # --- Stress-based findings ---
     yield_stress = report.yield_stress
     for pid, pi in report.part_info.items():
