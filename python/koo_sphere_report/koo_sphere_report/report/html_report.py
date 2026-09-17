@@ -234,7 +234,11 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         "y": [round(pr.motion.avg_disp_y[i], s_prec) for i in range(0, len(pr.motion.avg_disp_y), cs)],
                         "z": [round(pr.motion.avg_disp_z[i], s_prec) for i in range(0, len(pr.motion.avg_disp_z), cs)],
                     }
-                pd["peak_vel"] = round(max(abs(v) for v in pr.motion.avg_vel_mag) if pr.motion.avg_vel_mag else 0.0, 1)
+                # 다운샘플 전 참최대속도를 쓴다 (줄인 배열의 max 는 피크를 놓친다).
+                # 속도 열이 아예 없으면 0 이 아니라 키를 넣지 않는다.
+                _pv = pr.motion.peak_vel
+                if _pv is not None:
+                    pd["peak_vel"] = round(_pv, 1)
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 

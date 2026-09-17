@@ -79,6 +79,10 @@ class TimeSeriesData:
     max_element_ids: list[int] = field(default_factory=list)
     true_peak: float | None = None
     true_peak_time: float | None = None
+    #: 다운샘플 전 **최솟값**. σ3/ε3 는 압축측이라 최솟값이 곧 피크다 —
+    #: 줄인 배열에서 min() 을 뽑으면 한 점짜리 압축 스파이크를 통째로 잃는다.
+    true_min: float | None = None
+    true_min_time: float | None = None
 
     @property
     def peak(self) -> float:
@@ -94,6 +98,14 @@ class TimeSeriesData:
             return 0.0
         idx = self.max_values.index(max(self.max_values))
         return self.times[idx] if idx < len(self.times) else 0.0
+
+    @property
+    def trough(self) -> float | None:
+        """다운샘플 전 최솟값. 기록이 없으면 남은 배열에서 뽑는다 (없으면 None)."""
+        if self.true_min is not None:
+            return self.true_min
+        vals = list(self.min_values or []) or list(self.max_values or [])
+        return min(vals) if vals else None
 
 
 @dataclass
@@ -116,6 +128,9 @@ class MotionData:
     true_peak_g: float | None = None
     true_peak_g_time: float | None = None
     true_peak_disp: float | None = None
+    #: 다운샘플 전 최대 |속도|. 화면의 '최악 속도' 가 줄인 배열에서 나오면
+    #: 실캠페인에서 25% 까지 낮게 찍혔다 (2026-09 전수조사).
+    true_peak_vel: float | None = None
 
     # 가속도 → G 환산 계수. 기본은 ton-mm-s(mm/s²) 이지만 **덱 단위계에 따라
     # 런타임에 바뀐다** (loader 가 검출해 set_unit_system 으로 주입).
@@ -159,6 +174,15 @@ class MotionData:
         if self.true_peak_disp is not None:
             return self.true_peak_disp
         return max(self.max_disp_mag) if self.max_disp_mag else 0.0
+
+    @property
+    def peak_vel(self) -> float | None:
+        """최대 |속도|. 다운샘플 전 값이 있으면 그것을, 없으면 남은 배열에서."""
+        if self.true_peak_vel is not None:
+            return self.true_peak_vel
+        if not self.avg_vel_mag:
+            return None
+        return max(abs(v) for v in self.avg_vel_mag)
 
     def g_series(self) -> list[float]:
         """Return acceleration in G units."""
@@ -226,19 +250,13 @@ class PartResult:
     def min_principal_strain(self) -> float | None:
         """최소 주변형률 ε3 — 압축측이라 최소값이 의미 있다."""
         ts = self.principal_strain_min
-        if ts is None:
-            return None
-        vals = list(ts.min_values or []) or list(ts.max_values or [])
-        return min(vals) if vals else None
+        return ts.trough if ts is not None else None
 
     @property
     def min_principal(self) -> float | None:
         """σ3 의 **최소값**(가장 큰 압축). peak 속성이 max 를 주므로 직접 뽑는다."""
         ts = self.principal_min
-        if ts is None:
-            return None
-        vals = list(ts.min_values or []) or list(ts.max_values or [])
-        return min(vals) if vals else None
+        return ts.trough if ts is not None else None
 
     @property
     def peak_strain(self) -> float:

@@ -263,6 +263,12 @@ def _load_stress_strain_csv(csv_path: Path, target_points: int | None = None) ->
         peak_idx = max(range(len(all_max)), key=all_max.__getitem__)
         ts.true_peak = all_max[peak_idx]
         ts.true_peak_time = all_t[peak_idx]
+    # 참최소도 같이 챙긴다. σ3/ε3 는 압축측이라 최솟값이 피크인데, 줄인 배열에서
+    # min() 을 뽑으면 한 점짜리 압축 스파이크가 사라진다 (992상태 -412 → -30 MPa).
+    if all_min:
+        min_idx = min(range(len(all_min)), key=all_min.__getitem__)
+        ts.true_min = all_min[min_idx]
+        ts.true_min_time = all_t[min_idx]
 
     step = _downsample_step(len(all_t), target_points)
     ts.times = all_t[::step]
@@ -312,6 +318,12 @@ def _load_motion_csv(csv_path: Path, target_points: int | None = None) -> Motion
                   f"max_disp sample(s) (eroded free node?) from peak_disp")
         if finite_disp:
             md.true_peak_disp = max(finite_disp)
+    if buf["avg_vel_mag"]:
+        # 최대 속도도 줄이기 전에 챙긴다 — 화면의 '최악 속도' 가 줄인 배열에서
+        # 나오면 실캠페인(992상태→42행)에서 25% 까지 낮게 찍혔다.
+        finite_vel = [abs(v) for v in buf["avg_vel_mag"] if math.isfinite(v)]
+        if finite_vel:
+            md.true_peak_vel = max(finite_vel)
 
     step = _downsample_step(len(all_t), target_points)
     md.times = all_t[::step]
