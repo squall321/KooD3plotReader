@@ -404,15 +404,50 @@ detect_ua_commit() {
 }
 detect_ua_commit
 
+# 커밋 문자열만으로는 부족하다 — 실행 파일 자체의 신원도 본다.
+# 왜: "version" 은 CMake **설정 시점**에 git describe 를 한 번 돌려 매크로로 박은
+# 값이다(CMakeLists.txt 의 execute_process → examples/CMakeLists.txt 의
+# target_compile_definitions → unified_analyzer.cpp 가 그대로 출력). 매 빌드마다
+# 다시 구하는 장치가 없어서, `cmake --build build --target unified_analyzer` 로만
+# 다시 빌드하면 번역 단위가 재컴파일돼도 문자열은 옛 설정 시점에 얼어붙는다.
+# 실측 — 소스를 고쳐 재빌드해 바이너리가 새로 링크됐는데도 --capabilities 는
+# 5커밋 전 값을 그대로 답했다. `--dirty` 접미사도 어떤 파일을 고쳤든 같은 글자라
+# 작업 트리를 고쳐 가며 두 번 빌드하면 두 번 다 같은 문자열이 나온다.
+# 그래서 스키마 번호도 커밋도 안 바뀌는 '값만 달라지는 수정' 은 실행 파일 내용으로
+# 가려낸다. 못 얻으면 빈 값으로 두고 사유를 알린다(없는 값을 지어내지 않는다).
+UA_TOOL_BUILD=""
+UA_TOOL_BUILD_REASON=""
+detect_ua_build() {
+    local bin
+    if ! bin=$(command -v unified_analyzer 2>/dev/null); then
+        UA_TOOL_BUILD_REASON="unified_analyzer 를 PATH 에서 찾지 못함"
+        return 0
+    fi
+    local sum
+    if ! sum=$(sha256sum "${bin}" 2>/dev/null); then
+        UA_TOOL_BUILD_REASON="sha256sum 실패: ${bin}"
+        return 0
+    fi
+    UA_TOOL_BUILD="${sum%% *}"
+}
+detect_ua_build
+
 _ua_commit_reported=false
 report_ua_commit() {
     if ${_ua_commit_reported}; then return 0; fi
     _ua_commit_reported=true
     if [ -n "${UA_TOOL_COMMIT}" ]; then
-        echo "  분석기 커밋: ${UA_TOOL_COMMIT} — 이 커밋으로 낸 산출물만 재사용합니다"
+        echo "  분석기 커밋: ${UA_TOOL_COMMIT}"
+        echo "    이 문자열은 CMake 설정 시점에 박히므로 증분 빌드에서는 갱신되지"
+        echo "    않습니다 — 커밋만으로는 '값만 달라진 수정' 을 거르지 못합니다."
     else
         echo "  분석기 커밋: 알 수 없음 — ${UA_TOOL_COMMIT_REASON}"
-        echo "    커밋 대조 없이 스키마·d3plot 시각만으로 재사용을 판정합니다."
+    fi
+    if [ -n "${UA_TOOL_BUILD}" ]; then
+        echo "  분석기 실행 파일: ${UA_TOOL_BUILD:0:12} — 커밋과 이 값이 모두 같은 산출물만 재사용합니다"
+    else
+        echo "  분석기 실행 파일: 신원 알 수 없음 — ${UA_TOOL_BUILD_REASON}"
+        echo "    실행 파일 대조 없이 스키마·커밋·d3plot 시각만으로 재사용을 판정합니다."
     fi
 }
 
@@ -444,6 +479,13 @@ outputs_are_current() {          # <결과dir> <마커파일> <스키마> <산�
         _stale_reason="분석기 커밋 ${got_commit:-없음} → ${UA_TOOL_COMMIT:-알 수 없음}"
         return 1
     fi
+    local got_build
+    got_build=$(_marker_field "${rd}/${marker}" analyzer_build)
+    if [ "${got_build}" != "${UA_TOOL_BUILD}" ]; then
+        _stale_reason="분석기 실행 파일 ${got_build:0:12}${got_build:+…} → ${UA_TOOL_BUILD:0:12}${UA_TOOL_BUILD:+…}"
+        [ -n "${got_build}" ] || _stale_reason="분석기 실행 파일 신원 없음(옛 마커) → ${UA_TOOL_BUILD:0:12}…"
+        return 1
+    fi
     if [ -n "${d3}" ] && [ -f "${d3}" ] && [ "${d3}" -nt "${rd}/${sentinel}" ]; then
         _stale_reason="d3plot 이 산출물보다 새로움 (재시뮬레이션)"
         return 1
@@ -451,12 +493,13 @@ outputs_are_current() {          # <결과dir> <마커파일> <스키마> <산�
     return 0
 }
 
-# 분석 성공 후 표식 기록. analyzer 값이 비면 "그때도 커밋을 알 수 없었다" 는 뜻이다
-# (모르는 것을 아는 척하지 않는다). 다음 실행에서 커밋을 알게 되면 값이 달라져 다시 돈다.
+# 분석 성공 후 표식 기록. analyzer / analyzer_build 값이 비면 "그때도 알 수 없었다" 는
+# 뜻이다(모르는 것을 아는 척하지 않는다). 다음 실행에서 알게 되면 값이 달라져 다시 돈다.
 write_marker() {                 # <결과dir> <마커파일> <스키마>
     {
         echo "schema=$3"
         echo "analyzer=${UA_TOOL_COMMIT}"
+        echo "analyzer_build=${UA_TOOL_BUILD}"
     } > "$1/$2"
 }
 

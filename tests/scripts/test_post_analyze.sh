@@ -292,6 +292,32 @@ else
     fails=$((fails + 1))
 fi
 
+# ============================================================
+# ⑩ 커밋 문자열이 같아도 실행 파일이 달라졌으면 다시 분석한다
+#    --capabilities 의 "version" 은 CMake **설정 시점**의 git describe 라서
+#    `cmake --build build --target unified_analyzer` 로만 다시 빌드하면 값이
+#    옛 설정 시점에 얼어붙는다(실측: 5커밋 전 값을 답했다). 커밋만 보면
+#    '값만 달라진 수정' 이 통째로 스킵된다.
+# ============================================================
+echo "[10] 같은 커밋 · 다른 실행 파일"
+T10="$W/t10"
+mk_tree "$T10" Run_x/d3plot
+mk_config "$T10"
+run_pa "$T10" --sphere-only
+chk "최초 분석 1회" 1 "$(n_calls ua)"
+run_pa "$T10" --sphere-only
+chk "같은 실행 파일이면 스킵" 0 "$(n_calls ua)"
+# 커밋 문자열(STUB_UA_COMMIT)은 그대로 둔 채 실행 파일 내용만 바꾼다 = 증분 빌드
+printf '# 값만 달라진 분석기 수정 흉내 — 커밋 문자열은 그대로다\n' >> "$BIN/unified_analyzer"
+run_pa "$T10" --sphere-only
+chk "실행 파일이 바뀌면 재분석" 1 "$(n_calls ua)"
+if grep -q "분석기 실행 파일" "$W/last_run.log"; then
+    echo "  OK  재분석 사유로 실행 파일 변경을 남긴다"
+else
+    echo "  NG  실행 파일 변경 사유가 화면에 없다"
+    fails=$((fails + 1))
+fi
+
 echo ""
 if [ "$fails" -gt 0 ]; then
     echo "[FAIL] 실패 ${fails} 건"
