@@ -4,11 +4,18 @@
     python3 tests/surface/verify_surface_stress_lasso.py <d3plot> <part_id|0> <direction> <angle> <surface_csv>
     예) ... d3plot 21 +z 45 out/surface/p21_top_stress.csv
 
-독립 규약 (C++ 코드를 재사용하지 않는다):
-  - 외피 = 대상 솔리드(파트 0 이면 전체)의 실제 면(사면체 삼각형 4, 쐐기·피라미드·육면체는
-    중복 절점을 접은 면) 중 한 번만 나오는 면
-  - 법선 = 대각선 외적, 방향은 요소 중심에서 멀어지는 쪽 (절점 순서 규약에 기대지 않음)
-  - 넓이 0 인 퇴화 면은 제외, 좌표는 float64 (float32 면 정확히 45° 인 면이 경계에서 떨어진다)
+이 도구가 대조군인 범위 — 여기만 독립이다:
+  - 응력 워드 추출(lasso 의 element_solid_stress 를 직접 읽는다)
+  - 방향 필터, 상태별 집계(vM 최대·최대 요소 ID)
+  - 좌표는 float64 (float32 면 정확히 45° 인 면이 경계에서 떨어진다)
+
+대조군이 **아닌** 범위 — src/analysis/SurfaceExtractor.cpp 와 같은 규약을 쓴다:
+  - 면 표(HEX_FACES)·사면체 판정·중복 절점 접기: solidFaceNodeSets 와 같은 규칙
+  - 법선(대각선 외적, 요소 중심 기준 뒤집기): computeFaceNormal 과 같은 규칙
+  두 구현이 같은 규약을 쓰므로, 규약 자체가 어떤 덱에서 틀리면 양쪽이 똑같이 틀리고
+  이 도구는 '일치' 로 통과한다. 그 위험을 줄이려고 규약 자체를 독립으로 검사한다 —
+  닫힌 솔리드 메시에서는 어떤 면도 3번 이상 나올 수 없다(reference() 의 다양체 검사).
+  면 위상까지 대조하려면 lasso 의 요소 종류 정보로 면을 따로 구성해야 한다.
 
 주의: lasso 는 두꺼운 셸 변수 개수가 헤더와 다른 덱(예: 배터리 덱)에서 상태를 잘못 읽는다.
       "n_tshell_vars != n_tshell_vars_computed" 경고가 나오면 이 도구로 대조하지 말 것.
@@ -59,6 +66,11 @@ def reference(d3plot_path, pid, ref_dir, angle):
             key = tuple(sorted(poly))
             count[key] = count.get(key, 0) + 1
             owner.setdefault(key, (e, poly))
+    # 면 위상 규약은 C++ 와 공유하므로 대조군이 못 된다. 규약 자체를 독립으로 본다 —
+    # 닫힌 솔리드 메시라면 한 면은 외피에서 1번, 내부에서 2번만 나온다. 3번 이상이면
+    # 면 표나 중복 절점 접기가 이 덱의 요소 규약과 맞지 않는다는 뜻이다.
+    non_manifold = sum(1 for c in count.values() if c > 2)
+
     ref = np.asarray(ref_dir, dtype=np.float64)
     ref /= np.linalg.norm(ref)
     cosang = np.cos(np.radians(angle))
@@ -91,7 +103,7 @@ def reference(d3plot_path, pid, ref_dir, angle):
         i = int(np.argmax(vm[k]))
         rows.append({"time": float(t), "vm_max": float(vm[k].max()), "vm_eid": int(eids[elems[i]]),
                      "vm_avg": float(vm[k].mean()), "sn_max": float(sn[k].max()), "sn_min": float(sn[k].min())})
-    return len(elems), rows
+    return len(elems), rows, non_manifold
 
 
 def main():
@@ -99,7 +111,12 @@ def main():
         print(__doc__)
         return 2
     d3plot_path, pid, dname, angle, csv_path = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4]), sys.argv[5]
-    n_faces, ref = reference(d3plot_path, pid, DIRS[dname], angle)
+    n_faces, ref, non_manifold = reference(d3plot_path, pid, DIRS[dname], angle)
+    if non_manifold:
+        print(f"[FAIL] 면이 3번 이상 나온 경우 {non_manifold}건 — 면 위상 규약이 이 덱의")
+        print("       요소 규약과 맞지 않습니다. C++ 와 이 도구가 같은 규약을 쓰므로")
+        print("       둘 다 틀린 외피를 만들고 있을 수 있어, 응력 대조는 뜻이 없습니다.")
+        return 1
     got = list(csv.DictReader(open(csv_path, newline="")))
     if len(got) != len(ref):
         print(f"[FAIL] 상태 수 불일치: CSV {len(got)} / 독립 {len(ref)}")
