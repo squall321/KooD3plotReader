@@ -25,6 +25,16 @@
 namespace kood3plot {
 namespace analysis {
 
+/// CSV 수치 표기 — **std::fixed 를 쓰면 안 된다**. 아래 jnum() 과 같은 정책
+/// (유효숫자 기준)이고, examples/unified_analyzer.cpp 의 csvnum 과도 같다.
+/// 절대 8자리 고정은 1e-8 미만을 "0.00000000" 으로 지워 **진짜 0 과 구분되지
+/// 않게** 만들고, µs 급 시각 간격을 뭉개 같은 시각이 여러 줄 찍히게 한다
+/// (np.diff(t)=0 → FFT/SRS 의 dt 가 깨진다). 게다가 한 번 건 std::fixed 는
+/// 같은 스트림의 뒤 열 전부에 계속 걸린다.
+inline std::ostream& csvnum(std::ostream& os) {
+    return os << std::defaultfloat << std::setprecision(10);
+}
+
 // ============================================================
 // Time Series Data Structures
 // ============================================================
@@ -440,7 +450,7 @@ struct AnalysisResult {
             for (const auto& surf : surface_analysis) {
                 if (t < surf.data.size()) {
                     if (first) {
-                        file << std::fixed << std::setprecision(8) << surf.data[t].time;
+                        file << csvnum << surf.data[t].time;
                         first = false;
                     }
                     file << "," << surf.data[t].normal_stress_max;
@@ -878,7 +888,7 @@ protected:
             for (const auto& part : stats) {
                 if (t < part.data.size()) {
                     if (first) {
-                        file << std::fixed << std::setprecision(8) << part.data[t].time;
+                        file << csvnum << part.data[t].time;
                         first = false;
                     }
                     file << "," << part.data[t].max_value;

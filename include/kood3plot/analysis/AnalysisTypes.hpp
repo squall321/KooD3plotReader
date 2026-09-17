@@ -1020,7 +1020,7 @@ struct ExtendedAnalysisResult : public AnalysisResult {
             for (const auto& part : motion_analysis) {
                 if (t < part.data.size()) {
                     if (first) {
-                        file << std::fixed << std::setprecision(8) << part.data[t].time;
+                        file << csvnum << part.data[t].time;
                         first = false;
                     }
                     file << "," << part.data[t].avg_displacement_magnitude;
@@ -1066,7 +1066,7 @@ struct ExtendedAnalysisResult : public AnalysisResult {
             for (const auto& surf : surface_strain_analysis) {
                 if (t < surf.data.size()) {
                     if (first) {
-                        file << std::fixed << std::setprecision(8) << surf.data[t].time;
+                        file << csvnum << surf.data[t].time;
                         first = false;
                     }
                     file << "," << surf.data[t].normal_strain_max;

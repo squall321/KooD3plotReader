@@ -37,17 +37,9 @@ namespace fs = std::filesystem;
 using namespace kood3plot;
 using namespace kood3plot::analysis;
 
-/// CSV 수치 표기 — **std::fixed 를 쓰면 안 된다**. AnalysisResult.hpp 의 jnum()
-/// 과 같은 정책(유효숫자 기준)이다.
-/// 소수 6자리 고정은 절대 오차 1e-6 이다. 시각이 초 단위이므로 µs 간격 출력이
-/// 통째로 뭉개져 같은 시각이 여러 줄 찍히고(np.diff(t)=0 → FFT/SRS 의 dt 가 깨진다),
-/// 5e-7 미만 변형률·SI 덱 변위는 "0.000000" 이 되어 **진짜 0 과 구분되지 않는다**.
-/// 유효숫자 기준(defaultfloat)이면 필요할 때만 지수 표기가 되고, 지수 표기는
-/// Python 소비처의 float() 가 그대로 읽는다.
-static constexpr int kCSVPrecision = 10;
-inline std::ostream& csvnum(std::ostream& os) {
-    return os << std::defaultfloat << std::setprecision(kCSVPrecision);
-}
+/// CSV 수치 표기(csvnum)는 AnalysisResult.hpp 에 있다 — 이 파일에만 두면
+/// 같은 산출물 계층의 다른 CSV 작성기들이 std::fixed 로 남는다(실제로 그랬다).
+/// 정책과 이유는 그 정의 위 주석 참고.
 
 /**
  * @brief Write part time series to CSV

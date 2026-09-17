@@ -68,6 +68,11 @@ add_executable(test_element_quality_downsample test_element_quality_downsample.c
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)
 target_include_directories(test_element_quality_downsample PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# 헤더 안 CSV 작성기의 수치 표기 tests
+add_executable(test_csv_notation test_csv_notation.cpp)
+target_link_libraries(test_csv_notation PRIVATE kood3plot)
+target_include_directories(test_csv_notation PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # KeywordSetParser tests
 add_executable(test_keyword_set_parser test_keyword_set_parser.cpp)
 target_link_libraries(test_keyword_set_parser PRIVATE kood3plot)
