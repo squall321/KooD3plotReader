@@ -2146,8 +2146,15 @@ def _find_deep_output_dir(run_dir: Path, test_dir: Path) -> Path | None:
     return None
 
 
-def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
+def _discover_test_impact_runs(
+    test_dir: Path,
+    skipped: list[dict] | None = None,
+) -> list[dict]:
     """List DOE runs with their step_config/json + d3plot path.
+
+    ``skipped`` 를 주면 건너뛴 ``Run_*`` 디렉터리를 ``{"run": name, "reason": ...}``
+    로 담아 돌려준다. 조용히 빼면 보고서의 n_positions 가 DOE 전체인 것처럼
+    읽힌다 (대기·취소·Output 삭제된 런이 아예 없었던 것이 된다).
 
     Two layouts are scanned:
 
@@ -2172,6 +2179,11 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
     if not output_dir.exists():
         return []
 
+    def _skip(run_path: Path, reason: str) -> None:
+        if skipped is not None:
+            skipped.append({"run": run_path.name, "path": str(run_path),
+                            "reason": reason})
+
     items: list[dict] = []
     for run in sorted(output_dir.iterdir()):
         if not run.is_dir() or not run.name.startswith("Run_"):
@@ -2179,9 +2191,11 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
         d3plot = run / "Output" / "d3plot"
         cfg_path = run / "step_config.txt"
         if not cfg_path.exists():
+            _skip(run, "step_config.txt 없음")
             continue
         deep_dir = _find_deep_output_dir(run, test_dir)
         if not d3plot.exists() and deep_dir is None:
+            _skip(run, "d3plot 도 재사용 가능한 deep_report 산출물도 없음")
             continue
         cfg = _parse_step_config_kv(cfg_path)
         # *Description = "DOE001 Step1 IMPACT P_001_001"
@@ -2257,6 +2271,7 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
                 d3plot = run / "Output" / "d3plot"
                 deep_dir = _find_deep_output_dir(run, test_dir)
                 if not d3plot.exists() and deep_dir is None:
+                    _skip(run, "d3plot 도 재사용 가능한 deep_report 산출물도 없음")
                     continue
                 cfg_path = run / "step_config.txt"
                 json_path = run / "DropWeightImpactTestSet.json"
@@ -2290,6 +2305,7 @@ def _discover_test_impact_runs(test_dir: Path) -> list[dict]:
                     config = None
                     src_path = json_path
                 else:
+                    _skip(run, "step_config.txt 도 DropWeightImpactTestSet.json 도 없음")
                     continue
 
                 if doe_idx and doe_idx > 0:
@@ -2495,12 +2511,16 @@ def load_partial_impact_doe_report(
     scenario = load_scenario(scenario_path)
     project_name = scenario.get("project_name", test_dir.name) if scenario else test_dir.name
 
-    runs = _discover_test_impact_runs(test_dir)
+    skipped_runs: list[dict] = []
+    runs = _discover_test_impact_runs(test_dir, skipped=skipped_runs)
     if not runs:
         raise FileNotFoundError(
             f"No usable runs found under {test_dir/'output'}/Run_* (need d3plot + step_config.txt)"
         )
-    print(f"[doe] {project_name}: {len(runs)} runs discovered")
+    print(f"[doe] {project_name}: {len(runs)} runs discovered"
+          + (f" ({len(skipped_runs)} skipped)" if skipped_runs else ""))
+    for _sk in skipped_runs:
+        print(f"[doe]   SKIP {_sk['run']}: {_sk['reason']}")
 
     # Process each run as its own single-d3plot report, in parallel.
     import tempfile
@@ -2536,6 +2556,12 @@ def load_partial_impact_doe_report(
     # 구조화 로드 진단 (P1b): 워커 실패 + sub-report 별 binout 오류 등을
     # 집계해 리포트 load_issues 로 — stdout 소멸 금지.
     doe_load_issues: list[dict] = []
+    # 발견 단계에서 뺀 Run_* 를 기록 — 조용히 빼면 n_positions 가 DOE 전체로
+    # 읽히고 '실패한 런 없음' 이 된다.
+    for _sk in skipped_runs:
+        doe_load_issues.append({
+            "kind": "run-skipped", "pos_name": _sk["run"],
+            "exc_class": None, "msg": _sk["reason"]})
 
     # per-run 증분 캐시 (P5-2): fingerprint 일치 run 은 pickle 로드로 대체.
     fingerprints: list[str | None] = [None] * len(runs)
@@ -2797,6 +2823,8 @@ def load_partial_impact_doe_report(
         "doe_kind":      "partial_impact_multi_position",
         "n_positions":   len(positions),
         "n_failed":      n_failed,
+        # 발견 단계에서 뺀 런 — n_positions 가 DOE 전체가 아님을 읽을 수 있게.
+        "n_skipped":     len(skipped_runs),
         "n_parts":       len(parts),
         "yield_stress_by_part": yield_stress_by_part,
     })
@@ -2810,6 +2838,19 @@ def load_partial_impact_doe_report(
                 "ny": grid.get("ny"),
                 "bbox": grid.get("bbox"),
             }
+            # 시나리오가 선언한 격자 칸 수와 실제 위치 수가 다르면 알린다.
+            try:
+                _expect = int(grid.get("nx") or 0) * int(grid.get("ny") or 0)
+            except (TypeError, ValueError):
+                _expect = 0
+            if _expect > 0 and _expect != len(positions):
+                doe_load_issues.append({
+                    "kind": "doe-grid-mismatch", "pos_name": None,
+                    "exc_class": None,
+                    "msg": f"시나리오 격자 {grid.get('nx')}×{grid.get('ny')} "
+                           f"= {_expect} 칸인데 보고서에 실린 위치는 "
+                           f"{len(positions)} 개다 (발견 {len(runs)} · 건너뜀 "
+                           f"{len(skipped_runs)} · 실패 {n_failed})"})
 
     return ImpactReport(
         project_name=project_name,
@@ -2826,7 +2867,10 @@ def load_partial_impact_doe_report(
         doe_config={
             "kind": "partial_impact_multi_position",
             "source": str(test_dir),
-            "n_runs": len(runs),
+            # 발견된 런 + 발견 단계에서 뺀 런 = 디스크에 있던 Run_* 전체.
+            "n_runs": len(runs) + len(skipped_runs),
+            "n_discovered": len(runs),
+            "n_skipped": len(skipped_runs),
         },
         test_dir=str(test_dir),
         impactor_trajectories=impactor_trajectories,
