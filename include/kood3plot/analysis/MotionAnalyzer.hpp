@@ -132,6 +132,9 @@ private:
     // Internal methods
     void buildNodeToPartMapping();
     Vec3 computeAverageDisplacement(int32_t part_id, const std::vector<double>& displacements);
+    /// 절점당 3성분 배열(기록된 속도·가속도)을 파트 절점들에 대해 평균낸다.
+    /// computeAverageDisplacement 와 달리 초기좌표를 빼지 않는다.
+    Vec3 computeAverageNodalVector(int32_t part_id, const std::vector<double>& values);
     std::pair<double, int32_t> computeMaxDisplacement(int32_t part_id, const std::vector<double>& displacements);
 };
 

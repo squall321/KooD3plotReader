@@ -54,11 +54,33 @@ bool MotionAnalyzer::initialize() {
         }
         std::sort(active_parts_.begin(), active_parts_.end());
     } else {
-        active_parts_ = part_ids_;
+        // 요청한 파트가 이 메시에 없으면 걸러낸다. 예전에는 그대로 받아서
+        // computeAverageDisplacement/computeMaxDisplacement 가 0 을 돌려주고,
+        // 상태마다 전 0 인 행이 part_<id>_motion.csv 에 쌓였다. 보고서는
+        // 그걸 "움직이지 않은 파트" 로 읽는다 — 관통량 0, 속도 0 인 충격체가
+        // 그렇게 나왔다. 없는 것은 없다고 해야 한다.
+        std::vector<int32_t> missing;
+        for (int32_t pid : part_ids_) {
+            auto it = part_node_indices_.find(pid);
+            if (it == part_node_indices_.end() || it->second.empty()) {
+                missing.push_back(pid);
+            } else {
+                active_parts_.push_back(pid);
+            }
+        }
+        if (!missing.empty()) {
+            std::string msg = "요청한 파트에 절점이 없어 제외: ";
+            for (size_t i = 0; i < missing.size(); ++i) {
+                if (i > 0) msg += ", ";
+                msg += std::to_string(missing[i]);
+            }
+            last_error_ = msg;
+            std::cerr << "[motion] " << msg << std::endl;
+        }
     }
 
     if (active_parts_.empty()) {
-        last_error_ = "No parts to analyze";
+        if (last_error_.empty()) last_error_ = "No parts to analyze";
         return false;
     }
 
@@ -194,6 +216,38 @@ Vec3 MotionAnalyzer::computeAverageDisplacement(int32_t part_id, const std::vect
     return sum;
 }
 
+Vec3 MotionAnalyzer::computeAverageNodalVector(int32_t part_id, const std::vector<double>& values) {
+    auto it = part_node_indices_.find(part_id);
+    if (it == part_node_indices_.end() || it->second.empty()) {
+        return Vec3(0, 0, 0);
+    }
+
+    Vec3 sum(0, 0, 0);
+    size_t count = 0;
+
+    for (size_t node_idx : it->second) {
+        if (node_idx * 3 + 2 >= values.size()) continue;
+        const double vx = values[node_idx * 3 + 0];
+        const double vy = values[node_idx * 3 + 1];
+        const double vz = values[node_idx * 3 + 2];
+        // 삭제된 요소가 남긴 자유 절점은 inf/nan 이 된다 — 평균을 오염시키지
+        // 않도록 뺀다 (computeAverageDisplacement 와 같은 이유).
+        if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(vz)) continue;
+        sum.x += vx;
+        sum.y += vy;
+        sum.z += vz;
+        count++;
+    }
+
+    if (count > 0) {
+        sum.x /= static_cast<double>(count);
+        sum.y /= static_cast<double>(count);
+        sum.z /= static_cast<double>(count);
+    }
+
+    return sum;
+}
+
 std::pair<double, int32_t> MotionAnalyzer::computeMaxDisplacement(int32_t part_id, const std::vector<double>& displacements) {
     auto it = part_node_indices_.find(part_id);
     if (it == part_node_indices_.end() || it->second.empty()) {
@@ -220,7 +274,14 @@ std::pair<double, int32_t> MotionAnalyzer::computeMaxDisplacement(int32_t part_i
 
             if (disp > max_disp) {
                 max_disp = disp;
-                max_node_id = static_cast<int32_t>(node_idx + 1);  // 1-based
+                // 사용자 절점 ID 를 낸다. mesh_.nodes[i].id 는 NARBS 가 있으면
+                // 실제 절점 ID, 없으면 내부 순번(i+1) 이다. 예전에는 무조건
+                // node_idx+1 을 썼는데, 절점 ID 가 비항등인 덱(1..338 뒤에
+                // 1001 부터 이어지는 식)에서는 그 순번도 실재하는 다른 절점
+                // 번호라, 사용자가 엉뚱한 절점을 찾아보게 됐다.
+                max_node_id = (node_idx < mesh_.nodes.size())
+                              ? mesh_.nodes[node_idx].id
+                              : static_cast<int32_t>(node_idx + 1);
             }
         }
     }
@@ -241,6 +302,12 @@ void MotionAnalyzer::processState(const data::StateData& state) {
     if (displacements.empty()) {
         return;
     }
+
+    // d3plot 이 절점 속도(IV)·가속도(IA)를 기록했으면 그것을 쓴다. 차분은
+    // 첫 상태에서 정의되지 않아 0 이 나가는데, *INITIAL_VELOCITY 낙하처럼
+    // t=0 속도가 결과의 핵심인 해석에서 그 0 은 그냥 틀린 값이다.
+    const bool have_recorded_velocity = !state.node_velocities.empty();
+    const bool have_recorded_acceleration = !state.node_accelerations.empty();
 
     // Process each part (parallel — each part is independent within a state)
     const size_t num_active = active_parts_.size();
@@ -263,8 +330,11 @@ void MotionAnalyzer::processState(const data::StateData& state) {
         point.max_displacement_magnitude = max_disp;
         point.max_displacement_node_id = max_node_id;
 
-        // Compute velocity (numerical differentiation)
-        if (state_count_ > 0 && dt > 0) {
+        // Velocity — 기록값 우선, 없으면 차분
+        if (have_recorded_velocity) {
+            point.avg_velocity = computeAverageNodalVector(part_id, state.node_velocities);
+            point.avg_velocity_magnitude = point.avg_velocity.magnitude();
+        } else if (state_count_ > 0 && dt > 0) {
             Vec3 disp_diff = point.avg_displacement - prev_avg_displacements_[i];
             point.avg_velocity.x = disp_diff.x / dt;
             point.avg_velocity.y = disp_diff.y / dt;
@@ -272,8 +342,11 @@ void MotionAnalyzer::processState(const data::StateData& state) {
             point.avg_velocity_magnitude = point.avg_velocity.magnitude();
         }
 
-        // Compute acceleration (numerical differentiation of velocity)
-        if (state_count_ > 1 && dt > 0) {
+        // Acceleration — 기록값 우선, 없으면 속도의 차분
+        if (have_recorded_acceleration) {
+            point.avg_acceleration = computeAverageNodalVector(part_id, state.node_accelerations);
+            point.avg_acceleration_magnitude = point.avg_acceleration.magnitude();
+        } else if (state_count_ > 1 && dt > 0) {
             Vec3 vel_diff = point.avg_velocity - prev_avg_velocities_[i];
             point.avg_acceleration.x = vel_diff.x / dt;
             point.avg_acceleration.y = vel_diff.y / dt;
