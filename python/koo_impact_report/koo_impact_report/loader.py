@@ -1112,7 +1112,8 @@ def _reuse_staleness(d3plot_path: Path, work_dir: Path) -> str | None:
     """재사용하려는 deep 산출물이 입력보다 오래됐으면 사유, 아니면 None.
 
     d3plot 이 없으면(=지워짐) 비교 자체가 불가능하므로 None — 그때는 재사용이
-    유일한 길이고, 호출부가 그 사실을 따로 기록한다.
+    유일한 길이고, 호출부가 `_reuse` 직전에 부재를 따로 검사해
+    deep-output-unverified load_issue 를 남긴다 (여기서는 판정하지 않는다).
     """
     try:
         if not d3plot_path.exists():
@@ -1173,24 +1174,25 @@ def load_per_part_motions(
     # 존재만 보면 안 된다 — 같은 자리에서 다시 푼 런(rerun.sh)은 d3plot 이
     # analysis_result.json 보다 새롭고, 그러면 한 위치에 옛 peak_g/응력/motion 과
     # 새 에너지흐름·solver_quality 가 섞인다. 오래됐으면 다시 돌린다.
-    _stale_reason = None
     if _reuse:
-        _stale_reason = _reuse_staleness(Path(d3plot_path), work_dir)
-        if _stale_reason is not None:
-            if Path(d3plot_path).exists():
+        if not Path(d3plot_path).exists():
+            # d3plot 이 없으면 신선도를 판정할 길 자체가 없다(_reuse_staleness
+            # 도 None 을 돌려준다). 재사용이 유일한 길이지만 '검증하지 못했다'
+            # 는 사실은 조용히 사라지면 안 된다.
+            print(f"[loader] WARN  reusing UNVERIFIED deep_report output — "
+                  f"d3plot 이 없어 신선도를 확인할 수 없다: {work_dir}")
+            if issues is not None:
+                issues.append({
+                    "kind": "deep-output-unverified", "pos_name": None,
+                    "exc_class": None,
+                    "msg": f"{work_dir}: d3plot 이 없어 옛 deep 산출물이 지금 "
+                           f"입력에서 나온 것인지 확인하지 못하고 그대로 썼다"})
+        else:
+            _stale_reason = _reuse_staleness(Path(d3plot_path), work_dir)
+            if _stale_reason is not None:
                 print(f"[loader] deep_report output is stale ({_stale_reason}) — "
                       f"rerunning unified_analyzer")
                 _reuse = False
-            else:
-                # d3plot 이 없으니 다시 돌릴 수도 없다. 재사용하되 사유를 남긴다.
-                print(f"[loader] WARN  reusing STALE deep_report output "
-                      f"({_stale_reason}) — d3plot 이 없어 재생성 불가")
-                if issues is not None:
-                    issues.append({
-                        "kind": "deep-output-stale", "pos_name": None,
-                        "exc_class": None,
-                        "msg": f"{work_dir}: {_stale_reason} — d3plot 이 없어 "
-                               f"재생성하지 못하고 옛 산출물을 그대로 썼다"})
     d3plot_result = None
     if _reuse:
         try:

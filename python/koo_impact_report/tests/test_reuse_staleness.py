@@ -63,7 +63,12 @@ def test_stale_motion_csv_is_caught(tmp_path: Path):
 
 
 def test_missing_d3plot_cannot_be_judged(tmp_path: Path):
-    """d3plot 이 지워졌으면 비교 불가 — None (호출부가 따로 기록한다)."""
+    """d3plot 이 지워졌으면 비교 불가 — None.
+
+    '그때는 호출부가 기록한다' 는 약속이 실제로 지켜지는지는
+    tests/test_reuse_unverified.py 가 호출부를 돌려 확인한다. 여기서만
+    None 을 확인하면 죽은 분기를 고정시킬 뿐이다.
+    """
     _, work = _layout(tmp_path, d3_ns=1_000_000_002_000_000_000,
                       out_ns=1_000_000_001_000_000_000)
     assert loader._reuse_staleness(tmp_path / "Output" / "gone", work) is None
