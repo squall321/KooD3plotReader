@@ -225,32 +225,33 @@ def _to_int(s: str, default: int = 0) -> int:
 
 
 # ---------------------------------------------------------------------------
-# MAT card definitions: which field index has SIGY, FAIL
-# Each entry: (mat_number, mat_name, sigy_card, sigy_field, fail_card, fail_field)
+# MAT card definitions: which card line / field index has SIGY, FAIL
 # card = which data line (1-based), field = which column (0-based)
+#
+# MAT 종류마다 카드 배치가 다르다. MAT_024 배치를 전부에 갖다 쓰면
+# 포아송비(015)·경화규칙 플래그(036)·Cowper-Symonds 계수(124)를 항복응력
+# 으로, BETA(003)·EPSO(098)를 파단변형률로 읽는다. 아래 배치는
+# LS-DYNA R16 키워드 매뉴얼 Vol.II 에서 확인한 것이다.
 # ---------------------------------------------------------------------------
 _MAT_SIGY_MAP: dict[int, tuple[int, int]] = {
     # MAT_NUMBER: (card_line, field_index) for SIGY
-    # Card 1 layout: MID(0) RO(1) E(2) PR(3) SIGY(4) ETAN(5) FAIL(6) TDEL(7)
-    3:   (1, 4),  # MAT_PLASTIC_KINEMATIC: Card 1, field 4
-    15:  (1, 4),  # MAT_JOHNSON_COOK: Card 1, field 4 (A≈SIGY)
-    18:  (1, 4),  # MAT_POWER_LAW_PLASTICITY: Card 1, field 4 (K)
-    24:  (1, 4),  # MAT_PIECEWISE_LINEAR_PLASTICITY: Card 1, field 4
-    36:  (1, 4),  # MAT_3-PARAMETER_BARLAT: Card 1, field 4
-    98:  (1, 4),  # MAT_SIMPLIFIED_JOHNSON_COOK: Card 1, field 4
-    123: (1, 4),  # MAT_MODIFIED_PIECEWISE_LINEAR_PLASTICITY
-    124: (1, 4),  # MAT_PLASTICITY_COMPRESSION_TENSION
-    # For elastic materials, there's no yield
+    3:   (1, 4),  # 003 card1: MID RO E PR SIGY ETAN BETA
+    15:  (2, 0),  # 015 card1: MID RO G E PR DTF VP RATEOP / card2: A B N C ...
+    18:  (2, 0),  # 018 card1: MID RO E PR K N SRC SRP / card2: SIGY VP EPSF
+    24:  (1, 4),  # 024 card1: MID RO E PR SIGY ETAN FAIL TDEL
+    98:  (2, 0),  # 098 card1: MID RO E PR VP / card2: A B N C PSFAIL ...
+    123: (1, 4),  # 123 card1: MID RO E PR SIGY ETAN FAIL TDEL
+    # 036(3-PARAMETER_BARLAT)·124(PLASTICITY_COMPRESSION_TENSION)는 스칼라
+    # 항복응력이 없다 (경화규칙/하중곡선으로 준다) — 이웃 필드를 주워오지 않는다.
 }
 
 _MAT_FAIL_MAP: dict[int, tuple[int, int]] = {
     # MAT_NUMBER: (card_line, field_index) for FAIL (failure strain)
-    # Card 1 layout: MID(0) RO(1) E(2) PR(3) SIGY(4) ETAN(5) FAIL(6) TDEL(7)
-    3:   (1, 6),  # MAT_PLASTIC_KINEMATIC: Card 1, field 6
-    24:  (1, 6),  # MAT_PIECEWISE_LINEAR_PLASTICITY: Card 1, field 6
-    98:  (1, 6),  # MAT_SIMPLIFIED_JOHNSON_COOK: Card 1, field 6
+    3:   (2, 2),  # 003 card2: SRC SRP FS VP
+    24:  (1, 6),  # 024 card1 field 6 = FAIL
+    98:  (2, 4),  # 098 card2 field 4 = PSFAIL
     123: (1, 6),
-    124: (1, 6),
+    124: (1, 6),  # 124 card1: MID RO E PR C P FAIL TDEL
 }
 
 
@@ -358,8 +359,22 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
     if i >= len(lines):
         return i
 
+    # 이 MAT 의 데이터 카드를 먼저 모은다. 카드 사이의 '$#' 주석 줄을 세면
+    # 카드 2 를 주석에서 읽게 된다 (LS-PrePost 출력이 그렇다).
+    cards = _collect_cards(lines, i, 4)
+    if not cards:
+        return i + 1
+
+    def card_field(card_line: int, field_idx: int) -> float | None:
+        if card_line - 1 >= len(cards):
+            return None
+        fields = _read_fields(cards[card_line - 1], 8)
+        if field_idx >= len(fields):
+            return None
+        return _to_float(fields[field_idx])
+
     # Card 1: always starts with MID, RO, E, PR, ...
-    card1 = _read_fields(lines[i], 8)
+    card1 = _read_fields(cards[0], 8)
     mid = _to_int(card1[0])
 
     if mid <= 0:
@@ -377,31 +392,16 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
     # Read SIGY from known position
     sigy_pos = _MAT_SIGY_MAP.get(mat_number)
     if sigy_pos:
-        card_line, field_idx = sigy_pos
-        if card_line == 1:
-            if field_idx < len(card1):
-                mat.yield_stress = _to_float(card1[field_idx])
-        else:
-            # Need to read additional card lines
-            target_i = i + card_line - 1
-            if target_i < len(lines):
-                card_n = _read_fields(lines[target_i], 8)
-                if field_idx < len(card_n):
-                    mat.yield_stress = _to_float(card_n[field_idx])
+        v = card_field(*sigy_pos)
+        if v is not None:
+            mat.yield_stress = v
 
     # Read FAIL from known position
     fail_pos = _MAT_FAIL_MAP.get(mat_number)
     if fail_pos:
-        card_line, field_idx = fail_pos
-        if card_line == 1:
-            if field_idx < len(card1):
-                mat.failure_strain = _to_float(card1[field_idx])
-        else:
-            target_i = i + card_line - 1
-            if target_i < len(lines):
-                card_n = _read_fields(lines[target_i], 8)
-                if field_idx < len(card_n):
-                    mat.failure_strain = _to_float(card_n[field_idx])
+        v = card_field(*fail_pos)
+        if v is not None:
+            mat.failure_strain = v
 
     # Read ETAN if present (field 5 for most plasticity models)
     if mat_number in (3, 24, 98, 123) and len(card1) > 5:
@@ -419,6 +419,22 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
         i += 1
 
     return i
+
+
+def _collect_cards(lines: list[str], i: int, max_cards: int) -> list[str]:
+    """i 부터 다음 키워드('*') 전까지의 데이터 카드를 최대 max_cards 개 모은다.
+
+    '$' 주석 줄과 빈 줄은 카드로 세지 않는다.
+    """
+    cards: list[str] = []
+    while i < len(lines) and len(cards) < max_cards:
+        stripped = lines[i].strip()
+        if stripped.startswith("*"):
+            break
+        if stripped and not stripped.startswith("$"):
+            cards.append(lines[i])
+        i += 1
+    return cards
 
 
 def _mat_name_to_number(name: str, full_line: str) -> int:
