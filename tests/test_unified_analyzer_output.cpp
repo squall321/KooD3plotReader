@@ -419,6 +419,28 @@ static void test_completion_marker() {
     chk("분석기 버전이 다르면 미완료", !isAnalysisCompleted(rd, d3plot));
 }
 
+/// 재귀 배치 종료코드 — 스캔 불완전은 분석 실패와 구분돼야 한다.
+/// scripts/analyze_and_report.sh 는 `set -e` 아래에서 --recursive 를 부르므로,
+/// 읽기 권한 없는 폴더 하나로 1 을 내면 분석이 다 끝났는데도 보고서 단계가
+/// 통째로 막힌다.
+static void test_recursive_exit_code() {
+    std::cout << "재귀 배치 종료코드:\n";
+    const fs::path base = makeTree();
+    const fs::path root = base / "output";
+    fs::create_directories(root / "locked");
+    fs::permissions(root / "locked", fs::perms::none);
+
+    UnifiedConfig cfg;
+    cfg.verbose = false;
+    const int rc = runRecursiveAnalysis(root, base / "analysis_results", cfg,
+                                        "cfg.yaml", /*analysis_only=*/true,
+                                        /*skip_existing=*/false);
+    fs::permissions(root / "locked", fs::perms::owner_all);   // 정리용
+
+    chk("분석 실패가 없으면 1 이 아니다", rc != 1, "rc=" + std::to_string(rc));
+    chk("스캔 불완전은 별도 코드 2 로 알린다", rc == 2, "rc=" + std::to_string(rc));
+}
+
 }  // namespace uatest
 
 int main() {
@@ -436,6 +458,7 @@ int main() {
     uatest::test_result_folder_name_stays_inside_root();
     uatest::test_result_folder_collision_detected();
     uatest::test_completion_marker();
+    uatest::test_recursive_exit_code();
 
     std::cout << "\n========================================\n";
     if (uatest::g_fails) {

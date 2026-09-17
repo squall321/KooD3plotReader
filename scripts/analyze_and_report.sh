@@ -171,11 +171,20 @@ if [ "$DO_ANALYZE" = true ]; then
     echo ""
     T_START=$SECONDS
 
+    # 종료코드 2 = 분석은 다 됐지만 스캔이 불완전(못 읽은 하위 트리). 경고로만
+    # 남기고 보고서 단계로 넘어간다. 1 은 실제 분석 실패라 set -e 로 멈춘다.
+    ANALYZE_RC=0
     "$ANALYZER" \
         --recursive "$OUTPUT_DIR" \
         --config "$CONFIG" \
         --output "$ANALYSIS_DIR" \
-        $SKIP_EXISTING
+        $SKIP_EXISTING || ANALYZE_RC=$?
+
+    if [ "$ANALYZE_RC" -eq 2 ]; then
+        echo -e "  ${YELLOW}경고: 스캔이 불완전하다 (못 읽은 하위 트리) — 위 목록 참고${NC}"
+    elif [ "$ANALYZE_RC" -ne 0 ]; then
+        exit "$ANALYZE_RC"
+    fi
 
     T_ANALYZE=$((SECONDS - T_START))
     N_RESULTS=$(find "$ANALYSIS_DIR" -maxdepth 2 -name "analysis_result.json" -type f 2>/dev/null | wc -l)

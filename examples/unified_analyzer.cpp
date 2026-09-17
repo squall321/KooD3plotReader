@@ -850,7 +850,8 @@ int runRecursiveAnalysis(const fs::path& root_dir,
 
     if (d3plot_dirs.empty()) {
         std::cout << "No d3plot files found.\n";
-        return unreadable.empty() ? 0 : 1;
+        // 스캔 불완전은 분석 실패(1)와 구분되는 별도 코드 2 로 알린다 — 아래 참고.
+        return unreadable.empty() ? 0 : 2;
     }
 
     std::cout << "Found " << d3plot_dirs.size() << " d3plot file(s):\n";
@@ -926,7 +927,13 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     std::cout << "Results saved to: " << output_root << "\n";
     std::cout << "=============================================================\n";
 
-    return (fail_count > 0 || !unreadable.empty()) ? 1 : 0;
+    // 종료코드: 0 = 전부 정상, 1 = 분석이 실패한 런이 있음,
+    //          2 = 분석은 다 됐지만 스캔이 불완전함(못 읽은 하위 트리).
+    // 둘을 같은 1 로 묶으면, 읽기 권한 없는 폴더 하나로 `set -e` 파이프라인
+    // (scripts/analyze_and_report.sh)이 보고서 단계 전에 죽는다. 그렇다고 0 을
+    // 내면 목록이 불완전했다는 사실이 값에서 사라진다 — 그래서 코드를 나눈다.
+    if (fail_count > 0) return 1;
+    return unreadable.empty() ? 0 : 2;
 }
 
 /**
@@ -962,6 +969,12 @@ void printUsage(const char* prog_name) {
     std::cout << "  Applies same analysis config to each d3plot.\n";
     std::cout << "  Creates result folders mirroring source directory structure.\n";
     std::cout << "  Use --skip-existing for incremental analysis.\n\n";
+
+    std::cout << "Exit codes:\n";
+    std::cout << "  0  all runs succeeded\n";
+    std::cout << "  1  at least one run failed (or a fatal error)\n";
+    std::cout << "  2  recursive mode only: all runs succeeded but the scan was incomplete\n";
+    std::cout << "     (unreadable subtrees) — results on disk are valid\n\n";
 
     std::cout << "Features:\n";
     std::cout << "  - Job-based analysis configuration\n";
