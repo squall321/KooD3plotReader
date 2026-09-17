@@ -375,7 +375,8 @@ def _build_restitution_map(report):
         })
 
     # Device geometry for aspect-ratio honouring on the heatmap
-    device_geom = getattr(report.sim_params, "device_geometry", None) if hasattr(report, "sim_params") else None
+    # sim_params 는 dict — getattr 로 읽으면 언제나 None 이다.
+    device_geom = (getattr(report, "sim_params", None) or {}).get("device_geometry")
     geom_payload = None
     if device_geom is not None:
         geom_payload = {
@@ -386,7 +387,7 @@ def _build_restitution_map(report):
 
     grid_info = None
     try:
-        g = getattr(report.sim_params, "grid", None)
+        g = (getattr(report, "sim_params", None) or {}).get("grid")
         if g is not None:
             grid_info = {
                 "nx": int(_safe_attr(g, "nx", 5) or 5),

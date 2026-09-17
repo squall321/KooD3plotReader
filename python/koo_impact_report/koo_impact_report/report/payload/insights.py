@@ -181,10 +181,12 @@ def _build_damage_index(report):
 
     parts = list(getattr(report, "parts", []) or [])
     results = list(getattr(report, "results", []) or [])
+    # sim_params 는 dict 다 — getattr 로 읽으면 언제나 None 이라 항복 기반
+    # DI 가 한 번도 쓰이지 않고 조용히 composite 로 떨어졌다.
     sim_params = getattr(report, "sim_params", None)
     yield_map = {}
     if sim_params is not None:
-        ym = getattr(sim_params, "yield_stress_by_part", None) or {}
+        ym = (sim_params or {}).get("yield_stress_by_part") or {}
         try:
             yield_map = {int(k): float(v) for k, v in ym.items()
                          if v is not None and np.isfinite(float(v)) and float(v) > 0.0}
@@ -257,7 +259,8 @@ def _build_damage_index(report):
                 "di": round(float(di), 4),
                 "di_source": "yield",
                 "yield_stress": round(float(ys), 2),
-                "peak_pos_id": int(peak_pos) if peak_pos is not None else None,
+                # DOE 위치 id 는 'F5_DOE_001' 같은 문자열이라 int() 로 터진다.
+                "peak_pos_id": _pid_cast(peak_pos) if peak_pos is not None else None,
                 "n_positions_above_yield": int(n_above),
                 "n_positions": int(len(lst)),
             })
@@ -355,7 +358,7 @@ def _build_damage_index(report):
 def _build_rebound_field(report):
     import numpy as np
 
-    grid = getattr(report.sim_params, "grid", None) or {}
+    grid = (getattr(report, "sim_params", None) or {}).get("grid") or {}
     bbox = grid.get("bbox") if isinstance(grid, dict) else None
     if not bbox:
         # derive from positions if missing
@@ -655,7 +658,7 @@ def _build_auto_recommend(report):
     sim_params = getattr(report, "sim_params", None)
     yield_by_part = {}
     if sim_params is not None:
-        yield_by_part = getattr(sim_params, "yield_stress_by_part", {}) or {}
+        yield_by_part = (sim_params or {}).get("yield_stress_by_part") or {}
     if results and yield_by_part:
         di_by_part = defaultdict(list)
         for r in results:
