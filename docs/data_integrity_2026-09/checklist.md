@@ -41,12 +41,16 @@
 
 ## 7. 내가 따로 발견한 것
 - [x] UnifiedConfigParser 가 인라인 YAML 을 조용히 무시 (2e457c5) → verify: 경고 출력·블록 형식 정상
-- [ ] 로컬 증분 빌드에서 `tool_commit` 이 옛 커밋으로 찍힌다(CMake 설정 시점 값). SIF 빌드는 매번 새 설정이라 영향 없음
+- [~] 로컬 증분 빌드에서 `tool_commit` 이 옛 커밋으로 찍힌다(CMake 설정 시점 값). SIF 빌드는 매번 새 설정이라 영향 없음
 - [ ] 4952상태 덱 분석이 68GB 를 쓴다(수정 전부터). 서버 노드 메모리 확인 필요
 
 ## 8. 배포
 - [x] 시험 전체 — C++ 22종, Python 532개, 스크립트 2종 통과
 - [x] 실덱 재확인 — 면 응력 ±Z 400상태 독립 계산 일치, 요소 ID 순서까지 일치,
       배터리 덱 보고서 브라우저 JS 오류 0·차트 12/12·'MPa' 하드코딩 0
-- [ ] push → SIF 빌드 → deploy_from_sif → verify_deploy → node001 → 패키지
-- [ ] 배포 후 SIF 안에서 ldd not found 0 + 분석기 경유 렌더 1회
+- [x] push origin/main ff6cfc5 (125커밋)
+- [x] SIF 빌드 → 안에서 VERSION ff6cfc5 / lsprepost ldd not found 0 /
+      분석기와 같은 명령으로 헤드리스 렌더 성공(22프레임 MP4) — 옛 SIF 는 exit 127 이던 그 명령
+- [x] deploy_from_sif → verify_deploy: 호스트·SIF VERSION·실행파일 ff6cfc5 일치, 래퍼 6/6 env 없이 실행
+- [x] node001 ff6cfc5 (NFS 공유), 배포본으로 실덱 분석 재확인(시계열 22/22, unit deck_units, tool_commit ff6cfc5)
+- [x] 패키지 SmartTwinPostprocessor_20260917_v36.tar.gz (523M) — verify_package 통과

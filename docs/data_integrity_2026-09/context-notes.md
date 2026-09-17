@@ -67,3 +67,10 @@ sphere 보고서는 CSV 를 직접 읽어 전체였다. 두 경로를 비교한 
 - 그 밖에 TET10(NEL8<0) 침식 제외, 인라인 YAML 잡 제외+사유, --skip-existing 의 설정·바이너리 지문, NARBS 구역 밖 읽기, sphere from_json 격자, ENDTIM 단위 판정 등.
 
 교훈: **고친 자리 옆이 새로 깨진다.** 산출물 형식·의미를 바꿨으면 그 값을 읽는 모든 곳을 같은 변경 안에서 찾아 고쳐야 한다(단위 라벨이 대표 사례).
+
+### 배포 (2026-09-17)
+- origin/main **ff6cfc5** (1f17ea1 이후 125커밋, 123파일).
+- SIF 재빌드 → 안에서 VERSION ff6cfc5, lsprepost 미해결 라이브러리 0, 분석기와 같은 cfile·명령으로 헤드리스 렌더 성공(같은 명령이 옛 SIF 에서는 `libgtk-3.so.0` 없음으로 exit 127).
+- `deploy_from_sif.sh` → `verify_deploy.sh`: 호스트·SIF 모두 ff6cfc5, 래퍼 6/6 환경변수 없이 실행. node001 도 같은 판(NFS).
+- 배포본으로 배터리 덱 재분석: 시계열 22/22, `unit=deck_units`, `tool_commit=ff6cfc5`.
+- 패키지 `SmartTwinPostprocessor_20260917_v36.tar.gz` (523M), verify_package 통과.
