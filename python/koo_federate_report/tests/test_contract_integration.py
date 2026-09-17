@@ -322,13 +322,14 @@ def test_worst_cell_move_data_embedded():
     assert len({x for x in wc if x}) > 1
 
 
-def test_sphere_units_defaulted_when_sidecar_lacks_them():
-    """sphere sidecar 는 unit_labels 를 싣지 않는다 — 단위 없는 수를 내보내지 않는다.
+def test_sphere_units_absent_are_left_empty_not_invented():
+    """옛 sidecar 에 단위가 없으면 **비워 둔다** — 지어내면 가드가 못 뜬다.
 
-    회귀 배경: 787,830 이 무슨 단위인지 알 수 없게 나갔다. 저장 단위인 G 를
-    기본값으로 채운다. 처음에는 본 보고서 **화면**의 "MG" 를 그대로 베꼈는데,
-    그 MG 는 표시할 때 v/1e6 을 한 결과지 저장 단위가 아니라서 나누지 않은
-    값에 MG 가 붙어 1e6 배 과대 표기가 됐다.
+    2026-09 이전 규칙은 반대였다. 라벨이 없으면 G/MPa/mm 를 채워 넣었고, sphere
+    사이드카는 단위를 한 줄도 싣지 않았으므로 **모든** sphere 리비전이 같은 라벨을
+    갖게 돼 단위 불일치 가드가 영영 뜰 수 없었다(SI 덱 Pa 와 MPa 덱을 나란히
+    놓아도 응력 Δ% -99.9999% 가 '개선'). 지금은 koo_sphere_report 가 검출한 단위를
+    싣고, 없는 사이드카는 '모른다' 가 unit_unlabeled 경고로 나온다.
     """
     from koo_federate_report.adapters.sphere import to_bundle
     raw = {
@@ -345,8 +346,7 @@ def test_sphere_units_defaulted_when_sidecar_lacks_them():
         "simulation_params": {},
     }
     b = to_bundle(raw, path="/x/report.json", label="Rev")
-    assert b.unit_labels.get("acc"), "sphere 단위 라벨이 비어 있다"
-    assert b.unit_labels["acc"] == "G"
+    assert b.unit_labels == {}, f"없는 단위를 지어냈다: {b.unit_labels}"
 
 
 def test_interpolated_cells_visually_demoted():

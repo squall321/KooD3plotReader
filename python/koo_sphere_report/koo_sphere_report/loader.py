@@ -240,7 +240,14 @@ def _apply_unit_system(sim_params, output_dir: Path) -> None:
               f"G 환산 {MotionData.G_FACTOR:g} → {gf:g}")
     else:
         print(f"[sphere] 단위계 확인: {uid} (덱 밀도={density:g})")
-    MotionData.set_unit_system(uid, gf)
+    # 표기 라벨도 함께 남긴다 — 사이드카가 이것을 실어야 federate 가 리비전 간
+    # 단위 불일치를 본다. acc 만은 덱 단위가 아니라 "G" 다(peak_g 를 G 로 저장).
+    _pl = dict((preset or {}).get("labels") or {})
+    labels = {"acc": "G"}
+    for _k in ("stress", "strain", "disp", "vel"):
+        if _pl.get(_k) is not None:
+            labels[_k] = _pl[_k]
+    MotionData.set_unit_system(uid, gf, labels=labels)
 
 
 def load_dropset(run_dir: Path) -> AngleCondition | None:

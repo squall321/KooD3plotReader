@@ -26,19 +26,6 @@ _METRIC_SRC = {
 
 
 
-# sphere 본 보고서(koo_sphere_report)의 표기 규약. sidecar 에 unit_labels 가
-# 없을 때만 쓰는 기본값이다 — 단위를 지어내는 게 아니라 원 보고서와 맞춘다.
-_SPHERE_DEFAULT_UNITS = {
-    # peak_g 는 **G 단위로 저장**된다 (loader: abs_acc / G_FACTOR).
-    # 구면 보고서 화면이 "MG" 로 보이는 것은 표시할 때 1e6 으로 나누기 때문이며
-    # (html_report.js: v/1e6 + ' MG'), 저장값의 단위가 아니다. 여기서 "MG" 로
-    # 라벨을 달면 나누지 않은 값에 MG 를 붙여 1e6 배 과대 표기가 된다.
-    "acc": "G",
-    "stress": "MPa",
-    "disp": "mm",
-    "vel": "mm/s",
-}
-
 def _num(v):
     if isinstance(v, bool) or v is None:
         return None
@@ -135,11 +122,11 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
             "sphere_coverage": raw.get("sphere_coverage"),
             "n_angles": len(cells),
         },
-        # sphere sidecar 에는 unit_labels 가 없다(2026-08 실사) — 값이 단위 없이
-        # 787,830 처럼 나가면 무슨 수인지 알 수 없다. sphere 본 보고서의 표기
-        # 규약(peak_g=MG, stress=MPa, disp=mm)을 기본값으로 채워 준다.
-        # sidecar 가 언젠가 unit_labels 를 싣기 시작하면 그것이 우선한다.
-        unit_labels=dict(raw.get("unit_labels") or _SPHERE_DEFAULT_UNITS),
+        # 사이드카가 적은 단위만 쓴다. 예전에는 없으면 MPa/mm 를 채워 넣었는데,
+        # sphere 사이드카는 단위를 한 줄도 싣지 않았으므로 **모든** sphere 리비전이
+        # 같은 라벨을 갖게 돼 단위 가드가 영영 뜰 수 없었다(SI 덱 Pa 와 MPa 덱을
+        # 나란히 놓아도 응력 Δ% -99.9999% 가 '개선' 으로). 모르면 비워 둔다.
+        unit_labels=dict(raw.get("unit_labels") or {}),
         parts=parts,
         positions=[],
         angles=angles,

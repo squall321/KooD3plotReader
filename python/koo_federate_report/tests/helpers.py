@@ -143,9 +143,15 @@ def minimal_impact_sidecar():
 
 
 def minimal_sphere_sidecar():
-    """어댑터 검증용 최소 sphere report.json 구조."""
+    """어댑터 검증용 최소 sphere report.json 구조.
+
+    unit_labels 는 2026-09 부터 koo_sphere_report 가 실어 보낸다 — 없으면
+    어댑터가 MPa/mm 를 채워 넣어 단위 가드가 영영 뜼지 못했다.
+    acc 가 "G" 인 이유는 peak_g 를 G 단위로 저장하기 때문이다.
+    """
     return {
         "project_name": "SYN_SPHERE",
+        "unit_labels": {"acc": "G", "stress": "MPa", "strain": "", "disp": "mm"},
         "test_dir": "/synthetic/sphere",
         "doe_strategy": "fibonacci",
         "total_runs": 2,

@@ -129,6 +129,16 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
         raise ValueError(
             "각도 결과가 하나도 없습니다 — 빈 리포트를 성공으로 위장하지 않습니다.")
 
+    # 사이드카에 단위계가 적혀 있으면 되살린다. 없으면 건드리지 않는다 —
+    # 옛 산출물에는 이 키가 없고, 그때는 기본 환산이 그대로 쓰인다.
+    us = d.get("unit_system")
+    if isinstance(us, dict):
+        MotionData.set_unit_system(
+            str(us.get("id") or ""), _num(us.get("g_factor")) or 0.0,
+            note=str(us.get("note") or ""),
+            labels=d.get("unit_labels") or {},
+        )
+
     sp_raw = d.get("simulation_params", {})
     sim_params = SimulationParams(
         t_final=sp_raw.get("t_final", 0.001),

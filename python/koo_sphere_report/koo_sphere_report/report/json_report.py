@@ -34,6 +34,18 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         "findings": [dataclasses.asdict(f) for f in report.findings],
         "parts": {},
         "results_summary": [],
+        # 검출된 단위계. federate 사이드카가 이것을 보고 리비전 간 단위 불일치를
+        # 잡는다 — 예전에는 사이드카에 단위가 한 줄도 없어 federate 가 MPa/mm 를
+        # 채워 넣었고, SI 덱(Pa·m)과 나란히 놓아도 가드가 영영 뜨지 않았다.
+        # 미검출이면 unit_labels 키 자체를 만들지 않는다(지어내지 않는다).
+        "unit_system": {
+            "id": MotionData.UNIT_SYSTEM,
+            "g_factor": MotionData.G_FACTOR,
+            "detected": bool(MotionData.UNIT_SYSTEM),
+            "note": MotionData.UNIT_NOTE,
+        },
+        **({"unit_labels": dict(MotionData.UNIT_LABELS)}
+           if MotionData.UNIT_LABELS else {}),
         # 파트간 에너지 흐름(run_folder→중립 flow dict). --from-json 재생성 시
         # 흐름 탭을 유지하려면 그대로 실어 보낸다.
         "energy_flows": getattr(report, "energy_flows", {}) or {},

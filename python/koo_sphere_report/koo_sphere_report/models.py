@@ -142,9 +142,14 @@ class MotionData:
     #: 미검출일 때 **왜** 못 정했는지. 빈 문자열이면 정상 검출이다.
     #: peak-G 가 어느 환산으로 나온 값인지 보고서에 실어 사람이 보게 한다.
     UNIT_NOTE = ""
+    #: 검출된 단위계의 표기 라벨 {acc, stress, disp, vel, ...}. 미검출이면 빈 dict —
+    #: **지어내지 않는다**. 사이드카가 이것을 실어야 federate 가 단위 불일치를 본다.
+    #: acc 는 덱 단위가 아니라 "G" 다 (peak_g 를 G 로 저장하기 때문).
+    UNIT_LABELS = {}
 
     @classmethod
-    def set_unit_system(cls, unit_id: str, g_factor: float = 0.0, note: str = "") -> None:
+    def set_unit_system(cls, unit_id: str, g_factor: float = 0.0, note: str = "",
+                        labels: dict | None = None) -> None:
         """검출 결과를 적용. unit_id 가 비어 있으면 '미검출' 이고 note 가 사유다.
 
         미검출이라도 G_FACTOR 는 직전 값을 유지한다 — 환산을 멈추면 화면이
@@ -152,6 +157,7 @@ class MotionData:
         """
         cls.UNIT_SYSTEM = str(unit_id or "")
         cls.UNIT_NOTE = str(note or "")
+        cls.UNIT_LABELS = dict(labels or {})
         try:
             gf = float(g_factor)
         except (TypeError, ValueError):

@@ -354,6 +354,21 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
     _guard_input_sanity(bundles, warnings)
     schema_version = _guard_schema(bundles)
     factors = _unit_factors(bundles, baseline_idx, options.unit_policy, warnings)
+    # 라벨이 없으면 _unit_factors 는 조용히 넘어간다 — 불일치가 없어서가 아니라
+    # 볼 수가 없어서다. 그 사실을 말한다 (변형률은 무차원이라 빈 라벨이 정상).
+    _axis = METRIC_UNIT_AXIS[metric]
+    if _axis != "strain":
+        _nolabel = [b.label for b in bundles if not (b.unit_labels or {}).get(_axis)]
+        if _nolabel:
+            warnings.append({
+                "code": "unit_unlabeled",
+                "severity": "WARN",
+                "message": (
+                    f"{', '.join(_nolabel)} 의 {_axis} 단위 라벨이 없습니다 — 리비전 간 "
+                    "단위가 같은지 확인할 수 없어 환산 없이 비교합니다. 상류 보고서가 "
+                    "단위를 싣도록 다시 생성하면 불일치를 자동으로 잡습니다."
+                ),
+            })
     n_rev = len(bundles)
 
     def scaled(sample, mk, rev_idx):
