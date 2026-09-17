@@ -188,3 +188,4 @@ presentation_2_pack/
 
 # transient end-to-end verification artifacts
 .verify/
+.work/

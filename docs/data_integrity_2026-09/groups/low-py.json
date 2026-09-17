@@ -1,0 +1,98 @@
+[
+ {
+  "file": "python/koo_deep_report/koo_deep_report/core/sim_detector.py",
+  "line": 67,
+  "severity": "low",
+  "title": "Only binout0000 is passed to lasso; branches written to binout0001+ are silently missing and reported as 'not in deck'",
+  "mechanism": "`binout = _find_file(sim_dir, ['binout', 'binout0000'])` -> parse_binout(Binout(str(binout_path))) opens only that file. MPP runs write branches across binout0000, binout0001 and so on, and lasso needs the 'binout*' glob to merge them.",
+  "scenario": "Real MPP run /data/shield_can_forming_study/defl_c5210_methodB_press: binout0000 has [glstat, matsum], binout0001 has [nodout], and 'binout*' has all 4 branches. If rcforc, sleout or matsum is written to binout0001 in a run, the contact tab is missing and contact_metrics reports 'no rcforc in binout - the deck has no *DATABASE_RCFORC', which is false. Not observed yet for the branches this code uses, so it is latent.",
+  "consumers": "BinoutData -> report.html contact/energy tab, contact_metrics.json, energy_flow_edges.csv.",
+  "suggested_fix": "Pass a glob (sim_dir/'binout*') to lasso Binout when numbered binout files exist.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_deep_report/koo_deep_report/report/batch_report.py",
+  "line": 652,
+  "severity": "low",
+  "title": "Batch part table checks stress_warning === 'OVER', but the producer emits 'crit', so parts over the limit never get the danger class",
+  "mechanism": "`if (pdata.stress_warning === 'OVER') return 'val-danger';` and the same for strain_warning. PartSummary.stress_warning (models.py:287-295) returns 'none', 'ok', 'warn' or 'crit'.",
+  "scenario": "A part with stress_ratio 3.0 (warning 'crit') is coloured with the >0.85 warning class, the same as a part at 86% of its limit.",
+  "consumers": "batch_report.html part comparison colouring.",
+  "suggested_fix": "Compare against 'crit' (and use 'warn' for the warning class) or use stress_ratio >= 1.0.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_impact_report/koo_impact_report/report/sections/s10_set.py",
+  "line": 75,
+  "severity": "low",
+  "title": "Set-report overlay formats stress with toFixed(2) under a hard-coded 'MPa', formats the range with toFixed(1), and uses toFixed(2) for the strain metric tooltip",
+  "mechanism": "`bits.push('σ_vm ' + sv.toFixed(2) + ' MPa')`, range `vmin.toFixed(S10.metric === 's' ? 1 : 5)`, and circle titles `vals[pi].toFixed(2)` for both metrics (lines 122, 129).",
+  "scenario": "Production set_report 'PCB zone': stress 0.135691763 shows as 'σ_vm 0.14 MPa' and the range as '0.1 ~ …'. With a GPa deck the unit is wrong. On the ε_p metric, tooltips show 0.00123 as '0.00'.",
+  "consumers": "s10 set overlay info line, range label, marker tooltips.",
+  "suggested_fix": "Use fmt() and _u('stress') instead of the literal 'MPa'. Choose tooltip precision by metric.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_impact_report/koo_impact_report/report/payload/doe.py",
+  "line": 688,
+  "severity": "low",
+  "title": "IDW predictor rounds measured x/y to 1 decimal and then interpolates from the rounded coordinates",
+  "mechanism": "measured = {\"x\": round(x, 1), \"y\": round(y, 1), ...}; `samples = [(m[\"x\"], m[\"y\"], ...) for m in measured]` feeds the IDW grid and LOO validation. The grid bbox is also rounded to 1 decimal (line 815).",
+  "scenario": "SI deck with positions in metres (-0.04..0.04): every sample collapses to x,y in {-0.0, 0.0}, bbox becomes [-0.0,-0.0,0.0,0.0], and the predicted surface and LOO errors are meaningless. For mm grids with 80/6 = 13.333 mm pitch the error is only 0.03 mm.",
+  "consumers": "doe.advanced.idw_predictor (s5 IDW risk surface, LOO RMSE).",
+  "suggested_fix": "Interpolate with unrounded coordinates and round only for display (_r4).",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_impact_report/koo_impact_report/report/payload/doe.py",
+  "line": 342,
+  "severity": "low",
+  "title": "Correlation network evaluates only the top 12 parts by mean G but reports that 'all parts respond independently'; the DI table is similarly capped at 15 parts",
+  "mechanism": "`MAX_PARTS = 12 ... top_parts = [pid for pid, _ in part_means[:MAX_PARTS]]`, while s5_doe.py:1296 prints '|r| ≥ thr 인 강한 상관 부품 쌍 없음. 모든 부품이 독립적 응답.' insights.py `per_part_top = per_part[:15]` with header '대상 부품: n_parts_with_data/n_parts_total' (25/25). DI also rounds `max_peak_strain` to 5 decimals (4.38e-06 becomes 0.0).",
+  "scenario": "Production (25 parts): 13 parts never enter the correlation computation, yet the panel asserts no part pair is strongly correlated. The DI panel says 25/25 parts while listing 15.",
+  "consumers": "s5 correlation network cluster summary; s7 DI table/header/tooltips.",
+  "suggested_fix": "State 'top-12 of N parts' in the message and header, or compute over all parts. Use significant-figure rounding for strain.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_federate_report/koo_federate_report/adapters/sphere.py",
+  "line": 91,
+  "severity": "low",
+  "title": "Sphere adapter overwrites per-part metrics when two part IDs share a name (last pid wins)",
+  "mechanism": "`part_cells[(key, pname)] = metrics` inside the per-pid loop; the impact adapter (impact.py:323-329) merges same-name parts by max, but sphere does not. RevisionBundle.part_names() also dedups silently.",
+  "scenario": "report.json parts {'5': 'Screw' peak_stress 480, '6': 'Screw' peak_stress 35}. part_cells[(angle,'Screw')] keeps only pid 6 (35), so the federate part trend for 'Screw' shows 35 MPa, and the Δ/rank vs another revision comes from the wrong pid.",
+  "consumers": "Federate parts trend/rank table, worst_cell drill-down.",
+  "suggested_fix": "Merge same-name pids by worst value (METRIC_COMPRESSIVE aware), as the impact adapter does, or disambiguate names with the pid.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_sphere_report/koo_sphere_report/loader.py",
+  "line": 328,
+  "severity": "low",
+  "title": "DOE angle lookup keys on '.1f' strings, so -0.0 vs 0.0 misses and the fallback name ignores yaw and collides",
+  "mechanism": "`key = f\"{dropset_angle.roll:.1f}_{dropset_angle.pitch:.1f}_{dropset_angle.yaw:.1f}\"`; on a miss, `angle_name=f\"R{dropset_angle.roll:.0f}_P{dropset_angle.pitch:.0f}\"`, category 'unknown'. The real Test_006 runner_config.json has P0001 = (-90.0, -0.0, 0.0), whose key string is '-90.0_-0.0_0.0'.",
+  "scenario": "Snapshot: DOE {'-90.0_-0.0_0.0': P0001} with DropSet pitch 0.0 gives angle_name 'R-90_P0', category 'unknown'. With no runner_config (empty DOE), angles (35.26,45,0) and (35.26,45,90) both become 'R35_P45'. Downstream the federate sphere adapter keys cells by this name (collision means one run is silently replaced in _align_sphere's dict), and sphere JS looks up runs by name (energy absorption worstResult, hotspot angle sets).",
+  "consumers": "Sphere HTML category-based tabs (face/edge/corner stats, Tolerance DOE), federate cell keys.",
+  "suggested_fix": "Match DOE angles numerically (tolerance on roll/pitch/yaw, normalising -0.0), and include yaw (and more precision) in the fallback name or use run_folder as the unique key.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ },
+ {
+  "file": "python/koo_custom_report/koo_custom_report/report/html_report.py",
+  "line": 90,
+  "severity": "low",
+  "title": "Custom report peak table formats stress with '.2f' and peak time with '.6f'",
+  "mechanism": "`def _fmt(v, field): if \"strain\" in field: return f\"{v:.6f}\"; return f\"{v:.2f}\"` and line 140 `f'<td>{float(f[\"peak_time\"]):.6f}</td>'`. The same '.2f' is used for disp_mag/vel_mag/acc_mag.",
+  "scenario": "GPa deck: set peak von_mises 0.0863 is shown as 0.09 and σ3 -0.0042 as -0.00. SI deck: disp_mag 0.0034 m is shown as 0.00. Output interval 1e-7 s: peak_time 1.5e-7 and 1.4e-7 both show 0.000000.",
+  "consumers": "koo_custom_report custom_report.html per-set peak table.",
+  "suggested_fix": "Format with significant figures ('{:.4g}') for all fields and times.",
+  "production_reachable": true,
+  "consensus_severity": "low"
+ }
+]

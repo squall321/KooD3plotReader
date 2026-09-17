@@ -1,0 +1,26 @@
+[
+ {
+  "file": "scripts/post_analyze.sh",
+  "line": 370,
+  "severity": "high",
+  "title": "UA_OUTPUT_SCHEMA stayed 2 through output-changing analyzer fixes; deep step and impact reuse check only file existence",
+  "mechanism": "post_analyze.sh:370 has `UA_OUTPUT_SCHEMA=2`, and python/koo_deep_report/__main__.py:1036 has `UA_OUTPUT_SCHEMA = 2`. Both were introduced in 1c6481b on 08-02 and never bumped after a9895c5 (08-11, Max_Disp_Mag 19× overstated), 7b96430 (09-11, NEL8 sign), or 36ea5db (surface stress wrong/0). So `ua_result_is_current` still accepts results from the buggy builds. The deep step at post_analyze.sh:694 checks only `[ -f \"${deep_out}/result.json\" ]`, with no schema check at all. koo_impact_report loader.py:1082-1086 and _find_deep_output_dir (1946-1950) reuse any analysis_result.json plus motion CSV. Nothing compares d3plot mtime or metadata.tool_commit.",
+  "scenario": "A sphere campaign has 500 runs analyzed on 08-05, and 100 more angles are added and run through post_analyze on 09-17. The old runs have `.ua_schema`=2, so they are skipped. The sphere report's peak displacement (models.py peak_disp = max(max_disp_mag)) then shows about 66 mm for old runs and about 3.4 mm for new runs on the same Mollweide map (the commit message's Test_006 part_10 numbers). Likewise, surface stress CSVs produced before 36ea5db stay at 0 or neighbour-element values. A run re-simulated in place is also never re-analyzed.",
+  "consumers": "koo_sphere_report (analysis_results/<Run>), koo_impact_report (deep_reports/<Run> reuse), koo_deep_report HTML via post_analyze step 3",
+  "suggested_fix": "Bump the schema on every change to analyzer output, or better, key freshness on metadata.tool_commit / an output-schema field written by the C++ side plus d3plot mtime. Apply the same check in the post_analyze deep step and in the impact _find_deep_output_dir / _reuse.",
+  "production_reachable": true,
+  "consensus_severity": "medium"
+ },
+ {
+  "file": "scripts/post_analyze.sh",
+  "line": 685,
+  "severity": "medium",
+  "title": "post_analyze --deep-only (and IMPACT flat mode) uses `${_num_groups:-1}`, so multi-group runs share one deep_out and the second group is skipped",
+  "mechanism": "`_num_groups` is set only inside run_step_unified. `--deep-only` (line 796-797) and the impact path with should_skip_unified_for_impact never call it, so `${_num_groups:-1}` = 1 and `deep_out=${DEEP_REPORTS_DIR}/${run_name}` for both output/Run_x/Output/d3plot and output/Run_x/Output2/d3plot. The skip at line 694 (`[ -f \"${deep_out}/result.json\" ]`) then fires for the second one.",
+  "scenario": "Multi-step Run with Output and Output2 groups (a layout step 1 explicitly supports). `post_analyze T --deep-only` processes Output into deep_reports/Run_x and reports Output2 as 'skip'. The Output2 deep report never exists, and anything reading deep_reports/Run_x as that run's deep output (impact _find_deep_output_dir) gets the Output group's data.",
+  "consumers": "deep_reports/, koo_impact_report reuse",
+  "suggested_fix": "Compute the group count inside run_step_deep (or in a shared pre-scan) instead of defaulting to 1, and include sub_path in deep_out whenever more than one d3plot exists per run.",
+  "production_reachable": true,
+  "consensus_severity": "medium"
+ }
+]

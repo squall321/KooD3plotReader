@@ -701,17 +701,23 @@ def _build_idw_predictor_payload(report):
             if s > pos_s.get(pid, 0.0):
                 pos_s[pid] = s
 
+    # 반올림은 표시용이지 계산용이 아니다. 좌표를 1자리로 깎으면 m 단위 덱
+    # (-0.04..0.04) 의 낙하점이 모두 한 점으로 뭉쳐 보간면과 LOO 가 뜻을 잃는다.
     measured = []
+    samples = []
     for pid, (x, y) in pos_xy.items():
         if pid not in pos_g and pid not in pos_s:
             continue   # 이 위치는 한 파트도 재지 못했다 — 표본에서 제외
+        g = _r4(pos_g.get(pid, 0.0))
+        s = _r4(pos_s.get(pid, 0.0))
         measured.append({
             "pos_id": pid,
-            "x": round(x, 1),
-            "y": round(y, 1),
-            "peak_g": _r4(pos_g.get(pid, 0.0)),
-            "peak_stress": _r4(pos_s.get(pid, 0.0)),
+            "x": _r4(x),
+            "y": _r4(y),
+            "peak_g": g,
+            "peak_stress": s,
         })
+        samples.append((x, y, g, s))
     if len(measured) < 2:
         return None
 
@@ -721,8 +727,6 @@ def _build_idw_predictor_payload(report):
     dx = (xmax - xmin) / (NX - 1)
     dy = (ymax - ymin) / (NY - 1)
     eps2 = ((dx * dx + dy * dy) * 1e-6) or 1e-12  # snap radius
-
-    samples = [(m["x"], m["y"], m["peak_g"], m["peak_stress"]) for m in measured]
 
     grid_g = [0.0] * (NX * NY)
     grid_s = [0.0] * (NX * NY)
@@ -834,7 +838,7 @@ def _build_idw_predictor_payload(report):
         "grid_fine": {
             "nx_fine": NX,
             "ny_fine": NY,
-            "bbox": [round(xmin, 1), round(ymin, 1), round(xmax, 1), round(ymax, 1)],
+            "bbox": [_r4(xmin), _r4(ymin), _r4(xmax), _r4(ymax)],
             "peak_g": grid_g_r,
             "peak_stress": grid_s_r,
         },
