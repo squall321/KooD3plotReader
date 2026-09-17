@@ -64,7 +64,7 @@ def find_files(sim_dir: Path) -> SimInfo:
     """
     d3plot = _find_d3plot(sim_dir)
     glstat = _find_file(sim_dir, ["glstat", "glstat0000"])
-    binout = _find_file(sim_dir, ["binout", "binout0000"])
+    binout = _find_binout(sim_dir)
     matsum = _find_file(sim_dir, ["matsum", "matsum0000"])
     rcforc = _find_file(sim_dir, ["rcforc", "rcforc0000"])
     rwforc = _find_file(sim_dir, ["rwforc", "rwforc0000"])
@@ -128,6 +128,28 @@ def _find_file(sim_dir: Path, names: list[str]) -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def _find_binout(sim_dir: Path) -> Path | None:
+    """binout 탐색 — MPP 분할 가족 전체를 가리킨다.
+
+    MPP 런은 브랜치를 binout0000, binout0001 … 로 나눠 쓴다. binout0000 하나만
+    넘기면 뒤 파일에 실린 브랜치(rcforc/sleout/matsum …)가 통째로 사라지고,
+    소비자는 "덱에 해당 DATABASE 카드가 없다" 로 잘못 보고한다. lasso Binout 은
+    glob 패턴을 받아 파일들을 합쳐 읽으므로, 번호 파일이 둘 이상이면 패턴을
+    돌려준다.
+    """
+    plain = sim_dir / "binout"
+    if plain.exists():
+        return plain
+    numbered = sorted(sim_dir.glob("binout[0-9][0-9][0-9][0-9]"))
+    if len(numbered) <= 1:
+        return numbered[0] if numbered else None
+    # 'binout*' 가 읽기 좋지만 binout.csv 같은 남의 파일까지 물면 lsda 읽기가
+    # 통째로 실패한다. 그 패턴이 번호 파일 집합과 정확히 같을 때만 쓴다.
+    if sorted(sim_dir.glob("binout*")) == numbered:
+        return sim_dir / "binout*"
+    return sim_dir / "binout[0-9][0-9][0-9][0-9]"
 
 
 def _find_keyword(sim_dir: Path) -> Path | None:
