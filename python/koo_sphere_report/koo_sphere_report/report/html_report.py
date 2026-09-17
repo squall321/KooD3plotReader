@@ -266,6 +266,11 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 _pv = pr.motion.peak_vel
                 if _pv is not None:
                     pd["peak_vel"] = round_keep_sig(_pv, 1)
+                # 펄스 형상 지표도 다운샘플 전 값을 싣는다 — 화면이 줄인 배열로
+                # 다시 적분하면 충격량이 20% 넘게 빗나간다. 못 쟀으면 키가 없다.
+                if pr.motion.true_pulse:
+                    pd["pulse"] = {k: round_keep_sig(v, 4)
+                                   for k, v in pr.motion.true_pulse.items()}
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 
@@ -4098,7 +4103,18 @@ function buildImpactPulseSection(pid) {
     const pd = r.parts[pidStr];
     if (!pd || !pd.g_ts || !pd.g_ts.g) continue;
     const m = computePulseMetrics(pd.g_ts.g, pd.g_ts.t);
-    if (m) pulseData.push({ name: r.angle.name, cat: r.angle.category || 'other', ...m });
+    if (!m) continue;
+    // 줄이기 전 배열에서 잰 값이 있으면 그것이 참값이다 — 구간 극값만 남은
+    // 배열의 사다리꼴 적분은 충격량·펄스폭을 크게 빗나가게 한다. 포락선 곡선만
+    // 남은 배열로 그린다(m.times/m.gvals).
+    if (pd.pulse) {
+      m.pulseWidth = pd.pulse.pulse_width_ms;
+      m.peakAcc = pd.pulse.peak_mg;
+      m.impulse = pd.pulse.impulse;
+      m.hsDuration = pd.pulse.hs_duration_ms;
+      m.hsPeak = m.hsDuration > 0 ? Math.PI * m.impulse / (2 * m.hsDuration) : 0;
+    }
+    pulseData.push({ name: r.angle.name, cat: r.angle.category || 'other', ...m });
   }
   if (pulseData.length === 0) return '';
   pulseData.sort((a,b) => b.peakAcc - a.peakAcc);

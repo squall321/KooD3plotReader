@@ -395,6 +395,42 @@ def extreme_indices(n: int, arrays: list, target: int | None) -> list[int]:
     return sorted(keep)
 
 
+def pulse_metrics(times: list, g_values: list) -> dict | None:
+    """10% 문턱 위 구간의 펄스폭·피크·충격량·half-sine 등가. 못 재면 None.
+
+    정의는 화면의 computePulseMetrics 와 **같다**. 화면은 이 지표를 줄인 배열로
+    다시 계산하는데, 구간 극값만 남은 배열은 피크와 골 사이의 형상이 사라져
+    사다리꼴 적분이 크게 빗나간다(합성 링다운에서 충격량 -22.7%). 피크 값은
+    보존되므로 화면만 봐서는 그 오차가 드러나지 않는다 — 줄이기 전에 재 둔다.
+    (peak_g·peak_vel 을 다운샘플 전에 챙기는 것과 같은 규칙이다.)
+    """
+    n = len(g_values)
+    if n < 2 or len(times) != n:
+        return None
+    abs_g = [abs(v) for v in g_values if math.isfinite(v)]
+    if len(abs_g) != n:
+        return None
+    peak = max(abs_g)
+    if peak <= 0:
+        return None
+    thr = peak * 0.1
+    hits = [i for i, v in enumerate(abs_g) if v >= thr]
+    if not hits:
+        return None
+    s, e = hits[0], hits[-1]
+    impulse = 0.0
+    for i in range(s, e):
+        dt = (times[i + 1] - times[i]) * 1000.0
+        impulse += (abs_g[i] + abs_g[i + 1]) / 2.0 / 1e6 * dt
+    peak_mg = peak / 1e6
+    return {
+        "pulse_width_ms": (times[e] - times[s]) * 1000.0,
+        "peak_mg": peak_mg,
+        "impulse": impulse,
+        "hs_duration_ms": math.pi * impulse / (2.0 * peak_mg) if peak_mg > 0 else 0.0,
+    }
+
+
 def _load_stress_strain_csv(csv_path: Path, target_points: int | None = None) -> TimeSeriesData:
     """Load stress or strain CSV file.
 
@@ -489,6 +525,11 @@ def _load_motion_csv(csv_path: Path, target_points: int | None = None) -> Motion
                   f"max_disp sample(s) (eroded free node?) from peak_disp")
         if finite_disp:
             md.true_peak_disp = max(finite_disp)
+    if buf["avg_acc_mag"]:
+        # 펄스 형상 지표(충격량·펄스폭·half-sine)도 줄이기 전에 잰다 —
+        # 화면이 줄인 배열로 다시 재면 형상 적분이 20% 넘게 빗나간다.
+        md.true_pulse = pulse_metrics(
+            all_t, [v / MotionData.G_FACTOR for v in buf["avg_acc_mag"]])
     if buf["avg_vel_mag"]:
         # 최대 속도도 줄이기 전에 챙긴다 — 화면의 '최악 속도' 가 줄인 배열에서
         # 나오면 실캠페인(992상태→42행)에서 25% 까지 낮게 찍혔다.

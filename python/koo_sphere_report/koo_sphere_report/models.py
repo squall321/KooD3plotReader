@@ -135,6 +135,9 @@ class MotionData:
     #: 다운샘플 전 최대 |속도|. 화면의 '최악 속도' 가 줄인 배열에서 나오면
     #: 실캠페인에서 25% 까지 낮게 찍혔다 (2026-09 전수조사).
     true_peak_vel: float | None = None
+    #: 다운샘플 전 펄스 형상 지표 {pulse_width_ms, peak_mg, impulse, hs_duration_ms}.
+    #: 구간 극값만 남은 배열로 적분하면 충격량이 20% 넘게 빗나간다. 못 쟀으면 None.
+    true_pulse: dict | None = None
 
     # 가속도 → G 환산 계수. 기본은 ton-mm-s(mm/s²) 이지만 **덱 단위계에 따라
     # 런타임에 바뀐다** (loader 가 검출해 set_unit_system 으로 주입).

@@ -160,6 +160,73 @@ def test_point_budget_respected(tmp_path: Path):
     assert len(sts["t"]) == len(sts["max"]) == len(sts["avg"]), "배열 정렬이 깨졌다"
 
 
+def _ringdown_motion_csv(path: Path) -> tuple[list[float], list[float]]:
+    """링다운 가속도 (감쇠 정현파). 원본 (시각, G) 도 함께 돌려준다."""
+    import math
+    cols = ["Time", "Avg_Disp_X", "Avg_Disp_Y", "Avg_Disp_Z", "Avg_Disp_Mag",
+            "Avg_Vel_X", "Avg_Vel_Y", "Avg_Vel_Z", "Avg_Vel_Mag",
+            "Avg_Acc_X", "Avg_Acc_Y", "Avg_Acc_Z", "Avg_Acc_Mag",
+            "Max_Disp_Mag", "Max_Disp_Node_ID"]
+    times, gs = [], []
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for i in range(N_STATES):
+            t = i * 5e-6
+            g = 1.0e6 * math.exp(-t / 1e-3) * abs(math.sin(2 * math.pi * t / 4e-4))
+            a = g * MotionData.G_FACTOR
+            times.append(t)
+            gs.append(g)
+            w.writerow([f"{t:.7f}", 0, 0, 0, float(i), 0, 0, 0, 1.0,
+                        0, 0, a, a, float(i), 5])
+    return times, gs
+
+
+def _true_pulse(times, gs) -> dict:
+    """화면 JS 와 같은 정의로 원본 배열에서 잰 참값."""
+    import math
+    peak = max(abs(v) for v in gs)
+    thr = peak * 0.1
+    idxs = [i for i, v in enumerate(gs) if abs(v) >= thr]
+    s, e = idxs[0], idxs[-1]
+    imp = 0.0
+    for i in range(s, e):
+        imp += (abs(gs[i]) + abs(gs[i + 1])) / 2 / 1e6 * (times[i + 1] - times[i]) * 1000.0
+    peak_mg = peak / 1e6
+    return {"pw": (times[e] - times[s]) * 1000.0, "peak": peak_mg, "imp": imp,
+            "hs": math.pi * imp / (2 * peak_mg)}
+
+
+def test_pulse_metrics_are_measured_before_downsample(tmp_path: Path):
+    """충격량·펄스폭은 **줄이기 전** 배열에서 재야 한다.
+
+    구간 극값만 남은 배열로 사다리꼴 적분을 하면 링다운에서 충격량이 20% 넘게
+    빗나간다(피크와 골만 남아 사이 형상이 사라진다). 피크 값은 보존되므로
+    화면은 그 오차를 드러내지 않는다 — 참값을 스칼라로 함께 실어 보낸다.
+    """
+    csv_path = tmp_path / "part_7_motion.csv"
+    times, gs = _ringdown_motion_csv(csv_path)
+    truth = _true_pulse(times, gs)
+    pr = PartResult(part=PartInfo(part_id=7, part_name="PKG\\A", group="PKG"))
+    pr.motion = _load_motion_csv(csv_path, 400)
+
+    pd = _build_report_data(_report(pr, 25))["results"][0]["parts"]["7"]
+    assert "pulse" in pd, "펄스 지표가 payload 에 없다 — 화면이 줄인 배열로 다시 잰다"
+    got = pd["pulse"]
+    assert abs(got["impulse"] / truth["imp"] - 1) < 0.01, (
+        f"충격량 {got['impulse']} — 참값 {truth['imp']}")
+    assert abs(got["pulse_width_ms"] / truth["pw"] - 1) < 0.01, got["pulse_width_ms"]
+    assert abs(got["peak_mg"] / truth["peak"] - 1) < 0.01, got["peak_mg"]
+    assert abs(got["hs_duration_ms"] / truth["hs"] - 1) < 0.01, got["hs_duration_ms"]
+
+    # 줄인 배열로 다시 재면 얼마나 빗나가는지도 함께 못박는다 (회귀 감시).
+    idx = [i for i, v in enumerate(pd["g_ts"]["g"])]
+    assert len(idx) < N_STATES
+    ds = _true_pulse(pd["g_ts"]["t"], pd["g_ts"]["g"])
+    assert abs(ds["imp"] / truth["imp"] - 1) > 0.05, (
+        "줄인 배열의 충격량이 이미 정확하다 — 이 시험의 전제가 바뀌었다")
+
+
 def test_js_energy_integral_pairs_by_time_not_index():
     """σ–ε 적분이 인덱스로 짝지으면 남의 시각 값을 곱하고 뒷부분을 잘라 낸다.
 
@@ -201,4 +268,5 @@ def test_all(tmp_path: Path):
     test_two_stage_keeps_peak_g(_d("c"))
     test_json_sidecar_keeps_peak(_d("d"))
     test_point_budget_respected(_d("e"))
+    test_pulse_metrics_are_measured_before_downsample(_d("f"))
     test_js_energy_integral_pairs_by_time_not_index()
