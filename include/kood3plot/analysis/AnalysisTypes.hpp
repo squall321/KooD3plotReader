@@ -755,19 +755,32 @@ struct ExtendedAnalysisResult : public AnalysisResult {
                   << ", \"max_volume_change\": " << jnum(q.max_volume_change)
                   << ", \"max_negative_jacobian_count\": " << q.max_negative_jacobian_count
                   << ", \"data\": [";
+            // 상태별 지표도 '미산출' 과 '측정해서 그 값' 을 구분해서 쓴다.
+            // 예전에는 jac_measured 만 실어서, 종횡비·체적·왜곡도·뒤틀림은
+            // 구조체 기본값(AR 0.0 · 체적비 1.0 · 0.0)이 그대로 값처럼 나갔다.
+            // 파트 요약표는 파트 단위 플래그를 보고 "—" 를 찍는데, 그래프는
+            // 이 data[] 를 그대로 그려 tet 파트가 'AR=0 · 체적 변화 없음(1.0)'
+            // 이라는 없는 사실을 보여줬다. CSV 는 같은 경우를 빈 칸으로 둔다.
+            auto qnum = [](bool measured, double v) {
+                return measured ? jnum(v) : std::string("null");
+            };
             for (size_t j = 0; j < q.data.size(); ++j) {
                 if (j > 0) extra << ", ";
                 const auto& tp = q.data[j];
-                extra << "{\"time\": " << std::setprecision(8) << tp.time
-                      << ", \"ar_max\": " << std::setprecision(4) << tp.aspect_ratio_max
-                      << ", \"ar_avg\": " << tp.aspect_ratio_avg
+                extra << "{\"time\": " << jnum(tp.time)
+                      << ", \"ar_measured\": " << (tp.aspect_measured ? "true" : "false")
+                      << ", \"ar_max\": " << qnum(tp.aspect_measured, tp.aspect_ratio_max)
+                      << ", \"ar_avg\": " << qnum(tp.aspect_measured, tp.aspect_ratio_avg)
                       << ", \"jac_measured\": " << (tp.jacobian_measured ? "true" : "false")
-                      << ", \"jac_min\": " << tp.jacobian_min
-                      << ", \"jac_avg\": " << tp.jacobian_avg
-                      << ", \"skew_max\": " << tp.skewness_max
-                      << ", \"warp_max\": " << tp.warpage_max
-                      << ", \"vol_min\": " << tp.volume_change_min
-                      << ", \"vol_max\": " << tp.volume_change_max
+                      << ", \"jac_min\": " << qnum(tp.jacobian_measured, tp.jacobian_min)
+                      << ", \"jac_avg\": " << qnum(tp.jacobian_measured, tp.jacobian_avg)
+                      << ", \"skew_measured\": " << (tp.skewness_measured ? "true" : "false")
+                      << ", \"skew_max\": " << qnum(tp.skewness_measured, tp.skewness_max)
+                      << ", \"warp_measured\": " << (tp.warpage_measured ? "true" : "false")
+                      << ", \"warp_max\": " << qnum(tp.warpage_measured, tp.warpage_max)
+                      << ", \"vol_measured\": " << (tp.volume_measured ? "true" : "false")
+                      << ", \"vol_min\": " << qnum(tp.volume_measured, tp.volume_change_min)
+                      << ", \"vol_max\": " << qnum(tp.volume_measured, tp.volume_change_max)
                       << ", \"n_neg_jac\": " << tp.n_negative_jacobian
                       << ", \"n_high_ar\": " << tp.n_high_aspect
                       << "}";

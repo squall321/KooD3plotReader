@@ -206,6 +206,71 @@ static void test_non_finite_becomes_null() {
         valueOf(json, "evm_max"));
 }
 
+// ============================================================
+// element_quality data[] — 미산출 지표는 값이 아니라 null + 플래그
+// ============================================================
+
+static void test_quality_measured_flags() {
+    std::cout << "element_quality 상태별 미산출 표기:\n";
+    ExtendedAnalysisResult r;
+    ElementQualityStats q;
+    q.part_id = 4;
+    q.part_name = "tet_only";
+    q.element_type = "solid";
+    q.num_elements = 4200;
+    // LS-DYNA 는 tet 를 절점이 겹친 hex8 로 쓴다 → 종횡비·체적 둘 다 미산출
+    q.aspect_measured = false;
+    q.volume_measured = false;
+    q.skewness_measured = false;
+    q.warpage_measured = false;
+    q.jacobian_measured = false;
+    for (double t : {0.0, 1e-06}) {
+        ElementQualityTimePoint tp;   // 전부 기본값 (ar 0.0, vol 1.0, skew/warp 0.0)
+        tp.time = t;
+        q.data.push_back(tp);
+    }
+    r.element_quality.push_back(q);
+
+    const std::string json = r.toExtendedJSON();
+    const size_t d = json.find("\"data\": [{");
+    chk("data[] 에 ar_measured 플래그가 있다", has(json, "\"ar_measured\": false"));
+    chk("data[] 에 vol_measured 플래그가 있다", has(json, "\"vol_measured\": false"));
+    chk("data[] 에 skew_measured 플래그가 있다", has(json, "\"skew_measured\": false"));
+    chk("data[] 에 warp_measured 플래그가 있다", has(json, "\"warp_measured\": false"));
+    chk("미산출 ar_max 는 0.0 이 아니라 null", valueOf(json, "ar_max", d) == "null",
+        valueOf(json, "ar_max", d));
+    chk("미산출 ar_avg 는 null", valueOf(json, "ar_avg", d) == "null", valueOf(json, "ar_avg", d));
+    chk("미산출 vol_min 은 1.0 이 아니라 null", valueOf(json, "vol_min", d) == "null",
+        valueOf(json, "vol_min", d));
+    chk("미산출 vol_max 는 1.0 이 아니라 null", valueOf(json, "vol_max", d) == "null",
+        valueOf(json, "vol_max", d));
+    chk("미산출 skew_max 는 null", valueOf(json, "skew_max", d) == "null",
+        valueOf(json, "skew_max", d));
+    chk("미산출 warp_max 는 null", valueOf(json, "warp_max", d) == "null",
+        valueOf(json, "warp_max", d));
+    chk("미산출 jac_min 은 1.0 이 아니라 null", valueOf(json, "jac_min", d) == "null",
+        valueOf(json, "jac_min", d));
+    // 측정된 지표는 값이 그대로 나가야 한다 (회귀 방지)
+    r.element_quality[0].data[0].aspect_measured = true;
+    r.element_quality[0].data[0].aspect_ratio_max = 3.25;
+    r.element_quality[0].data[0].jacobian_measured = true;
+    r.element_quality[0].data[0].jacobian_min = 0.812345678;
+    const std::string json2 = r.toExtendedJSON();
+    const size_t d2 = json2.find("\"data\": [{");
+    chk("측정된 ar_max 는 값이 그대로", std::stod(valueOf(json2, "ar_max", d2)) == 3.25,
+        valueOf(json2, "ar_max", d2));
+    chk("측정된 jac_min 은 유효숫자가 남는다",
+        std::stod(valueOf(json2, "jac_min", d2)) == 0.812345678, valueOf(json2, "jac_min", d2));
+    // 상태별 값도 비유한이면 null 이어야 한다
+    r.element_quality[0].data[0].volume_measured = true;
+    r.element_quality[0].data[0].volume_change_max = std::numeric_limits<double>::infinity();
+    const std::string json3 = r.toExtendedJSON();
+    const size_t d3 = json3.find("\"data\": [{");
+    chk("상태별 vol_max inf → null", valueOf(json3, "vol_max", d3) == "null",
+        valueOf(json3, "vol_max", d3));
+    chk("맨 nan/inf 토큰 없음", !hasBareNonFinite(json3));
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "toExtendedJSON 시험\n";
@@ -213,6 +278,7 @@ int main() {
 
     test_finite_precision();
     test_non_finite_becomes_null();
+    test_quality_measured_flags();
 
     std::cout << "\n========================================\n";
     if (g_fails) {
