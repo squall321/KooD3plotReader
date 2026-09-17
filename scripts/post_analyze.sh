@@ -657,6 +657,27 @@ run_step_deep() {
 
     mkdir -p "${DEEP_REPORTS_DIR}"
 
+    # 그룹 수를 여기서 직접 센다.
+    # 예전에는 run_step_unified 가 정한 전역 ${_num_groups:-1} 을 봤는데,
+    # --deep-only 와 IMPACT flat 경로는 그 함수를 거치지 않아 늘 1 로 떨어졌다.
+    # 그러면 Run_x/Output 과 Run_x/Output2 가 같은 deep_reports/Run_x 를 써서
+    # 뒤엣것이 '스킵' 으로 사라지고, 그 그룹의 deep 리포트는 끝내 생기지 않았다.
+    _deep_group_list=""
+    while IFS= read -r d3plot_path; do
+        rel="${d3plot_path#${OUTPUT_DIR}/}"
+        run_name="${rel%%/*}"
+        if [ -z "${run_name}" ] || [ "${run_name}" = "${rel}" ]; then
+            continue
+        fi
+        after_run="${rel#${run_name}/}"
+        sub_path="${after_run%/d3plot}"
+        if [ "${sub_path}" = "d3plot" ] || [ "${sub_path}" = "${after_run}" ]; then
+            sub_path="_default"
+        fi
+        _deep_group_list="${_deep_group_list}${sub_path}"$'\n'
+    done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
+    _deep_num_groups=$(echo "${_deep_group_list}" | sed '/^$/d' | sort -u | wc -l)
+
     # Step 1 과 동일 방식: Run 폴더별로 d3plot 찾아서 개별 호출
     # deep_report batch 는 중첩 구조(Run_xxx/Output/d3plot)에서 이름이 꼬이므로 사용 안 함
     _deep_total=0
@@ -682,7 +703,7 @@ run_step_deep() {
         fi
 
         # 출력 경로: 그룹 1개면 deep_reports/Run_xxx, 여러개면 deep_reports/{sub_path}/Run_xxx
-        if [ "${_num_groups:-1}" = 1 ] && [ "${sub_path}" != "_default" ]; then
+        if [ "${_deep_num_groups}" = 1 ] && [ "${sub_path}" != "_default" ]; then
             deep_out="${DEEP_REPORTS_DIR}/${run_name}"
         elif [ "${sub_path}" = "_default" ]; then
             deep_out="${DEEP_REPORTS_DIR}/${run_name}"
