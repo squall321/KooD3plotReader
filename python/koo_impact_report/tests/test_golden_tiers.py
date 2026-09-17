@@ -86,9 +86,12 @@ def test_tier_c_invariants_and_golden(ds_tier_c):
     inline_pos = {s["pos_id"] for s in pm.get("series", [])}
     assert len(inline_pos) <= 40
 
-    # trajectory 초저해상 (60pt + peak/last splice 여유 2)
+    # trajectory 초저해상 (60pt + peak/last splice 여유 2 + 접촉 전이 보존
+    # 상한 _CONTACT_EDGE_CAP — 접촉 구간이 통째로 사라지면 접촉 밴드와
+    # 타임라인이 'free flight' 로 읽힌다)
+    from koo_impact_report.report.payload import _CONTACT_EDGE_CAP
     for tr in p["trajectories"].values():
-        assert len(tr["t"]) <= 62
+        assert len(tr["t"]) <= 62 + _CONTACT_EDGE_CAP
         # 시계열 배열은 비우지 않는다 (JS 5패널 생존 조건 — Playwright 실측 교훈)
         assert len(tr["ke"]) > 0
 
@@ -113,9 +116,10 @@ def test_tier_d_invariants_and_golden(ds_tier_d, tmp_path):
 
     # tier D: part_motion 곡선 인라인 없음 (요약 스칼라만)
     assert p["part_motion"]["series"] == []
-    # trajectory 24pt + splice 여유
+    # trajectory 24pt + splice 여유 + 접촉 전이 보존 상한
+    from koo_impact_report.report.payload import _CONTACT_EDGE_CAP
     for tr in p["trajectories"].values():
-        assert len(tr["t"]) <= 26
+        assert len(tr["t"]) <= 26 + _CONTACT_EDGE_CAP
         assert len(tr["ke"]) > 0
     # stress_ts envelope 만 (시계열 None)
     assert all(r.get("stress_ts") is None for r in p["results"])

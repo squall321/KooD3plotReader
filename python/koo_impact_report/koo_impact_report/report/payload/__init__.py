@@ -26,7 +26,10 @@ from .physics import _build_physics_payload
 
 #: 궤적 다운샘플에서 별도로 보존하는 접촉 on/off 전이 샘플의 상한.
 #: 채터링 런이 다운샘플을 무력화해 payload 를 부풀리는 것을 막는다.
-_CONTACT_EDGE_CAP = 64
+#: 24 = s5 접촉 타임라인의 칸 수(21)보다 크다 — 그 이상 쪼개 봐야 화면에서
+#: 구분되지 않는다. 실제 낙하 시험의 접촉 구간은 1~3개라 평소 비용은 0 에
+#: 가깝고, 이 상한은 병리적 경우만 막는다.
+_CONTACT_EDGE_CAP = 24
 
 
 def _build_payload(report: ImpactReport, tier_override=None) -> dict:
