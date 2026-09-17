@@ -1030,8 +1030,10 @@ def _build_per_part_drilldown(report) -> dict:
         "global_p75": round(global_p75, 4),
         "reuse_doe_matrix": True,
         "impactor_material": {
-            "youngs_modulus": round(imp_youngs, 4),
-            "density": round(imp_density, 6),
+            # 고정 자릿수 반올림은 단위계를 가정한다 — ton/mm³ 밀도 7.85e-09 가
+            # round(.,6) 으로 0 이 됐다. 유효숫자 기준으로 싣고 자릿수는 화면이 정한다.
+            "youngs_modulus": _r4(imp_youngs),
+            "density": _r4(imp_density),
         },
     }
 

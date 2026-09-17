@@ -315,7 +315,9 @@ def _build_payload(report: ImpactReport, tier_override=None) -> dict:
         "n_parts": n_parts,
         "n_pairs": n_pairs,
         "worst_g": round(worst["g"], 1) if worst else 0,
-        "worst_s": round(max(s_vals) if s_vals else 0.0, 1),
+        # round(.,1) 은 GPa 단위 덱(0.0863)을 0.1 로 올려 응력 한계 비교까지
+        # 틀리게 만들었다 — payload 는 원값을 싣고 자릿수는 화면이 정한다.
+        "worst_s": (max(s_vals) if s_vals else 0.0),
         "n_critical": n_crit,
         "n_safe": n_safe,
         "diss_pct": (round(diss_pct, 1) if diss_pct is not None else None),

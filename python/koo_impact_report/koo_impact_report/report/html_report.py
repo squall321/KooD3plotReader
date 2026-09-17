@@ -142,7 +142,8 @@ def generate_html(report: ImpactReport, payload: dict | None = None,
         .replace("__WORST_LINE__", _esc(f"{worst['face']} · X {worst['x']:.1f} / Y {worst['y']:.1f}"))
         .replace("__WORST_PART_LINE__", _esc(f"{_worst_g_in_G:,.0f} G  ON  {worst['part_name']}"))
         .replace("__WORST_G__", f"{_kpi_worst_g_in_G:,.0f}")
-        .replace("__WORST_S__", f"{kpi['worst_s']:.0f}")
+        # .0f 는 GPa 단위 덱(0.0863)을 '0' 으로 만든다 — 크기에 맞춰 찍는다.
+        .replace("__WORST_S__", f"{kpi['worst_s']:.4g}")
         .replace("__N_CRIT__", str(kpi["n_critical"]))
         .replace("__N_SAFE__", str(kpi["n_safe"]))
         .replace("__DISS_PCT__", f"{kpi['diss_pct']:.1f}" if kpi.get('diss_pct') is not None else "—")
