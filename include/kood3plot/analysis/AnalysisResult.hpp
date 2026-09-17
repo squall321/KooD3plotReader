@@ -441,10 +441,14 @@ struct AnalysisResult {
         return true;
     }
 
-private:
+protected:
     // ============================================================
     // JSON Helper Functions
     // ============================================================
+    // protected 인 이유 — ExtendedAnalysisResult::toExtendedJSON 이 같은 파일에
+    // 같은 규칙(jnum·escapeJSON)으로 써야 한다. 예전에는 쓸 수가 없어 확장
+    // 섹션만 std::fixed 와 날 문자열로 나갔고, NaN 하나가 20MB 짜리 결과 전체를
+    // 파이썬이 못 읽는 파일로 만들었다.
 
     static std::string escapeJSON(const std::string& str) {
         std::ostringstream oss;

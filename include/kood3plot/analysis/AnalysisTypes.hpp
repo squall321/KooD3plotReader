@@ -715,15 +715,18 @@ struct ExtendedAnalysisResult : public AnalysisResult {
         std::ostringstream extra;
 
         // Motion analysis
+        // 수치는 전부 jnum — std::fixed 는 (1) 1e-6 미만을 "0.000000" 으로 지우고
+        // (2) NaN/inf 를 JSON 이 아닌 nan/inf 로 써서 파일 전체를 못 읽게 만든다.
+        // 게다가 한 번 건 std::fixed 는 이 스트림의 뒤 섹션 전부에 계속 걸린다.
         extra << ",\n  \"motion_analysis\": [";
         for (size_t i = 0; i < motion_analysis.size(); ++i) {
             if (i > 0) extra << ",";
             const auto& m = motion_analysis[i];
             extra << "\n    {\"part_id\": " << m.part_id
-                  << ", \"part_name\": \"" << m.part_name << "\""
-                  << ", \"peak_velocity\": " << std::fixed << std::setprecision(6) << m.peak_velocity_magnitude
-                  << ", \"peak_acceleration\": " << m.peak_acceleration_magnitude
-                  << ", \"max_displacement\": " << m.max_displacement_magnitude
+                  << ", \"part_name\": \"" << escapeJSON(m.part_name) << "\""
+                  << ", \"peak_velocity\": " << jnum(m.peak_velocity_magnitude)
+                  << ", \"peak_acceleration\": " << jnum(m.peak_acceleration_magnitude)
+                  << ", \"max_displacement\": " << jnum(m.max_displacement_magnitude)
                   << ", \"num_points\": " << m.data.size() << "}";
         }
         extra << "\n  ]";
@@ -734,22 +737,22 @@ struct ExtendedAnalysisResult : public AnalysisResult {
             if (i > 0) extra << ",";
             const auto& q = element_quality[i];
             extra << "\n    {\"part_id\": " << q.part_id
-                  << ", \"part_name\": \"" << q.part_name << "\""
-                  << ", \"element_type\": \"" << q.element_type << "\""
+                  << ", \"part_name\": \"" << escapeJSON(q.part_name) << "\""
+                  << ", \"element_type\": \"" << escapeJSON(q.element_type) << "\""
                   << ", \"num_elements\": " << q.num_elements
                   << ", \"aspect_measured\": " << (q.aspect_measured ? "true" : "false")
-                  << ", \"peak_aspect_ratio\": " << std::fixed << std::setprecision(4) << q.peak_aspect_ratio
+                  << ", \"peak_aspect_ratio\": " << jnum(q.peak_aspect_ratio)
                   << ", \"aspect_unavailable_count\": " << q.max_aspect_unavailable_count
                   << ", \"jacobian_measured\": " << (q.jacobian_measured ? "true" : "false")
-                  << ", \"min_jacobian\": " << q.min_jacobian
+                  << ", \"min_jacobian\": " << jnum(q.min_jacobian)
                   << ", \"jacobian_unavailable_count\": " << q.max_jacobian_unavailable_count
                   << ", \"warpage_measured\": " << (q.warpage_measured ? "true" : "false")
-                  << ", \"peak_warpage\": " << q.peak_warpage
+                  << ", \"peak_warpage\": " << jnum(q.peak_warpage)
                   << ", \"skewness_measured\": " << (q.skewness_measured ? "true" : "false")
-                  << ", \"peak_skewness\": " << q.peak_skewness
+                  << ", \"peak_skewness\": " << jnum(q.peak_skewness)
                   << ", \"volume_measured\": " << (q.volume_measured ? "true" : "false")
-                  << ", \"min_volume_change\": " << q.min_volume_change
-                  << ", \"max_volume_change\": " << q.max_volume_change
+                  << ", \"min_volume_change\": " << jnum(q.min_volume_change)
+                  << ", \"max_volume_change\": " << jnum(q.max_volume_change)
                   << ", \"max_negative_jacobian_count\": " << q.max_negative_jacobian_count
                   << ", \"data\": [";
             for (size_t j = 0; j < q.data.size(); ++j) {
@@ -778,21 +781,29 @@ struct ExtendedAnalysisResult : public AnalysisResult {
         for (size_t i = 0; i < beam_analysis.size(); ++i) {
             if (i > 0) extra << ",";
             const auto& b = beam_analysis[i];
-            double gmax = -1e300, gmin = 1e300;
+            // 비유한값은 비교가 전부 false 라 초기값 -1e300 이 그대로 '피크' 로
+            // 나갔다(1e300 이 소수 6자리로 찍혀 300자리 숫자가 되기도 했다).
+            // 유한값만 보고, 하나도 없으면 값이 아니라 null 을 쓴다.
+            double gmax = 0.0, gmin = 0.0;
             double t_max = 0.0, t_min = 0.0;
             int32_t e_max = 0, e_min = 0;
+            bool has_max = false, has_min = false;
             for (const auto& tp : b.data) {
-                if (tp.max_value > gmax) { gmax = tp.max_value; t_max = tp.time; e_max = tp.max_element_id; }
-                if (tp.min_value < gmin) { gmin = tp.min_value; t_min = tp.time; e_min = tp.min_element_id; }
+                if (std::isfinite(tp.max_value) && (!has_max || tp.max_value > gmax)) {
+                    gmax = tp.max_value; t_max = tp.time; e_max = tp.max_element_id; has_max = true;
+                }
+                if (std::isfinite(tp.min_value) && (!has_min || tp.min_value < gmin)) {
+                    gmin = tp.min_value; t_min = tp.time; e_min = tp.min_element_id; has_min = true;
+                }
             }
             extra << "\n    {\"part_id\": " << b.part_id
-                  << ", \"quantity\": \"" << b.quantity << "\""
+                  << ", \"quantity\": \"" << escapeJSON(b.quantity) << "\""
                   << ", \"num_points\": " << b.data.size()
-                  << ", \"peak_max\": " << std::fixed << std::setprecision(6) << gmax
-                  << ", \"peak_max_time\": " << t_max
+                  << ", \"peak_max\": " << (has_max ? jnum(gmax) : "null")
+                  << ", \"peak_max_time\": " << (has_max ? jnum(t_max) : "null")
                   << ", \"peak_max_element_id\": " << e_max
-                  << ", \"peak_min\": " << gmin
-                  << ", \"peak_min_time\": " << t_min
+                  << ", \"peak_min\": " << (has_min ? jnum(gmin) : "null")
+                  << ", \"peak_min_time\": " << (has_min ? jnum(t_min) : "null")
                   << ", \"peak_min_element_id\": " << e_min
                   << "}";
         }
@@ -803,10 +814,10 @@ struct ExtendedAnalysisResult : public AnalysisResult {
         for (size_t i = 0; i < set_report_results.size(); ++i) {
             if (i > 0) extra << ",";
             const auto& sr = set_report_results[i];
-            extra << "\n    {\"name\": \"" << sr.name << "\""
-                  << ", \"set_type\": \"" << sr.set_type << "\""
+            extra << "\n    {\"name\": \"" << escapeJSON(sr.name) << "\""
+                  << ", \"set_type\": \"" << escapeJSON(sr.set_type) << "\""
                   << ", \"set_id\": " << sr.set_id
-                  << ", \"title\": \"" << sr.title << "\""
+                  << ", \"title\": \"" << escapeJSON(sr.title) << "\""
                   << ", \"resolved_parts\": [";
             for (size_t j = 0; j < sr.resolved_parts.size(); ++j) {
                 if (j > 0) extra << ", ";
@@ -820,22 +831,22 @@ struct ExtendedAnalysisResult : public AnalysisResult {
             extra << "], \"notes\": [";
             for (size_t j = 0; j < sr.notes.size(); ++j) {
                 if (j > 0) extra << ", ";
-                extra << "\"" << sr.notes[j] << "\"";
+                extra << "\"" << escapeJSON(sr.notes[j]) << "\"";
             }
             extra << "], \"fields\": [";
             for (size_t j = 0; j < sr.fields.size(); ++j) {
                 if (j > 0) extra << ",";
                 const auto& f = sr.fields[j];
-                extra << "\n      {\"field\": \"" << f.field << "\""
+                extra << "\n      {\"field\": \"" << escapeJSON(f.field) << "\""
                       << ", \"measured\": " << (f.measured ? "true" : "false");
                 if (f.measured) {
-                    extra << ", \"peak\": " << std::setprecision(8) << f.peak
-                          << ", \"peak_time\": " << f.peak_time
+                    extra << ", \"peak\": " << jnum(f.peak)
+                          << ", \"peak_time\": " << jnum(f.peak_time)
                           << ", \"peak_element_id\": " << f.peak_element_id
                           << ", \"peak_part_id\": " << f.peak_part_id
                           << ", \"num_points\": " << f.values.size();
                 } else {
-                    extra << ", \"note\": \"" << f.note << "\"";
+                    extra << ", \"note\": \"" << escapeJSON(f.note) << "\"";
                 }
                 extra << "}";
             }
@@ -850,30 +861,30 @@ struct ExtendedAnalysisResult : public AnalysisResult {
         for (size_t i = 0; i < surface_strain_analysis.size(); ++i) {
             if (i > 0) extra << ",";
             const auto& s = surface_strain_analysis[i];
-            extra << "\n    {\"description\": \"" << s.description << "\""
-                  << ", \"reference_direction\": [" << std::fixed << std::setprecision(6)
-                  << s.reference_direction.x << ", " << s.reference_direction.y << ", "
-                  << s.reference_direction.z << "]"
-                  << ", \"angle_threshold_degrees\": " << s.angle_threshold_degrees
+            extra << "\n    {\"description\": \"" << escapeJSON(s.description) << "\""
+                  << ", \"reference_direction\": ["
+                  << jnum(s.reference_direction.x) << ", " << jnum(s.reference_direction.y) << ", "
+                  << jnum(s.reference_direction.z) << "]"
+                  << ", \"angle_threshold_degrees\": " << jnum(s.angle_threshold_degrees)
                   << ", \"num_faces\": " << s.num_faces
                   << ", \"has_strain_tensor\": " << (s.has_strain_tensor ? "true" : "false")
-                  << ", \"note\": \"" << s.note << "\""
+                  << ", \"note\": \"" << escapeJSON(s.note) << "\""
                   << ", \"data\": [";
             for (size_t j = 0; j < s.data.size(); ++j) {
                 if (j > 0) extra << ", ";
                 const auto& tp = s.data[j];
-                extra << "{\"time\": " << std::setprecision(8) << tp.time
-                      << ", \"normal_max\": " << tp.normal_strain_max
-                      << ", \"normal_min\": " << tp.normal_strain_min
-                      << ", \"normal_avg\": " << tp.normal_strain_avg
-                      << ", \"shear_max\": " << tp.shear_strain_max
-                      << ", \"e1_max\": " << tp.max_principal_strain_max
+                extra << "{\"time\": " << jnum(tp.time)
+                      << ", \"normal_max\": " << jnum(tp.normal_strain_max)
+                      << ", \"normal_min\": " << jnum(tp.normal_strain_min)
+                      << ", \"normal_avg\": " << jnum(tp.normal_strain_avg)
+                      << ", \"shear_max\": " << jnum(tp.shear_strain_max)
+                      << ", \"e1_max\": " << jnum(tp.max_principal_strain_max)
                       << ", \"e1_max_element_id\": " << tp.max_principal_strain_max_element_id
-                      << ", \"e3_min\": " << tp.min_principal_strain_min
+                      << ", \"e3_min\": " << jnum(tp.min_principal_strain_min)
                       << ", \"e3_min_element_id\": " << tp.min_principal_strain_min_element_id
-                      << ", \"evm_max\": " << tp.vm_strain_max
+                      << ", \"evm_max\": " << jnum(tp.vm_strain_max)
                       << ", \"evm_max_element_id\": " << tp.vm_strain_max_element_id
-                      << ", \"eff_plastic_max\": " << tp.eff_plastic_strain_max
+                      << ", \"eff_plastic_max\": " << jnum(tp.eff_plastic_strain_max)
                       << "}";
             }
             extra << "]}";
