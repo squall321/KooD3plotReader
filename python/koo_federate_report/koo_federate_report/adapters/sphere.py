@@ -13,7 +13,7 @@ ok=True / reason='no gate' — 없는 게이트를 있는 척하지 않는다.
 """
 from __future__ import annotations
 
-from ..models import RevisionBundle, Cell, Trust
+from ..models import RevisionBundle, Cell, Trust, severity
 
 #: sphere 파트 지표 → 공통 지표 키
 _METRIC_SRC = {
@@ -89,8 +89,13 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
             pname = parts.get(pid_i, f"PART_{pid_i}")
             metrics = {mk: _num(pdata.get(src)) for mk, src in _METRIC_SRC.items()}
             part_cells[(key, pname)] = metrics
+            # 각도 셀 값 = 그 각도에서 **가장 나쁜** 파트의 값. 압축측(σ3/ε3)은
+            # 음수라 max() 를 쓰면 가장 약한 압축이 최악으로 뒤집힌다
+            # (실측: PCB -350 MPa 대신 FOAM -0.4 MPa 가 셀 값이 됐다).
             for mk, v in metrics.items():
-                if v is not None and (agg[mk] is None or v > agg[mk]):
+                if v is None:
+                    continue
+                if agg[mk] is None or severity(v, mk) > severity(agg[mk], mk):
                     agg[mk] = v
 
         parts_txt = []

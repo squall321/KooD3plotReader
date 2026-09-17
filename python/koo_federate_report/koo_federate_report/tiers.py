@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from statistics import median as _median
 
+from .models import severity
+
 #: (tier 이름, 셀 수 상한(포함, None=무한), 프로파일 top-K(None=전량))
 TIER_TABLE = (
     ("A", 200, None),
@@ -50,12 +52,17 @@ def tier_for(n_cells: int):
     return TIER_TABLE[-1][0], TIER_TABLE[-1][2]
 
 
-def _rev_value(cell: dict, i: int):
+def _rev_value(cell: dict, i: int, metric: str = "g"):
+    """셀 값을 '나쁨의 크기' 로 돌려준다 — 압축측(σ3/ε3)은 음수라 부호를 뒤집는다.
+
+    앵커와 심각도 정렬이 크기를 봐야 한다. 그대로 쓰면 σ3 비교에서 가장 약한
+    압축 셀이 앵커가 되어 프로파일에 정작 최악 방향이 안 실린다.
+    """
     per = cell.get("per_rev") or []
     if i < 0 or i >= len(per):
         return None
     v = (per[i] or {}).get("value")
-    return v if isinstance(v, (int, float)) else None
+    return severity(v, metric) if isinstance(v, (int, float)) else None
 
 
 def _desc(idxs, value_of, keys):
@@ -69,7 +76,8 @@ def _desc(idxs, value_of, keys):
     )
 
 
-def select_profile_cells(cells: list, baseline_idx: int, n_rev: int, top_k: int) -> dict:
+def select_profile_cells(cells: list, baseline_idx: int, n_rev: int, top_k: int,
+                         metric: str = "g") -> dict:
     """프로파일에 그릴 셀을 top_k 개 고른다 — "이야기가 있는 셀"이 반드시 살아남게.
 
     선정 규칙 (순서대로, 이미 뽑힌 셀은 건너뛰며, 총합이 top_k 를 넘지 않는다)
@@ -111,7 +119,7 @@ def select_profile_cells(cells: list, baseline_idx: int, n_rev: int, top_k: int)
     for r in range(n_rev):
         best_i, best_v = None, None
         for i in idxs:
-            v = _rev_value(cells[i], r)
+            v = _rev_value(cells[i], r, metric)
             if v is None:
                 continue
             if best_v is None or v > best_v or (v == best_v and keys[i] < keys[best_i]):
@@ -119,7 +127,7 @@ def select_profile_cells(cells: list, baseline_idx: int, n_rev: int, top_k: int)
         if best_i is not None:
             take([best_i], 1, "anchor")
 
-    sev_order = _desc(idxs, lambda i: _rev_value(cells[i], baseline_idx), keys)
+    sev_order = _desc(idxs, lambda i: _rev_value(cells[i], baseline_idx, metric), keys)
 
     # 1. 심각도
     take(sev_order, _ceil(QUOTA_SEVERITY * top_k), "severity")
@@ -129,7 +137,8 @@ def select_profile_cells(cells: list, baseline_idx: int, n_rev: int, top_k: int)
     per_rev_quota = max(1, win_budget // max(n_rev, 1))
     for r in range(n_rev):
         win_idx = [i for i in idxs if cells[i].get("winner") == r]
-        take(_desc(win_idx, lambda i: _rev_value(cells[i], r), keys), per_rev_quota, "winner")
+        take(_desc(win_idx, lambda i: _rev_value(cells[i], r, metric), keys),
+             per_rev_quota, "winner")
 
     # 3. |trend|
     def _abs_trend(i):
@@ -188,7 +197,8 @@ def _aggregate(rest: list, n_rev: int) -> dict:
     }
 
 
-def build_tier_plan(cells: list, baseline_idx: int, n_rev: int) -> dict:
+def build_tier_plan(cells: list, baseline_idx: int, n_rev: int,
+                    metric: str = "g") -> dict:
     """셀 목록 → 프로파일 축소 계획 (payload 계약의 tier/profile_cells/profile_aggregate).
 
     축소가 필요 없으면(tier A 또는 셀 수 ≤ top_k) profile_cells / profile_aggregate 는
@@ -213,7 +223,7 @@ def build_tier_plan(cells: list, baseline_idx: int, n_rev: int) -> dict:
     if top_k is None or n_cells <= top_k:
         return {"tier": tier, "profile_cells": None, "profile_aggregate": None}
 
-    sel = select_profile_cells(cells, baseline_idx, n_rev, top_k)
+    sel = select_profile_cells(cells, baseline_idx, n_rev, top_k, metric)
     shown = set(sel["keys"])
     rest = [c for c in cells if str(c.get("key")) not in shown]
     tier.update(

@@ -17,7 +17,7 @@ import re
 from statistics import median, pstdev
 
 from .models import (METRIC_KEYS, METRIC_UNIT_AXIS, METRIC_LABELS,
-                     METRIC_COMPRESSIVE)
+                     METRIC_COMPRESSIVE, severity)
 from .tiers import build_tier_plan
 
 
@@ -68,6 +68,15 @@ def _pct(new, base):
     if base in (None, 0) or new is None:
         return None
     return (new - base) / abs(base) * 100.0
+
+
+def _pct_m(new, base, metric):
+    """지표의 방향을 아는 Δ%. 압축측은 '더 음수 = 악화' 라 부호를 뒤집어 계산한다.
+
+    그냥 _pct 를 쓰면 σ3 -350 → -500(43% 더 심한 압축)이 -42.9%, 즉 화면에서
+    '개선' 으로 읽힌다. 결론이 통째로 뒤집히는 자리다.
+    """
+    return _pct(severity(new, metric), severity(base, metric))
 
 
 #: cell.category 가 비어 있는 셀의 표시 이름 (버리지 않고 정직하게 한 칸으로 모은다)
@@ -164,7 +173,9 @@ def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
             per_rev.append(
                 {
                     "n": len(vals),
-                    "worst": max(vals) if vals else None,
+                    # 압축측은 최솟값이 최악이다
+                    "worst": (max(vals, key=lambda v: severity(v, metric))
+                              if vals else None),
                     "median": float(median(vals)) if vals else None,
                     "mean": (sum(vals) / len(vals)) if vals else None,
                 }
@@ -172,7 +183,7 @@ def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
         base_row = per_rev[baseline_idx] if baseline_idx < len(per_rev) else {}
         for row in per_rev:
             for stat in ("worst", "median", "mean"):
-                row[f"{stat}_delta_pct"] = _pct(row[stat], base_row.get(stat))
+                row[f"{stat}_delta_pct"] = _pct_m(row[stat], base_row.get(stat), metric)
         cats.append(
             {
                 "name": name,
@@ -186,7 +197,7 @@ def _category_summary(cells, baseline_idx, n_rev, metric) -> dict:
     cats.sort(
         key=lambda ct: (
             -(
-                ct["per_rev"][baseline_idx]["worst"]
+                severity(ct["per_rev"][baseline_idx]["worst"], metric)
                 if baseline_idx < len(ct["per_rev"])
                 and ct["per_rev"][baseline_idx]["worst"] is not None
                 else float("-inf")
@@ -320,9 +331,11 @@ def _guard_input_sanity(bundles, warnings) -> None:
     # ③ 음수 지표 — g/s/e/d 는 전부 peak 크기값이라 음수가 될 수 없다.
     #    음수가 오면 상류 부호 처리 버그이고, Δ% 부호가 뒤집혀 읽힌다
     #    (-10 → -5 는 크기가 절반인데 "+50% 악화" 로 표시된다).
+    #    σ3/ε3 는 압축측이라 음수가 정상이다 — 여기서 걸러 ERROR 를 올리지 않는다.
     for b in bundles:
         bad = {mk for c in b.cells for mk, v in (c.metrics or {}).items()
-               if isinstance(v, (int, float)) and v < 0}
+               if mk not in METRIC_COMPRESSIVE
+               and isinstance(v, (int, float)) and v < 0}
         if bad:
             warnings.append({
                 "code": "negative_metric",
@@ -393,14 +406,16 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             spread = None
             n_gated += 1
         else:
-            delta = [v - base_v for v in values]
-            delta_pct = [_pct(v, base_v) for v in values]
-            # 압축측(σ3/ε3)은 음수라 "가장 나쁜" 것이 최솟값이다.
-            # max() 를 그대로 쓰면 가장 약한 압축이 최악으로 뒤집힌다.
-            winner = (min if metric in METRIC_COMPRESSIVE else max)(
-                range(n_rev), key=lambda i: values[i])
-            trend_abs = _slope(values)
-            trend = (trend_abs / abs(base_v)) if (trend_abs is not None and base_v) else None
+            # Δ 는 '나쁨의 크기' 로 잰다. 압축측(σ3/ε3)은 값이 음수라 원래 차이를
+            # 그대로 쓰면 더 심한 압축(-350 → -500)이 음수 Δ, 즉 개선으로 읽힌다.
+            _sev = [severity(v, metric) for v in values]
+            _sev_base = _sev[baseline_idx]
+            delta = [v - _sev_base for v in _sev]
+            delta_pct = [_pct(v, _sev_base) for v in _sev]
+            # 압축측은 "가장 나쁜" 것이 최솟값이다 — severity 로 뒤집어 고른다.
+            winner = max(range(n_rev), key=lambda i: _sev[i])
+            trend_abs = _slope(_sev)
+            trend = (trend_abs / abs(_sev_base)) if (trend_abs is not None and _sev_base) else None
             spread = _spread(values)
             n_comparable += 1
 
@@ -459,7 +474,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
 
     # ---- tier (프로파일 표시 힌트) / 카테고리 소계 ----------------------
     # tier 는 cells[] 를 줄이지 않는다 — 프로파일이 무엇을 그릴지의 힌트만 준다.
-    plan = build_tier_plan(cells, baseline_idx, n_rev)
+    plan = build_tier_plan(cells, baseline_idx, n_rev, metric)
     category_summary = _category_summary(cells, baseline_idx, n_rev, metric)
 
     # ---- 파트 추이 / rank bump -----------------------------------------
@@ -490,7 +505,8 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
                     continue
                 n_used += 1
                 v = raw * factors[i][metric]
-                if best_v is None or v > best_v:
+                # 압축측은 최솟값이 최악이다 (severity 로 방향을 맞춘다)
+                if best_v is None or severity(v, metric) > severity(best_v, metric):
                     best_v = v
                     best_cell = cell["key"]
             worst.append(best_v)
@@ -559,7 +575,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
     for i in range(n_rev):
         ranked = sorted(
             (p for p in parts if p["worst"][i] is not None),
-            key=lambda p: p["worst"][i],
+            key=lambda p: severity(p["worst"][i], metric),
             reverse=True,
         )
         for p in parts:
@@ -569,11 +585,15 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
 
     for p in parts:
         base_v = p["worst"][baseline_idx]
+        # Δ 는 '나쁨의 크기' 기준 (압축측은 더 음수일수록 악화다)
+        _sb = severity(base_v, metric)
         p["delta"] = [
-            None if (v is None or base_v is None) else v - base_v for v in p["worst"]
+            None if (v is None or base_v is None) else severity(v, metric) - _sb
+            for v in p["worst"]
         ]
         p["delta_pct"] = [
-            None if (v is None or base_v is None) else _pct(v, base_v) for v in p["worst"]
+            None if (v is None or base_v is None) else _pct_m(v, base_v, metric)
+            for v in p["worst"]
         ]
         base_rank = p["rank"][baseline_idx]
         # rank_delta > 0 = worst 순위에서 내려감(덜 나빠짐), < 0 = 올라감(더 나빠짐)
@@ -583,7 +603,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         vals = [v for v in p["worst"] if v is not None]
         p["trend"] = None
         if len(vals) == n_rev and base_v:
-            sl = _slope(p["worst"])
+            sl = _slope([severity(v, metric) for v in p["worst"]])
             p["trend"] = sl / abs(base_v) if sl is not None else None
 
     # ---- (위치×파트) Δ 매트릭스 (impact 전용) --------------------------
@@ -610,7 +630,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             delta_pct = [
                 [
                     None if (gate_mask[j] or v is None or base_row[j] is None)
-                    else _pct(v, base_row[j])
+                    else _pct_m(v, base_row[j], metric)
                     for j, v in enumerate(row)
                 ]
                 for row in per_rev_vals
@@ -741,7 +761,7 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             if v is None:
                 continue
             v = v * factors[i][metric]
-            if best_v is None or v > best_v:
+            if best_v is None or severity(v, metric) > severity(best_v, metric):
                 best_v, best_k = v, c.label or c.key
         true_peaks.append({"value": best_v, "cell": best_k})
 
@@ -765,9 +785,10 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
             1 for p in parts if any(s == "no_metric" for s in p["data_status"])
             and all(s != "ok" for s in p["data_status"])
         ),
+        # 격자 worst — 압축측은 최솟값이 최악이다 (severity 로 방향을 맞춘다)
         "worst_per_rev": [
             max((c["per_rev"][i]["value"] for c in cells if c["per_rev"][i]["value"] is not None),
-                default=None)
+                key=lambda v: severity(v, metric), default=None)
             for i in range(n_rev)
         ],
         # 격자(리샘플) worst 는 IDW 평균이라 피크가 깎인다. 실측 원본에서 뽑은
@@ -775,14 +796,18 @@ def build_comparison(bundles, baseline_idx, kind, match, aligned, options, metri
         "true_peak_per_rev": [tp["value"] for tp in true_peaks],
         "true_peak_cell": [tp["cell"] for tp in true_peaks],
         "true_peak_delta_pct": [
-            _pct(tp["value"], true_peaks[baseline_idx]["value"]) for tp in true_peaks
+            _pct_m(tp["value"], true_peaks[baseline_idx]["value"], metric)
+            for tp in true_peaks
         ],
         "peak_damping_pct": [
-            None if (tp["value"] in (None, 0) or gw is None) else (gw - tp["value"]) / tp["value"] * 100.0
+            None if (tp["value"] in (None, 0) or gw is None)
+            else (severity(gw, metric) - severity(tp["value"], metric))
+            / abs(severity(tp["value"], metric)) * 100.0
             for tp, gw in zip(
                 true_peaks,
                 [max((c["per_rev"][i]["value"] for c in cells
-                      if c["per_rev"][i]["value"] is not None), default=None)
+                      if c["per_rev"][i]["value"] is not None),
+                     key=lambda v: severity(v, metric), default=None)
                  for i in range(n_rev)],
             )
         ],

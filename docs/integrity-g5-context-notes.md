@@ -65,3 +65,11 @@
 - 미검출이어도 G_FACTOR 는 유지한다. 환산을 멈추면 화면이 통째로 비어 그것대로
   못 쓴다. 대신 payload 에 detected=false·note 를 싣고 findings 에 WARNING 을 건다
   (payload 의 unit_system 을 화면이 읽지 않고 있어서, 보이는 경로가 필요했다).
+
+## F1 압축측 지표 (2026-09-17)
+- `models.severity(v, metric)` 하나로 통일했다. **표시값은 부호를 그대로 두고**,
+  방향이 있는 계산(최악 선택·순위·Δ·trend·앵커)에서만 부호를 뒤집는다.
+- Δ 도 고쳤다. `_pct` 가 `(new-base)/|base|` 라 σ3 -350 → -500(43% 더 심한 압축)이
+  -42.9%, 화면에서 '개선' 으로 읽혔다. `_pct_m(new, base, metric)` 으로 대체.
+- `negative_metric` ERROR 는 s3/e3 를 건너뛴다 — 그 지표는 음수가 정상이다.
+- tiers 는 metric 인자를 받되 기본값 "g" 라 기존 호출과 시험이 그대로 돈다.

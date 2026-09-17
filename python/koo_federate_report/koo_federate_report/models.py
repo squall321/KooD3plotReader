@@ -43,6 +43,19 @@ METRIC_LABELS = {
 METRIC_COMPRESSIVE = frozenset({"s3", "e3"})
 
 
+def severity(v, metric):
+    """'나쁨의 크기'. 압축측(σ3/ε3)은 값이 음수라 부호를 뒤집는다.
+
+    표시값(cell.value 등)은 부호를 그대로 둔 **원래 값**이고, 이 함수는 순위·
+    최악 선택·Δ 계산처럼 **방향이 있는** 곳에서만 쓴다. 이렇게 나누지 않으면
+    σ3 비교에서 max() 가 '가장 약한 압축' 을 최악으로 고르고(실측: PCB -350 대신
+    FOAM -0.4), Δ% 는 -350 → -500 을 "42.9% 개선" 으로 읽는다.
+    """
+    if v is None:
+        return None
+    return -v if metric in METRIC_COMPRESSIVE else v
+
+
 @dataclass
 class Trust:
     """이 cell 의 수치를 비교에 써도 되는가 (solver 게이트 결과)."""
