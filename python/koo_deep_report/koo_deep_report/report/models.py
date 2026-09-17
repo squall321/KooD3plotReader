@@ -423,7 +423,8 @@ class SingleResult:
     #: 응력이 산출된 파트가 하나도 없으면 None.
     peak_stress_global: float | None = None
     peak_stress_part_id: int | None = None
-    #: 변형률이 산출된 파트가 하나도 없으면 None.
+    #: 집계된 파트가 하나도 없으면 None (0.0 으로 채우면 '변형률 0 으로
+    #: 측정됐다' 로 읽힌다).
     peak_strain_global: float | None = None
     #: 절점 최대 변위의 전체 최대. 아무 파트도 계측되지 않았으면 None.
     peak_disp_global: float | None = None
