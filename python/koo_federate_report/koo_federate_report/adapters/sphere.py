@@ -75,7 +75,18 @@ def to_bundle(raw: dict, path: str = "", label: str = "") -> RevisionBundle:
                 continue
             pname = parts.get(pid_i, f"PART_{pid_i}")
             metrics = {mk: _num(pdata.get(src)) for mk, src in _METRIC_SRC.items()}
-            part_cells[(key, pname)] = metrics
+            # 같은 이름을 여러 pid 가 쓰는 것은 덱에서 정상이다(Screw 5·6 …).
+            # 그대로 대입하면 **마지막 pid 가 이겨** 480 MPa 짜리 나사가 35 MPa 로
+            # 바뀐다. impact 어댑터와 같은 규칙으로 지표별 최악을 남긴다.
+            prev = part_cells.get((key, pname))
+            if prev is None:
+                part_cells[(key, pname)] = metrics
+            else:
+                for mk, v in metrics.items():
+                    if v is None:
+                        continue
+                    if prev[mk] is None or severity(v, mk) > severity(prev[mk], mk):
+                        prev[mk] = v
             # 각도 셀 값 = 그 각도에서 **가장 나쁜** 파트의 값. 압축측(σ3/ε3)은
             # 음수라 max() 를 쓰면 가장 약한 압축이 최악으로 뒤집힌다
             # (실측: PCB -350 MPa 대신 FOAM -0.4 MPa 가 셀 값이 됐다).
