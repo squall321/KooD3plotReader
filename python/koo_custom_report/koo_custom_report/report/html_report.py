@@ -87,10 +87,16 @@ document.addEventListener('click', function (e) {
 """
 
 
-def _fmt(v: float, field: str) -> str:
-    if "strain" in field:
-        return f"{v:.6f}"
-    return f"{v:.2f}"
+def _fmt(v: float) -> str:
+    """피크·시각 표기 — 유효숫자 4자리. 단위계를 가정하지 않는다.
+
+    고정 자릿수('.2f')는 "값은 수십~수백" 이라는 가정이다. GPa 덱에서는
+    σ_vm 0.0863 이 '0.09', σ3 -0.0042 가 '-0.00' 이 되고 SI(m) 덱에서는
+    |변위| 0.0034 m 가 '0.00' 이 된다 — 계측된 값이 '값 0' 과 구분되지 않는다.
+    시각도 마찬가지로 출력 간격이 1e-7 s 면 '.6f' 가 서로 다른 피크 시각을
+    모두 '0.000000' 으로 만든다.
+    """
+    return f"{v:.4g}"
 
 
 def _set_section(sr: SetResult) -> str:
@@ -136,8 +142,8 @@ def _set_section(sr: SetResult) -> str:
             if f.get("measured"):
                 parts.append(
                     f'<tr><td class="name">{label}</td>'
-                    f'<td>{_fmt(float(f["peak"]), key)}</td>'
-                    f'<td>{float(f["peak_time"]):.6f}</td>'
+                    f'<td>{_fmt(float(f["peak"]))}</td>'
+                    f'<td>{_fmt(float(f["peak_time"]))}</td>'
                     f'<td>{f.get("peak_element_id", "")}</td>'
                     f'<td>{f.get("peak_part_id", "")}</td></tr>')
             else:
