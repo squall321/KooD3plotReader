@@ -1451,8 +1451,8 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
                 rec["strain_ts_issue"] = (
                     f"analysis_result.json 변형률 이력이 잘림 "
                     f"({len(sn_t)}/{n_states}) — 전해상도 "
-                    f"strain/part_{int(pid)}_eff_plastic_strain.csv 도 없어 "
-                    f"시계열을 뺐다")
+                    f"strain/part_{int(pid)}_eff_plastic_strain.csv 로도 "
+                    f"복구하지 못해 시계열을 뺐다")
         else:
             rec["strain_times"] = sn_t
             rec["strain_max_series"] = sn_m
