@@ -635,14 +635,14 @@ void SinglePassAnalyzer::analyzePartStats(
                     stats.max_principal_max = s1;
                     stats.max_principal_max_elem = elem_id;
                 }
-                if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+                if (s1 < stats.max_principal_min) { stats.max_principal_min = s1; stats.max_principal_min_elem = elem_id; }
                 stats.max_principal_sum += s1;
 
                 if (s3 < stats.min_principal_min) {
                     stats.min_principal_min = s3;
                     stats.min_principal_min_elem = elem_id;
                 }
-                if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+                if (s3 > stats.min_principal_max) { stats.min_principal_max = s3; stats.min_principal_max_elem = elem_id; }
                 stats.min_principal_sum += s3;
 
                 stats.principal_count++;
@@ -656,6 +656,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 }
                 if (strain < stats.strain_min) {
                     stats.strain_min = strain;
+                    stats.strain_min_elem = elem_id;
                 }
                 stats.strain_sum += strain;
                 stats.strain_count++;
@@ -669,14 +670,14 @@ void SinglePassAnalyzer::analyzePartStats(
                         stats.max_principal_strain_max = e1;
                         stats.max_principal_strain_max_elem = elem_id;
                     }
-                    if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                    if (e1 < stats.max_principal_strain_min) { stats.max_principal_strain_min = e1; stats.max_principal_strain_min_elem = elem_id; }
                     stats.max_principal_strain_sum += e1;
 
                     if (e3 < stats.min_principal_strain_min) {
                         stats.min_principal_strain_min = e3;
                         stats.min_principal_strain_min_elem = elem_id;
                     }
-                    if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                    if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                     stats.min_principal_strain_sum += e3;
 
                     const double evm = vonMisesStrainOf(etensor);
@@ -684,7 +685,7 @@ void SinglePassAnalyzer::analyzePartStats(
                         stats.vm_strain_max = evm;
                         stats.vm_strain_max_elem = elem_id;
                     }
-                    if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                    if (evm < stats.vm_strain_min) { stats.vm_strain_min = evm; stats.vm_strain_min_elem = elem_id; }
                     stats.vm_strain_sum += evm;
 
                     stats.principal_strain_count++;
@@ -738,14 +739,14 @@ void SinglePassAnalyzer::analyzePartStats(
                 stats.max_principal_max = s1;
                 stats.max_principal_max_elem = elem_id;
             }
-            if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+            if (s1 < stats.max_principal_min) { stats.max_principal_min = s1; stats.max_principal_min_elem = elem_id; }
             stats.max_principal_sum += s1;
 
             if (s3 < stats.min_principal_min) {
                 stats.min_principal_min = s3;
                 stats.min_principal_min_elem = elem_id;
             }
-            if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+            if (s3 > stats.min_principal_max) { stats.min_principal_max = s3; stats.min_principal_max_elem = elem_id; }
             stats.min_principal_sum += s3;
 
             stats.principal_count++;
@@ -759,6 +760,7 @@ void SinglePassAnalyzer::analyzePartStats(
             }
             if (strain < stats.strain_min) {
                 stats.strain_min = strain;
+                stats.strain_min_elem = elem_id;
             }
             stats.strain_sum += strain;
             stats.strain_count++;
@@ -772,14 +774,14 @@ void SinglePassAnalyzer::analyzePartStats(
                     stats.max_principal_strain_max = e1;
                     stats.max_principal_strain_max_elem = elem_id;
                 }
-                if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                if (e1 < stats.max_principal_strain_min) { stats.max_principal_strain_min = e1; stats.max_principal_strain_min_elem = elem_id; }
                 stats.max_principal_strain_sum += e1;
 
                 if (e3 < stats.min_principal_strain_min) {
                     stats.min_principal_strain_min = e3;
                     stats.min_principal_strain_min_elem = elem_id;
                 }
-                if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                 stats.min_principal_strain_sum += e3;
 
                 const double evm = vonMisesStrainOf(etensor);
@@ -787,7 +789,7 @@ void SinglePassAnalyzer::analyzePartStats(
                     stats.vm_strain_max = evm;
                     stats.vm_strain_max_elem = elem_id;
                 }
-                if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                if (evm < stats.vm_strain_min) { stats.vm_strain_min = evm; stats.vm_strain_min_elem = elem_id; }
                 stats.vm_strain_sum += evm;
 
                 stats.principal_strain_count++;
@@ -819,6 +821,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 tp1.avg_value = (stats.principal_count > 0) ?
                                 stats.max_principal_sum / stats.principal_count : 0.0;
                 tp1.max_element_id = stats.max_principal_max_elem;
+                tp1.min_element_id = stats.max_principal_min_elem;
             }
             if (i < min_principal_results_.size()) {
                 auto& tp3 = min_principal_results_[i].data[state_idx];
@@ -827,6 +830,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 tp3.min_value = stats.min_principal_min;
                 tp3.avg_value = (stats.principal_count > 0) ?
                                 stats.min_principal_sum / stats.principal_count : 0.0;
+                tp3.max_element_id = stats.min_principal_max_elem;
                 tp3.min_element_id = stats.min_principal_min_elem;
             }
         }
@@ -839,6 +843,7 @@ void SinglePassAnalyzer::analyzePartStats(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+            tp.min_element_id = stats.strain_min_elem;
 
             // von Mises 등가 변형률
             if (i < vm_strain_results_.size()) {
@@ -849,6 +854,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 tvm.avg_value = (stats.principal_strain_count > 0) ?
                                 stats.vm_strain_sum / stats.principal_strain_count : 0.0;
                 tvm.max_element_id = stats.vm_strain_max_elem;
+                tvm.min_element_id = stats.vm_strain_min_elem;
             }
 
             // Principal strain results
@@ -860,6 +866,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 tpe1.avg_value = (stats.principal_strain_count > 0) ?
                                  stats.max_principal_strain_sum / stats.principal_strain_count : 0.0;
                 tpe1.max_element_id = stats.max_principal_strain_max_elem;
+                tpe1.min_element_id = stats.max_principal_strain_min_elem;
             }
             if (i < min_principal_strain_results_.size()) {
                 auto& tpe3 = min_principal_strain_results_[i].data[state_idx];
@@ -868,6 +875,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 tpe3.min_value = stats.min_principal_strain_min;
                 tpe3.avg_value = (stats.principal_strain_count > 0) ?
                                  stats.min_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe3.max_element_id = stats.min_principal_strain_max_elem;
                 tpe3.min_element_id = stats.min_principal_strain_min_elem;
             }
         }
@@ -946,14 +954,14 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 stats.max_principal_max = s1;
                 stats.max_principal_max_elem = elem_id;
             }
-            if (s1 < stats.max_principal_min) stats.max_principal_min = s1;
+            if (s1 < stats.max_principal_min) { stats.max_principal_min = s1; stats.max_principal_min_elem = elem_id; }
             stats.max_principal_sum += s1;
 
             if (s3 < stats.min_principal_min) {
                 stats.min_principal_min = s3;
                 stats.min_principal_min_elem = elem_id;
             }
-            if (s3 > stats.min_principal_max) stats.min_principal_max = s3;
+            if (s3 > stats.min_principal_max) { stats.min_principal_max = s3; stats.min_principal_max_elem = elem_id; }
             stats.min_principal_sum += s3;
 
             stats.principal_count++;
@@ -967,6 +975,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             }
             if (strain < stats.strain_min) {
                 stats.strain_min = strain;
+                stats.strain_min_elem = elem_id;
             }
             stats.strain_sum += strain;
             stats.strain_count++;
@@ -980,14 +989,14 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                     stats.max_principal_strain_max = e1;
                     stats.max_principal_strain_max_elem = elem_id;
                 }
-                if (e1 < stats.max_principal_strain_min) stats.max_principal_strain_min = e1;
+                if (e1 < stats.max_principal_strain_min) { stats.max_principal_strain_min = e1; stats.max_principal_strain_min_elem = elem_id; }
                 stats.max_principal_strain_sum += e1;
 
                 if (e3 < stats.min_principal_strain_min) {
                     stats.min_principal_strain_min = e3;
                     stats.min_principal_strain_min_elem = elem_id;
                 }
-                if (e3 > stats.min_principal_strain_max) stats.min_principal_strain_max = e3;
+                if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                 stats.min_principal_strain_sum += e3;
 
                 const double evm = vonMisesStrainOf(etensor);
@@ -995,7 +1004,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                     stats.vm_strain_max = evm;
                     stats.vm_strain_max_elem = elem_id;
                 }
-                if (evm < stats.vm_strain_min) stats.vm_strain_min = evm;
+                if (evm < stats.vm_strain_min) { stats.vm_strain_min = evm; stats.vm_strain_min_elem = elem_id; }
                 stats.vm_strain_sum += evm;
 
                 stats.principal_strain_count++;
@@ -1026,6 +1035,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tp1.avg_value = (stats.principal_count > 0) ?
                                 stats.max_principal_sum / stats.principal_count : 0.0;
                 tp1.max_element_id = stats.max_principal_max_elem;
+                tp1.min_element_id = stats.max_principal_min_elem;
             }
             if (i < min_principal_results_.size()) {
                 auto& tp3 = min_principal_results_[i].data[state_idx];
@@ -1034,6 +1044,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tp3.min_value = stats.min_principal_min;
                 tp3.avg_value = (stats.principal_count > 0) ?
                                 stats.min_principal_sum / stats.principal_count : 0.0;
+                tp3.max_element_id = stats.min_principal_max_elem;
                 tp3.min_element_id = stats.min_principal_min_elem;
             }
         }
@@ -1046,6 +1057,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             tp.avg_value = (stats.strain_count > 0) ?
                            stats.strain_sum / stats.strain_count : 0.0;
             tp.max_element_id = stats.strain_max_elem;
+            tp.min_element_id = stats.strain_min_elem;
 
             // von Mises 등가 변형률 (병렬 집계 경로 — 순차 경로와 같은 값)
             if (i < vm_strain_results_.size()) {
@@ -1056,6 +1068,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tvm.avg_value = (stats.principal_strain_count > 0) ?
                                 stats.vm_strain_sum / stats.principal_strain_count : 0.0;
                 tvm.max_element_id = stats.vm_strain_max_elem;
+                tvm.min_element_id = stats.vm_strain_min_elem;
             }
 
             // Principal strain results
@@ -1067,6 +1080,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tpe1.avg_value = (stats.principal_strain_count > 0) ?
                                  stats.max_principal_strain_sum / stats.principal_strain_count : 0.0;
                 tpe1.max_element_id = stats.max_principal_strain_max_elem;
+                tpe1.min_element_id = stats.max_principal_strain_min_elem;
             }
             if (i < min_principal_strain_results_.size()) {
                 auto& tpe3 = min_principal_strain_results_[i].data[state_idx];
@@ -1075,6 +1089,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 tpe3.min_value = stats.min_principal_strain_min;
                 tpe3.avg_value = (stats.principal_strain_count > 0) ?
                                  stats.min_principal_strain_sum / stats.principal_strain_count : 0.0;
+                tpe3.max_element_id = stats.min_principal_strain_max_elem;
                 tpe3.min_element_id = stats.min_principal_strain_min_elem;
             }
         }

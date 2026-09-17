@@ -52,6 +52,7 @@ struct PartStateStats {
     double strain_min = std::numeric_limits<double>::max();
     double strain_sum = 0.0;
     int32_t strain_max_elem = 0;
+    int32_t strain_min_elem = 0;
     size_t strain_count = 0;
 
     // Principal stress (computed from same stress tensor as von_mises)
@@ -59,11 +60,13 @@ struct PartStateStats {
     double max_principal_min = std::numeric_limits<double>::max();
     double max_principal_sum = 0.0;
     int32_t max_principal_max_elem = 0;
+    int32_t max_principal_min_elem = 0;
 
     double min_principal_max = -std::numeric_limits<double>::max();  // most tensile σ3
     double min_principal_min = std::numeric_limits<double>::max();   // most compressive σ3
     double min_principal_sum = 0.0;
     int32_t min_principal_min_elem = 0;  // track most compressive
+    int32_t min_principal_max_elem = 0;  // track least compressive
 
     size_t principal_count = 0;
 
@@ -72,11 +75,13 @@ struct PartStateStats {
     double max_principal_strain_min = std::numeric_limits<double>::max();
     double max_principal_strain_sum = 0.0;
     int32_t max_principal_strain_max_elem = 0;
+    int32_t max_principal_strain_min_elem = 0;
 
     double min_principal_strain_max = -std::numeric_limits<double>::max();
     double min_principal_strain_min = std::numeric_limits<double>::max();
     double min_principal_strain_sum = 0.0;
     int32_t min_principal_strain_min_elem = 0;
+    int32_t min_principal_strain_max_elem = 0;
 
     size_t principal_strain_count = 0;
 
@@ -87,6 +92,7 @@ struct PartStateStats {
     double vm_strain_min = std::numeric_limits<double>::max();
     double vm_strain_sum = 0.0;
     int32_t vm_strain_max_elem = 0;
+    int32_t vm_strain_min_elem = 0;
 
     void reset() {
         stress_max = -std::numeric_limits<double>::max();
@@ -100,17 +106,20 @@ struct PartStateStats {
         strain_min = std::numeric_limits<double>::max();
         strain_sum = 0.0;
         strain_max_elem = 0;
+        strain_min_elem = 0;
         strain_count = 0;
 
         max_principal_max = -std::numeric_limits<double>::max();
         max_principal_min = std::numeric_limits<double>::max();
         max_principal_sum = 0.0;
         max_principal_max_elem = 0;
+        max_principal_min_elem = 0;
 
         min_principal_max = -std::numeric_limits<double>::max();
         min_principal_min = std::numeric_limits<double>::max();
         min_principal_sum = 0.0;
         min_principal_min_elem = 0;
+        min_principal_max_elem = 0;
 
         principal_count = 0;
 
@@ -118,15 +127,18 @@ struct PartStateStats {
         vm_strain_min = std::numeric_limits<double>::max();
         vm_strain_sum = 0.0;
         vm_strain_max_elem = 0;
+        vm_strain_min_elem = 0;
         max_principal_strain_max = -std::numeric_limits<double>::max();
         max_principal_strain_min = std::numeric_limits<double>::max();
         max_principal_strain_sum = 0.0;
         max_principal_strain_max_elem = 0;
+        max_principal_strain_min_elem = 0;
 
         min_principal_strain_max = -std::numeric_limits<double>::max();
         min_principal_strain_min = std::numeric_limits<double>::max();
         min_principal_strain_sum = 0.0;
         min_principal_strain_min_elem = 0;
+        min_principal_strain_max_elem = 0;
 
         principal_strain_count = 0;
     }
@@ -149,6 +161,7 @@ struct PartStateStats {
         }
         if (other.strain_min < strain_min) {
             strain_min = other.strain_min;
+            strain_min_elem = other.strain_min_elem;
         }
         strain_sum += other.strain_sum;
         strain_count += other.strain_count;
@@ -159,6 +172,7 @@ struct PartStateStats {
         }
         if (other.max_principal_min < max_principal_min) {
             max_principal_min = other.max_principal_min;
+            max_principal_min_elem = other.max_principal_min_elem;
         }
         max_principal_sum += other.max_principal_sum;
 
@@ -168,6 +182,7 @@ struct PartStateStats {
         }
         if (other.min_principal_max > min_principal_max) {
             min_principal_max = other.min_principal_max;
+            min_principal_max_elem = other.min_principal_max_elem;
         }
         min_principal_sum += other.min_principal_sum;
 
@@ -181,6 +196,7 @@ struct PartStateStats {
         }
         if (other.vm_strain_min < vm_strain_min) {
             vm_strain_min = other.vm_strain_min;
+            vm_strain_min_elem = other.vm_strain_min_elem;
         }
         vm_strain_sum += other.vm_strain_sum;
 
@@ -190,6 +206,7 @@ struct PartStateStats {
         }
         if (other.max_principal_strain_min < max_principal_strain_min) {
             max_principal_strain_min = other.max_principal_strain_min;
+            max_principal_strain_min_elem = other.max_principal_strain_min_elem;
         }
         max_principal_strain_sum += other.max_principal_strain_sum;
 
@@ -199,6 +216,7 @@ struct PartStateStats {
         }
         if (other.min_principal_strain_max > min_principal_strain_max) {
             min_principal_strain_max = other.min_principal_strain_max;
+            min_principal_strain_max_elem = other.min_principal_strain_max_elem;
         }
         min_principal_strain_sum += other.min_principal_strain_sum;
 
