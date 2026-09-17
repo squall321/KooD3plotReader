@@ -356,6 +356,71 @@ bool test_single_face_analysis(const std::string& d3plot_path) {
     return true;
 }
 
+/**
+ * face.element_id(내부 순번)로 state.solid_data 를 직접 읽어 계산한 면 응력과
+ * analyzeState 결과가 모든 상태에서 같아야 한다. 예전 구현은 내부 순번을 실제
+ * 요소 ID 사전에서 찾아, ID 가 순번+1 인 덱에서는 옆 요소 값을, ID 가 다른
+ * 덱에서는 0 을 조용히 냈다.
+ */
+bool test_face_index_matches_state_data(const std::string& d3plot_path) {
+    std::cout << "  Testing face index -> solid_data mapping... ";
+
+    D3plotReader reader(d3plot_path);
+    if (reader.open() != ErrorCode::SUCCESS) {
+        std::cout << "SKIPPED\n";
+        return true;
+    }
+    SurfaceExtractor extractor(reader);
+    auto surfaces = extractor.extractSolidExteriorSurfaces();
+    auto faces = SurfaceExtractor::filterByDirection(surfaces.faces, Vec3(0, 0, 1), 45.0);
+    if (faces.empty()) {
+        std::cout << "SKIPPED (no +Z faces)\n";
+        return true;
+    }
+
+    const int nv3d = reader.get_control_data().NV3D;
+    SurfaceStressAnalyzer analyzer(reader);
+    size_t states = reader.get_num_states();
+    double overall_max = 0.0;
+    for (size_t si = 0; si < states; ++si) {
+        data::StateData state = reader.read_state(si);
+        if (state.solid_data.empty()) continue;
+
+        double expect_max = -1.0;
+        int32_t expect_id = 0;
+        for (const auto& f : faces) {
+            size_t base = static_cast<size_t>(f.element_id) * static_cast<size_t>(nv3d);
+            TEST_ASSERT(base + 6 <= state.solid_data.size(), "face index out of solid_data");
+            StressTensor t(state.solid_data[base], state.solid_data[base + 1], state.solid_data[base + 2],
+                           state.solid_data[base + 3], state.solid_data[base + 4], state.solid_data[base + 5]);
+            double vm = t.vonMises();
+            if (vm > expect_max) { expect_max = vm; expect_id = f.element_real_id; }
+        }
+
+        auto stats = analyzer.analyzeState(faces, state);
+        TEST_ASSERT(stats.num_faces_skipped == 0, "no face should be skipped");
+        TEST_ASSERT(stats.num_faces == faces.size(), "all faces should be aggregated");
+        TEST_ASSERT(APPROX_EQ(stats.von_mises_max, expect_max, 1e-9 * std::max(1.0, expect_max)),
+                    "von Mises max must match direct solid_data read");
+        TEST_ASSERT(stats.von_mises_max_element == expect_id, "max element must be the real ID");
+        overall_max = std::max(overall_max, expect_max);
+    }
+    TEST_ASSERT(overall_max > 0.0, "surface stress must not be all zero");
+
+    // 셸 면은 solid_data 로 읽을 수 없으니 무효로 빠져야 한다 (남의 솔리드 응력 금지).
+    Face shell_face = faces.front();
+    shell_face.element_type = SurfaceElementType::SHELL;
+    data::StateData last = reader.read_state(states - 1);
+    TEST_ASSERT(!analyzer.analyzeFace(shell_face, last).valid, "shell face must be invalid");
+    auto mixed = faces;
+    mixed.push_back(shell_face);
+    TEST_ASSERT(analyzer.analyzeState(mixed, last).num_faces_skipped == 1, "shell face must be skipped");
+
+    std::cout << "PASSED (" << faces.size() << " faces, " << states << " states, max vM "
+              << overall_max << ")\n";
+    return true;
+}
+
 // ============================================================
 // Main Test Runner
 // ============================================================
@@ -385,6 +450,7 @@ int main(int argc, char* argv[]) {
     if (test_with_d3plot(d3plot_path)) passed++; else failed++;
     if (test_direction_filtered_analysis(d3plot_path)) passed++; else failed++;
     if (test_single_face_analysis(d3plot_path)) passed++; else failed++;
+    if (test_face_index_matches_state_data(d3plot_path)) passed++; else failed++;
 
     std::cout << "\n========================================\n";
     std::cout << "Results: " << passed << " passed, " << failed << " failed\n";

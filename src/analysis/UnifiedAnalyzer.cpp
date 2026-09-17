@@ -553,11 +553,15 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
         }
 
         // Extract faces for this surface
-        SurfaceExtractionResult extraction;
-        if (target_parts.empty()) {
-            extraction = extractor.extractExteriorSurfaces();
-        } else {
-            extraction = extractor.extractExteriorSurfaces(target_parts);
+        // 솔리드 외피만 — extractExteriorSurfaces 는 셸 면도 돌려주는데, 셸 면의
+        // element_id 는 셸 배열 순번이라 solid_data 로 읽으면 남의 응력이 나온다.
+        SurfaceExtractionResult extraction = extractor.extractSolidExteriorSurfaces(target_parts);
+        if (extraction.faces.empty()) {
+            if (callback) {
+                callback("  Surface stress [" + job.name + "]: 대상 파트에 솔리드 외피 면이 없음 "
+                         "(셸 파트는 솔리드 응력 배열이 없어 표면 응력 대상이 아님) — 건너뜀");
+            }
+            continue;
         }
 
         // Filter by direction
@@ -583,38 +587,40 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
         stats.num_faces = static_cast<int32_t>(filtered.size());
 
         // Process each state using SurfaceStressAnalyzer
+        size_t states_with_skip = 0;
+        size_t max_skipped = 0;
+        size_t states_read = 0;
         for (size_t si = 0; si < all_states.size(); ++si) {
             const auto& state = all_states[si];
             // Use the analyzeState method that takes faces and state
             SurfaceStressStats stress_stats = surf_analyzer.analyzeState(filtered, state);
+            if (stress_stats.num_faces_skipped > 0) {
+                ++states_with_skip;
+                max_skipped = std::max(max_skipped, stress_stats.num_faces_skipped);
+            }
+            if (stress_stats.num_faces > 0) ++states_read;
 
-            SurfaceTimePointStats tp;
+            SurfaceTimePointStats tp = SurfaceStressAnalyzer::toTimePoint(stress_stats);
             tp.time = state.time;
-            tp.normal_stress_max = stress_stats.normal_stress_max;
-            tp.normal_stress_min = stress_stats.normal_stress_min;
-            tp.normal_stress_avg = stress_stats.normal_stress_avg;
-            tp.normal_stress_max_element_id = stress_stats.normal_stress_max_element;
-            tp.shear_stress_max = stress_stats.shear_stress_max;
-            tp.shear_stress_avg = stress_stats.shear_stress_avg;
-            tp.shear_stress_max_element_id = stress_stats.shear_stress_max_element;
-            tp.von_mises_max = stress_stats.von_mises_max;
-            tp.von_mises_min = stress_stats.von_mises_min;
-            tp.von_mises_avg = stress_stats.von_mises_avg;
-            tp.von_mises_max_element_id = stress_stats.von_mises_max_element;
-            tp.max_principal_max = stress_stats.max_principal_max;
-            tp.max_principal_min = stress_stats.max_principal_min;
-            tp.max_principal_avg = stress_stats.max_principal_avg;
-            tp.max_principal_max_element_id = stress_stats.max_principal_max_element;
-            tp.min_principal_max = stress_stats.min_principal_max;
-            tp.min_principal_min = stress_stats.min_principal_min;
-            tp.min_principal_avg = stress_stats.min_principal_avg;
-            tp.min_principal_min_element_id = stress_stats.min_principal_min_element;
-
             stats.data.push_back(tp);
 
             if (callback && (si == 0 || si == all_states.size() - 1 || (si + 1) % 20 == 0)) {
                 callback("    Surface stress [" + job.name + "]: state " + std::to_string(si + 1) + "/" + std::to_string(all_states.size()));
             }
+        }
+
+        // 응력을 못 읽은 면은 0 으로 섞지 않고 뺐다 — 뺀 사실은 남긴다.
+        if (states_read == 0) {
+            if (callback) {
+                callback("  Surface stress [" + job.name + "]: 면 " + std::to_string(filtered.size()) +
+                         "개 모두 요소 응력을 읽지 못함 — 결과를 내지 않습니다");
+            }
+            continue;
+        }
+        if (states_with_skip > 0 && callback) {
+            callback("  Surface stress [" + job.name + "]: 경고 — " + std::to_string(states_with_skip) +
+                     "개 상태에서 요소 응력을 못 읽은 면을 집계에서 뺐습니다 (상태당 최대 " +
+                     std::to_string(max_skipped) + "/" + std::to_string(filtered.size()) + "면)");
         }
 
         result.surface_analysis.push_back(stats);

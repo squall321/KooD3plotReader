@@ -30,8 +30,9 @@ namespace analysis {
  * @brief Stress results for a single face at a single time step
  */
 struct FaceStressResult {
-    int32_t element_id;       ///< Element ID
+    int32_t element_id;       ///< Element real ID (face.element_real_id)
     int32_t part_id;          ///< Part ID
+    bool valid = false;       ///< 이 상태에서 요소 응력을 읽었는가 (false 면 값은 0 이고 집계에서 뺀다)
     double time;              ///< Time value
 
     // Raw stress tensor components
@@ -55,7 +56,8 @@ struct FaceStressResult {
  */
 struct SurfaceStressStats {
     double time;              ///< Time value
-    size_t num_faces;         ///< Number of faces analyzed
+    size_t num_faces;         ///< 응력을 읽어 집계에 넣은 면 수 (0 이면 이 상태의 값은 전부 무효)
+    size_t num_faces_skipped = 0; ///< 요소 응력을 못 읽어 집계에서 뺀 면 수
 
     // Von Mises statistics
     double von_mises_max;
@@ -144,7 +146,7 @@ using ProgressCallback = std::function<void(size_t current, size_t total, const 
  * reader.open();
  *
  * SurfaceExtractor extractor(reader);
- * auto surfaces = extractor.extractExteriorSurfaces();
+ * auto surfaces = extractor.extractSolidExteriorSurfaces();  // 셸 면은 solid_data 로 못 읽는다
  *
  * // Filter for faces pointing in +Z direction
  * Vec3 up(0, 0, 1);
@@ -279,6 +281,12 @@ public:
     );
 
     /**
+     * @brief 한 상태의 집계를 JSON/CSV 용 시점 구조로 옮긴다 (법선·전단·vM·σ1·σ3 전부).
+     *        필드를 옮기는 곳이 여럿이면 새 필드가 일부 경로에서 조용히 0 으로 빠진다.
+     */
+    static SurfaceTimePointStats toTimePoint(const SurfaceStressStats& stats);
+
+    /**
      * @brief Get last error message
      */
     const std::string& getLastError() const { return last_error_; }
@@ -293,13 +301,6 @@ private:
      * @brief Initialize analyzer (read control data)
      */
     bool initialize();
-
-    /**
-     * @brief Build element ID to internal index mapping
-     */
-    void buildElementIndexMap();
-
-    std::unordered_map<int32_t, size_t> elem_id_to_index_;
 };
 
 } // namespace analysis

@@ -82,12 +82,8 @@ void SurfaceStrainAnalyzer::extractSurfaces() {
         const auto& spec = surface_specs_[i];
 
         // Extract exterior faces (optionally for specific parts)
-        SurfaceExtractionResult result;
-        if (spec.part_ids.empty()) {
-            result = extractor.extractExteriorSurfaces();
-        } else {
-            result = extractor.extractExteriorSurfaces(spec.part_ids);
-        }
+        // 솔리드 외피만 — 셸 면의 element_id 는 셸 배열 순번이라 solid_data 로 못 읽는다.
+        SurfaceExtractionResult result = extractor.extractSolidExteriorSurfaces(spec.part_ids);
 
         // Filter by direction
         auto filtered = SurfaceExtractor::filterByDirection(result.faces, spec.direction, spec.angle_degrees);

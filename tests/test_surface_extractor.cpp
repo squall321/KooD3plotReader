@@ -144,6 +144,19 @@ bool test_direction_filter() {
     TEST_ASSERT(filtered.size() == 1, "Should have 1 face within 30 deg of -Z");
     TEST_ASSERT(filtered[0].element_id == 1, "Should be face 1");
 
+    // 넓이 0 인 퇴화 면(법선 0 벡터)은 어느 방향에도 들어가면 안 된다.
+    // angleTo 가 0 벡터에 0° 를 돌려줘 +Z·-Z 양쪽에 섞이던 결함의 회귀 시험.
+    Face degenerate;
+    degenerate.element_id = 4;
+    degenerate.normal = Vec3(0, 0, 0);
+    faces.push_back(degenerate);
+    TEST_ASSERT(SurfaceExtractor::filterByDirection(faces, up, 30.0).size() == 1,
+                "Degenerate face must not pass +Z filter");
+    TEST_ASSERT(SurfaceExtractor::filterByDirection(faces, down, 30.0).size() == 1,
+                "Degenerate face must not pass -Z filter");
+    TEST_ASSERT(SurfaceExtractor::filterByDirection(faces, up, 180.0).size() == 4,
+                "Degenerate face must not pass even a 180 deg filter");
+
     std::cout << "PASSED\n";
     return true;
 }

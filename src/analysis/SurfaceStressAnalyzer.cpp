@@ -30,28 +30,7 @@ bool SurfaceStressAnalyzer::initialize() {
     nv3d_ = control_data.NV3D;
     num_solid_elements_ = control_data.NEL8;
 
-    // Build element ID to index mapping
-    buildElementIndexMap();
-
     return true;
-}
-
-void SurfaceStressAnalyzer::buildElementIndexMap() {
-    data::Mesh mesh = reader_.read_mesh();
-
-    elem_id_to_index_.clear();
-
-    // Use real_solid_ids if available, otherwise use sequential indexing
-    if (!mesh.real_solid_ids.empty()) {
-        for (size_t i = 0; i < mesh.real_solid_ids.size(); ++i) {
-            elem_id_to_index_[mesh.real_solid_ids[i]] = i;
-        }
-    } else {
-        // Fallback: use 1-based sequential IDs
-        for (size_t i = 0; i < mesh.solids.size(); ++i) {
-            elem_id_to_index_[mesh.solids[i].id] = i;
-        }
-    }
 }
 
 StressTensor SurfaceStressAnalyzer::extractStressTensor(
@@ -86,24 +65,29 @@ FaceStressResult SurfaceStressAnalyzer::analyzeFace(
     const data::StateData& state
 ) {
     FaceStressResult result;
-    result.element_id = face.element_id;
+    result.element_id = face.element_real_id;
     result.part_id = face.part_id;
     result.time = state.time;
     result.face_normal = face.normal;
     result.face_centroid = face.centroid;
+    result.sxx = result.syy = result.szz = 0;
+    result.sxy = result.syz = result.szx = 0;
+    result.von_mises = result.normal_stress = result.shear_stress = 0;
+    result.max_principal = result.min_principal = 0;
 
-    // Get internal index for element
-    auto it = elem_id_to_index_.find(face.element_id);
-    if (it == elem_id_to_index_.end()) {
-        // Element not found - return zeros
-        result.sxx = result.syy = result.szz = 0;
-        result.sxy = result.syz = result.szx = 0;
-        result.von_mises = result.normal_stress = result.shear_stress = 0;
-        result.max_principal = result.min_principal = 0;
+    // face.element_id 는 SurfaceExtractor 가 준 **내부 0-based 순번**이고
+    // state.solid_data 도 같은 순번으로 놓여 있다. 예전엔 이 순번을 실제 요소 ID
+    // 사전에서 찾아, 실제 ID 가 순번과 다른 덱에서는 전 면이 '못 찾음 → 0' 으로
+    // 집계됐다 (배터리 덱 파트 100 ±Z: 22시점 전부 0).
+    // 셸 면의 element_id 는 셸 배열 순번이라 solid_data 로 읽으면 남의 응력이다.
+    if (face.element_type != SurfaceElementType::SOLID || face.element_id < 0 || nv3d_ < 6) {
         return result;
     }
-
-    size_t elem_index = it->second;
+    const size_t elem_index = static_cast<size_t>(face.element_id);
+    if (elem_index * static_cast<size_t>(nv3d_) + 6 > state.solid_data.size()) {
+        return result;
+    }
+    result.valid = true;
     StressTensor stress = extractStressTensor(state, elem_index);
 
     // Store raw components
@@ -170,8 +154,14 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
     double max_principal_sum = 0;
     double min_principal_sum = 0;
 
+    size_t n = 0;
     for (const auto& face : faces) {
         FaceStressResult result = analyzeFace(face, state);
+        if (!result.valid) {
+            ++stats.num_faces_skipped;
+            continue;
+        }
+        ++n;
 
         // Von Mises
         if (result.von_mises > stats.von_mises_max) {
@@ -224,7 +214,14 @@ SurfaceStressStats SurfaceStressAnalyzer::analyzeState(
         min_principal_sum += result.min_principal;
     }
 
-    size_t n = faces.size();
+    stats.num_faces = n;
+    if (n == 0) {
+        // 읽은 면이 없다 — 극값 초기값(±max)을 값처럼 내보내지 않는다.
+        SurfaceStressStats empty;
+        empty.time = state.time;
+        empty.num_faces_skipped = stats.num_faces_skipped;
+        return empty;
+    }
     stats.von_mises_avg = von_mises_sum / n;
     stats.normal_stress_avg = normal_stress_sum / n;
     stats.shear_stress_avg = shear_stress_sum / n;
@@ -338,16 +335,7 @@ SurfaceAnalysisStats SurfaceStressAnalyzer::toAnalysisStats(
 
     // Convert time history to SurfaceTimePointStats
     for (const auto& stats : history.time_history) {
-        SurfaceTimePointStats point;
-        point.time = stats.time;
-        point.normal_stress_max = stats.normal_stress_max;
-        point.normal_stress_min = stats.normal_stress_min;
-        point.normal_stress_avg = stats.normal_stress_avg;
-        point.normal_stress_max_element_id = stats.normal_stress_max_element;
-        point.shear_stress_max = stats.shear_stress_max;
-        point.shear_stress_avg = stats.shear_stress_avg;
-        point.shear_stress_max_element_id = stats.shear_stress_max_element;
-        result.data.push_back(point);
+        result.data.push_back(toTimePoint(stats));
     }
 
     // Set num_faces from first time point if available
@@ -356,6 +344,31 @@ SurfaceAnalysisStats SurfaceStressAnalyzer::toAnalysisStats(
     }
 
     return result;
+}
+
+SurfaceTimePointStats SurfaceStressAnalyzer::toTimePoint(const SurfaceStressStats& stats) {
+    SurfaceTimePointStats tp;
+    tp.time = stats.time;
+    tp.normal_stress_max = stats.normal_stress_max;
+    tp.normal_stress_min = stats.normal_stress_min;
+    tp.normal_stress_avg = stats.normal_stress_avg;
+    tp.normal_stress_max_element_id = stats.normal_stress_max_element;
+    tp.shear_stress_max = stats.shear_stress_max;
+    tp.shear_stress_avg = stats.shear_stress_avg;
+    tp.shear_stress_max_element_id = stats.shear_stress_max_element;
+    tp.von_mises_max = stats.von_mises_max;
+    tp.von_mises_min = stats.von_mises_min;
+    tp.von_mises_avg = stats.von_mises_avg;
+    tp.von_mises_max_element_id = stats.von_mises_max_element;
+    tp.max_principal_max = stats.max_principal_max;
+    tp.max_principal_min = stats.max_principal_min;
+    tp.max_principal_avg = stats.max_principal_avg;
+    tp.max_principal_max_element_id = stats.max_principal_max_element;
+    tp.min_principal_max = stats.min_principal_max;
+    tp.min_principal_min = stats.min_principal_min;
+    tp.min_principal_avg = stats.min_principal_avg;
+    tp.min_principal_min_element_id = stats.min_principal_min_element;
+    return tp;
 }
 
 } // namespace analysis

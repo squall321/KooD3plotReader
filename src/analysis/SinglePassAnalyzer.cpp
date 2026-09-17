@@ -5,6 +5,7 @@
 
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include <limits>
 #include "kood3plot/analysis/TimeHistoryAnalyzer.hpp"
 #include "kood3plot/Version.hpp"
@@ -478,7 +479,8 @@ void SinglePassAnalyzer::extractSurfaces(const AnalysisConfig& config) {
 
     // Extract all exterior surfaces once
     SurfaceExtractor extractor(reader_);
-    auto all_surfaces = extractor.extractExteriorSurfaces();
+    // 솔리드 외피만 — 셸 면의 element_id 는 셸 배열 순번이라 solid_data 로 못 읽는다.
+    auto all_surfaces = extractor.extractSolidExteriorSurfaces();
 
     // Filter for each surface spec
     for (size_t i = 0; i < config.surface_specs.size(); ++i) {
@@ -830,136 +832,9 @@ void SinglePassAnalyzer::analyzeSurfaceStats(
     size_t state_idx,
     const data::StateData& state
 ) {
-    const auto& solid_data = state.solid_data;
-    if (solid_data.empty()) return;
-
-    for (size_t spec_idx = 0; spec_idx < surface_faces_.size(); ++spec_idx) {
-        const auto& faces = surface_faces_[spec_idx];
-        if (faces.empty()) continue;
-
-        SurfaceStateStats stats;
-        stats.reset();
-
-#ifdef _OPENMP
-        int num_threads = omp_get_max_threads();
-        std::vector<SurfaceStateStats> thread_stats(num_threads);
-        for (auto& ts : thread_stats) ts.reset();
-
-        #pragma omp parallel
-        {
-            int tid = omp_get_thread_num();
-            auto& local_stats = thread_stats[tid];
-
-            #pragma omp for nowait
-            for (int64_t fi = 0; fi < static_cast<int64_t>(faces.size()); ++fi) {
-                const auto& face = faces[fi];
-
-                // Get element index
-                auto it = elem_id_to_index_.find(face.element_id);
-                if (it == elem_id_to_index_.end()) continue;
-
-                size_t elem_idx = it->second;
-                StressTensor tensor = extractStressTensor(solid_data, elem_idx);
-
-                double vm = tensor.vonMises();
-                double normal = tensor.normalStress(face.normal);
-                double shear = tensor.shearStress(face.normal);
-
-                // Von Mises
-                if (vm > local_stats.von_mises_max) {
-                    local_stats.von_mises_max = vm;
-                    local_stats.von_mises_max_elem = face.element_id;
-                }
-                if (vm < local_stats.von_mises_min) {
-                    local_stats.von_mises_min = vm;
-                }
-                local_stats.von_mises_sum += vm;
-
-                // Normal stress
-                if (normal > local_stats.normal_max) {
-                    local_stats.normal_max = normal;
-                    local_stats.normal_max_elem = face.element_id;
-                }
-                if (normal < local_stats.normal_min) {
-                    local_stats.normal_min = normal;
-                }
-                local_stats.normal_sum += normal;
-
-                // Shear stress
-                if (shear > local_stats.shear_max) {
-                    local_stats.shear_max = shear;
-                    local_stats.shear_max_elem = face.element_id;
-                }
-                if (shear < local_stats.shear_min) {
-                    local_stats.shear_min = shear;
-                }
-                local_stats.shear_sum += shear;
-
-                local_stats.count++;
-            }
-        }
-
-        // Merge
-        for (const auto& ts : thread_stats) {
-            stats.merge(ts);
-        }
-
-#else
-        for (const auto& face : faces) {
-            auto it = elem_id_to_index_.find(face.element_id);
-            if (it == elem_id_to_index_.end()) continue;
-
-            size_t elem_idx = it->second;
-            StressTensor tensor = extractStressTensor(solid_data, elem_idx);
-
-            double vm = tensor.vonMises();
-            double normal = tensor.normalStress(face.normal);
-            double shear = tensor.shearStress(face.normal);
-
-            if (vm > stats.von_mises_max) {
-                stats.von_mises_max = vm;
-                stats.von_mises_max_elem = face.element_id;
-            }
-            if (vm < stats.von_mises_min) {
-                stats.von_mises_min = vm;
-            }
-            stats.von_mises_sum += vm;
-
-            if (normal > stats.normal_max) {
-                stats.normal_max = normal;
-                stats.normal_max_elem = face.element_id;
-            }
-            if (normal < stats.normal_min) {
-                stats.normal_min = normal;
-            }
-            stats.normal_sum += normal;
-
-            if (shear > stats.shear_max) {
-                stats.shear_max = shear;
-                stats.shear_max_elem = face.element_id;
-            }
-            if (shear < stats.shear_min) {
-                stats.shear_min = shear;
-            }
-            stats.shear_sum += shear;
-
-            stats.count++;
-        }
-#endif
-
-        // Store results
-        auto& result_tp = surface_results_[spec_idx].data[state_idx];
-        result_tp.time = state.time;
-        result_tp.normal_stress_max = stats.normal_max;
-        result_tp.normal_stress_min = stats.normal_min;
-        result_tp.normal_stress_avg = (stats.count > 0) ?
-                                       stats.normal_sum / stats.count : 0.0;
-        result_tp.normal_stress_max_element_id = stats.normal_max_elem;
-        result_tp.shear_stress_max = stats.shear_max;
-        result_tp.shear_stress_avg = (stats.count > 0) ?
-                                      stats.shear_sum / stats.count : 0.0;
-        result_tp.shear_stress_max_element_id = stats.shear_max_elem;
-    }
+    // 면 응력 계산은 SurfaceStressAnalyzer 한 곳에서만 한다. 예전 사본은 면 순번을
+    // 실제 요소 ID 로 찾았고(값 0·옆 요소), vM·σ1·σ3 를 결과에 옮기지 않았다.
+    analyzeSurfaceStatsSequential(state_idx, state);
 }
 
 // ========================================
@@ -1158,70 +1033,17 @@ void SinglePassAnalyzer::analyzeSurfaceStatsSequential(
     size_t state_idx,
     const data::StateData& state
 ) {
-    const auto& solid_data = state.solid_data;
-    if (solid_data.empty()) return;
+    if (state.solid_data.empty()) return;
 
+    SurfaceStressAnalyzer surf(reader_);
     for (size_t spec_idx = 0; spec_idx < surface_faces_.size(); ++spec_idx) {
         const auto& faces = surface_faces_[spec_idx];
         if (faces.empty()) continue;
 
-        SurfaceStateStats stats;
-        stats.reset();
-
-        // Sequential processing (no OpenMP - this runs inside parallel state loop)
-        for (const auto& face : faces) {
-            auto it = elem_id_to_index_.find(face.element_id);
-            if (it == elem_id_to_index_.end()) continue;
-
-            size_t elem_idx = it->second;
-            StressTensor tensor = extractStressTensor(solid_data, elem_idx);
-
-            double vm = tensor.vonMises();
-            double normal = tensor.normalStress(face.normal);
-            double shear = tensor.shearStress(face.normal);
-
-            if (vm > stats.von_mises_max) {
-                stats.von_mises_max = vm;
-                stats.von_mises_max_elem = face.element_id;
-            }
-            if (vm < stats.von_mises_min) {
-                stats.von_mises_min = vm;
-            }
-            stats.von_mises_sum += vm;
-
-            if (normal > stats.normal_max) {
-                stats.normal_max = normal;
-                stats.normal_max_elem = face.element_id;
-            }
-            if (normal < stats.normal_min) {
-                stats.normal_min = normal;
-            }
-            stats.normal_sum += normal;
-
-            if (shear > stats.shear_max) {
-                stats.shear_max = shear;
-                stats.shear_max_elem = face.element_id;
-            }
-            if (shear < stats.shear_min) {
-                stats.shear_min = shear;
-            }
-            stats.shear_sum += shear;
-
-            stats.count++;
-        }
-
-        // Store results (each thread writes to its own state_idx - no race condition)
-        auto& result_tp = surface_results_[spec_idx].data[state_idx];
-        result_tp.time = state.time;
-        result_tp.normal_stress_max = stats.normal_max;
-        result_tp.normal_stress_min = stats.normal_min;
-        result_tp.normal_stress_avg = (stats.count > 0) ?
-                                       stats.normal_sum / stats.count : 0.0;
-        result_tp.normal_stress_max_element_id = stats.normal_max_elem;
-        result_tp.shear_stress_max = stats.shear_max;
-        result_tp.shear_stress_avg = (stats.count > 0) ?
-                                      stats.shear_sum / stats.count : 0.0;
-        result_tp.shear_stress_max_element_id = stats.shear_max_elem;
+        // 각 스레드는 자기 state_idx 칸에만 쓴다 — 경쟁 없음.
+        SurfaceTimePointStats tp = SurfaceStressAnalyzer::toTimePoint(surf.analyzeState(faces, state));
+        tp.time = state.time;
+        surface_results_[spec_idx].data[state_idx] = tp;
     }
 }
 

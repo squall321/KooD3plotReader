@@ -274,6 +274,11 @@ std::vector<Face> SurfaceExtractor::filterByDirection(
     }
 
     for (const auto& face : faces) {
+        // 넓이 0 인 퇴화 면(절점이 겹친 hex 면)은 법선이 0 벡터다. angleTo 는 0 벡터에
+        // 0° 를 돌려주므로 거르지 않으면 +Z·-Z 어느 필터에도 들어간다.
+        if (face.normal.isZero()) {
+            continue;
+        }
         double angle = face.normal.angleToInDegrees(ref_norm);
         if (angle <= angle_threshold_degrees) {
             filtered.push_back(face);
