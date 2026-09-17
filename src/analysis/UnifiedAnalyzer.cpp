@@ -562,6 +562,17 @@ void UnifiedAnalyzer::processSurfaceStressJobs(
                     target_parts.push_back(pid);
                 }
             }
+            // 🔴 패턴이 아무 파트도 못 잡으면 target_parts 가 비고, 빈 목록은
+            //    아래에서 '전체 모델' 로 번진다 — 'PCB 하면' 이라는 이름표를 달고
+            //    모델 전체의 -Z 면이 나간다. 사유를 남기고 산출물을 만들지 않는다.
+            if (target_parts.empty()) {
+                if (callback) {
+                    callback("  Surface stress [" + job.name + "]: 이름 패턴 '" +
+                             job.part_pattern + "' 에 맞는 파트 0개 — 전체 모델로 번지지 "
+                             "않도록 건너뜁니다");
+                }
+                continue;
+            }
         }
 
         // Extract faces for this surface
@@ -670,6 +681,15 @@ void UnifiedAnalyzer::processSurfaceStrainJobs(
                 if (std::find(target_parts.begin(), target_parts.end(), pid) == target_parts.end()) {
                     target_parts.push_back(pid);
                 }
+            }
+            // 🔴 패턴 0매치 → 빈 목록 → '전체 모델'. 잡 이름만 남고 대상이 뒤바뀐다.
+            if (target_parts.empty()) {
+                if (callback) {
+                    callback("  Surface strain [" + job.name + "]: 이름 패턴 '" +
+                             job.part_pattern + "' 에 맞는 파트 0개 — 전체 모델로 번지지 "
+                             "않도록 건너뜁니다");
+                }
+                continue;
             }
         }
         analyzer.addSurface(job.name, job.surface.direction, job.surface.angle, target_parts);

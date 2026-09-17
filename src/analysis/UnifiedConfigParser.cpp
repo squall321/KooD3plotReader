@@ -18,102 +18,193 @@
 namespace {
 
 /**
- * @brief Parse part names from LS-DYNA keyword file (*PART section)
- * @param keyword_path Path to keyword file (.k, .key, .dyn)
- * @return Map of part ID to part name
+ * @brief 한 줄에서 LS-DYNA 키워드 토큰만 뽑는다 (대문자, 주석·주석뒤 내용 제외)
  */
-std::unordered_map<int32_t, std::string> parsePartNamesFromKeyword(const std::string& keyword_path) {
-    std::unordered_map<int32_t, std::string> part_names;
-
-    std::ifstream ifs(keyword_path);
-    if (!ifs.is_open()) {
-        return part_names;
+std::string keywordToken(const std::string& line) {
+    std::string tok;
+    for (char c : line) {
+        if (std::isspace(static_cast<unsigned char>(c)) || c == '$') break;
+        tok += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     }
-
-    std::string line;
-    bool in_part_section = false;
-    std::string current_title;
-    int line_in_part = 0;
-
-    while (std::getline(ifs, line)) {
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '$') continue;
-
-        // Check for *PART keyword
-        if (line[0] == '*') {
-            std::string upper_line = line;
-            std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
-
-            if (upper_line.find("*PART") != std::string::npos &&
-                upper_line.find("*PART_") == std::string::npos) {
-                // Found *PART (not *PART_INERTIA etc.)
-                in_part_section = true;
-                line_in_part = 0;
-                current_title.clear();
-                continue;
-            } else {
-                in_part_section = false;
-            }
-        }
-
-        if (in_part_section) {
-            line_in_part++;
-
-            if (line_in_part == 1) {
-                // First line after *PART is the title (heading/name)
-                current_title = line;
-                // Trim whitespace
-                size_t start = current_title.find_first_not_of(" \t\r\n");
-                size_t end = current_title.find_last_not_of(" \t\r\n");
-                if (start != std::string::npos && end != std::string::npos) {
-                    current_title = current_title.substr(start, end - start + 1);
-                }
-            } else if (line_in_part == 2) {
-                // Second line contains: PID, SECID, MID, ...
-                // PID is first field (columns 1-10 in fixed format, or first comma-separated)
-                try {
-                    int32_t pid;
-                    if (line.find(',') != std::string::npos) {
-                        // Comma-separated format
-                        size_t comma = line.find(',');
-                        pid = std::stoi(line.substr(0, comma));
-                    } else {
-                        // Fixed format (columns 1-10)
-                        std::string pid_str = line.substr(0, 10);
-                        // Trim whitespace
-                        size_t start = pid_str.find_first_not_of(" \t");
-                        if (start != std::string::npos) {
-                            pid = std::stoi(pid_str.substr(start));
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    if (!current_title.empty()) {
-                        part_names[pid] = current_title;
-                    }
-                } catch (...) {
-                    // Parse error, skip
-                }
-
-                in_part_section = false;  // Reset for next *PART
-            }
-        }
-    }
-
-    return part_names;
+    return tok;
 }
 
 /**
- * @brief Find keyword file next to d3plot
- * @param d3plot_path Path to d3plot file
- * @return Path to keyword file, or empty if not found
+ * @brief 카드의 첫 필드(쉼표 구분이면 첫 항목, 아니면 1-10열)를 잘라낸다
  */
-std::string findKeywordFile(const std::string& d3plot_path) {
+std::string firstField(const std::string& line) {
+    std::string field = (line.find(',') != std::string::npos)
+                            ? line.substr(0, line.find(','))
+                            : line.substr(0, std::min<size_t>(line.size(), 10));
+    const size_t s = field.find_first_not_of(" \t\r\n");
+    if (s == std::string::npos) return "";
+    const size_t e = field.find_last_not_of(" \t\r\n");
+    return field.substr(s, e - s + 1);
+}
+
+/**
+ * @brief 첫 필드가 통째로 숫자인가 (= 제목 카드가 아니라 데이터 카드)
+ */
+bool firstFieldIsNumeric(const std::string& line) {
+    const std::string f = firstField(line);
+    if (f.empty()) return false;
+    char* end = nullptr;
+    std::strtod(f.c_str(), &end);
+    return end != nullptr && *end == '\0';
+}
+
+std::string trimCopy(const std::string& s) {
+    const size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "";
+    const size_t e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
+}
+
+/**
+ * @brief 키워드 파일에서 *PART 이름을 모은다. *INCLUDE 는 따라 들어간다.
+ *
+ * 🔴 예전에는 (1) *INCLUDE 를 안 따라가고 (2) "*PART_" 가 든 줄을 통째로 건너뛰고
+ *    (3) 한 *PART 블록의 첫 파트만 읽었다. 메시가 *INCLUDE 안에 있는 덱
+ *    (실측 /data/battery_study/case_01_phase1_stacked_tier-1 — *PART 34개가
+ *    02_mesh_stacked_tier-1.k 에 있다) 에서는 이름을 하나도 못 찾았고,
+ *    이름 패턴이 전부 0개로 떨어졌다.
+ *
+ * @param keyword_path  읽을 파일
+ * @param part_names    [출력] PID → 이름
+ * @param visited       순환 *INCLUDE 방지
+ * @param root_dir      상대 경로 *INCLUDE 의 2차 기준 (최초 덱이 있는 폴더)
+ * @param depth         재귀 깊이 (16 에서 멈춘다)
+ * @param missing_includes [출력] 못 연 *INCLUDE 개수
+ */
+void parsePartNamesInto(const std::string& keyword_path,
+                        std::unordered_map<int32_t, std::string>& part_names,
+                        std::set<std::string>& visited,
+                        const std::filesystem::path& root_dir,
+                        int depth,
+                        size_t& missing_includes) {
+    namespace fs = std::filesystem;
+
+    if (depth > 16) return;
+
+    std::error_code ec;
+    std::string key = fs::weakly_canonical(fs::path(keyword_path), ec).string();
+    if (ec || key.empty()) key = keyword_path;
+    if (!visited.insert(key).second) return;   // 이미 읽은 파일 (순환 포함)
+
+    std::ifstream ifs(keyword_path);
+    if (!ifs.is_open()) {
+        ++missing_includes;
+        return;
+    }
+
+    const fs::path self_dir = fs::path(keyword_path).parent_path();
+
+    enum class Mode { None, PartMulti, PartSingle, IncludeMulti, IncludeSingle };
+    Mode mode = Mode::None;
+    int line_in_part = 0;
+    std::string current_title;
+
+    std::string line;
+    while (std::getline(ifs, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && line[0] == '$') continue;   // 주석
+
+        if (!line.empty() && line[0] == '*') {
+            const std::string tok = keywordToken(line);
+            if (tok == "*PART") {
+                // 한 블록에 (제목 + PID 카드) 쌍이 여러 개 올 수 있다
+                mode = Mode::PartMulti;
+            } else if (tok.rfind("*PART_", 0) == 0) {
+                // *PART_COMPOSITE / *PART_INERTIA / *PART_CONTACT ...
+                // 뒤에 층·관성 카드가 붙으므로 첫 쌍만 읽는다.
+                mode = Mode::PartSingle;
+            } else if (tok == "*INCLUDE") {
+                mode = Mode::IncludeMulti;
+            } else if (tok.rfind("*INCLUDE_", 0) == 0) {
+                // *INCLUDE_TRANSFORM 등은 첫 줄만 파일 이름이다
+                mode = Mode::IncludeSingle;
+            } else {
+                mode = Mode::None;
+            }
+            line_in_part = 0;
+            current_title.clear();
+            continue;
+        }
+
+        if (mode == Mode::IncludeMulti || mode == Mode::IncludeSingle) {
+            const std::string name = trimCopy(line);
+            if (name.empty()) continue;
+            fs::path inc(name);
+            std::string resolved;
+            if (inc.is_absolute() && fs::exists(inc)) {
+                resolved = inc.string();
+            } else if (fs::exists(self_dir / inc)) {
+                resolved = (self_dir / inc).string();
+            } else if (fs::exists(root_dir / inc)) {
+                resolved = (root_dir / inc).string();
+            }
+            if (resolved.empty()) {
+                ++missing_includes;
+            } else {
+                parsePartNamesInto(resolved, part_names, visited, root_dir,
+                                   depth + 1, missing_includes);
+            }
+            if (mode == Mode::IncludeSingle) mode = Mode::None;
+            continue;
+        }
+
+        if (mode != Mode::PartMulti && mode != Mode::PartSingle) continue;
+
+        // 🔴 *PART 블록 안에서는 빈 줄도 카드다 — 건너뛰면 제목/PID 가 한 칸 밀린다.
+        ++line_in_part;
+        if (line_in_part == 1) {
+            if (firstFieldIsNumeric(line)) {
+                // 제목 카드가 없는 변형(*PART_ADAPTIVE_FAILURE 등) — 추측하지 않는다
+                mode = Mode::None;
+                continue;
+            }
+            current_title = trimCopy(line);
+        } else if (line_in_part == 2) {
+            const std::string pid_str = firstField(line);
+            try {
+                const int32_t pid = std::stoi(pid_str);
+                if (!current_title.empty()) part_names[pid] = current_title;
+            } catch (...) {
+                // 숫자가 아니면 이 블록은 우리가 아는 형식이 아니다 — 버린다
+                mode = Mode::None;
+                continue;
+            }
+            if (mode == Mode::PartMulti) {
+                line_in_part = 0;      // 다음 (제목 + PID) 쌍
+                current_title.clear();
+            } else {
+                mode = Mode::None;     // 변형 키워드는 첫 쌍만
+            }
+        }
+    }
+}
+
+/**
+ * @brief d3plot 옆의 키워드 파일 후보를 우선순위 순으로 모은다
+ *
+ * 🔴 예전에는 `fs::directory_iterator` 가 처음 돌려주는 .k 하나만 썼다. 그건
+ *    readdir 순서라 주 덱이라는 보장이 없다 (실측 battery case_01 에서는
+ *    *PART 가 하나도 없는 07_control_phase1.k 가 먼저 나왔다).
+ *    이제 후보를 순서대로 모아두고, 호출부가 이름이 나올 때까지 훑는다.
+ */
+std::vector<std::string> collectKeywordCandidates(const std::string& d3plot_path) {
     namespace fs = std::filesystem;
 
     fs::path d3plot(d3plot_path);
     fs::path dir = d3plot.parent_path();
+
+    std::vector<std::string> candidates;
+    std::set<std::string> seen;
+    auto add = [&](const fs::path& p) {
+        if (!fs::exists(p)) return;
+        const std::string s = p.string();
+        if (seen.insert(s).second) candidates.push_back(s);
+    };
 
     // Common keyword file extensions
     std::vector<std::string> extensions = {".k", ".key", ".dyn", ".K", ".KEY", ".DYN"};
@@ -130,39 +221,30 @@ std::string findKeywordFile(const std::string& d3plot_path) {
     }
 
     for (const auto& ext : extensions) {
-        // Try with stem
-        if (!stem.empty()) {
-            fs::path candidate = dir / (stem + ext);
-            if (fs::exists(candidate)) {
-                return candidate.string();
-            }
-        }
-
-        // Try main.k, input.k, etc.
+        if (!stem.empty()) add(dir / (stem + ext));
         for (const std::string& name : {"main", "input", "model", "keyword"}) {
-            fs::path candidate = dir / (name + ext);
-            if (fs::exists(candidate)) {
-                return candidate.string();
-            }
+            add(dir / (name + ext));
         }
     }
 
-    // Try to find any .k file in the directory
+    // 나머지 .k/.key/.dyn — readdir 순서에 기대지 않도록 이름순으로 정렬한다
+    std::vector<std::string> rest;
     try {
         for (const auto& entry : fs::directory_iterator(dir)) {
-            if (entry.is_regular_file()) {
-                std::string ext = entry.path().extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                if (ext == ".k" || ext == ".key" || ext == ".dyn") {
-                    return entry.path().string();
-                }
+            if (!entry.is_regular_file()) continue;
+            std::string ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".k" || ext == ".key" || ext == ".dyn") {
+                rest.push_back(entry.path().string());
             }
         }
     } catch (...) {
         // Directory iteration failed
     }
+    std::sort(rest.begin(), rest.end());
+    for (const auto& p : rest) add(p);
 
-    return "";
+    return candidates;
 }
 
 // Global cache for part names (loaded once per d3plot path)
@@ -1346,15 +1428,39 @@ std::vector<int32_t> UnifiedConfigParser::filterPartsByPattern(
 
     // Check cache first
     if (g_part_name_cache.find(d3plot_path) == g_part_name_cache.end()) {
-        // Try to find and parse keyword file
-        std::string keyword_path = findKeywordFile(d3plot_path);
-        if (!keyword_path.empty()) {
-            g_part_name_cache[d3plot_path] = parsePartNamesFromKeyword(keyword_path);
-            std::cerr << "[UnifiedConfigParser] Loaded part names from: " << keyword_path << std::endl;
+        // 후보 덱을 우선순위대로 훑어 **이름이 나오는 첫 덱**을 쓴다.
+        // (*INCLUDE 는 parsePartNamesInto 가 따라 들어간다)
+        const auto candidates = collectKeywordCandidates(d3plot_path);
+        const std::filesystem::path root_dir =
+            std::filesystem::path(d3plot_path).parent_path();
+
+        std::unordered_map<int32_t, std::string> names;
+        std::string used;
+        size_t missing_includes = 0;
+        for (const auto& cand : candidates) {
+            std::set<std::string> visited;
+            size_t missing = 0;
+            std::unordered_map<int32_t, std::string> found;
+            parsePartNamesInto(cand, found, visited, root_dir, 0, missing);
+            if (!found.empty()) {
+                names = std::move(found);
+                used = cand;
+                missing_includes = missing;
+                break;
+            }
+        }
+
+        g_part_name_cache[d3plot_path] = names;
+        if (!used.empty()) {
+            std::cerr << "[UnifiedConfigParser] Loaded part names from: " << used
+                      << " (파트 " << names.size() << "개";
+            if (missing_includes > 0) {
+                std::cerr << ", 못 연 *INCLUDE " << missing_includes << "건";
+            }
+            std::cerr << ")" << std::endl;
         } else {
-            // No keyword file found - use empty map
-            g_part_name_cache[d3plot_path] = {};
-            std::cerr << "[UnifiedConfigParser] No keyword file found for part names. "
+            std::cerr << "[UnifiedConfigParser] 파트 이름을 가진 키워드 파일을 찾지 못함 ("
+                      << candidates.size() << "개 후보 확인). "
                       << "Using fallback Part_N names." << std::endl;
         }
     }

@@ -418,9 +418,15 @@ bool UnifiedAnalyzer::processRenderJobs(
                     target_parts.push_back(pid);
                 }
             }
-            if (callback && !pattern_parts.empty()) {
-                callback("    Pattern '" + job.part_pattern + "' matched " +
-                         std::to_string(pattern_parts.size()) + " parts");
+            if (callback) {
+                if (pattern_parts.empty()) {
+                    // 무음 금지 — 0개 매칭은 '전체 모델, 하이라이트 없음' 으로 번진다.
+                    callback("    Pattern '" + job.part_pattern + "' 에 맞는 파트 0개 — "
+                             "하이라이트 없이 전체 모델을 렌더합니다");
+                } else {
+                    callback("    Pattern '" + job.part_pattern + "' matched " +
+                             std::to_string(pattern_parts.size()) + " parts");
+                }
             }
         }
 
