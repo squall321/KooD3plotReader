@@ -1,5 +1,6 @@
 #include "kood3plot/parsers/NARBSParser.hpp"
 #include <iostream>
+#include <algorithm>
 
 namespace kood3plot {
 namespace parsers {
@@ -51,66 +52,63 @@ void NARBSParser::parse(size_t& offset) {
 
     // Skip header
     offset += header_size;
+    const size_t data_base = offset;
 
-    // 1. Node IDs (NSORT = NUMNP)
-    int numnp = control_data_.NUMNP;
-    if (numnp > 0) {
-        node_ids_.reserve(numnp);
-        for (int i = 0; i < numnp; ++i) {
-            int32_t node_id = reader_->read_int(offset++);
-            node_ids_.push_back(node_id);
-            node_id_to_index_[node_id] = i;
-        }
-        std::cerr << "  Node IDs: " << node_ids_.size() << std::endl;
-    }
+    // 블록 순서는 **규격 순서** 로만 읽는다: NUSERN(절점) → NUSERH(솔리드) →
+    // NUSERB(빔) → NUSERS(셸) → NUSERT(두꺼운 셸) (ls-dyna_database.txt:728-732).
+    // 예전 구현은 두꺼운 셸을 빔·셸보다 먼저 읽어, 셸과 두꺼운 셸이 함께 있는 덱에서
+    // 두 배열이 통째로 어긋났다 (배터리 덱: 셸 ID 가 393~12074 여야 하는데 8233~10624).
+    const int numnp = control_data_.NUMNP;
+    const int num_solids = std::abs(control_data_.NEL8);
+    const int num_beams = control_data_.NEL2;
+    const int num_shells = control_data_.NEL4;
+    const int num_thick_shells = control_data_.NELT;
 
-    // 2. Solid element IDs (NSORT8 = abs(NEL8))
-    int num_solids = std::abs(control_data_.NEL8);
-    if (num_solids > 0) {
-        solid_ids_.reserve(num_solids);
-        for (int i = 0; i < num_solids; ++i) {
-            int32_t elem_id = reader_->read_int(offset++);
-            solid_ids_.push_back(elem_id);
-            solid_id_to_index_[elem_id] = i;
-        }
-        std::cerr << "  Solid element IDs: " << solid_ids_.size() << std::endl;
-    }
+    size_t pos_node = 0;
+    size_t pos_solid = pos_node + static_cast<size_t>(std::max(numnp, 0));
+    size_t pos_beam = pos_solid + static_cast<size_t>(std::max(num_solids, 0));
+    size_t pos_shell = pos_beam + static_cast<size_t>(std::max(num_beams, 0));
+    size_t pos_thick = pos_shell + static_cast<size_t>(std::max(num_shells, 0));
+    const size_t pos_after = pos_thick + static_cast<size_t>(std::max(num_thick_shells, 0));
 
-    // 3. Thick shell element IDs (NSORTT = NELT)
-    int num_thick_shells = control_data_.NELT;
-    if (num_thick_shells > 0) {
-        thick_shell_ids_.reserve(num_thick_shells);
-        for (int i = 0; i < num_thick_shells; ++i) {
-            int32_t elem_id = reader_->read_int(offset++);
-            thick_shell_ids_.push_back(elem_id);
-            thick_shell_id_to_index_[elem_id] = i;
+    // 포인터 형식(NSORT < 0)이면 헤더의 1-based 포인터(NSRH/NSRB/NSRS/NSRT)가
+    // 각 블록 시작을 직접 가리킨다. 개수로 계산한 위치와 다르면 포인터를 따르고
+    // 사유를 남긴다 — 조용히 어긋난 배열을 내보내지 않는다.
+    auto use_pointer = [&](int ptr, size_t& pos, const char* name) {
+        if (nsort >= 0 || ptr <= 0) return;
+        size_t from_ptr = static_cast<size_t>(ptr) - 1;
+        if (from_ptr != pos) {
+            std::cerr << "  NARBS 경고: " << name << " 블록 위치가 개수 계산("
+                      << pos << ")과 헤더 포인터(" << from_ptr << ")에서 다릅니다 — 포인터를 따릅니다"
+                      << std::endl;
+            pos = from_ptr;
         }
-        std::cerr << "  Thick shell element IDs: " << thick_shell_ids_.size() << std::endl;
-    }
+    };
+    use_pointer(nsrh, pos_solid, "solid");
+    use_pointer(nsrb, pos_beam, "beam");
+    use_pointer(nsrs, pos_shell, "shell");
+    use_pointer(nsrt, pos_thick, "thick shell");
 
-    // 4. Beam element IDs (NSORT2 = NEL2)
-    int num_beams = control_data_.NEL2;
-    if (num_beams > 0) {
-        beam_ids_.reserve(num_beams);
-        for (int i = 0; i < num_beams; ++i) {
-            int32_t elem_id = reader_->read_int(offset++);
-            beam_ids_.push_back(elem_id);
-            beam_id_to_index_[elem_id] = i;
+    auto read_ids = [&](size_t pos, int count, std::vector<int32_t>& ids,
+                        std::unordered_map<int32_t, size_t>& index_map, const char* label) {
+        if (count <= 0) return;
+        ids.reserve(count);
+        size_t at = data_base + pos;
+        for (int i = 0; i < count; ++i) {
+            int32_t id = reader_->read_int(at++);
+            ids.push_back(id);
+            index_map[id] = static_cast<size_t>(i);
         }
-        std::cerr << "  Beam element IDs: " << beam_ids_.size() << std::endl;
-    }
+        std::cerr << "  " << label << ": " << ids.size() << std::endl;
+    };
 
-    // 5. Shell element IDs (NSORT4 = NEL4)
-    int num_shells = control_data_.NEL4;
-    if (num_shells > 0) {
-        shell_ids_.reserve(num_shells);
-        for (int i = 0; i < num_shells; ++i) {
-            int32_t elem_id = reader_->read_int(offset++);
-            shell_ids_.push_back(elem_id);
-            shell_id_to_index_[elem_id] = i;
-        }
-        std::cerr << "  Shell element IDs: " << shell_ids_.size() << std::endl;
-    }
+    read_ids(pos_node, numnp, node_ids_, node_id_to_index_, "Node IDs");
+    read_ids(pos_solid, num_solids, solid_ids_, solid_id_to_index_, "Solid element IDs");
+    read_ids(pos_beam, num_beams, beam_ids_, beam_id_to_index_, "Beam element IDs");
+    read_ids(pos_shell, num_shells, shell_ids_, shell_id_to_index_, "Shell element IDs");
+    read_ids(pos_thick, num_thick_shells, thick_shell_ids_, thick_shell_id_to_index_, "Thick shell element IDs");
+
+    offset = data_base + pos_after;
 
     // 6. Part ID arrays (NORDER, NSRMU, NSRMP) - 3*NMMAT entries total
     // ls-dyna_database.txt:
@@ -132,8 +130,8 @@ void NARBSParser::parse(size_t& offset) {
     }
 
     // 7. Material type numbers (remaining after Part ID arrays)
-    size_t total_read = node_ids_.size() + solid_ids_.size() + thick_shell_ids_.size()
-                      + beam_ids_.size() + shell_ids_.size() + 3 * nmmat;
+    size_t total_read = node_ids_.size() + solid_ids_.size() + beam_ids_.size()
+                      + shell_ids_.size() + thick_shell_ids_.size() + 3 * nmmat;
     size_t remaining = control_data_.NARBS - total_read;
 
     if (remaining > 0 && remaining < 100000) {  // Sanity check
