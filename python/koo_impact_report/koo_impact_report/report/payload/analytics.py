@@ -7,6 +7,10 @@ from ...models import (
 from .common import _pid_cast, _r4
 
 
+# 시각 중복 허용 한도 — 이보다 많으면 표본율을 알 수 없다고 본다.
+_DUP_TIME_LIMIT = 0.05
+
+
 def _fft_dominant_freq(times, signal, f_lo=10.0):
     """Return (f_dom_Hz, peak_amp, freqs, amps_normalized, fs) or None."""
     import numpy as np
@@ -23,15 +27,21 @@ def _fft_dominant_freq(times, signal, f_lo=10.0):
     if np.allclose(s, 0.0):
         return None
     dts = np.diff(t)
-    # 시각이 단조증가하지 않으면(= CSV 소수 6자리 고정에 뭉개져 중복) 표본율을
-    # 알 수 없다. 0 간격을 버리고 남은 것만 평균내면 fs 가 간격비만큼 커져
-    # 실측 20 kHz 신호가 2 kHz 로 나온다 — 틀린 숫자 대신 값을 내지 않는다.
-    if np.any(dts <= 0):
+    # 시각이 단조증가하지 않을 수 있다 — 옛 산출물의 CSV 는 Time 이 소수 6자리
+    # 고정이라 출력 간격이 1 µs 근처면 몇 구간이 같은 시각으로 뭉갠다(실측 0.5%).
+    # 0 간격을 버리고 **평균**을 내면 fs 가 간격비만큼 커져(20 kHz → 2 kHz) 틀린
+    # 숫자가 나온다. 중앙값은 이 몇 개에 흔들리지 않으므로, 중복이 적을 때는
+    # 중앙값 간격으로 분석하고 많을 때만 값을 내지 않는다.
+    n_gap = dts.size
+    if n_gap < 4:
+        return None
+    bad_ratio = float(np.count_nonzero(dts <= 0)) / float(n_gap)
+    if bad_ratio > _DUP_TIME_LIMIT:
         return None
     dts = dts[dts > 0]
     if dts.size < 4:
         return None
-    dt = float(np.mean(dts))
+    dt = float(np.median(dts))
     if not np.isfinite(dt) or dt <= 0:
         return None
     fs = 1.0 / dt
