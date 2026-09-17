@@ -63,9 +63,8 @@ def _generate_findings(report: Report) -> list[Finding]:
 
     # --- 단위계 미검출 ---
     # peak-G 는 단위계에 따라 1e6 배까지 달라진다. 못 정했으면 그 사실이 보고서에
-    # 있어야 한다 — stdout 한 줄은 아무도 다시 보지 않는다.
-    # 검출은 했지만 단서(note)가 붙은 경우도 같은 자리에 싣는다 — 그 단서를
-    # stdout 에만 두면 아무도 다시 보지 않는다.
+    # 있어야 한다 — stdout 한 줄은 아무도 다시 보지 않는다. 검출은 했지만
+    # 단서(note)가 붙은 경우도 같은 자리에 싣는다.
     if not MotionData.UNIT_SYSTEM or MotionData.UNIT_NOTE:
         _detected = bool(MotionData.UNIT_SYSTEM)
         findings.append(Finding(
