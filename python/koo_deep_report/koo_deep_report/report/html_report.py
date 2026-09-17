@@ -1,6 +1,7 @@
 """Generate single-simulation HTML report."""
 from __future__ import annotations
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -216,33 +217,32 @@ def _build_js_data(result: SingleResult) -> dict:
         data["min_principal"] = [_series_to_dict(s) for s in dr.min_principal]
         data["max_principal_strain"] = [_series_to_dict(s) for s in dr.max_principal_strain]
         data["min_principal_strain"] = [_series_to_dict(s) for s in dr.min_principal_strain]
-        data["peak_element_tensors"] = [{
-            "element_id": t.element_id, "part_id": t.part_id,
-            "reason": t.reason, "peak_value": t.peak_value, "peak_time": t.peak_time,
-            "time": _downsample(t.time), "sxx": _downsample(t.sxx),
-            "syy": _downsample(t.syy), "szz": _downsample(t.szz),
-            "sxy": _downsample(t.sxy), "syz": _downsample(t.syz),
-            "szx": _downsample(t.szx),
-        } for t in dr.peak_element_tensors]
+        data["peak_element_tensors"] = []
+        for t in dr.peak_element_tensors:
+            g = _downsample_group(t.time, {"sxx": t.sxx, "syy": t.syy, "szz": t.szz,
+                                           "sxy": t.sxy, "syz": t.syz, "szx": t.szx})
+            data["peak_element_tensors"].append({
+                "element_id": t.element_id, "part_id": t.part_id,
+                "reason": t.reason, "peak_value": t.peak_value, "peak_time": t.peak_time,
+                "time": g["t"], "sxx": g["sxx"], "syy": g["syy"], "szz": g["szz"],
+                "sxy": g["sxy"], "syz": g["syz"], "szx": g["szx"],
+            })
         data["hotspot"] = dr.hotspot_clusters
-        data["motion"] = {
-            str(pid): {
+        data["motion"] = {}
+        for pid, md in dr.motion.items():
+            g = _downsample_group(md.t, {
+                "disp_x": md.disp_x, "disp_y": md.disp_y, "disp_z": md.disp_z,
+                "disp_mag": md.disp_mag, "vel_mag": md.vel_mag, "acc_mag": md.acc_mag,
+                "max_disp_mag": md.max_disp_mag,
+            })
+            data["motion"][str(pid)] = {
                 "part_id": pid,
                 "part_name": md.part_name,
-                "t": _downsample(md.t),
-                "disp_x": _downsample(md.disp_x),
-                "disp_y": _downsample(md.disp_y),
-                "disp_z": _downsample(md.disp_z),
-                "disp_mag": _downsample(md.disp_mag),
-                "vel_mag": _downsample(md.vel_mag),
-                "acc_mag": _downsample(md.acc_mag),
-                "max_disp_mag": _downsample(md.max_disp_mag),
+                **g,
                 "peak_disp_mag": md.peak_disp_mag,
                 "peak_vel_mag": md.peak_vel_mag,
                 "peak_acc_mag": md.peak_acc_mag,
             }
-            for pid, md in dr.motion.items()
-        }
         renders_dir = result.d3plot_result.output_dir / "renders"
         data["renders"] = [
             str(p.relative_to(renders_dir)) for p in dr.render_files
@@ -273,13 +273,11 @@ def _build_js_data(result: SingleResult) -> dict:
 
     if gl:
         data["glstat"] = {
-            "t": _downsample(gl.t),
-            "total_energy": _downsample(gl.total_energy),
-            "kinetic_energy": _downsample(gl.kinetic_energy),
-            "internal_energy": _downsample(gl.internal_energy),
-            "hourglass_energy": _downsample(gl.hourglass_energy),
-            "energy_ratio": _downsample(gl.energy_ratio),
-            "mass": _downsample(gl.mass),
+            **_downsample_group(gl.t, {
+                "total_energy": gl.total_energy, "kinetic_energy": gl.kinetic_energy,
+                "internal_energy": gl.internal_energy, "hourglass_energy": gl.hourglass_energy,
+                "energy_ratio": gl.energy_ratio, "mass": gl.mass,
+            }),
             "energy_ratio_min": gl.energy_ratio_min,
             "energy_ratio_max": gl.energy_ratio_max,
             "has_mass_added": gl.has_mass_added,
@@ -288,52 +286,97 @@ def _build_js_data(result: SingleResult) -> dict:
 
     bn = result.binout_data
     if bn:
-        data["binout"] = {
-            "matsum": {
-                "part_ids": bn.matsum.part_ids,
-                "part_names": bn.matsum.part_names,
-                "t": _downsample(bn.matsum.t),
-                "internal_energy": [_downsample(e) for e in bn.matsum.internal_energy],
-                "kinetic_energy": [_downsample(e) for e in bn.matsum.kinetic_energy],
-            } if bn.matsum else None,
-            "rcforc": [
-                {
-                    "id": ifc.interface_id,
-                    "name": ifc.name,
-                    "side": ifc.side,
-                    "t": _downsample(ifc.t),
-                    "fx": _downsample(ifc.fx), "fy": _downsample(ifc.fy), "fz": _downsample(ifc.fz),
-                    "fmag": _downsample(ifc.fmag),
-                    "peak_fmag": ifc.peak_fmag,
-                }
-                for ifc in bn.rcforc
-            ],
-            "sleout": [
-                {
-                    "id": ifc.interface_id,
-                    "name": ifc.name,
-                    "t": _downsample(ifc.t),
-                    "total_energy": _downsample(ifc.total_energy),
-                    "friction_energy": _downsample(ifc.friction_energy),
-                }
-                for ifc in bn.sleout
-            ],
-        }
+        matsum = None
+        if bn.matsum:
+            ms = bn.matsum
+            arrays = {("ie", i): e for i, e in enumerate(ms.internal_energy)}
+            arrays.update({("ke", i): e for i, e in enumerate(ms.kinetic_energy)})
+            g = _downsample_group(ms.t, arrays)
+            matsum = {
+                "part_ids": ms.part_ids,
+                "part_names": ms.part_names,
+                "t": g["t"],
+                "internal_energy": [g[("ie", i)] for i in range(len(ms.internal_energy))],
+                "kinetic_energy": [g[("ke", i)] for i in range(len(ms.kinetic_energy))],
+            }
+        rcforc = []
+        for ifc in bn.rcforc:
+            g = _downsample_group(ifc.t, {"fx": ifc.fx, "fy": ifc.fy, "fz": ifc.fz, "fmag": ifc.fmag})
+            rcforc.append({"id": ifc.interface_id, "name": ifc.name, "side": ifc.side,
+                           **g, "peak_fmag": ifc.peak_fmag})
+        sleout = []
+        for ifc in bn.sleout:
+            g = _downsample_group(ifc.t, {"total_energy": ifc.total_energy,
+                                          "friction_energy": ifc.friction_energy})
+            sleout.append({"id": ifc.interface_id, "name": ifc.name, **g})
+        data["binout"] = {"matsum": matsum, "rcforc": rcforc, "sleout": sleout}
 
     return data
 
 
-def _downsample(arr: list, n: int = 500) -> list:
-    """Downsample a list to at most n points, keeping first/last and evenly spaced."""
-    if not arr or len(arr) <= n:
-        return arr
-    step = (len(arr) - 1) / (n - 1)
-    indices = {0, len(arr) - 1}
-    indices.update(int(i * step) for i in range(n))
-    return [arr[i] for i in sorted(indices)]
+def _finite(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _extreme_indices(n: int, arrays: list, n_max: int) -> list[int]:
+    """구간마다 각 배열의 최대·최소 위치를 남기는 인덱스 (처음·끝 포함, 오름차순).
+
+    균등 간격으로 뽑으면 한두 샘플짜리 충격 피크가 사라진다 — JSON 이 전 상태를
+    담게 된 뒤 실덱 응력 시리즈 23개 중 21개가 그래프에서 피크를 잃었다(2026-09).
+    배열이 많으면 구간 수를 줄이되 50 구간(최대 4×n_max 점) 아래로는 내리지 않는다.
+    """
+    k = max(1, len(arrays))
+    buckets = max((n_max - 2) // (2 * k), min(50, (4 * n_max) // (2 * k)), 1)
+    buckets = min(buckets, n)
+    keep = {0, n - 1}
+    for vals in arrays:
+        for b in range(buckets):
+            lo, hi = b * n // buckets, (b + 1) * n // buckets
+            imax = imin = None
+            for i in range(lo, hi):
+                v = vals[i]
+                if not _finite(v):
+                    continue
+                if imax is None or v > vals[imax]:
+                    imax = i
+                if imin is None or v < vals[imin]:
+                    imin = i
+            if imax is not None:
+                keep.add(imax)
+                keep.add(imin)
+    return sorted(keep)
+
+
+def _downsample_group(t: list, arrays: dict, n_max: int = 500) -> dict:
+    """시간축 t 와 그 위에 그려지는 배열들을 **같은 인덱스로** 줄인다.
+
+    반환: {"t": ..., <이름>: ...}. 각 배열의 전역 최대·최소는 항상 남는다.
+    길이가 t 와 다른 배열은 t 의 인덱스로 뽑을 수 없으므로 섞지 않고 따로 줄인다.
+    """
+    t = list(t or [])
+    n = len(t)
+    aligned = {k: v for k, v in arrays.items() if v is not None and len(v) == n}
+    out: dict = {}
+    if n <= n_max:
+        out["t"] = t
+        out.update({k: list(v) for k, v in aligned.items()})
+    else:
+        idx = _extreme_indices(n, list(aligned.values()), n_max)
+        out["t"] = [t[i] for i in idx]
+        out.update({k: [v[i] for i in idx] for k, v in aligned.items()})
+    for k, v in arrays.items():
+        if k in aligned:
+            continue
+        v = list(v or [])
+        if len(v) <= n_max:
+            out[k] = v
+        else:
+            out[k] = [v[i] for i in _extreme_indices(len(v), [v], n_max)]
+    return out
 
 
 def _series_to_dict(s) -> dict:
+    g = _downsample_group(s.t, {"max_vals": s.max_vals, "avg_vals": s.avg_vals})
     return {
         "part_id": s.part_id,
         "part_name": s.part_name,
@@ -342,9 +385,9 @@ def _series_to_dict(s) -> dict:
         "global_max": s.global_max,
         "global_min": s.global_min,
         "time_of_max": s.time_of_max,
-        "t": _downsample(s.t),
-        "max_vals": _downsample(s.max_vals),
-        "avg_vals": _downsample(s.avg_vals),
+        "t": g["t"],
+        "max_vals": g["max_vals"],
+        "avg_vals": g["avg_vals"],
     }
 
 
