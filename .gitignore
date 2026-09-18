@@ -15,6 +15,9 @@ CMakeFiles/
 cmake_install.cmake
 CTestTestfile.cmake
 *.cmake
+# 프로젝트가 관리하는 CMake 모듈은 예외 — 이게 없으면 새 모듈이 커밋되지 않아
+# GitHub 을 clone 하는 SIF 빌드가 깨진다 (2026-09-18 실제로 겪음).
+!cmake/*.cmake
 !CMakeLists.txt
 Makefile
 

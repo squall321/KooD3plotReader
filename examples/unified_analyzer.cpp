@@ -1148,6 +1148,8 @@ bool checkBuildExpiry() {
 } // anon
 #endif
 
+// 각인은 Version 이 한 곳에서 답한다 — 여기서 매크로를 따로 읽으면 설정 시점
+// 값이 굳어 --capabilities 만 옛 커밋을 답하게 된다.
 #ifndef KOOD3PLOT_GIT_COMMIT
 #define KOOD3PLOT_GIT_COMMIT "unknown"
 #endif
@@ -1169,8 +1171,10 @@ static void printCapabilities() {
     using namespace kood3plot;
     std::cout << "{\n";
     std::cout << "  \"tool\": \"unified_analyzer\",\n";
-    std::cout << "  \"version\": \"" << KOOD3PLOT_GIT_COMMIT << "\",\n";
-    std::cout << "  \"built\": \"" << KOOD3PLOT_BUILD_DATE << "\",\n";
+    // Version 한 곳에서 답한다 — 매크로를 직접 읽으면 설정 시점 값이 굳어
+    // 커밋을 쌓고 make 만 했을 때 여기만 옛 커밋을 답한다.
+    std::cout << "  \"version\": \"" << Version::build_commit() << "\",\n";
+    std::cout << "  \"built\": \"" << Version::build_date() << "\",\n";
 
     std::cout << "  \"hotspot\": {\n";
     std::cout << "    \"criteria\": [";

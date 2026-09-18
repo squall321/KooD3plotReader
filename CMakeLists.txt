@@ -28,6 +28,24 @@ endif()
 string(TIMESTAMP KOOD3PLOT_BUILD_DATE "%Y-%m-%dT%H:%M:%SZ" UTC)
 message(STATUS "KooD3plotReader version: ${KOOD3PLOT_GIT_COMMIT} (${KOOD3PLOT_BUILD_DATE})")
 
+# 위 값은 **설정 시점** 값이라, 커밋을 쌓고 make 만 하면 옛 커밋이 각인된다.
+# 빌드할 때마다 다시 읽어 헤더를 갱신한다 (커밋이 같으면 파일을 건드리지 않아
+# 헛 재링크가 없다). src/Version.cpp 가 이 헤더를 우선으로 쓴다.
+set(KOOD3PLOT_VERSION_HEADER "${CMAKE_BINARY_DIR}/generated/kood3plot_build_info.h")
+add_custom_target(kood3plot_version ALL
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DOUT_FILE=${KOOD3PLOT_VERSION_HEADER}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GitVersion.cmake
+    BYPRODUCTS ${KOOD3PLOT_VERSION_HEADER}
+    COMMENT "git 버전 각인 갱신"
+    VERBATIM)
+# 설정 단계에서 한 번 만들어 둔다 (첫 컴파일이 헤더를 못 찾는 일이 없게).
+execute_process(COMMAND ${CMAKE_COMMAND}
+                -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DOUT_FILE=${KOOD3PLOT_VERSION_HEADER}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GitVersion.cmake)
+
 # C++17 standard required
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -277,10 +295,13 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Create library target
 add_library(kood3plot ${KOOD3PLOT_SOURCES} ${KOOD3PLOT_HEADERS})
-# 빌드 정보 주입 — src/Version.cpp 만 쓴다 (헤더 인라인이 아니라 ODR 안전)
+# 빌드 정보 주입 — src/Version.cpp 만 쓴다 (헤더 인라인이 아니라 ODR 안전).
+# 설정 시점 값은 되돌림용이고, 실제로는 빌드 시점에 갱신되는 생성 헤더를 우선 쓴다.
 target_compile_definitions(kood3plot PRIVATE
     KOOD3PLOT_GIT_COMMIT="${KOOD3PLOT_GIT_COMMIT}"
     KOOD3PLOT_BUILD_DATE="${KOOD3PLOT_BUILD_DATE}")
+target_include_directories(kood3plot PRIVATE ${CMAKE_BINARY_DIR}/generated)
+add_dependencies(kood3plot kood3plot_version)
 
 # Set include directories
 target_include_directories(kood3plot
