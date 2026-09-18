@@ -8,6 +8,7 @@
 #include <future>
 #include <mutex>
 #include <algorithm>
+#include <iterator>
 
 namespace kood3plot {
 
@@ -301,10 +302,17 @@ std::vector<data::StateData> D3plotReader::read_all_states_parallel(size_t num_t
         }
         all_states.reserve(total_states);
 
-        // Merge family file states (base file states already in all_states)
-        for (const auto& result : results) {
+        // Merge family file states (base file states already in all_states).
+        // 🔴 복사하면 안 된다 — 상태 배열은 덱 하나가 수십 GB 다. 복사하면 합치는
+        //    동안 같은 데이터가 두 벌 존재해 피크 메모리가 정확히 2배가 된다
+        //    (실측: 400상태 2.6 GB 짜리 덱에서 피크 5.5 GB). 이동으로 버퍼를
+        //    넘기고, 넘긴 사본은 바로 비워 메모리를 돌려준다.
+        for (auto& result : results) {
             if (result.success) {
-                all_states.insert(all_states.end(), result.states.begin(), result.states.end());
+                all_states.insert(all_states.end(),
+                                  std::make_move_iterator(result.states.begin()),
+                                  std::make_move_iterator(result.states.end()));
+                std::vector<data::StateData>().swap(result.states);   // 즉시 해제
             } else {
                 // Stop if any file failed (to match sequential behavior)
                 std::cerr << "WARNING: Stopping at file_idx " << result.file_idx
