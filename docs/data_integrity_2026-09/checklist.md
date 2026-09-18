@@ -60,3 +60,9 @@
 - [x] deploy_from_sif → verify_deploy: 호스트·SIF VERSION·실행파일 ff6cfc5 일치, 래퍼 6/6 env 없이 실행
 - [x] node001 ff6cfc5 (NFS 공유), 배포본으로 실덱 분석 재확인(시계열 22/22, unit deck_units, tool_commit ff6cfc5)
 - [x] 패키지 SmartTwinPostprocessor_20260917_v36.tar.gz (523M) — verify_package 통과
+
+## 9. 후속 배포 (2026-09-18)
+- [x] push 2df44eb → SIF 재빌드(VERSION·capabilities 2df44eb, ldd not found 0)
+- [x] deploy_from_sif → verify_deploy 전부 일치, node001 2df44eb
+- [x] 배포본 재분석: 피크 2.79 GB, 결과 동일
+- [x] 패키지 SmartTwinPostprocessor_20260918_v37.tar.gz (523M)
