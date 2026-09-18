@@ -74,3 +74,9 @@ sphere 보고서는 CSV 를 직접 읽어 전체였다. 두 경로를 비교한 
 - `deploy_from_sif.sh` → `verify_deploy.sh`: 호스트·SIF 모두 ff6cfc5, 래퍼 6/6 환경변수 없이 실행. node001 도 같은 판(NFS).
 - 배포본으로 배터리 덱 재분석: 시계열 22/22, `unit=deck_units`, `tool_commit=ff6cfc5`.
 - 패키지 `SmartTwinPostprocessor_20260917_v36.tar.gz` (523M), verify_package 통과.
+
+### 후속 (2026-09-18)
+- **버전 각인**: 설정 시점에 한 번만 읽던 git 버전을 빌드 시점에 갱신하도록 바꿨다(cmake/GitVersion.cmake). 커밋 문자열이 같으면 파일을 건드리지 않아 헛 재링크가 없다. `--capabilities` 도 매크로 대신 `Version::build_commit()` 을 쓴다 — 각인을 답하는 곳이 하나여야 한다.
+- **`.gitignore` 함정 2건**: `*.cmake` 가 새 CMake 모듈을, `build` 가 `tests/build/` 를 삼켜 **커밋되지 않았다**. 그대로 배포했으면 GitHub 을 clone 하는 SIF 빌드가 깨졌다. `!cmake/*.cmake` 예외 + 시험 폴더를 `tests/version/` 으로 옮겨 해결.
+- **피크 메모리 절반**: 파일별로 병렬로 읽은 상태를 합칠 때 복사(insert(begin,end))해서 같은 데이터가 두 벌 존재했다. `make_move_iterator` + 사본 즉시 해제로 400상태 덱 5.5 GB → 2.7 GB(시간도 2.6초 → 1.0초). 4952상태 덱은 68 GB → 약 33 GB 로, earlyoom 에 죽던 여유가 생겼다.
+- 시험을 한 번 잘못 썼다 — 헤더에서 상태 크기를 엉터리로 추정해 한도가 28만 GB 가 되면서 수정 전 코드도 통과했다. 기준을 **덱 파일 크기 대비 배수**로 바꾸고, 수정 전 코드에서 FAIL 이 나오는 것을 확인한 뒤에야 받아들였다.

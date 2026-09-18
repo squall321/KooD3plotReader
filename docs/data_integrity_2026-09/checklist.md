@@ -41,8 +41,14 @@
 
 ## 7. 내가 따로 발견한 것
 - [x] UnifiedConfigParser 가 인라인 YAML 을 조용히 무시 (2e457c5) → verify: 경고 출력·블록 형식 정상
-- [~] 로컬 증분 빌드에서 `tool_commit` 이 옛 커밋으로 찍힌다(CMake 설정 시점 값). SIF 빌드는 매번 새 설정이라 영향 없음
-- [ ] 4952상태 덱 분석이 68GB 를 쓴다(수정 전부터). 서버 노드 메모리 확인 필요
+- [x] 로컬 증분 빌드에서 `tool_commit` 이 옛 커밋으로 찍히던 문제 (16f22b9)
+      → 빌드 시점에 git 을 다시 읽는 cmake/GitVersion.cmake, 커밋이 같으면 파일을 안 건드려 헛 재링크 없음.
+      verify: tests/version/test_version_stamp.sh 3/3 (수정 전 ②번 실패).
+      덤으로 `.gitignore` 의 `*.cmake`·`build` 규칙이 새 파일을 삼켜 **커밋되지 않는** 것도 잡았다
+- [x] 큰 덱 분석의 피크 메모리 (e9e51d5) — 상태를 합칠 때 복사해 피크가 2배였다.
+      → 이동으로 바꿔 400상태 덱에서 5.5 GB → 2.7 GB, 시간 2.6초 → 1.0초, 산출물 동일.
+      4952상태 덱 기준 약 68 GB → 33 GB. verify: tests/version/test_state_merge_memory.sh
+      (수정 전 4.0배 FAIL / 수정 후 1.94배 PASS)
 
 ## 8. 배포
 - [x] 시험 전체 — C++ 22종, Python 532개, 스크립트 2종 통과
