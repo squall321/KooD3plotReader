@@ -1,10 +1,12 @@
 """koo_deep_report CLI entry point."""
 from __future__ import annotations
 import argparse
+import functools
 import io
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,7 +21,7 @@ if sys.platform == "win32":
 
 from .core.sim_detector import find_files
 from .core.glstat_reader import parse_glstat
-from .core.d3plot_reader import run_analysis
+from .core.d3plot_reader import run_analysis, find_unified_analyzer
 from .core.binout_reader import parse_binout
 from .render.job_builder import RenderConfig, SectionViewRenderConfig
 from .report.models import SingleResult, PartSummary
@@ -155,9 +157,22 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--hotspot-max-clusters", type=int, default=20, metavar="N",
                    help="파트당 보고 최대 덩어리 수, 0=무제한 (default 20)")
     p.add_argument("--hotspot-criterion", dest="hotspot_criterion", default="von_mises", metavar="C[,C]",
-                   help="군집 선별 기준량. von_mises | max_principal | min_principal, 쉼표로 여러 개 "
-                        "(default von_mises). 여러 개면 파트x기준 항목이 각각 나온다. "
-                        "min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다")
+                   help="군집 선별 기준량, 쉼표로 여러 개 (default von_mises). "
+                        "von_mises | max_principal | min_principal | max_shear | "
+                        "x_tension | y_tension | z_tension. "
+                        "별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴). "
+                        "여러 개면 파트x기준 항목이 각각 나온다. "
+                        "min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다. "
+                        "max_shear = (σ1−σ3)/2. x/y/z_tension = 전역 좌표 수직응력 σxx/σyy/σzz 의 최댓값. "
+                        "허용 목록은 실행할 unified_analyzer --capabilities 를 따른다")
+    p.add_argument("--hotspot-time-aggregate", dest="hotspot_time_aggregate",
+                   default="elemmax_then_mean", metavar="A",
+                   help="덩어리 평균의 시간 집계. elemmax_then_mean | mean_then_timemax | both "
+                        "(default elemmax_then_mean). elemmax_then_mean = 요소별 시간 극값의 공간 평균"
+                        "(stress_mean, 서로 다른 시각의 피크를 합쳐 과대평가 쪽). "
+                        "mean_then_timemax·both = 같은 시각 덩어리 평균의 시간 극값을 군집마다 "
+                        "mean_timemax·mean_timemax_time 으로 더 낸다(둘의 출력은 같다). "
+                        "상태를 한 번 더 훑으므로 그만큼 느려진다")
     # ── per-part renderAllPartSections options (lsprepost backend) ──
     p.add_argument("--section-view-iso-clip", dest="section_view_iso_clip",
                    action="store_true",
@@ -386,12 +401,25 @@ def _parse_config_yaml(path: str) -> dict:
     hs_block = _extract_top_block(text, "hotspot_clusters")
     if hs_block is not None:
         hs: dict = {}
+        list_key = None  # 값이 빈 키 — 다음 줄들이 블록 목록("- a")일 수 있다
         for raw in hs_block.splitlines():
             line = raw.split("#", 1)[0].rstrip()
-            if not line.strip() or ":" not in line:
+            s = line.strip()
+            if not s:
+                continue
+            # 블록 목록 항목. 콜론이 없어 아래에서 버려지면 기준이 조용히 기본값으로 돈다.
+            if s == "-" or s.startswith("- "):
+                if list_key in ("criterion", "criteria"):
+                    hs.setdefault("criterion", []).extend(_split_criteria(s[1:]))
+                else:
+                    print(f"[koo_deep_report] hotspot_clusters: 목록을 받지 않는 키 아래의 항목 무시 — {s}",
+                          file=sys.stderr)
+                continue
+            if ":" not in line:
                 continue
             k, _, v = line.partition(":")
             k = k.strip(); v = v.strip().strip('"').strip("'")
+            list_key = None if v else k
             if not v:
                 continue
             if k == "enabled":
@@ -403,8 +431,11 @@ def _parse_config_yaml(path: str) -> dict:
                 try: hs[k] = int(v)
                 except ValueError: pass
             elif k in ("criterion", "criteria"):
-                # "von_mises, max_principal" / "[von_mises, min_principal]" 둘 다
-                hs["criterion"] = _normalize_criteria(v)
+                # "von_mises, max_principal" / "[von_mises, min_principal]" 둘 다.
+                # 이름 검증은 엔진 허용 목록을 아는 _build_hotspot_config 에서 한다.
+                hs.setdefault("criterion", []).extend(_split_criteria(v))
+            elif k == "time_aggregate":
+                hs["time_aggregate"] = v
             else:
                 print(f"[koo_deep_report] hotspot_clusters: 알 수 없는 키 무시 — {k}",
                       file=sys.stderr)
@@ -680,6 +711,9 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
             args.hotspot_max_clusters = hs_cfg["max_clusters"]
         if getattr(args, "hotspot_criterion", "von_mises") == "von_mises" and "criterion" in hs_cfg:
             args.hotspot_criterion = hs_cfg["criterion"]
+        if (getattr(args, "hotspot_time_aggregate", "elemmax_then_mean") == "elemmax_then_mean"
+                and "time_aggregate" in hs_cfg):
+            args.hotspot_time_aggregate = hs_cfg["time_aggregate"]
     if not getattr(args, "part_pattern", "") and "part_pattern" in cfg:
         args.part_pattern = cfg["part_pattern"]
     if not getattr(args, "install_dir", "") and "install_dir" in cfg:
@@ -790,51 +824,100 @@ def _resolve_install_dir(explicit: str) -> Path | None:
     return None
 
 
-_HOTSPOT_CRITERIA = ("von_mises", "max_principal", "min_principal")
+# 엔진 --capabilities 를 못 읽을 때(바이너리 없음·옛 바이너리)만 쓰는 목록이자 도움말의 근거.
+# 실제 허용 목록은 _engine_hotspot_caps 가 실행할 엔진에 묻는다 — 이 튜플만 믿다가
+# 엔진에 기준을 더한 커밋(f686483·81304f8)이 여기를 몰라 7종 중 4종을 거절했다.
+_HOTSPOT_CRITERIA = ("von_mises", "max_principal", "min_principal", "max_shear",
+                     "x_tension", "y_tension", "z_tension")
+_HOTSPOT_TIME_AGGREGATES = ("elemmax_then_mean", "mean_then_timemax", "both")
+# 엔진 parseHotspotCriterion(HotspotClusterAnalyzer.cpp) 과 같은 별칭.
+# capabilities 는 별칭을 내지 않으므로 표를 두고, tests/test_hotspot_wiring.py 가 C++ 소스와 대조한다.
+_HOTSPOT_CRITERION_ALIASES = {
+    "vm": "von_mises", "vonmises": "von_mises",
+    "sigma1": "max_principal", "s1": "max_principal", "p1": "max_principal",
+    "maxprincipal": "max_principal",
+    "sigma3": "min_principal", "s3": "min_principal", "p3": "min_principal",
+    "minprincipal": "min_principal",
+    "maxshear": "max_shear", "tau_max": "max_shear", "taumax": "max_shear", "tresca": "max_shear",
+    "xtension": "x_tension", "sigma_xx": "x_tension", "sxx": "x_tension",
+    "ytension": "y_tension", "sigma_yy": "y_tension", "syy": "y_tension",
+    "ztension": "z_tension", "sigma_zz": "z_tension", "szz": "z_tension",
+}
 
 
-def _normalize_criteria(value) -> str:
+@functools.lru_cache(maxsize=None)
+def _engine_hotspot_caps(install_dir: Path | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """실행할 unified_analyzer 에 (허용 기준, 허용 시간 집계) 를 묻는다.
+
+    못 물으면 내장 목록으로 검사하고 한 줄 알린다. 엔진을 못 찾은 경우라면
+    어차피 분석 단계에서 "unified_analyzer not found" 로 멈춘다.
+    """
+    ua = find_unified_analyzer(install_dir)
+    if ua is not None:
+        try:
+            proc = subprocess.run([str(ua), "--capabilities"], capture_output=True,
+                                  text=True, timeout=30)
+            hs = json.loads(proc.stdout)["hotspot"]
+            crits = tuple(str(c) for c in hs["criteria"])
+            # time_aggregate 가 없는 엔진은 기본 방식만 안다
+            aggs = tuple(str(a) for a in hs.get("time_aggregate") or ("elemmax_then_mean",))
+            if crits:
+                return crits, aggs
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            pass
+    print("[koo_deep_report] 핫스팟: unified_analyzer --capabilities 를 읽지 못해 내장 목록으로 "
+          "기준 이름을 검사합니다", file=sys.stderr)
+    return _HOTSPOT_CRITERIA, _HOTSPOT_TIME_AGGREGATES
+
+
+def _split_criteria(value) -> list[str]:
+    """리스트·쉼표 문자열·대괄호 표기를 이름 목록으로 나눈다 (검증은 안 한다)."""
+    if isinstance(value, (list, tuple)):
+        items = [str(x) for x in value]
+    else:
+        items = str(value).replace("[", "").replace("]", "").split(",")
+    return [s for s in (it.strip().strip('"').strip("'").strip() for it in items) if s]
+
+
+def _normalize_criteria(value, allowed) -> str:
     """기준량 목록을 'a,b' 문자열로 정규화한다. 리스트·쉼표 문자열·대괄호 표기 허용.
 
     모르는 이름은 여기서 걸러 즉시 알린다 — C++ 쪽도 무시하지만 그때는 이미
     분석이 끝난 뒤라, 사용자는 "왜 min_principal 항목이 없지" 하고 한참 뒤에 안다.
     """
-    if isinstance(value, (list, tuple)):
-        items = [str(x) for x in value]
-    else:
-        items = str(value).replace("[", "").replace("]", "").split(",")
     out: list[str] = []
-    for it in items:
-        k = it.strip().strip('"').strip("'").lower().replace("-", "_").replace(" ", "_")
-        if not k:
-            continue
-        alias = {"vm": "von_mises", "vonmises": "von_mises",
-                 "sigma1": "max_principal", "s1": "max_principal", "maxprincipal": "max_principal",
-                 "sigma3": "min_principal", "s3": "min_principal", "minprincipal": "min_principal"}
-        k = alias.get(k, k)
-        if k not in _HOTSPOT_CRITERIA:
-            raise SystemExit(f"[koo_deep_report] --hotspot-criterion: 알 수 없는 기준량 '{it.strip()}' "
-                             f"(허용: {', '.join(_HOTSPOT_CRITERIA)})")
+    for it in _split_criteria(value):
+        k = it.lower().replace("-", "_").replace(" ", "_")
+        k = _HOTSPOT_CRITERION_ALIASES.get(k, k)
+        if k not in allowed:
+            raise SystemExit(f"[koo_deep_report] --hotspot-criterion: 알 수 없는 기준량 '{it}' "
+                             f"(허용: {', '.join(allowed)})")
         if k not in out:
             out.append(k)
     return ",".join(out) if out else "von_mises"
 
 
-def _build_hotspot_config(args: argparse.Namespace) -> dict | None:
-    """CLI 인자 -> 핫스팟 설정 dict.
+def _build_hotspot_config(args: argparse.Namespace, install_dir: Path | None) -> dict | None:
+    """CLI 인자 -> 핫스팟 설정 dict. 이름은 install_dir 로 찾은 엔진의 허용 목록으로 검사한다.
 
     🔴 run_single() 과 _run_one()(batch) 에 설정 구성 블록이 복제돼 있다.
        한쪽만 고치면 batch 에서 옵션이 경고 없이 무시되므로 헬퍼로 뽑아 둘 다 부른다.
     """
     if not getattr(args, "hotspot_clusters", False):
         return None
+    crits, aggs = _engine_hotspot_caps(install_dir)
+    agg = str(getattr(args, "hotspot_time_aggregate", "elemmax_then_mean")).strip().lower()
+    if agg not in aggs:
+        raise SystemExit(f"[koo_deep_report] --hotspot-time-aggregate: 알 수 없는 방식 '{agg}' "
+                         f"(허용: {', '.join(aggs)})")
     return {
         "enabled": True,
         "top_percent": getattr(args, "hotspot_top_percent", 5.0),
         "distance_factor": getattr(args, "hotspot_distance_factor", 1.5),
         "min_elements": getattr(args, "hotspot_min_elements", 5),
         "max_clusters": getattr(args, "hotspot_max_clusters", 20),
-        "criterion": _normalize_criteria(getattr(args, "hotspot_criterion", "von_mises")),
+        "criterion": _normalize_criteria(getattr(args, "hotspot_criterion", "von_mises"), crits),
+        "time_aggregate": agg,
     }
 
 
@@ -861,6 +944,11 @@ def run_single(args: argparse.Namespace) -> None:
 
     print(f"[koo_deep_report] 시뮬 경로: {sim_dir}")
     print(f"[koo_deep_report] 출력 디렉토리: {output_dir}")
+
+    # install_dir: 명시 > 스크립트 위치 자동 탐색
+    install_dir = _resolve_install_dir(getattr(args, "install_dir", ""))
+    # 핫스팟 이름은 파일을 읽기 전에 검사한다 — glstat·binout 을 다 읽은 뒤에 멈추지 않게.
+    hotspot_cfg = _build_hotspot_config(args, install_dir)
 
     # 1. 파일 탐지 + 종료 판단
     sim_info = find_files(sim_dir)
@@ -893,8 +981,6 @@ def run_single(args: argparse.Namespace) -> None:
         per_part_render=args.per_part_render,
         part_pattern=args.part_pattern or "",
     )
-    # install_dir: 명시 > 스크립트 위치 자동 탐색
-    install_dir = _resolve_install_dir(getattr(args, "install_dir", ""))
 
     # Section view rendering config
     sv_cfg = None
@@ -953,7 +1039,7 @@ def run_single(args: argparse.Namespace) -> None:
             element_quality=getattr(args, "element_quality", False),
             install_dir=install_dir,
             section_view_config=sv_cfg,
-            hotspot=_build_hotspot_config(args),
+            hotspot=hotspot_cfg,
         )
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -1102,6 +1188,10 @@ def run_batch(args: argparse.Namespace) -> None:
     target = Path(args.path).resolve()
     output_root = Path(args.output).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+
+    # 핫스팟 이름은 폴더를 훑기 전에 검사한다. _run_one 에서야 검사하면 폴더를 다 훑고
+    # 첫 케이스의 glstat·binout 까지 읽은 뒤에 배치 전체가 멈춘다.
+    _build_hotspot_config(args, _resolve_install_dir(getattr(args, "install_dir", "")))
 
     print(f"[batch] 탐색 중: {target}")
     sims = find_all(target, recursive=True)
@@ -1270,7 +1360,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
         element_quality=getattr(args, "element_quality", False),
         install_dir=install_dir,
         section_view_config=sv_cfg,
-        hotspot=_build_hotspot_config(args),
+        hotspot=_build_hotspot_config(args, install_dir),
     )
     result = _aggregate(
         sim_info=sim_info,

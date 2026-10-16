@@ -30,7 +30,8 @@ python3 -m koo_deep_report <run_dir> -o <report_dir> \
 | `--hotspot-distance-factor` | 1.5 | 거리 임계 = 이 값 × 파트 대표 요소 크기 |
 | `--hotspot-min-elements` | 5 | 이 개수 미만 덩어리는 노이즈로 버림 |
 | `--hotspot-max-clusters` | 20 | 파트당 보고 최대 덩어리 수 (0 = 무제한) |
-| `--hotspot-criterion` | `von_mises` | 선별 기준량. `von_mises` · `max_principal` · `min_principal`, 쉼표로 여러 개 |
+| `--hotspot-criterion` | `von_mises` | 선별 기준량 7종(아래 표), 쉼표로 여러 개. 허용 목록은 실행할 `unified_analyzer --capabilities` 를 따른다 |
+| `--hotspot-time-aggregate` | `elemmax_then_mean` | 덩어리 평균의 시간 집계. `elemmax_then_mean` · `mean_then_timemax` · `both` (아래 §시간 집계) |
 
 ## 2. 설정 파일로 쓰기
 
@@ -43,10 +44,11 @@ hotspot_clusters:
   distance_factor: 1.5
   min_elements: 5
   max_clusters: 20
-  criterion: [von_mises, min_principal]   # 쉼표 문자열도 됨
+  criterion: [von_mises, min_principal]   # 쉼표 문자열·블록 목록(- a)도 됨. criteria 라고 써도 같다
+  time_aggregate: both                    # 생략하면 elemmax_then_mean
 ```
 
-CLI 인자가 설정 파일보다 우선한다.
+CLI 인자가 설정 파일보다 우선한다. 모르는 기준 이름·집계 방식은 분석을 시작하기 전에 거절한다.
 
 ### 기준량
 
@@ -55,11 +57,20 @@ CLI 인자가 설정 파일보다 우선한다.
 | `von_mises` | 등가응력 집중 (연성 항복) | 큰 값 | 최댓값 |
 | `max_principal` | σ1 집중 = **인장** (취성 균열) | 큰 값 | 최댓값 (부호 있음) |
 | `min_principal` | σ3 집중 = **압축** (눌림·좌굴) | **작은 값** | **최솟값** (음수) |
+| `max_shear` | τ_max = (σ1−σ3)/2 집중 (전단 파괴) | 큰 값 | 최댓값 |
+| `x_tension` · `y_tension` · `z_tension` | 전역 좌표 σxx·σyy·σzz 인장 (방향이 정해진 굽힘 인장) | 큰 값 | 최댓값 (부호 있음) |
+
+별칭: `vm` · `sigma1`/`s1`/`p1` · `sigma3`/`s3`/`p3` · `tau_max`/`taumax`/`tresca`/`maxshear` · `sigma_xx`/`sxx`/`xtension` (y·z 도 같은 꼴). x/y/z_tension 은 `*DATABASE_EXTENT_BINARY` CMPFLG=1 (재료 좌표계 출력) 덱에서는 뜻이 달라지는데 이 리더는 구분하지 못한다.
 
 여러 개를 주면 결과 배열에 **파트×기준** 항목이 각각 들어간다. 항목의 `criterion`·`direction`
 으로 구분한다. 시간축 극값은 von Mises·σ1 이 max, σ3 이 **min** 이고, 짝 변형률도 같은 시각의
 등가변형률 / ε1 / ε3 이다(`strain_measure`). 주응력은 σ1·σ3 중 하나라도 요청되면 요소·상태당
 한 번만 분해하므로 둘 다 켜도 비용은 한 번이다.
+max_shear 의 짝 변형률은 (ε1−ε3)/2, x/y/z_tension 은 εxx/εyy/εzz 다.
+
+### 시간 집계
+
+`stress_mean` 은 요소마다 따로 고른 시간 극값을 공간 평균한 것(`elemmax_then_mean`)이라 서로 다른 시각의 피크가 섞여 **항상 과대평가 쪽**이다. `mean_then_timemax` 또는 `both` 를 주면 매 시각 덩어리 평균을 구한 뒤 그 시간 극값을 군집마다 `mean_timemax`·`mean_timemax_time` 으로 더 낸다 — 같은 순간에 실제로 걸린 하중이다(압축 기준은 시간 최솟값). 두 값의 출력은 같다. 상태를 한 번 더 훑으므로 그만큼 느려진다. 기본값일 때는 두 키가 없다. deep report 핫스팟 탭은 키가 있으면 '동시각 평균' 열을 그린다.
 
 ## 3. pyKooCAE scenario.json 에서 쓰기
 

@@ -2248,9 +2248,14 @@ const HS_CRIT_LABEL = {
   von_mises: 'Von Mises',
   max_principal: 'σ₁ 최대주응력 (인장 집중)',
   min_principal: 'σ₃ 최소주응력 (압축 집중)',
+  max_shear: 'τ_max 최대전단응력 (σ₁−σ₃)/2',
+  x_tension: 'σxx 인장 (전역 X)',
+  y_tension: 'σyy 인장 (전역 Y)',
+  z_tension: 'σzz 인장 (전역 Z)',
 };
 const HS_TYPE_LABEL = {solid: '솔리드', thick_shell: '두꺼운 셸', shell: '셸'};
-const HS_STRAIN_LABEL = {equivalent: '등가변형률', max_principal: 'ε₁', min_principal: 'ε₃'};
+const HS_STRAIN_LABEL = {equivalent: '등가변형률', max_principal: 'ε₁', min_principal: 'ε₃',
+  max_shear: '(ε₁−ε₃)/2', xx: 'εxx', yy: 'εyy', zz: 'εzz'};
 const HS_WEIGHT_LABEL = {volume: '부피', area_x_thickness: '면적×두께', area: '면적'};
 let _hsState = {crit: null, type: 'all', key: null, metric: 'stress'};
 
@@ -2389,6 +2394,8 @@ function hsRenderDetail(p) {
   const layered = (p.element_type || 'solid') !== 'solid';
   const strainOn = p.strain_available && p.clusters.some(c => c.strain_available);
   const sLab = HS_STRAIN_LABEL[p.strain_measure] || '변형률';
+  // 동시각 평균 — --hotspot-time-aggregate 로 켰을 때만 엔진이 키를 만든다
+  const tmOn = p.clusters.some(c => typeof c.mean_timemax === 'number');
   let rows = '';
   for (const c of p.clusters) {
     const rel = hsRelPos(p, c);
@@ -2399,6 +2406,7 @@ function hsRenderDetail(p) {
       <td class="num">${fmt(c.radius_enclosing, 3)}</td><td class="num">${fmt(c.radius_rms, 3)}</td>
       <td class="num">${isShell ? fmt(c.area, 3) : fmt(c.volume, 3)}</td>
       <td class="num">${fmt(c.stress_mean)}</td><td class="num">${fmt(c.stress_max)}</td>
+      ${tmOn ? `<td class="num">${typeof c.mean_timemax === 'number' ? fmt(c.mean_timemax) : '—'}</td><td class="num">${typeof c.mean_timemax === 'number' ? fmt(c.mean_timemax_time, 5) : '—'}</td>` : ''}
       ${strainOn ? `<td class="num">${c.strain_available ? fmt(c.strain_mean, 5) : '—'}</td><td class="num">${c.strain_available ? fmt(c.strain_max, 5) : '—'}</td>` : ''}
       <td class="num">${c.peak_element_id}</td><td class="num">${fmt(c.peak_time, 5)}</td>
       ${layered ? `<td>${hsLayerLabel(p, c.peak_layer)}</td>` : ''}</tr>`;
@@ -2417,12 +2425,15 @@ function hsRenderDetail(p) {
     <th class="num">순위</th><th class="num">요소</th><th class="num">중심 (x, y, z)</th><th>파트 내 위치</th>
     <th class="num">포함 반경</th><th class="num">RMS 반경</th><th class="num">${isShell ? '면적' : '부피'}</th>
     <th class="num">평균</th><th class="num">${isMin ? '최솟값' : '최댓값'}</th>
+    ${tmOn ? `<th class="num">동시각 평균 ${isMin ? '최솟값' : '최댓값'}</th><th class="num">그 시각</th>` : ''}
     ${strainOn ? `<th class="num">${sLab} 평균</th><th class="num">${sLab} ${isMin ? '최솟값' : '최댓값'}</th>` : ''}
     <th class="num">피크 요소</th><th class="num">피크 시각</th>${layered ? '<th>피크 층</th>' : ''}
   </tr></thead><tbody>${rows}</tbody></table></div>
   <p class="hs-dim" style="margin:8px 0 0">평균은 ${HS_WEIGHT_LABEL[p.weight_measure] || '부피'} 가중(산술평균 아님).
     포함 반경 = 중심에서 구성 요소의 가장 먼 절점까지, RMS 반경이 포함 반경보다 훨씬 작으면 한 점에 몰린 것.
-    ${isMin ? '압축 기준이라 값이 작을수록(더 음수일수록) 위험하다.' : ''}</p>
+    ${isMin ? '압축 기준이라 값이 작을수록(더 음수일수록) 위험하다.' : ''}
+    ${tmOn ? `평균은 요소마다 따로 고른 시간 극값을 평균한 것이라 서로 다른 시각의 피크가 섞여 ${isMin ? '더 작게(과대평가 쪽)' : '더 크게(과대평가 쪽)'} 나온다.
+    동시각 평균은 매 시각 덩어리 평균을 구한 뒤 그 시간 ${isMin ? '최솟값' : '최댓값'} — 같은 순간에 실제로 걸린 하중이다.` : ''}</p>
 </div>
 <div class="chart-box"><div class="chart-title">파트 경계상자 안의 덩어리 — 원(구) 반지름 = 포함 반경, 색 = ${isMin ? '최솟값' : '최댓값'}
   <span class="part-selector" style="display:inline-flex;margin:0 0 0 12px">

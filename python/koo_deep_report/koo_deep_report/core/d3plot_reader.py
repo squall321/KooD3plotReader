@@ -302,6 +302,10 @@ def _build_yaml(
                 f"  max_clusters: {int(hotspot.get('max_clusters', 20))}",
                 f"  criterion: {hotspot.get('criterion', 'von_mises')}",
             ]
+            # 기본 방식이면 쓰지 않는다 — time_aggregate 를 모르는 옛 엔진이 경고를 낸다
+            agg = hotspot.get("time_aggregate", "elemmax_then_mean")
+            if agg != "elemmax_then_mean":
+                lines.append(f"  time_aggregate: {agg}")
 
     # Section view rendering — two backends:
     #   "lsprepost" (default): generates render_jobs for LSPrePost drawcut+projectview
