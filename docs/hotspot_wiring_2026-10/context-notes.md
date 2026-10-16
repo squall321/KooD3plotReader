@@ -1,0 +1,54 @@
+# 핫스팟 배선 — 결정과 근거
+
+## 2026-10-16 조사
+
+**요청서의 :681 지적은 반만 맞다.** `_parse_config_yaml` 이 `criterion`·`criteria` 둘 다
+받아 `criterion` 으로 합친다(`__main__.py:403`). 실제 결함은 두 가지 —
+값을 3종으로 검증해 7종을 거절하는 것, 블록 목록(`criteria:` 아래 `- a` 줄)은
+줄 단위 파서가 콜론 없는 줄로 보고 **조용히 버리는** 것.
+
+**거절이 늦다.** `_build_hotspot_config` 가 `run_analysis(...)` 의 인자 자리에서 불려,
+glstat·binout 을 다 읽은 뒤에야 rc=1 이 난다. 큰 덱이면 수 분 뒤다.
+
+**batch 는 `--config` 를 적용하지 않는다.** `_apply_config_to_args` 는 `run_single`
+에서만 불린다. batch 파서에도 `--config` 가 있으니 사용자는 적용된다고 믿는다.
+이번에 고치지 않는다 — 고치면 YAML 의 다른 키(`render_jobs:` 부재 → `no_render` 등)가
+batch 동작을 바꾼다. 따로 알린다.
+
+**다른 소비자는 이미 일반적이다.** `campaign_metrics` 는 기준 이름을 그대로 통과시키고
+`_CLUSTER_METRICS` 에 `mean_timemax` 가 있다. `koo_scatter_report --criterion` 도 자유 문자열.
+
+## 왜 capabilities 에서 읽나
+이번 결함의 뿌리는 같은 목록이 두 곳(C++ 파서·파이썬 튜플)에 있었던 것이다.
+엔진에 기준을 더한 커밋(f686483·81304f8)이 파이썬 쪽을 몰랐다. 실행할 바로 그 바이너리에
+묻으면 배포 조합이 어떻든 맞다. 별칭은 capabilities 가 내지 않으므로 파이썬 표를 두되,
+C++ `parseHotspotCriterion` 소스와 대조하는 시험으로 어긋남을 잡는다.
+
+## 2026-10-16 구현 — 결정과 확인
+
+**수정 전 동작 (옛 코드로 직접 돌려 확인)** — `criteria:` 아래 `- min_principal` 블록 목록은
+경고 없이 **von_mises 로 바뀌어** 돌았다. 거절보다 나쁜 무음 오답이다. `max_shear` 는 거절,
+`time_aggregate` 는 "알 수 없는 키 무시", `--hotspot-time-aggregate` 는 argparse 거절.
+
+**엔진 YAML 은 블록 목록을 받지 않는다** — 직접 돌려 보니 `[config] 경고: 블록 리스트 문법
+미지원 — '- max_shear' 무시됨` 을 내고 von_mises 로 돈다. 경고가 있으니 무음은 아니다.
+deep report 는 엔진에 늘 쉼표 형식(`criterion: a,b`)으로 넘기므로 영향 없다. 엔진은 고치지 않았다.
+
+**time_aggregate 는 기본값이면 엔진 YAML 에 쓰지 않는다** — 그 키를 모르는 옛 엔진이
+"알 수 없는 키" 경고를 내기 때문. 기본이 아닌 값은 capabilities 검사에서 이미 걸러진다.
+
+**배치의 이른 검증 주석을 고쳤다** — 처음엔 "모든 케이스가 각각 실패" 라고 적었는데,
+`run_one_safe` 는 `except Exception` 이라 SystemExit 을 못 잡고 배치 전체가 첫 케이스에서 멈춘다.
+
+**별칭 대조 시험이 헛돌지 않음을 확인** — 파이썬 표에서 `p1` 을 빼자 시험이 실패했다.
+C++ 소스에서 뽑은 별칭 30개(표준 이름 7 포함).
+
+**독립 검증** — 깨끗한 솔리드 덱(`/data/koopark/deep_report_timetest`, 400상태)에서
+max_shear·x_tension·z_tension 의 파트 극값(`value_extreme`)을 lasso 로 따로 계산해 60건 대조,
+최대 상대오차 3.5e-10, 파트별 요소 수도 일치(`.work/hotspot_wiring/indep_crit_check.py`).
+case_01 은 lasso 가 두꺼운 셸 덱을 잘못 읽어 대조에 못 쓴다.
+`mean_timemax` 는 군집 멤버가 JSON 에 없어 독립 계산을 못 했다 — 정의상 불변식
+`mean_timemax ≤ stress_mean` 만 확인(case_01 62/62, 위반 0).
+
+**HTML** — 두 덱 모두 기준 라벨·짝 변형률 라벨·동시각 평균 열이 나오고 JS 예외 0
+(case_01 은 기준 2 × 항목 39개 전부 2D·3D 로 그려 봄).
