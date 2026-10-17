@@ -110,3 +110,32 @@ pykoocae-53 의 배포본 e2e 결과가 우리 결정과 하나씩 맞물린다.
 argparse 가 거절해 rc≠0 이 나긴 하지만, 그 실패가 캠페인 로그 안에 묻힌다.
 이름을 바꿀 일이 생기면 pykoocae-53 에 먼저 알릴 것. (`--hotspot-*` 와 `--viewer` 는
 전용 키로 배선돼 있어 사정이 다르다.)
+
+## 릴리스 배포 지점이 하나가 아니다 — 전체 그림 (2026-10-17)
+
+`/opt/apptainers` 건에 이어 pykoocae-53 이 두 가지를 더 짚었고, **직접 확인해 보니 맞다.**
+한 릴리스가 닿아야 할 곳이 최소 넷이다.
+
+| 배포 지점 | 무엇이 쓰나 | 우리 절차 | 이번 상태 |
+|---|---|---|---|
+| `/data/SmartTwinPostprocessor` (NFS) | 호스트 CLI·tar | `deploy_from_sif.sh` ✅ | be9d2b0 |
+| 노드 로컬 `/opt/apptainers/*.sif` | KooChainRun `DEFAULT_SIF_PATH`, smarttwin-tool `STMC_POST_SIF` | **없음** | 수동 교체함 (7142a658) |
+| `KooSlurmInstallAutomationRefactory/apptainer/compute-node-images/` | `deploy_apptainers.sh` 의 **원본** — 노드 재설치·viz 복귀 때 여기서 깔린다 | **없음** | 아직 601e9d86 (10-02) — 저쪽이 교체 중 |
+| GUI 변종 `SmartTwinPostprocessorGUI.sif` | GUI 사용자 | **없음** (우리는 headless 만 빌드) | 76ae3a4b (10-02) — 저쪽이 빌드 중 |
+
+**노드 로컬만 고친 것으로는 부족했다.** `compute-node-images` 가 옛 판이면 노드를 재설치하는
+순간 되돌아간다. 즉 내 2026-10-17 교체는 **다음 재설치까지만 유효한 임시 조치**였다.
+
+**GUI 는 아예 빼먹었다.** `apptainer/build.sh` 는 `headless|full|both` 를 받는데 나는
+headless 만 돌렸다. GUI def 는 별도 `Bootstrap: docker` 이고 같은 저장소를 clone 하므로
+Plotly 번들은 자동으로 실리지만, 내가 headless def 에만 넣은 `%test` 번들 검사가 없다.
+
+**표준 파이프라인의 Phase 3 는 쓰면 안 된다 (확인함).**
+`serviceApptainers/BuildSmartTwinPostprocessorOnly.sh` 의 패키지 목록은 5개로
+`koo_scatter_report` 가 빠져 있다. 우리 배포본은 6개이고 `env.sh` 도 6개를 담는다.
+그 스크립트의 호스트 재동기화를 돌리면 `env.sh` 가 5개로 되돌아가 koo_scatter_report 가
+import 안 된다. pykoocae-53 이 그래서 Phase 3 를 건너뛴 것이고, 판단이 맞다.
+
+**해야 할 일** — `deploy_from_sif.sh`/`verify_deploy.sh` 가 위 네 지점을 모두 다루거나,
+최소한 **검증이 네 곳을 전부 보게** 해야 한다. 지금은 NFS 만 보고 "전부 일치" 를 출력하므로
+반쯤 배포된 상태가 통과한다. 표준 스크립트의 패키지 목록 차이도 상류에 고쳐야 한다.
