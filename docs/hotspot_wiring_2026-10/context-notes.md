@@ -198,3 +198,20 @@ FAIL 을 확인한 뒤** 새 GUI 에 썼다. '시험이 실패할 수 있는가'
 
 남은 것: viz-node001/002 가 내려가 있어 복귀 시 `deploy_apptainers.sh` 로 깔린다
 (원본이 이제 맞으므로 새 판이 간다).
+
+## 상류 표준 스크립트 — 하나는 고쳐졌고 하나는 남았다 (2026-10-17)
+
+**고쳐짐** — `serviceApptainers/BuildSmartTwinPostprocessorOnly.sh` 의 `POST_PYPKGS` 가
+6개가 됐다(`koo_scatter_report` 추가, 사용자 승인·`.bak_20261017` 백업). 직접 확인했다.
+저쪽이 Phase 3 블록만 떼어 임시 폴더에서 돌려, 고친 판은 `env.sh` 6개 순서까지 우리
+호스트와 같고 고치기 전 판은 같은 하네스에서 FAIL 임을 확인했다. 이제 그 스크립트의
+Phase 3 를 써도 우리 배포본이 깨지지 않는다.
+
+**⚠ 남아 있음 — `serviceApptainers/BuildAll.sh` 의 Post 동기화(Phase 4)는 패키지 둘만 다룬다.**
+88~91행이 `koo_deep_report` 와 `koo_sphere_report` 만 `rsync` 한다 (반복문이 아니라
+하드코딩이다. 직접 확인). 통합 빌드로 릴리스하면 **`koo_impact_report` ·
+`koo_federate_report` · `koo_custom_report` · `koo_scatter_report` 넷이 옛 판으로 남는다.**
+우리 패키지 6개 중 4개다. 조용히 묵는다 — 에러가 안 난다.
+
+저쪽이 사용자에게 보고했고 고치지는 않았다. **BuildAll.sh 로 Post 를 릴리스하지 말 것.**
+우리 절차(`deploy_from_sif.sh`)나 `BuildSmartTwinPostprocessorOnly.sh` 를 쓸 것.

@@ -68,5 +68,6 @@
 - [x] 여섯 지점 sha256 직접 대조 — 전부 일치
 - [ ] **절차 보강 (미결)** — `deploy_from_sif.sh`/`verify_deploy.sh` 가 네 지점을 보게.
       지금은 NFS 만 보고 "전부 일치" 를 출력해 반쯤 배포된 상태가 통과한다
-- [ ] **상류 보고 (미결)** — `BuildSmartTwinPostprocessorOnly.sh` 의 패키지 목록이
-      5개로 `koo_scatter_report` 누락
+- [x] 상류 `BuildSmartTwinPostprocessorOnly.sh` 패키지 목록 — 저쪽이 6개로 수정(확인함)
+- [ ] **⚠ `BuildAll.sh` Phase 4 는 패키지 둘만 동기화 (미결, 상류)** — impact·federate·
+      custom·scatter 넷이 옛 판으로 남는다. 통합 빌드로 Post 를 릴리스하지 말 것
