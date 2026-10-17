@@ -139,3 +139,32 @@ import 안 된다. pykoocae-53 이 그래서 Phase 3 를 건너뛴 것이고, �
 **해야 할 일** — `deploy_from_sif.sh`/`verify_deploy.sh` 가 위 네 지점을 모두 다루거나,
 최소한 **검증이 네 곳을 전부 보게** 해야 한다. 지금은 NFS 만 보고 "전부 일치" 를 출력하므로
 반쯤 배포된 상태가 통과한다. 표준 스크립트의 패키지 목록 차이도 상류에 고쳐야 한다.
+
+## GUI 빌드가 깨진 이유 — 움직이는 의존성 (2026-10-17)
+
+pykoocae-53 의 GUI SIF 빌드가 `koo_viewer` 컴파일에서 멈췄다.
+
+```
+DeepReportTabQuality.cpp:51: error: 'ImGuiSelectableFlags_DontClosePopups' was not declared
+                                     did you mean 'ImGuiSelectableFlags_NoAutoClosePopups'?
+```
+
+**우리 코드는 안 바뀌었다.** 그 줄은 a760b2a(04-04)부터 그대로이고 10-02 GUI 빌드는
+통과했다. 바뀐 것은 의존성이다 — `viewer/CMakeLists.txt` 가 ImGui 를 `GIT_TAG docking`,
+ImPlot 을 `GIT_TAG master` 로 받았다. **브랜치는 움직인다.** 그 사이 ImGui 가 1.91 에서
+이름을 바꾼 옛 상수의 호환 별칭을 지웠다.
+
+같은 파일에서 GLFW 는 `3.4`, nlohmann_json 은 `v3.11.3` 으로 **이미 태그 고정**이었다.
+ImGui·ImPlot 만 예외였던 것이다 — 규약이 있었는데 두 곳이 빠져 있었다.
+
+**둘 다 했다.** 상수만 바꾸면 다음에 다른 이름이 깨진다(저쪽 지적).
+- ImGui → `v1.92.9b-docking`, ImPlot → `v1.0` 으로 고정
+- 상수 → `ImGuiSelectableFlags_NoAutoClosePopups` (1.91 부터 존재하므로 고정 버전과 맞다)
+
+**빌드로 확인했다** — 루트에서 `-DKOOD3PLOT_BUILD_VIEWER=ON` 으로 `koo_viewer` 를 실제로
+세웠다(rc=0, 8.6MB). 받아온 판은 IMGUI_VERSION 1.92.9b · IMPLOT_VERSION 1.0 이고 다른
+ImGui/ImPlot 관련 오류·경고는 없다. 고쳤다고 말만 하고 넘겼으면 저쪽이 같은 자리에서
+한 번 더 멈췄을 것이다.
+
+GUI def 에도 headless 와 같은 Plotly 번들 `%test` 검사를 넣었다 — 저쪽이 한 번에
+빌드할 수 있게 같은 커밋에 담았다.

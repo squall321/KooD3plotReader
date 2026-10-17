@@ -48,7 +48,7 @@ void DeepReportApp::renderQualityTab() {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             char qsel[16]; snprintf(qsel, sizeof(qsel), "%d##q%d", q.part_id, q.part_id);
-            if (ImGui::Selectable(qsel, false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_DontClosePopups)) {
+            if (ImGui::Selectable(qsel, false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_NoAutoClosePopups)) {
                 if (data_.parts.count(q.part_id)) { deepDivePartId_ = q.part_id; navigateToDeepDive_ = true; }
             }
             if (ImGui::IsItemHovered()) { ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); ImGui::SetTooltip("Click \xe2\x86\x92 Deep Dive  P%d  %s", q.part_id, q.part_name.c_str()); }

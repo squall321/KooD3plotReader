@@ -22,10 +22,15 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
-# Dear ImGui (docking branch)
+# Dear ImGui (docking 계열 릴리스 태그로 **고정**)
+# 왜 태그인가 — 전에는 `GIT_TAG docking`(브랜치)이었다. 움직이는 참조라 우리 코드가
+# 한 줄도 안 바뀌어도 어느 날 갑자기 빌드가 깨진다. 실제로 2026-10-17 GUI SIF 빌드가
+# 그렇게 깨졌다: ImGui 가 옛 이름의 호환 별칭(ImGuiSelectableFlags_DontClosePopups)을
+# 지우면서, 04-04 부터 그대로였던 줄이 컴파일 실패했다. 같은 파일의 nlohmann_json 은
+# 처음부터 태그 고정이었다 — ImGui·ImPlot 만 예외였다.
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG docking
+    GIT_TAG v1.92.9b-docking
     GIT_SHALLOW ON
 )
 FetchContent_MakeAvailable(imgui)
@@ -33,7 +38,7 @@ FetchContent_MakeAvailable(imgui)
 # ImPlot (charts — master branch for ImGui docking compatibility)
 FetchContent_Declare(implot
     GIT_REPOSITORY https://github.com/epezent/implot.git
-    GIT_TAG master
+    GIT_TAG v1.0
     GIT_SHALLOW ON
 )
 FetchContent_MakeAvailable(implot)
