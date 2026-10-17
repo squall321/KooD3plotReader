@@ -239,6 +239,18 @@ From: ubuntu:22.04
     for _p in koo_deep_report koo_sphere_report koo_impact_report koo_federate_report koo_custom_report; do
         python3 -c "import ${_p}" || exit 1
     done
+    # Plotly 번들 — 빠지면 리포트가 조용히 CDN 을 참조하고, 폐쇄망에서 차트가
+    # 에러 없이 빈 칸이 된다. 배포본에서 가장 늦게 드러나는 종류의 결함이라 여기서 막는다.
+    for _b in \
+        /opt/kood3plot/python/koo_deep_report/koo_deep_report/report/vendor/plotly-gl3d.min.js \
+        /opt/kood3plot/python/koo_deep_report/koo_deep_report/report/vendor/plotly-basic.min.js \
+        /opt/kood3plot/python/koo_sphere_report/koo_sphere_report/report/vendor/plotly-gl3d.min.js; do
+        if [ ! -s "${_b}" ]; then
+            echo "FATAL: Plotly 번들 누락 — ${_b}"
+            echo "       리포트가 CDN 으로 폴백해 폐쇄망에서 차트가 비어 보입니다."
+            exit 1
+        fi
+    done
     # 상류 호환 심볼릭 검증
     /opt/kood3plot/bin/koodyna --help >/dev/null
     echo "All tools available"

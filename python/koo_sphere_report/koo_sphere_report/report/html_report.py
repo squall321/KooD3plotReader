@@ -1019,6 +1019,8 @@ svg text { font-family: inherit; }
 .hs3d-clip { color: var(--dim); margin-top: 3px; font-size: 9px; opacity: .85; }
 .hs3d-legend-flat { font-size: 10px; margin-top: 4px; }
 .hs3d-angles { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--dim); }
+.hs3d-input { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px; font-size: 11px; }
+.hs3d-cnote { color: var(--yellow); font-size: 10px; }
 .hs3d-ang { display: inline-flex; align-items: center; gap: 3px; background: var(--bg2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 7px; cursor: pointer; }
 """
 
@@ -2594,7 +2596,7 @@ let _dmCache = null;
 // 바로 그 d3plot 에서 메시를 뽑고, 어긋나면 아예 싣지 않는다). 그래서 중심·배율을
 // 메시에서 한 번만 구해 둘 다에 그대로 쓴다.
 const HS3D = { az: -0.6, el: 0.35, zoom: 1, drag: null, measure: null,
-               off: null, offPart: null, labels: true, geo: null, range: 'p98' };
+               off: null, offPart: null, labels: true, geo: null, range: 'p98', mode: 'bubble' };
 
 function hs3dRuns() {
   return (DATA.results || []).filter(r => r.hotspot && r.hotspot.length);
@@ -2621,6 +2623,26 @@ function hs3dAvailable() {
 
 function hs3dEnabled(folder) {
   return !(HS3D.off && HS3D.off[folder]);
+}
+
+// 26방향 군 — 면 F1~F6 · 모서리 E01~E12 · 코너 C1~C8 (AngleSourceParser 규약).
+// 사용자가 "V1~8" 이라 부르는 것이 이 저장소에서는 C1~C8 이다.
+const HS3D_PRESETS = [
+  { id: 'F', label: '면', re: /^F\d+/i },
+  { id: 'E', label: '모서리', re: /^E\d+/i },
+  { id: 'C', label: '코너', re: /^C\d+/i },
+  { id: '26', label: '26방향', re: /^[FEC]\d+/i },
+];
+
+function hs3dAngleName(r) { return (r.angle && r.angle.name) || r.folder; }
+
+// 프리셋에 걸리는 런이 하나도 없으면 버튼을 만들지 않는다 — 피보나치 캠페인처럼
+// F/E/C 이름이 없는 곳에서 눌러도 아무 일도 안 나는 버튼은 고장으로 읽힌다.
+function hs3dPresetCounts() {
+  const runs = hs3dRuns();
+  return HS3D_PRESETS.map(p => ({
+    ...p, n: runs.filter(r => p.re.test(hs3dAngleName(r))).length,
+  })).filter(p => p.n > 0);
 }
 
 // 켜진 각도의 군집을 납작하게 편다
@@ -2808,7 +2830,7 @@ function hs3dDrawCanvas() {
       ctx.lineTo(R[b*3]*s+ox, R[b*3+1]*s+oy);
       ctx.lineTo(R[c*3]*s+ox, R[c*3+1]*s+oy);
       ctx.closePath(); ctx.fill();
-    } else {
+    } else if (HS3D.mode !== 'contour') {
       const sp = it.sph;
       ctx.globalAlpha = 0.45;
       const base = sp.t === null ? [150, 155, 165] : valueToColorRGB(sp.t);
@@ -2824,9 +2846,14 @@ function hs3dDrawCanvas() {
   }
   ctx.globalAlpha = 1;
 
+  // 3b) 컨투어(리스크 맵) — 버블이 겹쳐 읽히지 않을 때 밀도장으로 본다.
+  //     군집을 중심 `center`, 폭 `radius_enclosing` 인 커널로 보고 **리스크 값으로
+  //     가중해** 더한다. 개수만 세면 약한 군집이 많은 곳이 붉어진다 (계획 §5).
+  if (HS3D.mode === 'contour') hs3dContour(ctx, W, H, spheres, uniform);
+
   // 4) 라벨 — 앞쪽 군집부터, 이미 찍은 글자와 겹치면 건너뛴다.
   //    전부 찍으면 글자가 뭉개져 아무것도 읽히지 않는다.
-  if (HS3D.labels) {
+  if (HS3D.labels && HS3D.mode !== 'contour') {
     // 순위는 **파트 × 기준량마다** 따로 매겨진다. 파트가 둘 이상 보이는데
     // "F4_Left #1" 만 적으면 같은 라벨이 여러 개 생겨 어느 것이 1위인지
     // 읽는 사람이 알 수 없다. 둘 이상일 때만 구분자를 덧붙인다.
@@ -2865,7 +2892,15 @@ function hs3dDrawCanvas() {
 
   // 5) 컬러바 / 균일값 안내
   const legend = document.getElementById('hs3d-legend');
-  if (legend) {
+  if (legend && HS3D.mode === 'contour') {
+    const mlabel = (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure;
+    legend.innerHTML = `<div class="hs3d-cbtitle">누적 리스크</div>` +
+      `<div class="hs3d-cbar">${Array.from({length:41},(_,i)=>
+        `<span style="flex:1;background:${valueToColor(i/40)}"></span>`).join('')}</div>` +
+      `<div class="hs3d-cbnums"><span>낮음</span><span>높음</span></div>` +
+      `<div class="hs3d-clip">${mlabel} 로 가중해 더한 값입니다 — ` +
+      `군집 값 자체가 아니라 겹친 정도입니다</div>`;
+  } else if (legend) {
     const mlabel = (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure;
     if (uniform) {
       legend.innerHTML = `<div class="hs3d-note">${mlabel}: 모든 군집이 같은 값입니다 ` +
@@ -2892,6 +2927,102 @@ function hs3dEsc(s) {
   return String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 리스크 맵 — 화면 격자에 가우시안 커널을 리스크 값으로 가중해 누적하고,
+// 히트맵 + 등고선으로 그린다. 격자는 **화면 평면**이다 (계획 §5 의 '파트 평면 투영').
+// 시점을 돌리면 다시 계산된다 — 이 시점에서 본 위험 분포라는 뜻이다.
+const HS3D_CONTOUR_CELL = 8;          // 격자 한 칸 (캔버스 픽셀, 2x 오버샘플 기준)
+const HS3D_CONTOUR_LEVELS = [0.25, 0.5, 0.75];
+
+// 누적장만 따로 — 그리는 것과 계산하는 것을 나눠 둔다. 시험이 색이 아니라
+// 값을 직접 볼 수 있어야 '중심이 최대' 같은 성질을 정확히 확인할 수 있다.
+function hs3dContourField(W, H, spheres, uniform) {
+  const cs = HS3D_CONTOUR_CELL;
+  const nx = Math.max(2, Math.ceil(W / cs)), ny = Math.max(2, Math.ceil(H / cs));
+  const fld = new Float32Array(nx * ny);
+
+  for (const sp of spheres) {
+    // 가중치 = 리스크. 값이 없거나 전부 같으면 1 로 둔다(개수 분포가 된다).
+    const w = (uniform || sp.t === null) ? 1 : 0.05 + 0.95 * sp.t;
+    const sg = Math.max(cs, sp.r) / 1.5;            // 커널 폭 ~ 포함반경
+    const rad = sg * 2.5;                           // 2.5σ 밖은 기여가 1% 미만
+    const i0 = Math.max(0, Math.floor((sp.x - rad) / cs));
+    const i1 = Math.min(nx - 1, Math.ceil((sp.x + rad) / cs));
+    const j0 = Math.max(0, Math.floor((sp.y - rad) / cs));
+    const j1 = Math.min(ny - 1, Math.ceil((sp.y + rad) / cs));
+    const inv = 1 / (2 * sg * sg);
+    for (let j = j0; j <= j1; j++) {
+      const dy = (j + 0.5) * cs - sp.y;
+      for (let i = i0; i <= i1; i++) {
+        const dx = (i + 0.5) * cs - sp.x;
+        fld[j * nx + i] += w * Math.exp(-(dx*dx + dy*dy) * inv);
+      }
+    }
+  }
+
+  let fmax = 0;
+  for (let n = 0; n < fld.length; n++) if (fld[n] > fmax) fmax = fld[n];
+  return { fld, nx, ny, cs, fmax };
+}
+
+function hs3dContour(ctx, W, H, spheres, uniform) {
+  const { fld, nx, ny, cs, fmax } = hs3dContourField(W, H, spheres, uniform);
+  if (!(fmax > 0)) return;
+
+  // 히트맵 — 낮은 곳은 투명해 하우징이 비쳐 보이게 한다
+  const img = ctx.createImageData(nx, ny);
+  for (let n = 0; n < fld.length; n++) {
+    const t = fld[n] / fmax;
+    const [r, g, b] = valueToColorRGB(t);
+    img.data[n*4] = r; img.data[n*4+1] = g; img.data[n*4+2] = b;
+    img.data[n*4+3] = Math.round(235 * Math.min(1, Math.pow(t, 0.7)));
+  }
+  // 격자를 캔버스 크기로 부드럽게 늘린다 (createImageData 는 격자 해상도다)
+  const tmp = document.createElement('canvas');
+  tmp.width = nx; tmp.height = ny;
+  tmp.getContext('2d').putImageData(img, 0, 0);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalAlpha = 0.78;
+  ctx.drawImage(tmp, 0, 0, W, H);
+  ctx.restore();
+
+  // 등고선 — marching squares (선분만 그린다)
+  ctx.save();
+  ctx.lineWidth = 2;
+  for (const lv of HS3D_CONTOUR_LEVELS) {
+    ctx.strokeStyle = `rgba(255,255,255,${0.25 + 0.3 * lv})`;
+    ctx.beginPath();
+    const th = lv * fmax;
+    for (let j = 0; j < ny - 1; j++)
+      for (let i = 0; i < nx - 1; i++) {
+        const a = fld[j*nx+i], b = fld[j*nx+i+1], c = fld[(j+1)*nx+i+1], d = fld[(j+1)*nx+i];
+        const code = (a > th ? 8 : 0) | (b > th ? 4 : 0) | (c > th ? 2 : 0) | (d > th ? 1 : 0);
+        if (code === 0 || code === 15) continue;
+        const x0 = (i + 0.5) * cs, y0 = (j + 0.5) * cs;
+        const ip = (p, q, u, v) => {        // 두 격자점 사이에서 th 를 지나는 자리
+          const t = (th - p) / ((q - p) || 1e-9);
+          return [u[0] + (v[0]-u[0]) * t, u[1] + (v[1]-u[1]) * t];
+        };
+        const P = [x0, y0], Q = [x0+cs, y0], Rr = [x0+cs, y0+cs], S = [x0, y0+cs];
+        const top = ip(a, b, P, Q), right = ip(b, c, Q, Rr),
+              bot = ip(d, c, S, Rr), left = ip(a, d, P, S);
+        const seg = (u, v) => { ctx.moveTo(u[0], u[1]); ctx.lineTo(v[0], v[1]); };
+        switch (code) {
+          case 1: case 14: seg(left, bot); break;
+          case 2: case 13: seg(bot, right); break;
+          case 3: case 12: seg(left, right); break;
+          case 4: case 11: seg(top, right); break;
+          case 6: case 9:  seg(top, bot); break;
+          case 7: case 8:  seg(left, top); break;
+          case 5: seg(left, top); seg(bot, right); break;
+          case 10: seg(left, bot); seg(top, right); break;
+        }
+      }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ── Plotly 경로 (--viewer plotly) ───────────────────────────────────────
@@ -3072,6 +3203,7 @@ function renderHotspot3D() {
   HS3D.offPart = HS3D.offPart || {};
 
   const isPlotly = hs3dEngine() === 'plotly';
+  const presets = hs3dPresetCounts();
   const opts = avail.map(m =>
     `<option value="${m.k}"${m.k === HS3D.measure ? ' selected' : ''}>${m.label}</option>`).join('');
   const meshSet = new Set(hs3dMeshParts());
@@ -3097,6 +3229,10 @@ function renderHotspot3D() {
       ${DATA.hotspot_cap_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_cap_note)}</p>` : ''}
       <div class="hs3d-bar">
         <label>리스크 척도 <select id="hs3d-measure">${opts}</select></label>
+        ${isPlotly ? '' : `<label>보기 <select id="hs3d-mode">
+          <option value="bubble" selected>개별 버블</option>
+          <option value="contour">컨투어(리스크 맵)</option>
+        </select></label>`}
         <label>색 범위 <select id="hs3d-range">
           <option value="p98" selected>2~98 분위</option>
           <option value="full">전체 min~max</option>
@@ -3117,8 +3253,14 @@ function renderHotspot3D() {
         ${pboxes}
       </div>
       <div class="hs3d-angles"><b>각도</b>
-        <button id="hs3d-all" class="hs3d-btn">전체</button>
+        <button id="hs3d-all" class="hs3d-btn">전체 ${runs.length}</button>
         <button id="hs3d-none" class="hs3d-btn">해제</button>
+        ${presets.map(p => `<button class="hs3d-btn hs3d-preset" data-preset="${p.id}">${p.label} ${p.n}</button>`).join('')}
+        <input id="hs3d-custom" class="hs3d-input" placeholder="각도명 직접 입력 (쉼표)" size="22">
+        <button id="hs3d-custom-go" class="hs3d-btn">적용</button>
+        <span id="hs3d-custom-note" class="hs3d-cnote"></span>
+      </div>
+      <div class="hs3d-angles">
         ${boxes}
       </div>
     </div>`;
@@ -3155,6 +3297,8 @@ function renderHotspot3D() {
   }
 
   document.getElementById('hs3d-measure').onchange = e => { HS3D.measure = e.target.value; hs3dDraw(); };
+  const modeSel = document.getElementById('hs3d-mode');
+  if (modeSel) modeSel.onchange = e => { HS3D.mode = e.target.value; hs3dDraw(); };
   document.getElementById('hs3d-range').onchange = e => { HS3D.range = e.target.value; hs3dDraw(); };
   document.getElementById('hs3d-labels').onchange = e => { HS3D.labels = e.target.checked; hs3dDraw(); };
   const resetBtn = document.getElementById('hs3d-reset');
@@ -3168,8 +3312,43 @@ function renderHotspot3D() {
     });
     hs3dDraw();
   };
+  // 선택 상태를 한 번에 맞춘다 (체크박스와 HS3D.off 를 같이 움직인다)
+  const applySelection = keepFolder => {
+    host.querySelectorAll('.hs3d-ang input[data-folder]').forEach(b => {
+      const on = keepFolder(b.dataset.folder);
+      b.checked = on;
+      if (on) delete HS3D.off[b.dataset.folder]; else HS3D.off[b.dataset.folder] = 1;
+    });
+    hs3dDraw();
+  };
   document.getElementById('hs3d-all').onclick = () => setAll(true);
   document.getElementById('hs3d-none').onclick = () => setAll(false);
+  const folderName = {};
+  runs.forEach(r => { folderName[r.folder] = hs3dAngleName(r); });
+  host.querySelectorAll('.hs3d-preset').forEach(btn => {
+    btn.onclick = () => {
+      const p = HS3D_PRESETS.find(x => x.id === btn.dataset.preset);
+      applySelection(f => p.re.test(folderName[f] || ''));
+      const note = document.getElementById('hs3d-custom-note');
+      if (note) note.textContent = '';
+    };
+  });
+  const applyCustom = () => {
+    const raw = document.getElementById('hs3d-custom').value || '';
+    const want = raw.split(/[,\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    const note = document.getElementById('hs3d-custom-note');
+    if (!want.length) { if (note) note.textContent = '각도명을 입력하세요'; return; }
+    const have = new Set(Object.values(folderName).map(n => n.toLowerCase()));
+    // 못 찾은 이름은 조용히 넘기지 않는다 — 오타를 '그 각도엔 군집이 없구나' 로 읽게 된다
+    const miss = want.filter(w => !have.has(w));
+    applySelection(f => want.includes((folderName[f] || '').toLowerCase()));
+    if (note) note.textContent = miss.length
+      ? `없는 각도: ${miss.join(', ')}` : `${want.length - miss.length}개 선택`;
+  };
+  document.getElementById('hs3d-custom-go').onclick = applyCustom;
+  document.getElementById('hs3d-custom').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); applyCustom(); }
+  });
   const setParts = on => {
     host.querySelectorAll('[data-pid]').forEach(b => {
       b.checked = on;
