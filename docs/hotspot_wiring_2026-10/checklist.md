@@ -47,7 +47,11 @@
       · MCP `post_deep_report` (잡 1211): 46항목(max_shear 23 + x_tension 23), 군집 65개 전부
         `mean_timemax`, 부등식 위반 0/65, HTML 에 라벨 노출
       · KooChainRun 캠페인 (잡 1214): `scenario.postprocess.hotspot_criterion`/`_time_aggregate`
-        → deep_report.sh 인자로 전달, 46항목·군집 58개·위반 0
+        → deep_report.sh 인자로 전달, 46항목·군집 58개·위반 0.
+        **분석 단계까지만이다** — 시험 시나리오 time_limit 40분에 걸려 구역 뷰 16/23 파트에서
+        TIMEOUT, HTML 은 안 나왔다. 핫스팟 탭 확인은 잡 1211 의 report.html 로 했다
+        (저쪽 정정, 2026-10-17). 핫스팟 배선 판정에는 영향 없다 — 판정 근거인
+        `analysis_result.json` 은 분석 단계에서 이미 완성된다
       · 대조군(잡 1212, 시간집계 기본): `mean_timemax` 0개 —
         "기본값이면 엔진 YAML 에 안 쓴다" 는 결정대로 동작
       · `max_shear` 의 `stress_mean` 이 두 실행에서 23/23 파트 동일 — 시간집계를 켜도 기존 값 불변
