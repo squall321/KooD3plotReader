@@ -49,10 +49,17 @@
       전체 범위를 함께 적고 '전체 min~max' 로 전환 가능
 
 ## G3. Plotly 번들 옵션
-- [ ] `--viewer {canvas,plotly}` CLI → verify: 둘 다 렌더됨
-- [ ] Plotly 3.60MB **번들**(CDN 아님) → verify: 네트워크 차단 상태에서 동작
-- [ ] **deep report 오프라인화** — `cdn.plot.ly` 참조 제거
-      → verify: 네트워크 차단 상태에서 기존 핫스팟 탭 정상
+- [x] `--viewer {canvas,plotly}` CLI (기본 canvas) → verify: 두 경로 모두 네트워크
+      차단에서 렌더·조작, JS 예외 0. canvas 977KB / plotly 2.5MB
+      (`.work/envelope_g1/check_viewer.py`)
+- [x] Plotly **부분 번들**(CDN 아님) — 전체 4.7MB 대신 gl3d 1.6MB·basic 1.0MB
+      → verify: 외부 요청 0건. 번들 선택이 맞는지 트레이스를 직접 그려 확인
+      (`.work/envelope_g1/check_bundles.py`) + 정적 시험으로 고정
+- [x] **deep report 오프라인화** — `cdn.plot.ly` 태그 제거, 번들 삽입
+      → verify: 네트워크 차단에서 Plotly 3.1.0 로드·차트 21개 전부 그려짐·빈 것 0·
+      외부 요청 0·JS 예외 0 (`.work/envelope_g1/check_offline.py`)
+- [x] batch report 는 **basic** 번들 — gl3d 에 `bar` 가 없다
+      → verify: 시험이 '쓰는 트레이스 ⊆ 고른 번들' 을 못박음 (bar 를 deep 에 넣으면 FAIL)
 
 ## G4. 각도 선택
 - [ ] 26방향 군 프리셋 — F1~F6 · E01~E12 · C1~C8 → verify: 26개 선택됨

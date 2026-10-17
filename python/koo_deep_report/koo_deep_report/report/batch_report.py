@@ -1,5 +1,7 @@
 """Batch summary HTML report for multiple koo_deep_report runs."""
 from __future__ import annotations
+
+from . import plotly_bundle
 import json
 from html import escape as html_escape
 from pathlib import Path
@@ -79,13 +81,16 @@ def _build_html(
         items = "".join(f"<li>{html_escape(x)}</li>" for x in notes)
         notes_html = (f'<div class="batch-notes"><b>알림</b><ul>{items}</ul></div>')
 
+    # 배치 요약은 bar 와 scatter 만 쓴다 — gl3d 번들에는 bar 가 없으므로 basic 이다.
+    _plotly_script = plotly_bundle.script_tag(plotly_bundle.BASIC)
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Batch Analysis Report</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+{_plotly_script}
 <style>
 :root {{
   --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;

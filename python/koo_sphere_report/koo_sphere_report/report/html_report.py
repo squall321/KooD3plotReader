@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 
 from ..loader import extreme_indices, round_keep_sig
+from . import plotly_bundle
 from ..models import MotionData, Report, Severity, SimulationResult
 
 
@@ -1016,6 +1017,7 @@ svg text { font-family: inherit; }
 .hs3d-cbar { display: flex; height: 10px; border-radius: 2px; overflow: hidden; }
 .hs3d-cbnums { display: flex; justify-content: space-between; color: var(--dim); margin-top: 3px; }
 .hs3d-clip { color: var(--dim); margin-top: 3px; font-size: 9px; opacity: .85; }
+.hs3d-legend-flat { font-size: 10px; margin-top: 4px; }
 .hs3d-angles { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--dim); }
 .hs3d-ang { display: inline-flex; align-items: center; gap: 3px; background: var(--bg2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 7px; cursor: pointer; }
 """
@@ -2705,7 +2707,16 @@ function hs3dMatrix() {
           -ce*sa, se,  ce*ca ];
 }
 
+// 엔진 분기 — 생성할 때 고른 뷰어로 그린다 (화면에서 바꾸지 않는다.
+// 번들은 plotly 를 골랐을 때만 들어가므로 캔버스 리포트에서 plotly 를 켤 수 없다.)
+function hs3dEngine() { return (window.HS3D_ENGINE === 'plotly') ? 'plotly' : 'canvas'; }
+
 function hs3dDraw() {
+  if (hs3dEngine() === 'plotly') { hs3dDrawPlotly(); return; }
+  hs3dDrawCanvas();
+}
+
+function hs3dDrawCanvas() {
   const cv = document.getElementById('hs3d-canvas');
   if (!cv) return;
   const ctx = cv.getContext('2d');
@@ -2883,6 +2894,153 @@ function hs3dEsc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ── Plotly 경로 (--viewer plotly) ───────────────────────────────────────
+// 캔버스가 기본이고 이쪽은 선택이다. 얻는 것은 호버·범례·축이고, 치르는 것은
+// 번들 1.6MB 와 WebGL 의존성이다 (GPU 가 없는 VNC 등에서 느리거나 안 뜬다).
+const HS3D_PLOTLY_MAX = 400;   // mesh3d 정점 수 상한 — 넘으면 상위 N 만 그리고 알린다
+
+// 단위 구 하나를 만들어 두고 군집마다 옮겨 붙인다 (매번 삼각분할하지 않는다)
+function hs3dUnitSphere(nu, nv) {
+  const x = [], y = [], z = [], i = [], j = [], k = [];
+  for (let a = 0; a <= nv; a++) {
+    const th = Math.PI * a / nv;
+    for (let b = 0; b <= nu; b++) {
+      const ph = 2 * Math.PI * b / nu;
+      x.push(Math.sin(th) * Math.cos(ph));
+      y.push(Math.sin(th) * Math.sin(ph));
+      z.push(Math.cos(th));
+    }
+  }
+  const row = nu + 1;
+  for (let a = 0; a < nv; a++)
+    for (let b = 0; b < nu; b++) {
+      const p0 = a*row + b, p1 = p0 + 1, p2 = p0 + row, p3 = p2 + 1;
+      i.push(p0, p1); j.push(p1, p3); k.push(p2, p2);
+    }
+  return { x, y, z, i, j, k, n: x.length };
+}
+let _hs3dSphere = null;
+
+function hs3dDrawPlotly() {
+  const el = document.getElementById('hs3d-plotly');
+  if (!el) return;
+  if (!window.Plotly) {
+    el.innerHTML = '<div class="hs3d-warn">Plotly 번들이 실려 있지 않습니다 — ' +
+                   '--viewer plotly 로 다시 생성하세요.</div>';
+    return;
+  }
+  const M = DATA.hotspot_mesh;
+  const geo = hs3dGeometry();
+  const traces = [];
+
+  // 파트 메시 — Plotly 는 자기 축을 쓰므로 **원 좌표 그대로** 넣는다
+  if (geo && M) {
+    // **쓰는 정점만** 넣는다. 전부 넣으면 꺼 둔 파트(바닥 300mm)의 정점이
+    // 축 범위를 늘려 aspectmode:'data' 가 장면을 통째로 쪼그라뜨린다.
+    const F = geo.F, V = M.v, map = new Map(), vx = [], vy = [], vz = [];
+    const at = p => {
+      let q = map.get(p);
+      if (q === undefined) {
+        q = vx.length; map.set(p, q);
+        vx.push(V[p*3]); vy.push(V[p*3+1]); vz.push(V[p*3+2]);
+      }
+      return q;
+    };
+    const ii = [], jj = [], kk = [];
+    for (let t = 0; t < F.length / 3; t++) {
+      ii.push(at(F[t*3])); jj.push(at(F[t*3+1])); kk.push(at(F[t*3+2]));
+    }
+    traces.push({ type: 'mesh3d', x: vx, y: vy, z: vz, i: ii, j: jj, k: kk,
+                  color: '#8a90a6', opacity: 0.30, flatshading: true,
+                  hoverinfo: 'skip', showlegend: false, name: '파트' });
+  }
+
+  const measure = HS3D.measure;
+  let cls = hs3dClusters();
+  const valOf = o => o.c[measure];
+  const vals = cls.map(valOf).filter(v => v !== undefined && v !== null && isFinite(v));
+  const sorted = vals.slice().sort((a, b) => a - b);
+  const qAt = p => sorted[Math.min(sorted.length-1, Math.max(0, Math.round(p*(sorted.length-1))))];
+  const uniform = !(sorted.length && sorted[sorted.length-1] > sorted[0]);
+  let vmin, vmax, clipped = false;
+  if (HS3D.range === 'full' || sorted.length < 10) { vmin = sorted[0]; vmax = sorted[sorted.length-1]; }
+  else {
+    vmin = qAt(0.02); vmax = qAt(0.98);
+    clipped = (vmin > sorted[0]) || (vmax < sorted[sorted.length-1]);
+    if (!(vmax > vmin)) { vmin = sorted[0]; vmax = sorted[sorted.length-1]; clipped = false; }
+  }
+
+  // 상한 — mesh3d 는 군집마다 정점이 붙어 수천 개가 되면 브라우저가 멈춘다.
+  // 자르면 **무엇이 빠졌는지 화면에 적는다.**
+  let capNote = '';
+  if (cls.length > HS3D_PLOTLY_MAX) {
+    const total = cls.length;
+    cls = cls.slice().sort((a, b) => (valOf(b) || -Infinity) - (valOf(a) || -Infinity))
+             .slice(0, HS3D_PLOTLY_MAX);
+    capNote = `Plotly 뷰어는 값 상위 ${HS3D_PLOTLY_MAX}개만 그립니다 (전체 ${total}개). ` +
+              `전수는 캔버스 뷰어(기본)에서 보입니다.`;
+  }
+
+  if (cls.length) {
+    // 순위는 파트·기준량별이라 둘 이상이면 라벨에 구분자를 붙인다 (캔버스와 같은 규칙)
+    const vp = new Set(cls.map(o => o.pid)), vc = new Set(cls.map(o => o.cr));
+    if (!_hs3dSphere) _hs3dSphere = hs3dUnitSphere(10, 7);
+    const U = _hs3dSphere;
+    const X = [], Y = [], Z = [], I = [], J = [], K = [], C = [];
+    cls.forEach((o, idx) => {
+      const ctr = o.c.c, r = o.c.r, off = idx * U.n;
+      const v = uniform ? null : Math.max(vmin, Math.min(vmax, valOf(o)));
+      for (let p = 0; p < U.n; p++) {
+        X.push(ctr[0] + U.x[p]*r); Y.push(ctr[1] + U.y[p]*r); Z.push(ctr[2] + U.z[p]*r);
+        C.push(v === null ? 0 : v);
+      }
+      for (let t = 0; t < U.i.length; t++) { I.push(U.i[t]+off); J.push(U.j[t]+off); K.push(U.k[t]+off); }
+    });
+    const sph = { type: 'mesh3d', x: X, y: Y, z: Z, i: I, j: J, k: K,
+                  opacity: 0.55, hoverinfo: 'skip', showlegend: false, name: '군집' };
+    if (uniform) { sph.color = '#969ba5'; sph.showscale = false; }
+    else {
+      sph.intensity = C; sph.cmin = vmin; sph.cmax = vmax;
+      sph.colorscale = 'Jet'; sph.showscale = true;
+      sph.colorbar = { title: { text: (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure,
+                                side: 'top' }, len: 0.7, thickness: 14 };
+    }
+    traces.push(sph);
+
+    // 호버 — Plotly 를 고르는 이유가 이것이다. 중심에 보이지 않는 점을 두고 붙인다.
+    traces.push({
+      type: 'scatter3d', mode: HS3D.labels ? 'markers+text' : 'markers',
+      x: cls.map(o => o.c.c[0]), y: cls.map(o => o.c.c[1]), z: cls.map(o => o.c.c[2]),
+      text: cls.map(o => (vp.size > 1 ? 'p' + o.pid + ' ' : '') + '#' + o.c.k),
+      textfont: { color: '#ffffff', size: 11 },
+      marker: { size: 3, color: 'rgba(255,255,255,.55)' },
+      hovertext: cls.map(o =>
+        `${o.angle}` + (vp.size > 1 ? ` · 파트 ${o.pid}` : '') + (vc.size > 1 ? ` · ${o.cr}` : '') +
+        ` · #${o.c.k}<br>${(HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure}: ` +
+        `${fmtHs3d(valOf(o))}<br>요소 ${o.c.n} · 포함반경 ${fmtHs3d(o.c.r)}`),
+      hovertemplate: '%{hovertext}<extra></extra>', showlegend: false });
+  }
+
+  const ax = t => ({ title: { text: t }, gridcolor: '#2a2a4a', zerolinecolor: '#2a2a4a',
+                     color: '#c0caf5', backgroundcolor: 'rgba(15,20,40,.25)', showbackground: true });
+  Plotly.newPlot(el, traces, {
+    paper_bgcolor: 'transparent', font: { color: '#c0caf5', size: 11 },
+    margin: { l: 0, r: 0, t: 8, b: 0 }, showlegend: false,
+    scene: { aspectmode: 'data', xaxis: ax('x'), yaxis: ax('y'), zaxis: ax('z'),
+             camera: { projection: { type: 'orthographic' } } },
+  }, { displaylogo: false, responsive: true });
+
+  const legend = document.getElementById('hs3d-legend');
+  if (legend) legend.innerHTML = clipped
+    ? `<div class="hs3d-clip">색 범위 2~98 분위 ${fmtHs3d(vmin)}~${fmtHs3d(vmax)} ` +
+      `(전체 ${fmtHs3d(sorted[0])}~${fmtHs3d(sorted[sorted.length-1])})</div>` : '';
+  const cnt = document.getElementById('hs3d-count');
+  if (cnt) cnt.textContent = `군집 ${cls.length}개 · 삼각형 ${geo ? geo.F.length/3 : 0}개` +
+                             (capNote ? ' · 상한 적용' : '');
+  const warn = document.getElementById('hs3d-capnote');
+  if (warn) warn.textContent = capNote;
+}
+
 // 소성일은 1e-5 수준이라 공용 소수 2자리로는 0.00 이 된다 (G5b 결정 3)
 function fmtHs3d(v) {
   if (v === null || v === undefined || !isFinite(v)) return '—';
@@ -2913,6 +3071,7 @@ function renderHotspot3D() {
   HS3D.off = HS3D.off || {};
   HS3D.offPart = HS3D.offPart || {};
 
+  const isPlotly = hs3dEngine() === 'plotly';
   const opts = avail.map(m =>
     `<option value="${m.k}"${m.k === HS3D.measure ? ' selected' : ''}>${m.label}</option>`).join('');
   const meshSet = new Set(hs3dMeshParts());
@@ -2930,7 +3089,8 @@ function renderHotspot3D() {
   host.innerHTML = `
     <div class="panel">
       <h2>핫스팟 3D 인벨롭</h2>
-      <p class="hs3d-note">드래그로 회전, 휠로 확대. 군집 구의 반경은
+      <p class="hs3d-note">${isPlotly ? 'Plotly 뷰어 — 드래그 회전·휠 확대·점에 호버하면 값이 뜹니다. '
+        : '드래그로 회전, 휠로 확대. '}군집 구의 반경은
         <code>radius_enclosing</code>, 색은 아래에서 고른 리스크 척도입니다.
         모든 각도가 한 좌표계에 있습니다 — 낙하 덱은 모델을 돌리지 않고 속도만 돌립니다.</p>
       ${DATA.hotspot_mesh_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_mesh_note)}</p>` : ''}
@@ -2942,12 +3102,14 @@ function renderHotspot3D() {
           <option value="full">전체 min~max</option>
         </select></label>
         <label><input type="checkbox" id="hs3d-labels" checked> 라벨</label>
-        <button id="hs3d-reset" class="hs3d-btn">시점 초기화</button>
+        ${isPlotly ? '' : '<button id="hs3d-reset" class="hs3d-btn">시점 초기화</button>'}
         <span id="hs3d-count" class="hs3d-count"></span>
       </div>
+      <p id="hs3d-capnote" class="hs3d-warn"></p>
       <div class="hs3d-stage">
-        <canvas id="hs3d-canvas"></canvas>
-        <div id="hs3d-legend" class="hs3d-legend"></div>
+        ${isPlotly ? '<div id="hs3d-plotly" style="height:560px"></div>'
+                   : '<canvas id="hs3d-canvas"></canvas>'}
+        <div id="hs3d-legend" class="${isPlotly ? 'hs3d-legend-flat' : 'hs3d-legend'}"></div>
       </div>
       <div class="hs3d-angles"><b>파트</b>
         <button id="hs3d-pall" class="hs3d-btn">전체</button>
@@ -2963,8 +3125,9 @@ function renderHotspot3D() {
   host.dataset.built = '1';
 
   const cv = document.getElementById('hs3d-canvas');
-  const stage = cv.parentElement;
+  const stage = (cv || document.getElementById('hs3d-plotly')).parentElement;
   const fit = () => {
+    if (!cv) { hs3dDraw(); return; }
     const w = stage.clientWidth || 800, h = Math.max(420, Math.round(w * 0.55));
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
     cv.width = w * 2; cv.height = h * 2;      // 2x 오버샘플
@@ -2973,6 +3136,7 @@ function renderHotspot3D() {
   fit();
   window.addEventListener('resize', () => { if (currentTab === 16) fit(); });
 
+  if (cv) {
   cv.addEventListener('mousedown', e => { HS3D.drag = { x: e.clientX, y: e.clientY }; });
   window.addEventListener('mouseup', () => { HS3D.drag = null; });
   window.addEventListener('mousemove', e => {
@@ -2988,11 +3152,13 @@ function renderHotspot3D() {
     HS3D.zoom = Math.max(0.3, Math.min(8, HS3D.zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
     hs3dDraw();
   }, { passive: false });
+  }
 
   document.getElementById('hs3d-measure').onchange = e => { HS3D.measure = e.target.value; hs3dDraw(); };
   document.getElementById('hs3d-range').onchange = e => { HS3D.range = e.target.value; hs3dDraw(); };
   document.getElementById('hs3d-labels').onchange = e => { HS3D.labels = e.target.checked; hs3dDraw(); };
-  document.getElementById('hs3d-reset').onclick = () => {
+  const resetBtn = document.getElementById('hs3d-reset');
+  if (resetBtn) resetBtn.onclick = () => {
     HS3D.az = -0.6; HS3D.el = 0.35; HS3D.zoom = 1; hs3dDraw();
   };
   const setAll = on => {
@@ -6882,10 +7048,17 @@ function renderSetReport() {
 """
 
 
-def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str = "") -> None:
+def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str = "",
+                  viewer: str = "canvas") -> None:
     """Generate standalone interactive HTML report."""
     data = _build_report_data(report, ts_points=ts_points, test_dir=test_dir)
     data_json = _script_safe(json.dumps(data, cls=_Encoder, ensure_ascii=False))
+
+    # 뷰어 — 기본은 자체 캔버스라 외부 스크립트가 **하나도** 안 들어간다.
+    # plotly 를 고르면 gl3d 번들(1.6MB)을 HTML 안에 넣는다. CDN 이 아니라 번들이라
+    # 네트워크가 없어도 동작한다 (폐쇄망에서 조용히 빈 그림이 되는 것을 막는다).
+    _plotly_script = plotly_bundle.script_tag() if viewer == "plotly" else ""
+    _engine_js = f"<script>window.HS3D_ENGINE = {json.dumps(viewer)};</script>"
 
     # Findings HTML
     findings_html = ""
@@ -6906,6 +7079,8 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sphere Report - {_esc(report.project_name)}</title>
+{_engine_js}
+{_plotly_script}
 <style>{_CSS}</style>
 </head>
 <body>

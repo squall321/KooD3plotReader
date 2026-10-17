@@ -54,6 +54,12 @@ def main():
         help="Time series points per chart (0=auto)",
     )
     parser.add_argument(
+        "--viewer", default="canvas", choices=["canvas", "plotly"],
+        help="핫스팟 3D 뷰어 (기본 canvas = 외부 스크립트 0). "
+             "plotly 는 호버·범례·축을 주지만 리포트가 1.6MB 커진다. "
+             "둘 다 번들이라 네트워크가 없어도 동작한다.",
+    )
+    parser.add_argument(
         "--hotspot-part", default=None, metavar="PID[,PID...]",
         help="핫스팟 군집을 이 파트로만 좁힌다 (쉼표 구분). 생략하면 전부 싣는다.",
     )
@@ -138,7 +144,8 @@ def main():
             html_path = str(Path(args.test_dir) / "report.html")
         print(f"Generating HTML report: {html_path}")
         t0 = time.time()
-        generate_html(report, html_path, ts_points=args.ts_points, test_dir=base_dir)
+        generate_html(report, html_path, ts_points=args.ts_points, test_dir=base_dir,
+                      viewer=args.viewer)
         print(f"HTML report saved in {time.time()-t0:.1f}s ({Path(html_path).stat().st_size/1024:.0f} KB)")
 
     # ── JSON output ──────────────────────────────────────────

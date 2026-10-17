@@ -1,5 +1,7 @@
 """Generate single-simulation HTML report."""
 from __future__ import annotations
+
+from . import plotly_bundle
 import json
 import math
 from datetime import datetime
@@ -76,6 +78,9 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
     js_data = _build_js_data(result)
     js_data_str = json.dumps(js_data, ensure_ascii=False, default=str)
     js_tabs_str = json.dumps([t[0] for t in tabs])
+    # Plotly 는 CDN 이 아니라 번들로 싣는다 (폐쇄망에서 무음 빈 차트 방지).
+    # 이 리포트가 쓰는 트레이스는 scatter·scatter3d·surface·mesh3d 뿐이라 gl3d 로 충분하다.
+    _plotly_script = plotly_bundle.script_tag(plotly_bundle.GL3D)
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -83,7 +88,7 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Single Analyzer — {si.path.name}</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+{_plotly_script}
 <style>
 {_CSS}
 </style>
