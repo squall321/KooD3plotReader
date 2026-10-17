@@ -32,4 +32,13 @@
       JSON 에 두 기준(max_shear 6 · x_tension 7), `mean_timemax` 60군집·불변식 위반 0,
       모르는 기준은 즉시 rc=1 로 거절, HTML 7.2MB 생성
       §2 도 배포본으로 확인 — sphere canvas/plotly·프리셋·deep 폐쇄망 전부 PASS
+- [x] **노드 로컬 `/opt/apptainers` 교체** (헤드·node001·node002)
+      🔴 `deploy_from_sif.sh` 는 NFS(`/data/SmartTwinPostprocessor`)만 갱신한다.
+      KooChainRun 자동 후처리(`DEFAULT_SIF_PATH`)와 smarttwin-tool(`STMC_POST_SIF`)은
+      **노드 로컬** `/opt/apptainers/SmartTwinPostprocessor.sif` 를 쓰는데 그건 NFS 가
+      아니라 같이 안 바뀐다. 2026-10-17 pykoocae-53 지적으로 드러났고, 직접 확인한
+      결과 세 대 모두 이전 릴리스(601e9d86 = `3992a94`, 10/2)였다.
+      → `.work/deploy_2026-10/deploy_nodes.sh` (백업 후 원자적 교체)
+      → verify: 세 대 모두 `7142a658…`, 노드에서 VERSION `be9d2b0` ·
+        capabilities 기준 7종/집계 3종 · Plotly 번들 3개 확인
 - [x] pykoocae-53 에 배포 완료 통보 — VERSION·SIF sha256·tar 경로·verify 결과 전달

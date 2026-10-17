@@ -52,3 +52,22 @@ case_01 은 lasso 가 두꺼운 셸 덱을 잘못 읽어 대조에 못 쓴다.
 
 **HTML** — 두 덱 모두 기준 라벨·짝 변형률 라벨·동시각 평균 열이 나오고 JS 예외 0
 (case_01 은 기준 2 × 항목 39개 전부 2D·3D 로 그려 봄).
+
+## 2026-10-17 배포 — 릴리스 절차에 구멍이 있었다
+
+`scripts/deploy_from_sif.sh` 는 NFS 배포 디렉토리(`/data/SmartTwinPostprocessor`)만
+갱신한다. 그런데 **실제 소비자는 노드 로컬 `/opt/apptainers/SmartTwinPostprocessor.sif`
+를 본다** — KooChainRun 자동 후처리의 `DEFAULT_SIF_PATH`, smarttwin-tool 템플릿의
+`STMC_POST_SIF`, 그리고 우리 문서 `docs/hotspot-cluster-usage.md:83` 의 `sif_path` 다.
+`/opt` 는 노드 로컬이라 NFS 로 같이 바뀌지 않는다.
+
+그래서 "배포 완료" 를 알린 시점에 호스트는 `be9d2b0`, 노드가 실제로 실행하는 이미지는
+`3992a94`(10/2) 였다. 세 대 모두 확인했다 — 헤드·node001·node002 가 전부 601e9d86.
+**검증이 NFS 쪽만 봐서 통과했다.** `verify_deploy.sh` 도 `/opt/apptainers` 를 안 본다.
+
+pykoocae-53 이 지적해서 알았다. 받은 지적을 그대로 믿지 않고 세 대의 sha256 을 직접
+찍어 확인한 뒤 교체했다(`.work/deploy_2026-10/deploy_nodes.sh` — 백업 후 임시파일 +
+원자적 mv). 교체 뒤 노드에서 VERSION·capabilities·번들까지 확인했다.
+
+**다음 릴리스 때 할 것** — `deploy_from_sif.sh` 나 `verify_deploy.sh` 가
+`/opt/apptainers` 를 함께 보도록 넣어야 한다. 지금은 별도 스크립트라 또 빠뜨리기 쉽다.
