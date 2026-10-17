@@ -59,3 +59,14 @@
       `postprocess.sphere_viewer` → `--viewer`, `postprocess.hotspot_part` → `--hotspot-part`.
       prepare 가 생성한 `sphere_report.sh` 에 `--hotspot-part 1,2 --viewer plotly` 가
       박히는 것까지 저쪽에서 확인. **요청서 §1·§2 양쪽 모두 상류 연결 완료.**
+
+## 배포 지점 전수 (2026-10-17 마감)
+- [x] `/data/SmartTwinPostprocessor` (NFS) — headless `7142a658` / GUI `1a22ebe2`
+- [x] 노드 로컬 `/opt/apptainers` — 헤드·node001·node002 전부 같은 두 판
+- [x] `compute-node-images` (노드 재설치 원본) — 두 판 모두 교체됨
+- [x] GUI 변종 — `672e835` 로 재빌드, %test(Plotly 검사 포함) 통과
+- [x] 여섯 지점 sha256 직접 대조 — 전부 일치
+- [ ] **절차 보강 (미결)** — `deploy_from_sif.sh`/`verify_deploy.sh` 가 네 지점을 보게.
+      지금은 NFS 만 보고 "전부 일치" 를 출력해 반쯤 배포된 상태가 통과한다
+- [ ] **상류 보고 (미결)** — `BuildSmartTwinPostprocessorOnly.sh` 의 패키지 목록이
+      5개로 `koo_scatter_report` 누락

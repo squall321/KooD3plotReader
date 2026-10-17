@@ -168,3 +168,33 @@ ImGui/ImPlot 관련 오류·경고는 없다. 고쳤다고 말만 하고 넘겼�
 
 GUI def 에도 headless 와 같은 Plotly 번들 `%test` 검사를 넣었다 — 저쪽이 한 번에
 빌드할 수 있게 같은 커밋에 담았다.
+
+## 릴리스 최종 상태 — 네 지점 전부 닫힘 (2026-10-17)
+
+`/opt/apptainers` → `compute-node-images` → GUI 변종까지, 빠졌던 배포 지점이 모두 메워졌다.
+**직접 여섯 곳의 sha256 을 찍어 확인했다.**
+
+| 위치 | headless | GUI |
+|---|---|---|
+| 저장소 `apptainer/` | `7142a658c67e` | `1a22ebe2caf1` |
+| `/data/SmartTwinPostprocessor` | 〃 | 〃 |
+| `compute-node-images` (노드 재설치 원본) | 〃 | 〃 |
+| 헤드 `/opt/apptainers` | 〃 | 〃 |
+| node001 `/opt/apptainers` | 〃 | 〃 |
+| node002 `/opt/apptainers` | 〃 | 〃 |
+
+GUI 안에서도 확인 — VERSION `672e835` · Plotly 번들 3개 · `--hotspot-time-aggregate` ·
+`--viewer {canvas,plotly}` · 엔진 기준 7종 · `koo_viewer` 존재.
+
+**커밋이 둘이다 — 의도한 것이다.** headless `be9d2b0` / GUI `672e835`. 둘 사이 변경은
+뷰어 빌드 설정·상수·GUI def 뿐이고, 저쪽이 `/opt/kood3plot/python` 272개 파일 sha256 이
+두 SIF에서 **전부 같음**을 확인했다. 같은 입력·같은 인자로 GUI 안 koo_deep_report 를
+돌려 헤드리스 결과와 46항목·값 260개 상대차 0 도 확인했다. 검증 끝난 헤드리스를 버리고
+재빌드하느니 커밋 차이를 남기는 쪽을 택했다.
+
+**저쪽 검증 방식이 본받을 만하다** — 판정기를 **옛 GUI(3992a94)로 먼저 돌려 전 항목
+FAIL 을 확인한 뒤** 새 GUI 에 썼다. '시험이 실패할 수 있는가' 를 먼저 본 것이고,
+이 저장소가 반복해 밟았던 '헛도는 시험' 을 막는 정확한 절차다.
+
+남은 것: viz-node001/002 가 내려가 있어 복귀 시 `deploy_apptainers.sh` 로 깔린다
+(원본이 이제 맞으므로 새 판이 간다).
