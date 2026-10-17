@@ -100,10 +100,44 @@
       "Bash(PYTHONPATH=python/koo_deep_report:$PYTHONPATH /usr/bin/time -f \"wall=%es cpu=%U+%S\" python3 -m koo_deep_report results/d3plot --section-view --section-view-per-part --section-view-axes z --output /tmp/sv_perpart2 --ua-threads 4)",
       "Read(/home/koopark/claude/KooD3plotReader/KooD3plotReader/**)",
       "Bash(cp -r /tmp/deep_report_sample/renders /home/koopark/claude/KooD3plotReader/KooD3plotReader/presentation_pack/samples/deep_report/)",
-      "Bash(cp /data/Tests/Test_006_Fibonacci_6deg/report.html /home/koopark/claude/KooD3plotReader/KooD3plotReader/presentation_pack/samples/sphere_report/)"
+      "Bash(cp /data/Tests/Test_006_Fibonacci_6deg/report.html /home/koopark/claude/KooD3plotReader/KooD3plotReader/presentation_pack/samples/sphere_report/)",
+      "Skill(deep-research)",
+      "Skill(deep-research:*)",
+      "Workflow(deep-research)",
+      "WebFetch(domain:www.androidcentral.com)",
+      "WebFetch(domain:www.sammyfans.com)",
+      "WebFetch(domain:www.droid-life.com)",
+      "WebFetch(domain:wccftech.com)",
+      "WebFetch(domain:www.gizmochina.com)",
+      "WebFetch(domain:www.androidauthority.com)",
+      "WebFetch(domain:www.notebookcheck.net)",
+      "WebFetch(domain:www.xda-developers.com)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:www.tomsguide.com)",
+      "WebFetch(domain:www.gsmarena.com)",
+      "WebFetch(domain:www.androidpolice.com)",
+      "WebFetch(domain:9to5google.com)",
+      "Bash(curl -sI http://127.0.0.1:18096/simulation_tasks_catalog.html)",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -m pytest tests/test_golden_html.py -q)",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -m pytest tests/test_models.py tests/test_sample_data.py -q)",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -m pytest tests/test_solver_quality.py -q)",
+      "Bash(KOO_GOLDEN_UPDATE=1 PYTHONPATH=.:../koo_deep_report python3 -m pytest tests/test_golden_html.py -q)",
+      "Bash(grep -n \"bin_data = load_binout_energy\\\\|impactor_trajectories=impactor_trajectories,\\\\|part_motions=part_motions_keyed\\\\|FAILED: {type\\(e\\).__name__}\\\\|findings=\\\\[\\\\]\" koo_impact_report/loader.py)",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -c ' *)",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -m koo_impact_report --help)",
+      "Bash(cd /home/koopark/claude/KooD3plotReader/KooD3plotReader/python/koo_impact_report *)",
+      "Read(//.singularity.d/**)",
+      "Bash(awk 'NR>=5182 && /^\"\"\"$/ {print NR; exit}' koo_impact_report/report/html_report.py)",
+      "Bash(awk 'NR>=5105 && NR<=12350 && /^\\(function |const |let |window\\\\.|document\\\\.|\\\\/\\\\/ ={3,}|\\\\/\\\\/ ---\\)/' koo_impact_report/report/html_report.py)",
+      "Bash(awk 'NR>=5105 && NR<=12350' koo_impact_report/report/html_report.py)",
+      "Bash(awk 'NR>=5105 && NR<=12420' koo_impact_report/report/html_report.py)",
+      "Bash(awk -F: '$1>2352')",
+      "Bash(awk -F: '{print $1}')",
+      "Bash(PYTHONPATH=.:../koo_deep_report python3 -m pytest tests/test_golden_html.py::test_golden_normalized -q)"
     ],
     "additionalDirectories": [
-      "/tmp/test_multipart/renders/part_*"
+      "/tmp/test_multipart/renders/part_*",
+      "/home/koopark/claude/KooD3plotReader/KooD3plotReader/python/koo_impact_report/tests/golden"
     ]
   }
 }

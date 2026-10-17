@@ -19,6 +19,35 @@ class ReportEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+def _series_payload(ts, prec: int, points: int, want_min: bool = False) -> dict | None:
+    """TimeSeriesData → 다운샘플 시계열 dict. 값이 없으면 None.
+
+    키 규약은 stress_ts 와 동일하다 — t / max / avg / (min).
+    σ3·ε3 처럼 압축측이 의미 있는 양은 want_min 으로 min 을 함께 싣는다.
+    """
+    if ts is None or not ts.times:
+        return None
+    n = len(ts.times)
+    # 다운샘플은 **구간 극값 보존**이다 (extreme_indices). 균등 간격으로 뽑으면
+    # 피크가 통째로 빠져 "최댓값이 없는 최댓값 시계열" 이 된다 — 2026-09 데이터
+    # 무결성 대수술에서 고친 결함이라 새 시계열도 같은 규약을 따라야 한다.
+    # 자릿수도 round() 가 아니라 round_keep_sig — 고정 소수점이면 ε 4.2e-5 가
+    # 0.0 이 되고 읽는 쪽이 그 0 을 '완전 탄성' 으로 해석한다.
+    tracks = [v for v in (ts.max_values, ts.avg_values,
+                          ts.min_values if want_min else None) if v and len(v) == n]
+    if not tracks:
+        return None
+    idx = extreme_indices(n, tracks, points)
+    out = {"t": [round_keep_sig(ts.times[i], 7) for i in idx]}
+    if ts.max_values and len(ts.max_values) == n:
+        out["max"] = [round_keep_sig(ts.max_values[i], prec) for i in idx]
+    if ts.avg_values and len(ts.avg_values) == n:
+        out["avg"] = [round_keep_sig(ts.avg_values[i], prec) for i in idx]
+    if want_min and ts.min_values and len(ts.min_values) == n:
+        out["min"] = [round_keep_sig(ts.min_values[i], prec) for i in idx]
+    return out if len(out) > 1 else None
+
+
 def save_json(report: Report, path: str, include_timeseries: bool = True) -> None:
     # Build a summary dict
     summary = {
@@ -100,15 +129,26 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                 pd["time_of_peak_stress"] = pr.stress.peak_time
             if pr.motion is not None:
                 pd["time_of_peak_g"] = pr.motion.peak_g_time
+            # peak_strain 의 소스는 part_<pid>_eff_plastic_strain.csv (loader.py) 라
+            # 이 값이 곧 **유효소성변형률**이다. 이름만으로는 어떤 strain 인지 알 수 없어
+            # DynaForge 가 '소성 변형률이 없다' 고 오독했다 (요청서 PR #2) — 명시적 키를
+            # 함께 낸다. 같은 값의 별칭이지 새로 계산한 양이 아니다. von Mises 변형률은
+            # 탄성분을 포함하는 다른 양이라 peak_vm_strain 으로 따로 나간다.
+            # 별칭은 **실제로 실린 값에만** 건다 — peak_strain 이 없으면(미계측) 이것도 없다.
+            if "peak_strain" in pd:
+                pd["peak_plastic_strain"] = pd["peak_strain"]
 
             # 최대 주응력 σ1 — 구버전 산출물엔 CSV 가 없어 키 자체를 넣지 않는다.
             # von Mises 로 대체하면 전혀 다른 물리량을 같은 칸에 넣는 셈이다.
             if pr.principal is not None:
                 pd["peak_principal_stress"] = round_keep_sig(pr.peak_principal, 2)
+                # 접미사 없는 이름을 읽는 소비자용 별칭 (PR #2)
+                pd["peak_principal"] = pd["peak_principal_stress"]
                 pd["time_of_peak_principal"] = pr.principal.peak_time
             if pr.principal_min is not None and pr.min_principal is not None:
                 # σ3 은 압축측이라 최소값이 의미 있다 (부호 유지).
                 pd["min_principal_stress"] = round_keep_sig(pr.min_principal, 2)
+                pd["min_principal"] = pd["min_principal_stress"]
             # 주변형률 — 변형률 텐서가 실린 덱에서만. 없으면 키 자체를 안 넣는다.
             if pr.peak_principal_strain is not None:
                 pd["peak_principal_strain"] = round_keep_sig(pr.peak_principal_strain, 6)
@@ -142,6 +182,17 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                         "t": [round_keep_sig(pr.strain.times[i], 7) for i in idx],
                         "max": [round_keep_sig(pr.strain.max_values[i], 6) for i in idx],
                     }
+                # σ1/σ3/ε1/ε3/ε_vm — peak 만 내보내던 것을 시계열까지 확장.
+                for _key, _src, _prec, _wmin in (
+                    ("principal_ts",            pr.principal,            2, False),
+                    ("principal_min_ts",        pr.principal_min,        2, True),
+                    ("principal_strain_ts",     pr.principal_strain,     6, False),
+                    ("principal_strain_min_ts", pr.principal_strain_min, 6, True),
+                    ("vm_strain_ts",            pr.vm_strain,            6, False),
+                ):
+                    _ser = _series_payload(_src, _prec, ts_pts, _wmin)
+                    if _ser is not None:
+                        pd[_key] = _ser
                 if pr.motion and pr.motion.times:
                     # 길이가 맞는 열만 싣는다 (--from-json 으로 되살린 Report 는
                     # g_ts 만 있고 disp 는 없을 수 있다).
@@ -153,6 +204,9 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                             "t": [round_keep_sig(pr.motion.times[i], 7) for i in gidx],
                             "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                         }
+                        # stress_ts/strain_ts 와 같은 이름 규약("max")을 읽는 소비자용
+                        # 별칭 (PR #2). 기존 "g" 도 유지한다 — 본 리포트 JS 가 그걸 읽는다.
+                        pd["g_ts"]["max"] = pd["g_ts"]["g"]
                     # 변위는 제 시각 위에 실는다 — 되살린 Report 는 g_ts 와
                     # 다른 격자를 가질 수 있다(이 파일이 그렇게 뽑기 때문이다).
                     _dt = pr.motion.disp_time_axis
@@ -162,6 +216,7 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
                             "t": [round_keep_sig(_dt[i], 7) for i in didx],
                             "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], 2) for i in didx],
                         }
+                        pd["disp_ts"]["max"] = pd["disp_ts"]["mag"]
 
             run_summary["parts"][str(pid)] = pd
         summary["results_summary"].append(run_summary)

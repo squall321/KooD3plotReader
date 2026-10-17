@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 
 from ..loader import extreme_indices, round_keep_sig
+from .json_report import _series_payload
 from . import plotly_bundle
 from ..models import MotionData, Report, Severity, SimulationResult
 
@@ -173,12 +174,21 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 "peak_g": round_keep_sig(pr.peak_g, 1),
                 "peak_disp": round_keep_sig(pr.peak_disp, s_prec),
             }
+            # peak_strain 의 소스는 part_<pid>_eff_plastic_strain.csv (loader.py) 라
+            # 이 값이 곧 유효소성변형률이다. 이름만으로는 어떤 strain 인지 알 수 없어
+            # 다운스트림이 '소성 변형률이 없다' 고 오독했다 — 명시적 키를 함께 낸다.
+            # (같은 값의 별칭이지 새로 계산한 양이 아니다)
+            if pr.strain is not None:
+                pd["peak_plastic_strain"] = round(pr.peak_strain, e_prec)
             # 최대 주응력 σ1 (있을 때만). von Mises 와 다른 물리량이라 별 칸.
             if pr.principal is not None:
                 pd["peak_principal_stress"] = round_keep_sig(pr.peak_principal, s_prec)
+                # 접미사 없는 이름을 읽는 소비자용 별칭 (PR #2 DynaForge 요청)
+                pd["peak_principal"] = pd["peak_principal_stress"]
                 pd["time_of_peak_principal"] = round_keep_sig(pr.principal.peak_time, t_prec)
             if pr.principal_min is not None and pr.min_principal is not None:
                 pd["min_principal_stress"] = round_keep_sig(pr.min_principal, s_prec)
+                pd["min_principal"] = pd["min_principal_stress"]
             if pr.peak_principal_strain is not None:
                 pd["peak_principal_strain"] = round_keep_sig(pr.peak_principal_strain, e_prec)
             if pr.min_principal_strain is not None:
@@ -223,6 +233,19 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                 }
                 if len(pr.strain.avg_values) == _n:
                     pd["strain_ts"]["avg"] = [round_keep_sig(pr.strain.avg_values[i], e_prec) for i in idx]
+            # σ1/σ3/ε1/ε3/ε_vm — 로더가 시계열을 통째로 읽어 두는데 종전에는 peak 만
+            # 내보냈다 (PR #2). 값이 있는 것만 싣는다 — 없으면 키 자체를 안 넣는다.
+            # 다운샘플·자릿수는 _series_payload 가 stress_ts 와 같은 규약을 쓴다.
+            for _key, _src, _prec, _wmin in (
+                ("principal_ts",            pr.principal,            s_prec, False),
+                ("principal_min_ts",        pr.principal_min,        s_prec, True),
+                ("principal_strain_ts",     pr.principal_strain,     e_prec, False),
+                ("principal_strain_min_ts", pr.principal_strain_min, e_prec, True),
+                ("vm_strain_ts",            pr.vm_strain,            e_prec, False),
+            ):
+                _ser = _series_payload(_src, _prec, ts_pts, _wmin)
+                if _ser is not None:
+                    pd[_key] = _ser
             if pr.motion and pr.motion.times:
                 g_factor = MotionData.G_FACTOR  # single source of truth
                 _n = len(pr.motion.times)
@@ -232,6 +255,9 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         "t": [round_keep_sig(pr.motion.times[i], t_prec) for i in gidx],
                         "g": [round_keep_sig(abs(pr.motion.avg_acc_mag[i]) / g_factor, 1) for i in gidx],
                     }
+                    # stress_ts/strain_ts 와 같은 이름 규약("max")을 읽는 소비자용 별칭
+                    # (PR #2). 기존 "g" 도 유지한다 — 이 리포트 JS 가 그걸 읽는다.
+                    pd["g_ts"]["max"] = pd["g_ts"]["g"]
                 # 변위는 제 시각 위에 그린다 — --from-json 으로 되살린 Report 는
                 # g_ts 와 다른 격자를 가질 수 있다(사이드카가 그렇게 뽑는다).
                 _dt = pr.motion.disp_time_axis
@@ -241,6 +267,7 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
                         "t": [round_keep_sig(_dt[i], t_prec) for i in didx],
                         "mag": [round_keep_sig(pr.motion.avg_disp_mag[i], s_prec) for i in didx],
                     }
+                    pd["disp_ts"]["max"] = pd["disp_ts"]["mag"]
                 if include_components and len(pr.motion.avg_acc_x) == _n:
                     aidx = extreme_indices(
                         _n,
@@ -2454,6 +2481,45 @@ function getQtyValue(pd, qty) {
   return _MAG_QTYS[qty] ? Math.abs(v) : v;
 }
 
+// 시계열 탭 지표 정의 — [코드, 라벨, payload 키, 배율]
+// 배율은 표시 단위 환산용 (G-Force 만 1e-6). 없는 지표는 선택지에서 감춘다.
+const TH_QTYS = [
+  ['stress',            'Von Mises Stress',            'stress_ts',            1],
+  ['strain',            'Eff. Plastic Strain',         'strain_ts',            1],
+  ['vm_strain',         'ε_vm · von Mises Strain',     'vm_strain_ts',         1],
+  ['principal',         'σ1 · Max Principal Stress',   'principal_ts',         1],
+  ['principal_min',     'σ3 · Min Principal Stress',   'principal_min_ts',     1],
+  ['principal_strain',  'ε1 · Max Principal Strain',   'principal_strain_ts',  1],
+  ['principal_strain_min', 'ε3 · Min Principal Strain', 'principal_strain_min_ts', 1],
+  ['g',                 'G-Force (MG)',                'g_ts',                 1e-6],
+  ['disp',              'Displacement',                'disp_ts',              1],
+];
+
+// 그 시계열이 이 데이터셋에 실제로 있는가. hasQty 와 같은 규율 —
+// 없는 것을 선택지에 남겨 두면 고르는 순간 빈 차트만 나와 '데이터가 0' 으로 오독된다.
+function hasSeries(tsKey) {
+  for (const r of (DATA.results || [])) {
+    for (const k in (r.parts || {})) {
+      const pd = r.parts[k];
+      if (pd && pd[tsKey] && pd[tsKey].t && pd[tsKey].t.length) return true;
+    }
+  }
+  return false;
+}
+
+// 표 기반으로 바로 그릴 수 있는 지표 (성분 선택이 없는 것들)
+const TH_SIMPLE = {
+  vm_strain: 'vm_strain_ts',
+  principal: 'principal_ts',
+  principal_min: 'principal_min_ts',
+  principal_strain: 'principal_strain_ts',
+  principal_strain_min: 'principal_strain_min_ts',
+};
+
+function thAvailable() {
+  return TH_QTYS.filter(q => hasSeries(q[2]));
+}
+
 // 그 물리량이 이 데이터셋에 실제로 있는가. 없으면 선택지에서 감춘다.
 function hasQty(qty) {
   if (qty === 'safety_factor') return (DATA.yield_stress || 0) > 0;
@@ -3681,6 +3747,19 @@ function renderTimeHistory() {
   const parts = getAllPartIds();
   if (timeHistState.partId === 0 && parts.length > 0) timeHistState.partId = parts[0];
 
+  // 선택된 지표가 이 데이터셋에 없으면 있는 것으로 옮긴다.
+  // (기본값 'stress' 를 붙잡고 있으면 빈 차트만 나와 '값이 0' 으로 오독된다)
+  const _avail = thAvailable();
+  if (_avail.length === 0) {
+    container.innerHTML = '<div style="color:var(--dim);padding:20px">' +
+      '이 데이터셋에는 시계열 산출물이 없습니다 — 분석 시 CSV 출력을 켜야 합니다.</div>';
+    return;
+  }
+  if (!_avail.some(q => q[0] === timeHistState.quantity)) {
+    timeHistState.quantity = _avail[0][0];
+    timeHistState.component = 'mag';
+  }
+
   let html = `<div class="controls">
     <label>Part:</label>
     <select id="th-part" onchange="timeHistState.partId=parseInt(this.value);drawTimeHistory()">`;
@@ -3691,10 +3770,9 @@ function renderTimeHistory() {
   html += `</select>
     <label>Quantity:</label>
     <select id="th-qty" onchange="timeHistState.quantity=this.value;timeHistState.component='mag';renderTimeHistory()">
-      <option value="stress"${timeHistState.quantity==='stress'?' selected':''}>Von Mises Stress</option>
-      <option value="strain"${timeHistState.quantity==='strain'?' selected':''}>Eff. Plastic Strain</option>
-      <option value="g"${timeHistState.quantity==='g'?' selected':''}>G-Force (MG)</option>
-      <option value="disp"${timeHistState.quantity==='disp'?' selected':''}>Displacement</option>
+      ${thAvailable()
+        .map(q => `<option value="${q[0]}"${timeHistState.quantity===q[0]?' selected':''}>${q[1]}</option>`)
+        .join('')}
     </select>`;
   // Component selector for G-Force and Displacement
   if (timeHistState.quantity === 'g' || timeHistState.quantity === 'disp') {
@@ -3828,6 +3906,12 @@ function drawTimeHistory() {
       }
     } else if (qty === 'strain' && pd.strain_ts) {
       ts = { t: pd.strain_ts.t, v: pd.strain_ts.max };
+    } else if (TH_SIMPLE[qty] && pd[TH_SIMPLE[qty]]) {
+      // σ1/σ3/ε1/ε3/ε_vm — max 를 그리고, 압축측(σ3·ε3)은 min 이 있으면 그쪽을 쓴다
+      const src = pd[TH_SIMPLE[qty]];
+      const useMin = (qty === 'principal_min' || qty === 'principal_strain_min') && src.min;
+      const v = useMin ? src.min : src.max;
+      if (v) ts = { t: src.t, v: v };
     } else if (qty === 'g') {
       if (comp !== 'mag' && pd.acc_ts && pd.acc_ts[comp]) {
         ts = { t: pd.acc_ts.t, v: pd.acc_ts[comp].map(v => v/1e6) };

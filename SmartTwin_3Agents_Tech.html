@@ -1,0 +1,470 @@
+<style>
+  /* Smart Twin — 세 Agent 기술 현황 문서 (운영/MCP 중심). 유틸리티 톤, 모노스페이스 주도 */
+  :root{
+    --bg:#f4f6f8; --panel:#fff; --panel2:#f7f9fb; --line:#dce2e9; --line2:#e9edf2;
+    --ink:#131a22; --text:#37434f; --muted:#697786; --faint:#93a1b0;
+    --accent:#0f7d94;
+    --flow:#5b6b7d; --flow-s:#eceff3; --drop:#12809e; --drop-s:#e3f1f6; --impact:#c56a1c; --impact-s:#f8ecdd;
+    --done:#2f7d4f; --done-s:#e6f2ea; --partial:#b7791f; --partial-s:#f6efdd; --road:#7a8694; --road-s:#eef1f4;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0b0f14; --panel:#111820; --panel2:#0d131a; --line:#212c38; --line2:#1a232e;
+    --ink:#e7eef6; --text:#b1bfce; --muted:#7e8c9b; --faint:#5a6673;
+    --accent:#3fb0c8;
+    --flow:#8595a7; --flow-s:#171f28; --drop:#48b8d6; --drop-s:#0f2a33; --impact:#e0913f; --impact-s:#2c1e0f;
+    --done:#57b07b; --done-s:#132318; --partial:#d6a545; --partial-s:#251d0c; --road:#8794a2; --road-s:#141b23;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0b0f14; --panel:#111820; --panel2:#0d131a; --line:#212c38; --line2:#1a232e;
+    --accent:#3fb0c8;
+    --ink:#e7eef6; --text:#b1bfce; --muted:#7e8c9b; --faint:#5a6673;
+    --flow:#8595a7; --flow-s:#171f28; --drop:#48b8d6; --drop-s:#0f2a33; --impact:#e0913f; --impact-s:#2c1e0f;
+    --done:#57b07b; --done-s:#132318; --partial:#d6a545; --partial-s:#251d0c; --road:#8794a2; --road-s:#141b23;
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f6f8; --panel:#fff; --panel2:#f7f9fb; --line:#dce2e9; --line2:#e9edf2;
+    --accent:#0f7d94;
+    --ink:#131a22; --text:#37434f; --muted:#697786; --faint:#93a1b0;
+    --flow:#5b6b7d; --flow-s:#eceff3; --drop:#12809e; --drop-s:#e3f1f6; --impact:#c56a1c; --impact-s:#f8ecdd;
+    --done:#2f7d4f; --done-s:#e6f2ea; --partial:#b7791f; --partial-s:#f6efdd; --road:#7a8694; --road-s:#eef1f4;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.62;font-size:15.5px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+  h1,h2,h3,h4{color:var(--ink);margin:0;text-wrap:balance}
+  .mono{font-family:var(--mono)}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel2);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;color:var(--ink)}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  p{margin:0 0 .9em;max-width:74ch}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* top bar */
+  .top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  .top .wrap{display:flex;align-items:center;gap:14px;height:50px}
+  .logo{font-family:var(--mono);font-weight:700;color:var(--ink);font-size:13.5px}
+  .logo b{color:var(--accent)}
+  .top nav{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap}
+  .top nav a{font-family:var(--mono);font-size:12px;color:var(--muted);padding:5px 9px;border-radius:6px}
+  .top nav a:hover{color:var(--ink);background:var(--panel2);text-decoration:none}
+  .tgl{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;cursor:pointer}
+
+  /* header */
+  header.doc{padding:44px 0 30px;border-bottom:1px solid var(--line)}
+  header.doc h1{font-size:clamp(24px,3.6vw,34px);font-weight:740;letter-spacing:-.015em;line-height:1.15}
+  header.doc .sub{color:var(--muted);margin-top:12px;max-width:76ch;font-size:15px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;font-family:var(--mono);font-size:11.5px}
+  .meta span{border:1px solid var(--line);border-radius:999px;padding:4px 11px;color:var(--muted);background:var(--panel)}
+  .meta span b{color:var(--ink);font-weight:600}
+
+  /* platform split */
+  section{padding:44px 0;border-bottom:1px solid var(--line)}
+  .sh{margin-bottom:22px}
+  .sh h2{font-size:clamp(19px,2.6vw,25px);font-weight:720;letter-spacing:-.01em;margin-top:6px}
+  .sh p{color:var(--muted);margin-top:8px}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.split{grid-template-columns:1fr}}
+  .layer{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:18px}
+  .layer .lt{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .layer h3{font-size:17px;margin:8px 0 6px;font-weight:700}
+  .layer p{font-size:13.5px;color:var(--text);margin:0 0 10px}
+  .layer ul{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+  .layer li{font-family:var(--mono);font-size:12px;color:var(--muted);padding-left:16px;position:relative}
+  .layer li::before{content:"›";position:absolute;left:2px;color:var(--accent)}
+  .layer.flow{border-top:3px solid var(--flow)} .layer.cluster{border-top:3px solid var(--drop)}
+
+  /* pipeline strip */
+  .flowstrip{display:flex;flex-wrap:wrap;gap:7px;align-items:center;font-family:var(--mono);font-size:12px;margin-top:6px}
+  .flowstrip .n{padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink)}
+  .flowstrip .g{color:var(--faint)}
+
+  /* agent block */
+  .agent{scroll-margin-top:58px}
+  .ahead{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .idx{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1;color:var(--faint);min-width:44px}
+  .a-flow .idx{color:var(--flow)} .a-drop .idx{color:var(--drop)} .a-impact .idx{color:var(--impact)}
+  .ahead .ti{flex:1;min-width:240px}
+  .ahead h3{font-size:clamp(20px,2.8vw,26px);font-weight:730;letter-spacing:-.01em}
+  .ahead .code{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-top:4px}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.03em;padding:5px 11px;border-radius:999px;border:1px solid;white-space:nowrap}
+  .st-done{color:var(--done);border-color:color-mix(in srgb,var(--done) 40%,var(--line));background:var(--done-s)}
+  .st-partial{color:var(--partial);border-color:color-mix(in srgb,var(--partial) 40%,var(--line));background:var(--partial-s)}
+  .st-road{color:var(--road);border-color:var(--line);background:var(--road-s)}
+  .dotb{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .adesc{margin-top:14px;color:var(--text)}
+
+  .subh{display:flex;align-items:baseline;gap:10px;margin:26px 0 12px}
+  .subh .t{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .a-flow .subh .t{color:var(--flow)} .a-drop .subh .t{color:var(--drop)} .a-impact .subh .t{color:var(--impact)}
+  .subh .r{flex:1;height:1px;background:var(--line)}
+
+  /* function grid */
+  .fg{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  @media(max-width:640px){.fg{grid-template-columns:1fr}}
+  .fc{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:13px 15px}
+  .fc .k{font-family:var(--mono);font-size:12.5px;color:var(--ink);font-weight:600}
+  .fc .d{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .fc .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .fc .tags span{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
+
+  /* work / commits */
+  .work{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+  .wrow{display:grid;grid-template-columns:96px 1fr;gap:0;border-top:1px solid var(--line2)}
+  .wrow:first-child{border-top:0}
+  .wrow .h{padding:12px 14px;background:var(--panel2);font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);border-right:1px solid var(--line2)}
+  .wrow .b{padding:12px 15px;font-size:13.5px}
+  .wrow .b .m{color:var(--ink);font-weight:600}
+  .wrow .b .p{color:var(--muted);font-family:var(--mono);font-size:11.5px;margin-top:4px;display:block;word-break:break-all}
+  @media(max-width:560px){.wrow{grid-template-columns:1fr}.wrow .h{border-right:0;border-bottom:1px solid var(--line2)}}
+
+  /* status list */
+  .status{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+  .sline{display:grid;grid-template-columns:22px 1fr;gap:10px;font-size:13.5px;align-items:start}
+  .sline .ic{font-family:var(--mono);font-weight:700;padding-top:1px}
+  .sline.ok .ic{color:var(--done)} .sline.pt .ic{color:var(--partial)} .sline.rd .ic{color:var(--road)}
+  .sline .tx b{color:var(--ink)}
+  .sline .tx .ev{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+  /* terminal (LLM 예) */
+  .term{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line);background:var(--panel2);font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .term .bar .l{width:8px;height:8px;border-radius:50%;background:var(--line)} .term .bar .l.g{background:var(--done)}
+  .term .bar .rt{margin-left:auto;color:var(--faint)}
+  .turn{display:grid;grid-template-columns:60px 1fr;gap:12px;padding:11px 14px;border-top:1px solid var(--line2)}
+  .turn:first-child{border-top:0}
+  .turn .role{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding-top:2px}
+  .turn.u .role{color:var(--muted)} .turn.a .role{color:var(--accent)} .turn.s .role{color:var(--faint)}
+  .a-drop .turn.a .role{color:var(--drop)} .a-impact .turn.a .role{color:var(--impact)}
+  .turn .msg{font-size:13.5px;color:var(--text)} .turn.u .msg{color:var(--ink);font-weight:500}
+  .turn .tc{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-bottom:6px} .turn .tc b{color:var(--ink)}
+  pre.out{margin:5px 0 0;padding:11px 13px;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.55;color:var(--text)}
+  pre.out .c{color:var(--faint)} pre.out .k{color:var(--accent)} pre.out .s{color:var(--done)} pre.out .h{color:var(--ink);font-weight:600}
+  .ok{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12px;color:var(--done);margin-top:3px} .ok b{color:var(--ink)}
+
+  /* commit table */
+  .ctbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .ctwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+  .ctbl th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:11px 13px;background:var(--panel2);border-bottom:1px solid var(--line);white-space:nowrap}
+  .ctbl td{padding:10px 13px;border-bottom:1px solid var(--line2);vertical-align:top}
+  .ctbl tr:last-child td{border-bottom:0}
+  .ctbl td.h{font-family:var(--mono);color:var(--accent);font-weight:600;white-space:nowrap}
+  .ctbl td.a{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+  .ctbl td.m{color:var(--text)}
+  .pill{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--line)}
+  .pill.flow{color:var(--flow)} .pill.drop{color:var(--drop)} .pill.impact{color:var(--impact)}
+
+  footer{padding:34px 0 60px;color:var(--muted);font-size:12px}
+  .note{font-family:var(--mono);font-size:11px;color:var(--faint);line-height:1.6;max-width:80ch}
+</style>
+
+<div class="top">
+  <div class="wrap">
+    <span class="logo">Smart Twin · <b>3 Agents</b> 기술 현황</span>
+    <nav>
+      <a href="#arch">아키텍처</a><a href="#flow">Flow</a><a href="#drop">전각도</a><a href="#impact">부분충격</a><a href="#commits">커밋</a>
+    </nav>
+    <button class="tgl" id="tgl" type="button">◐</button>
+  </div>
+</div>
+
+<header class="doc">
+  <div class="wrap">
+    <span class="eyebrow">MCP · LS-DYNA · Apptainer · Slurm — 운영 관점 기술 문서</span>
+    <h1 style="margin-top:14px">자연어 한 줄이 HPC 낙하·충격 시뮬레이션 캠페인이 되기까지 —<br>세 개의 에이전트로 나눠 본 현재 도달점</h1>
+    <p class="sub">플랫폼은 <b>Smart Twin Flow</b>(잡 제출·스케줄러 운영)와 <b>Smart Twin Cluster</b>(전·후처리까지 HPC 잡에 포함한 시뮬레이션)로 나뉩니다. 이 문서는 그 위에서 MCP로 개발한 세 에이전트의 <b>기능·수행한 업무(커밋/코드경로)·검증된 도달점</b>을 정리합니다. 실제 LLM 사용 예는 각 절의 세션 캡처로 포함했습니다.</p>
+    <div class="meta">
+      <span>코드베이스 <b>KooSlurmInstallAutomationRefactory / dashboard</b></span>
+      <span>MCP <b>slurm-mcp · streamable-http /mcp</b></span>
+      <span>솔버 <b>LS-DYNA R16 · Apptainer</b></span>
+      <span>검증 노드 <b>node001 / node002 (Slurm 23.11)</b></span>
+    </div>
+  </div>
+</header>
+
+<!-- 아키텍처 -->
+<section id="arch">
+  <div class="wrap">
+    <div class="sh"><span class="eyebrow">플랫폼 구분</span><h2>두 계층, 하나의 MCP 진입점</h2>
+      <p>운영(Flow)과 시뮬레이션(Cluster)은 같은 backend·Slurm·MCP를 공유하되 역할이 다릅니다.</p></div>
+    <div class="split">
+      <div class="layer flow">
+        <div class="lt">Smart Twin Flow — 운영</div>
+        <h3>잡 제출 · 스케줄러 관리</h3>
+        <p>Slurm을 조회·제어하고 임의 잡을 제출/취소하는 운영 계층. 대시보드 UI와 MCP(slurm-mcp)가 같은 backend REST를 씁니다.</p>
+        <ul>
+          <li>조회: squeue · sinfo · sacct · sdiag · sshare · sprio</li>
+          <li>제어: hold/release/cancel · node drain/resume (dry_run 기본)</li>
+          <li>제출: Path A(템플릿) · Path B(스크립트) · 취소</li>
+          <li>인증: PAT(kst_) 발급 → Authorization 프록시</li>
+        </ul>
+      </div>
+      <div class="layer cluster">
+        <div class="lt">Smart Twin Cluster — 시뮬레이션</div>
+        <h3>전·후처리 포함 HPC 캠페인</h3>
+        <p>전처리(메시·시나리오)–솔브–후처리를 하나의 HPC 잡 흐름으로. 전각도 낙하·전위치 부분충격이 각각 DOE 드라이버로 자식 잡을 펼칩니다.</p>
+        <ul>
+          <li>전처리: KooMeshModifier · KooChainRun (Apptainer)</li>
+          <li>솔브: LS-DYNA MPP (Apptainer, 라이선스 주입)</li>
+          <li>후처리: koo_sphere_report · koo_impact_report</li>
+          <li>제출: MCP smarttwin_submit / _scenario_options</li>
+        </ul>
+      </div>
+    </div>
+    <div class="flowstrip" style="margin-top:18px">
+      <span class="n">자연어 지시</span><span class="g">→</span>
+      <span class="n">MCP 도구</span><span class="g">→</span>
+      <span class="n">backend REST(PAT)</span><span class="g">→</span>
+      <span class="n">scenario/스크립트 생성</span><span class="g">→</span>
+      <span class="n">Slurm 제출</span><span class="g">→</span>
+      <span class="n">Apptainer 실행</span><span class="g">→</span>
+      <span class="n">결과 조회·다운로드</span>
+    </div>
+  </div>
+</section>
+
+<!-- ① Smart Twin Flow -->
+<section id="flow" class="agent a-flow">
+  <div class="wrap">
+    <div class="ahead">
+      <div class="idx">01</div>
+      <div class="ti">
+        <h3>Smart Twin Flow — 운영 MCP · 잡 제출 · 스케줄러</h3>
+        <div class="code">slurm-mcp · dashboard backend_5010 · /api/slurm · /mcp</div>
+      </div>
+      <span class="badge st-done"><span class="dotb"></span>도달점 · 검증 완료</span>
+    </div>
+    <p class="adesc">Claude(Desktop/Code)나 대시보드에서 Slurm을 <b>조회·제어·제출</b>하는 운영 계층입니다. MCP는 인증을 스스로 판단하지 않고 들어온 <code>Authorization</code>(PAT)을 backend로 프록시해 <b>그 사용자 권한</b>으로 동작합니다. 이번 작업에서 제출 경로 전반의 위생·정합·이식성을 실측으로 다졌습니다.</p>
+
+    <div class="subh"><span class="t">기능</span><span class="r"></span></div>
+    <div class="fg">
+      <div class="fc"><div class="k">조회 도구 (11)</div><div class="d">큐·노드·파티션·어카운팅·헬스·스케줄러 진단·페어셰어·우선순위·실시간 자원·결과·로그</div><div class="tags"><span>slurm_list_jobs</span><span>list_nodes</span><span>job_accounting</span><span>scheduler_diag</span><span>job_results</span><span>job_log</span></div></div>
+      <div class="fc"><div class="k">제어 도구 (변경계)</div><div class="d">노드 상태(drain/resume/down) · 잡 제어(hold/release/cancel/priority/nice/top). <b>dry_run 기본 True</b></div><div class="tags"><span>slurm_node_set_state</span><span>slurm_job_control</span></div></div>
+      <div class="fc"><div class="k">잡 제출 · 취소</div><div class="d">Path A(템플릿 멀티파트) / Path B(스크립트 JSON) / 취소는 실제 scancel</div><div class="tags"><span>/api/jobs/submit</span><span>/api/slurm/jobs/submit</span><span>/jobs/&lt;id&gt;/cancel</span></div></div>
+      <div class="fc"><div class="k">토큰(PAT) 발급</div><div class="d">웹에서 <code>kst_</code> 토큰 발급(1회 노출·sha256 저장) → Claude 등록 명령 자동 생성</div><div class="tags"><span>/api/me/mcp-tokens</span><span>mcp_token_api.py</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">수행 업무 (코드 · 커밋)</span><span class="r"></span></div>
+    <div class="work">
+      <div class="wrow"><div class="h">0c6b881<br>50e3cf5</div><div class="b"><span class="m">MCP를 대시보드와 같은 오리진 <code>/mcp</code>로 노출</span><span class="p">nginx 프록시(127.0.0.1:5012 streamable-http) · Host 재작성으로 DNS-rebinding 통과 · Claude Code 네이티브 HTTP</span></div></div>
+      <div class="wrow"><div class="h">6105005</div><div class="b"><span class="m">job_name 위생 + slurm_overrides 검증 — 주입·경로탈출 차단</span><span class="p">job_submit_api.py: <code>[^\w.\-]→_</code> 로 #SBATCH·파일명 안전화 / overrides 개행·비스칼라 거부(400)</span></div></div>
+      <div class="wrow"><div class="h">9ecf71d</div><div class="b"><span class="m">결과조회·권한·이력을 Path A/B/전각도까지 정합</span><span class="p">record_job_submission을 세 경로에 · get_job_dir가 DB result_dir 우선 조회 · is_partition_allowed/account·qos 이식(기본 게이트 off)</span></div></div>
+      <div class="wrow"><div class="h">6b3777e</div><div class="b"><span class="m">공유경로를 <code>SHARED_BASE</code> env로 — gluster 미마운트 환경 동작</span><span class="p">/shared(=gluster)가 노드로컬인 dev에서 로그·업로드·작업디렉토리를 실제 공유 /data로. 운영은 기본 /shared 유지</span></div></div>
+      <div class="wrow"><div class="h">fbeb5bf</div><div class="b"><span class="m">존재하지 않는 파티션은 클러스터 기본으로 폴백</span><span class="p">slurm_commands.get_live_partitions()/normalize_partition() — 드롭다운/config 드리프트(예: 'compute')가 sbatch invalid partition으로 실패하지 않게</span></div></div>
+      <div class="wrow"><div class="h">2696ebc<br>88fe166</div><div class="b"><span class="m">완료 잡 결과/로그 조회 + 다운로드</span><span class="p">MCP slurm_job_results/slurm_job_log · 대시보드 '결과' 버튼 + 전체 ZIP(경로탈출 realpath 가드)</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">현재 도달점 (검증 근거)</span><span class="r"></span></div>
+    <div class="status">
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>제출 e2e</b> — Path B 실제 sbatch 제출 성공 <span class="ev">job 707/709/713 COMPLETED · 결과·로그 /data/logs 회수</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>취소</b> — UI 엔드포인트로 실행 중 잡 취소 <span class="ev">job 737 → CANCELLED by 1000</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>결과 다운로드</b> — 단일 + 전체 ZIP + 경로탈출 403 차단 <span class="ev">/files/download · /download-all</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>PAT 발급</b> — 브라우저 발급→등록명령→삭제 전 주기 <span class="ev">201 · kst_… · MCP 15 tools 노출</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">LLM 사용 예 (실제 세션)</span><span class="r"></span></div>
+    <div class="term">
+      <div class="bar"><span class="l g"></span><span class="l"></span><span class="l"></span><span>slurm-mcp · jobs</span><span class="rt">잡 제어 · admin</span></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">지금 큐에 뭐 돌고 있어? 하나 취소하고 싶은데.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>slurm_list_jobs</b>()</div>
+<pre class="out">JOBID  NAME             STATE     TIME   NODE
+<span class="h">737</span>    cancel_test      RUNNING   0:02   node001
+783    cum26x3_SEQ000   RUNNING   40:11  node001</pre>
+        <div class="tc" style="margin-top:8px">737을 취소할까요? (파괴적이라 dry_run 기본)</div></div></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">응 737 취소해.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>slurm_job_control</b>(job_id="737", action="cancel", dry_run=<span class="mono">false</span>)</div>
+        <div class="ok"><span>✅</span><span>Job 737 cancelled — sacct: <b>CANCELLED by 1000</b></span></div></div></div>
+    </div>
+    <div class="term" style="margin-top:12px">
+      <div class="bar"><span class="l g"></span><span class="l"></span><span class="l"></span><span>slurm-mcp · nodes</span><span class="rt">노드 운영 · admin</span></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">지금 잡 받을 수 있는 노드 몇 대야?</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>slurm_list_nodes</b>()  <span style="color:var(--faint)">// sinfo</span></div>
+<pre class="out">PARTITION AVAIL NODES STATE  NODELIST
+normal*   up        2 <span class="s">idle</span>   node[001-002]
+viz       up        1 <span class="s">idle</span>   viz-node001
+viz       up        1 <span style="color:var(--partial);font-weight:600">unk*</span>   viz-node002
+gpu       up        1 <span style="color:var(--partial);font-weight:600">inval</span>  smarttwincluster</pre>
+        <div class="tc" style="margin-top:8px">잡을 받을 수 있는 <b>정상 노드 3대</b> — normal <code>node001·node002</code>(각 2코어 idle, 총 4코어 여유) + viz <code>viz-node001</code>. <b>비정상 2대</b> — <code>smarttwincluster</code>(gpu · <b style="color:var(--partial)">inval</b>=등록 무효), <code>viz-node002</code>(<b style="color:var(--partial)">unk*</b>=응답 없음).</div></div></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">상황 점검하고, 문제 있는 노드는 drain 걸어줘.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>slurm_cluster_health</b>() → <span class="s">ok</span> · slurmctld 응답 확인</div>
+        <div class="tc">▸ <b>slurm_list_nodes</b>() → 상태 스캔 · 문제 노드 <b>2개</b> 식별: <b>viz-node002</b>(unk*) · <b>smarttwincluster</b>(inval)</div>
+        <div class="tc" style="margin-top:6px">노드 상태 변경은 파괴적이라 <b>dry_run 먼저</b> 보여드립니다.</div>
+        <div class="tc" style="margin-top:4px">▸ <b>slurm_node_set_state</b>(node="viz-node002", state="DRAIN", reason="unresponsive(unk*) 자동점검", dry_run=<span class="mono">true</span>)</div>
+<pre class="out"><span class="c">[DRY-RUN] POST /api/nodes/drain</span>
+node_name = viz-node002
+reason    = "unresponsive(unk*) 자동점검"
+<span class="c">// 실행 중 잡은 유지, 새 잡 배정만 차단. 적용하려면 dry_run=false</span></pre></div></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">둘 다 적용해.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>slurm_node_set_state</b>(node="viz-node002", state="DRAIN", …, dry_run=<span class="mono">false</span>)</div>
+        <div class="tc">▸ <b>slurm_node_set_state</b>(node="smarttwincluster", state="DRAIN", reason="inval 등록 자동점검", dry_run=<span class="mono">false</span>)</div>
+        <div class="ok"><span>✅</span><span>2개 노드 DRAIN 적용 — <b>viz-node002</b> · <b>smarttwincluster</b></span></div>
+<pre class="out">$ sinfo -R
+REASON                     USER    NODELIST
+unresponsive(unk*) 자동점검  admin   viz-node002
+inval 등록 자동점검          admin   smarttwincluster</pre>
+        <div class="tc" style="margin-top:6px">이제 스케줄러가 두 노드에 새 잡을 배정하지 않습니다. 복구되면 <code>state=RESUME</code>으로 되돌립니다.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ② 전각도 낙하 -->
+<section id="drop" class="agent a-drop">
+  <div class="wrap">
+    <div class="ahead">
+      <div class="idx">02</div>
+      <div class="ti">
+        <h3>전각도 낙하 시뮬레이션 에이전트</h3>
+        <div class="code">smarttwin-fullangle-drop · KooChainRun DOE · MCP smarttwin_submit</div>
+      </div>
+      <span class="badge st-done"><span class="dotb"></span>도달점 · 실솔브 검증</span>
+    </div>
+    <p class="adesc">제품이 어느 자세로 떨어질지 모르는 <b>낙하 설계공간</b>(roll·pitch·yaw)을 DOE로 전개합니다. 6면·12모서리·8꼭짓점(최대 26방향)부터 구면 균등 <b>피보나치 N방향</b>까지, 각 방향이 하나의 LS-DYNA 케이스가 되어 KooChainRun 드라이버가 자식 잡으로 병렬 제출합니다.</p>
+
+    <div class="subh"><span class="t">기능</span><span class="r"></span></div>
+    <div class="fg">
+      <div class="fc"><div class="k">angle_source (5)</div><div class="d">낙하 각도 집합(DOE) 생성 방식</div><div class="tags"><span>cuboid_geometry</span><span>fibonacci_lattice</span><span>pitching_sweep</span><span>rolling_sweep</span><span>case_txt_file</span></div></div>
+      <div class="fc"><div class="k">drop_surface (4)</div><div class="d">바닥 표면 모델 + D2R</div><div class="tags"><span>Plane</span><span>RigidWall</span><span>PlaneGraded</span><span>PlanewithRoughness</span></div></div>
+      <div class="fc"><div class="k">cumulative</div><div class="d">연속(누적) 낙하 — 각도당 반복 · 믹싱 5전략(same_angle·cyclic·random·opposite·custom)</div></div>
+      <div class="fc"><div class="k">MCP 자연어 제출</div><div class="d">옵션 인지 + 프리셋 병합 → scenario.json 생성·업로드</div><div class="tags"><span>smarttwin_scenario_options</span><span>smarttwin_submit</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">수행 업무 (코드 · 커밋)</span><span class="r"></span></div>
+    <div class="work">
+      <div class="wrow"><div class="h">c6234e9</div><div class="b"><span class="m">TODO 스텁 제거 → 실제 LS-DYNA 실행 + group6 하드코딩 제거</span><span class="p">기존 generate_traditional_script가 echo만 하던 무동작 스크립트 → 실행 로직 · 존재하지 않는 group6 파티션 제거</span></div></div>
+      <div class="wrow"><div class="h">e09a201</div><div class="b"><span class="m">LS-DYNA를 Apptainer gold standard로 실행</span><span class="p"><code>apptainer exec --bind /data --env LSTC_LICENSE_SERVER=… &lt;sif&gt; mpirun /opt/ls-dyna/lsdyna i=$K</code> — SIF/바이너리/라이선스 전부 서버사이드 env(pyKooCAE run_dyna.sh 기준)</span></div></div>
+      <div class="wrow"><div class="h">d045b29</div><div class="b"><span class="m">운영 기동 시 라이선스 서버를 백엔드 .env로 동기화</span><span class="p">YAML lsdyna_license.server → start_production.sh → backend .env → lsdyna_submit_api → apptainer</span></div></div>
+      <div class="wrow"><div class="h">16688e9</div><div class="b"><span class="m">MCP scenario 옵션 인지 + 제출 도구</span><span class="p">KooChainRun 실제 파서(Runner/*) 기준 권위 스키마 카탈로그 + 멀티파트 제출(httpx)</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">현재 도달점 (검증 근거)</span><span class="r"></span></div>
+    <div class="status">
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>실제 솔브 완주</b> — node001에서 apptainer LS-DYNA가 Normal termination <span class="ev">job 729 · d3plot 238개 · binout ~1GB · glstat</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>MCP 제출 e2e</b> — 자연어→scenario.json→드라이버→자식 잡 <span class="ev">job 799 → KooChainRun prepare → Submitted 802</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>결과 후처리</b> — koo_sphere_report(방향 통계·per-part Mollweide) <span class="ev">피보나치 DOE 리포트 발행 확인 · 방향 수는 캠페인별</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">LLM 사용 예 (실제 세션 캡처)</span><span class="r"></span></div>
+    <div class="term">
+      <div class="bar"><span class="l g"></span><span class="l"></span><span class="l"></span><span>slurm-mcp · smarttwin</span><span class="rt">fullangle_drop</span></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">폰 모델을 전각도 낙하로, <b>fibonacci 100방향</b>, 낙하높이 <b>1m</b>, 강체바닥으로 미리보기 해줘.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>smarttwin_submit</b>(fullangle_drop, angle_preset=fibonacci-100, overrides={height:1000, drop_surface:RigidWall}, dry_run=<span class="mono">true</span>)</div>
+<pre class="out"><span class="c">--- 업로드될 scenario.json (발췌) ---</span>
+<span class="k">"simulation_params"</span>: { <span class="k">"height"</span>:<span class="h">1000</span>, <span class="k">"drop_surface"</span>:{<span class="k">"type"</span>:<span class="h">"RigidWall"</span>} },
+<span class="k">"angle_source"</span>: { <span class="k">"source_type"</span>:<span class="h">"fibonacci_lattice"</span>,
+                 <span class="k">"fibonacci_lattice"</span>:{<span class="k">"num_directions"</span>:<span class="h">100</span>} }</pre></div></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">좋아 제출해.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="ok"><span>✅ 제출 완료 —</span><b>job_id = 799</b></div>
+<pre class="out"><span class="c">/data/logs/799.out</span>
+=== KooChainRun prepare ===  <span class="s">✅ Submitted batch job 802</span>  <span class="c">// 방향별 자식</span></pre></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ③ 전위치 부분충격 -->
+<section id="impact" class="agent a-impact">
+  <div class="wrap">
+    <div class="ahead">
+      <div class="idx">03</div>
+      <div class="ti">
+        <h3>전위치 부분충격 시뮬레이션 에이전트</h3>
+        <div class="code">smarttwin-partial-impact · KooMeshModifier + KooChainRun DWI</div>
+      </div>
+      <span class="badge st-partial"><span class="dotb"></span>도달점 · 파이프라인 검증 · 툴체인 1건 남음</span>
+    </div>
+    <p class="adesc">제품 표면 <b>전 위치</b>에 구/원기둥 임팩터를 떨어뜨려 국부 충격을 봅니다. 위치마다 <b>KooMeshModifier</b>가 임팩터+바닥을 자동으로 심은 입력 덱을 만들고, KooChainRun DWI 드라이버가 자식 잡으로 병렬 솔브합니다. 전처리(메시생성)가 HPC 잡에 포함된 형태입니다.</p>
+
+    <div class="subh"><span class="t">기능</span><span class="r"></span></div>
+    <div class="fg">
+      <div class="fc"><div class="k">locations (4)</div><div class="d">충격 위치 DOE 생성</div><div class="tags"><span>grid</span><span>list</span><span>lhs</span><span>part_center</span></div></div>
+      <div class="fc"><div class="k">impactor (2)</div><div class="d">낙하 임팩터 — radius·height(낙하높이)·물성</div><div class="tags"><span>Sphere</span><span>Cylinder</span></div></div>
+      <div class="fc"><div class="k">generation_mode (3)</div><div class="d">임팩터–모델 결합/부분강체화</div><div class="tags"><span>DampingSpring</span><span>OutsideRigidPart</span><span>OutsideRigidElement</span></div></div>
+      <div class="fc"><div class="k">wall · boundary</div><div class="d">바닥 강체판 물성 · boundary_distance로 충격점 밖 강체화(가속)</div></div>
+    </div>
+
+    <div class="subh"><span class="t">수행 업무 (코드 · 커밋)</span><span class="r"></span></div>
+    <div class="work">
+      <div class="wrow"><div class="h">99d4299</div><div class="b"><span class="m">DWI environment를 실제 파서 키로</span><span class="p">KooChainRun DropWeightImpactWorkflow가 읽는 평면 키(koomeshmodifier_path/sif_path/solver_command)로 교체 · KooMeshModifier를 노드로컬 /opt → 공유 /data로</span></div></div>
+      <div class="wrow"><div class="h">e7755d2</div><div class="b"><span class="m">DWI 솔버를 solver_command에 apptainer+라이선스로</span><span class="p">DWI run.sh의 apptainer exec는 --env를 안 줘 "License client cannot find any servers" → sif_path="" + solver_command에 완전한 apptainer exec(라이선스 env 포함). node002 실솔브 d3plot 확인</span></div></div>
+      <div class="wrow"><div class="h">438f15f</div><div class="b"><span class="m">KooMeshModifier도 apptainer로 — OCC(libTKernel) 노드 해결</span><span class="p">bare 실행 시 libTKernel.so.7.9 없음 → SmartTwinPreprocessor.sif로 실행(OCC 컨테이너 내장) · sif를 공유 /data/apptainers에 배포</span></div></div>
+      <div class="wrow"><div class="h">16688e9</div><div class="b"><span class="m">MCP 옵션 인지 + 제출 도구</span><span class="p">locations/impactor/wall 권위 스키마 카탈로그 + 라이선스 서버 서버사이드 주입</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">현재 도달점 (검증 근거)</span><span class="r"></span></div>
+    <div class="status">
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>MCP 제출 + DOE 전개</b> — 위치 DOE 생성까지 <span class="ev">job 800 → KooChainRun prepare · 충격 위치 N개 · Submitted 801</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>전처리(메시) 컨테이너 실행</b> — KooMeshModifier가 node002에서 OCC 통과 <span class="ev">libTKernel 에러 0건 · gmsh 메싱 단계 진입</span></div></div>
+      <div class="sline ok"><span class="ic">✓</span><div class="tx"><b>솔버 라이선스 통과</b> — solver_command apptainer로 라이선스 체크아웃 <span class="ev">node002 probe · "Licensed to: Samsung" · d3plot 생성</span></div></div>
+      <div class="sline pt"><span class="ic">◐</span><div class="tx"><b>자식 완주 1건 남음</b> — KooChainRun run.sh가 KooMeshModifier 생성 .k의 위치를 못 찾음(툴체인 내부 경로 매칭) <span class="ev">메시는 생성되나 run.sh의 WORKDIR 매칭 이슈</span></div></div>
+    </div>
+
+    <div class="subh"><span class="t">LLM 사용 예 (실제 세션 캡처)</span><span class="r"></span></div>
+    <div class="term">
+      <div class="bar"><span class="l g"></span><span class="l"></span><span class="l"></span><span>slurm-mcp · smarttwin</span><span class="rt">partial_impact</span></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">부분충격을 <b>라틴 하이퍼큐브 30점</b>, 임팩터 <b>반경 8mm</b>로 구성해서 미리보기.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="tc">▸ <b>smarttwin_submit</b>(partial_impact, overrides={locations:{mode:lhs, n_samples:30}, impactor:{radius:8}}, dry_run=<span class="mono">true</span>)</div>
+<pre class="out"><span class="c">--- 업로드될 scenario.json (발췌) ---</span>
+<span class="k">"mode"</span>:<span class="h">"drop_weight_impact"</span>,
+<span class="k">"impactor"</span>:{ <span class="k">"type"</span>:<span class="s">"Sphere"</span>, <span class="k">"radius"</span>:<span class="h">8</span> },
+<span class="k">"locations"</span>:{ <span class="k">"mode"</span>:<span class="h">"lhs"</span>, <span class="k">"n_samples"</span>:<span class="h">30</span> }</pre></div></div>
+      <div class="turn u"><div class="role">사용자</div><div class="msg">작게 2점만 실제로 돌려봐.</div></div>
+      <div class="turn a"><div class="role">Claude</div><div class="msg">
+        <div class="ok"><span>✅ 제출 완료 —</span><b>job_id = 800</b></div>
+<pre class="out"><span class="c">/data/logs/800.out — KooChainRun/KooMeshModifier</span>
+=== prepare (drop_weight_impact) ===  <span class="h">충격 위치: 2개</span>
+<span class="s">✅ Drop Weight Impact 준비 완료! · Submitted 801</span></pre></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 커밋 표 -->
+<section id="commits">
+  <div class="wrap">
+    <div class="sh"><span class="eyebrow">근거</span><h2>이번 작업 커밋 요약</h2>
+      <p>세 에이전트 관련 변경. 모두 main에 푸시됨.</p></div>
+    <div class="ctwrap">
+      <table class="ctbl">
+        <thead><tr><th>커밋</th><th>영역</th><th>내용</th></tr></thead>
+        <tbody>
+          <tr><td class="h">438f15f</td><td class="a"><span class="pill impact">부분충격</span></td><td class="m">KooMeshModifier도 apptainer로 — OCC(libTKernel) compute 노드 해결</td></tr>
+          <tr><td class="h">e7755d2</td><td class="a"><span class="pill impact">부분충격</span></td><td class="m">DWI 솔버를 solver_command에 apptainer+라이선스 env로 — 자식 솔브 라이선스 통과</td></tr>
+          <tr><td class="h">99d4299</td><td class="a"><span class="pill impact">부분충격</span></td><td class="m">DWI environment를 실제 파서 키로 — KooMeshModifier /data(공유) + apptainer 솔버</td></tr>
+          <tr><td class="h">fbeb5bf</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">존재하지 않는 파티션은 클러스터 기본으로 폴백 (invalid partition 방지)</td></tr>
+          <tr><td class="h">16688e9</td><td class="a"><span class="pill drop">전각도</span> <span class="pill impact">부분충격</span></td><td class="m">전각도/부분충격 scenario 옵션 인지 + 잡 제출 MCP 도구</td></tr>
+          <tr><td class="h">d045b29</td><td class="a"><span class="pill drop">전각도</span></td><td class="m">운영 기동 시 라이선스 서버를 백엔드 .env로 동기화</td></tr>
+          <tr><td class="h">e09a201</td><td class="a"><span class="pill drop">전각도</span></td><td class="m">LS-DYNA를 Apptainer로 실행 (gold standard) + 라이선스/SIF 서버사이드</td></tr>
+          <tr><td class="h">a1bb175</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">선택 파티션이 클러스터에 없으면 라이브 폴백/정규화</td></tr>
+          <tr><td class="h">9ecf71d</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">결과조회·권한·이력기록을 Path B/전각도까지 정합</td></tr>
+          <tr><td class="h">6b3777e</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">공유경로를 SHARED_BASE env로 — gluster 미마운트 환경 e2e 동작</td></tr>
+          <tr><td class="h">c6234e9</td><td class="a"><span class="pill drop">전각도</span></td><td class="m">LS-DYNA 제출이 실제로 실행되게 — TODO 스텁 제거 + group6 제거</td></tr>
+          <tr><td class="h">88cf71f</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">Path B 로그를 공유경로로 + 빈 partition 가드</td></tr>
+          <tr><td class="h">6105005</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">job_name 위생 + slurm_overrides 검증 (주입/경로탈출 차단)</td></tr>
+          <tr><td class="h">2696ebc</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">완료 잡 결과/로그 조회 MCP tool (slurm_job_results, slurm_job_log)</td></tr>
+          <tr><td class="h">0c6b881</td><td class="a"><span class="pill flow">Flow</span></td><td class="m">MCP를 대시보드와 같은 오리진 /mcp로 노출 (nginx 프록시)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="note">모든 대화·응답·job_id·드라이버 로그는 실제 MCP 세션과 Slurm 실행에서 캡처한 값입니다(node001/node002, Slurm 23.11). 전각도는 실솔브(Normal termination)까지, 부분충격은 전처리(OCC 컨테이너)·솔버 라이선스까지 검증했고 자식 완주는 KooChainRun 툴체인 경로 1건이 남았습니다. 후처리·리포트 시연은 별도 동영상으로 대체합니다.</p>
+  </div>
+</footer>
+
+<script>
+  var root=document.documentElement, t=document.getElementById('tgl');
+  t.addEventListener('click',function(){
+    var c=root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+    root.setAttribute('data-theme', c==='dark'?'light':'dark');
+  });
+</script>

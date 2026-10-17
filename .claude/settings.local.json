@@ -85,7 +85,15 @@
       "Bash(ps -p 163800 -o pid=,etime=,pcpu=,pmem=)",
       "Bash(pstree -p 163800)",
       "mcp__plugin_playwright_playwright__browser_navigate",
-      "mcp__plugin_playwright_playwright__browser_close"
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash([ -f \"$F\" ])",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'for d in /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic /data/ball_drop_test_v7 /data/ball_drop_test_v3 /data/drop_test_results /data/Test_001_Full26_1Step; do echo \"=== $d ===\"; ls -d $d 2>/dev/null && ls -1 $d 2>/dev/null | head -20; done')",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'for d in /data/Test_001_Full26_1Step /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic; do echo \"=== $d/runid_00001 ===\"; find $d/runid_00001 -maxdepth 2 2>/dev/null | head -40; done')",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'for d in /data/Test_001_Full26_1Step /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic; do echo \"=== $d/runid_00001/metadata.json ===\"; cat $d/runid_00001/metadata.json 2>/dev/null; echo; done')",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'for d in /data/Test_001_Full26_1Step /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic; do echo \"=== $d/runid_00001/Step001 ===\"; ls -la $d/runid_00001/Step001 2>/dev/null; done')",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'for d in /data/Test_001_Full26_1Step /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic; do echo \"=== $d: any .k / d3plot / dynain ===\"; find $d -maxdepth 3 \\\\\\( -name \"*.k\" -o -name \"*.key\" -o -name \"d3plot\" -o -name \"dynain\" \\\\\\) 2>/dev/null | head; echo \"--- top-level files ---\"; ls -la $d/*.* 2>/dev/null | head; done')",
+      "Bash(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=10 koopark@192.168.122.90 'echo \"=== ball_drop_test_v7/ex01 ===\"; find /data/ball_drop_test_v7/ex01_prony_2term_ref -maxdepth 2 2>/dev/null | head -30; echo; echo \"=== search for DropSet / template / generator jsons under /data \\(scoped\\) ===\"; find /data/Test_001_Full26_1Step /data/Test_002_Full26_3Step /data/Test_003_6Faces_Cyclic -maxdepth 1 -name \"*.json\" 2>/dev/null')",
+      "Bash(awk 'NR>=2200 && NR<=2665 && /\\\\.x *=|\\\\.y *=|\\\\.z *=|node\\\\.|\\\\.SetCoord|SetPosition/' /home/koopark/serviceApptainers/appt313/opt/pyKooCAE/occProject/Generators/KooCAEManager/KooDynaAdvancedModification.py)"
     ],
     "deny": [],
     "ask": []
