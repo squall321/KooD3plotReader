@@ -3335,15 +3335,26 @@ function renderHotspot3D() {
   });
   const applyCustom = () => {
     const raw = document.getElementById('hs3d-custom').value || '';
-    const want = raw.split(/[,\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    // 친 그대로를 되돌려주려고 원문과 소문자를 같이 들고 다닌다
+    const typed = raw.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+    const want = typed.map(x => x.toLowerCase());
     const note = document.getElementById('hs3d-custom-note');
     if (!want.length) { if (note) note.textContent = '각도명을 입력하세요'; return; }
+    // 못 찾은 이름은 조용히 넘기지 않는다 — 오타를 '그 각도엔 군집이 없구나' 로
+    // 읽게 된다. 다만 **두 가지를 구분해서** 말한다: 캠페인에 없는 이름인지,
+    // 있긴 한데 군집이 없어 이 탭에 안 올라온 각도인지. 뭉뚱그리면 또 다른 오해다.
     const have = new Set(Object.values(folderName).map(n => n.toLowerCase()));
-    // 못 찾은 이름은 조용히 넘기지 않는다 — 오타를 '그 각도엔 군집이 없구나' 로 읽게 된다
-    const miss = want.filter(w => !have.has(w));
+    const all = new Set((DATA.results || []).map(r => hs3dAngleName(r).toLowerCase()));
+    const unknown = typed.filter((t, i) => !all.has(want[i]));
+    const noCluster = typed.filter((t, i) => all.has(want[i]) && !have.has(want[i]));
     applySelection(f => want.includes((folderName[f] || '').toLowerCase()));
-    if (note) note.textContent = miss.length
-      ? `없는 각도: ${miss.join(', ')}` : `${want.length - miss.length}개 선택`;
+    if (note) {
+      const msg = [];
+      if (unknown.length) msg.push(`없는 각도: ${unknown.join(', ')}`);
+      if (noCluster.length) msg.push(`군집이 없는 각도: ${noCluster.join(', ')}`);
+      note.textContent = msg.length ? msg.join(' · ')
+        : `${want.length - unknown.length - noCluster.length}개 선택`;
+    }
   };
   document.getElementById('hs3d-custom-go').onclick = applyCustom;
   document.getElementById('hs3d-custom').addEventListener('keydown', e => {
