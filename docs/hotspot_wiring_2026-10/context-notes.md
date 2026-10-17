@@ -103,3 +103,10 @@ pykoocae-53 의 배포본 e2e 결과가 우리 결정과 하나씩 맞물린다.
 - `--sv-threads N` — 병렬 렌더러 수, 기본 2
 
 캠페인 time_limit 을 잡을 때 이 비용을 빼놓고 계산하면 후처리가 통째로 잘린다.
+
+**⚠ 상류가 이 플래그 이름을 문자열로 통과시킨다.** KooChainRun 은 전용 키를 만들지 않고
+`postprocess.deep_extra_args` 로 `--no-section-view-per-part` 를 그대로 넘긴다
+(pyKooCAE 2f15806). 즉 `--section-view-*` 플래그 이름을 바꾸면 **상류에서 조용히 깨진다** —
+argparse 가 거절해 rc≠0 이 나긴 하지만, 그 실패가 캠페인 로그 안에 묻힌다.
+이름을 바꿀 일이 생기면 pykoocae-53 에 먼저 알릴 것. (`--hotspot-*` 와 `--viewer` 는
+전용 키로 배선돼 있어 사정이 다르다.)
