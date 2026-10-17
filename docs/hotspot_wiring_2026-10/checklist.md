@@ -66,10 +66,14 @@
 - [x] `compute-node-images` (노드 재설치 원본) — 두 판 모두 교체됨
 - [x] GUI 변종 — `672e835` 로 재빌드, %test(Plotly 검사 포함) 통과
 - [x] 여섯 지점 sha256 직접 대조 — 전부 일치
-- [ ] **절차 보강 (미결)** — `verify_deploy.sh` 가 네 지점을 보게. 지금은 NFS 만 보고
-      "전부 일치" 를 출력해 반쯤 배포된 상태가 통과한다.
-      ⚠ **노드 배포는 `deploy_from_sif.sh` 에 넣지 말 것** — 상류 표준 빌드가
-      `deploy_apptainers.sh` 로 따로 한다. 검증만 넣거나 옵션 뒤에 (상류 요청 2026-10-17)
+- [x] **절차 보강** — `verify_deploy.sh --all-sites` 추가. 기준 SIF 의 **sha256** 을
+      compute-node-images·헤드·노드 `/opt/apptainers` 와 대조한다
+      → verify: 기본 경로 출력이 **바이트 동일**(상류 표준 빌드 영향 0),
+      정상 상태 rc=0, 음성 대조 4종 전부 rc=1
+      (원본이 다른 판 / 원본 없음 / 없는 노드 / SIF 인자 누락).
+      GUI SIF 로도 동작. 지점은 `KOOD3PLOT_SITE_IMAGES`·`KOOD3PLOT_SITE_NODES` 로 조정
+      ⚠ 기본 검사에는 **넣지 않았다** — 표준 빌드는 노드 배포 전에 이 도구를 부르므로
+      기본에 넣으면 모든 빌드가 거기서 멈춘다 (상류 요청 2026-10-17)
 - [x] `deploy_from_sif.sh` 가 상류 공개 인터페이스가 됨 — 계약 셋을 머리말에 못박고
       실제 호출로 확인(인자 없음·없는 SIF 둘 다 exit 1)
 - [x] 상류 `BuildSmartTwinPostprocessorOnly.sh` 패키지 목록 — 저쪽이 6개로 수정(확인함)

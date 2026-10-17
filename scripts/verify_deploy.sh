@@ -10,13 +10,45 @@
 #   scripts/verify_deploy.sh /data/SmartTwinPostprocessor
 #   scripts/verify_deploy.sh /data/SmartTwinPostprocessor/SmartTwinPostprocessor.sif
 #   scripts/verify_deploy.sh <디렉토리> <sif>     # 둘 다 검사하고 서로도 대조
+#   scripts/verify_deploy.sh --all-sites <디렉토리> <sif>   # 배포 지점까지 (아래)
+#
+# ── --all-sites: 한 릴리스가 닿아야 할 곳을 전부 본다 ──────────────────────
+# 2026-10-17 에 드러났다 — 배포 지점이 넷인데 이 도구는 NFS 만 봤다. 그래서
+# 호스트는 새 판, 노드가 실제로 실행하는 이미지는 2주 전 판인 상태가 "전부 일치" 로
+# 통과했다. 지점은 이렇다:
+#   ① 배포 디렉토리(NFS)            — 기본 검사
+#   ② 설치된 SIF                     — 기본 검사
+#   ③ compute-node-images            — deploy_apptainers.sh 의 원본. 노드 재설치 때 여기서 깔린다
+#   ④ 노드 로컬 /opt/apptainers      — KooChainRun·smarttwin-tool 이 실제로 쓰는 것
+#
+# ③④ 는 **기본에서 보지 않는다.** 상류 표준 빌드의 순서가
+#   ① SIF 빌드 → ② GUI·이미지 복사 → ③ deploy_from_sif.sh(→ 이 도구) → ④ tar → ⑤ Drive·메일
+# 이고 노드 배포는 그 **뒤에** 따로 돌기 때문이다. 기본 검사가 노드 일치를 요구하면
+# 모든 표준 빌드가 ③에서 멈추고 tar·메일도 못 나간다 (상류 요청, 2026-10-17).
+# 그래서 노드 배포를 마친 뒤 `--all-sites` 로 따로 돌린다.
+#
+#   KOOD3PLOT_SITE_IMAGES  compute-node-images 경로 (기본 아래 값)
+#   KOOD3PLOT_SITE_NODES   노드 목록, 공백 구분 (기본 "node001 node002")
 #
 # 종료 상태: 일치 0, 불일치·확인불가 1
 
 set -uo pipefail
 
 die() { echo "오류: $*" >&2; exit 2; }
+
+ALL_SITES=false
+ARGS=()
+for a in "$@"; do
+    case "$a" in
+        --all-sites) ALL_SITES=true ;;
+        *)           ARGS+=("$a") ;;
+    esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 [ $# -ge 1 ] || die "검사할 배포 경로나 SIF 를 하나 이상 주세요"
+
+SITE_IMAGES="${KOOD3PLOT_SITE_IMAGES:-/home/koopark/claude/KooSlurmInstallAutomationRefactory/apptainer/compute-node-images}"
+SITE_NODES="${KOOD3PLOT_SITE_NODES:-node001 node002}"
 
 fails=0
 # 🔴 set -u 에서 빈 배열 참조(${#ARR[@]})가 unbound 로 죽는 bash 가 있다.
@@ -130,6 +162,60 @@ for target in "$@"; do
         fails=$((fails + 1))
     fi
 done
+
+# ── 배포 지점 대조 (--all-sites) ─────────────────────────────────────────
+# VERSION 이 아니라 **sha256** 으로 본다. 지점에 놓인 것은 SIF 파일 자체이고,
+# 같은 커밋을 두 번 빌드해도 바이트는 다르다 — 실제로 배포된 그 파일인지를 물어야 한다.
+check_sites() {                # check_sites <기준 SIF>
+    local ref="$1" name want got
+    name="$(basename "$ref")"
+    want="$(sha256sum "$ref" 2>/dev/null | cut -d' ' -f1)"
+    [ -n "$want" ] || { echo "   ✗ 기준 SIF 를 읽지 못했습니다: $ref"; fails=$((fails + 1)); return; }
+    echo ""
+    echo "배포 지점 대조 — ${name}  (${want:0:12}…)"
+
+    # ③ 노드 재설치 원본
+    if [ -f "${SITE_IMAGES}/${name}" ]; then
+        got="$(sha256sum "${SITE_IMAGES}/${name}" | cut -d' ' -f1)"
+        if [ "$got" = "$want" ]; then echo "   ✓ compute-node-images"
+        else
+            echo "   ✗ compute-node-images 가 다른 판입니다 (${got:0:12}…)"
+            echo "     노드를 재설치하면 이 판이 깔립니다"
+            fails=$((fails + 1))
+        fi
+    else
+        echo "   ✗ compute-node-images 에 ${name} 이 없습니다 (${SITE_IMAGES})"
+        fails=$((fails + 1))
+    fi
+
+    # ④ 노드 로컬 — 헤드 포함
+    for h in head ${SITE_NODES}; do
+        if [ "$h" = head ]; then got="$(sha256sum "/opt/apptainers/${name}" 2>/dev/null | cut -d' ' -f1)"
+        else got="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$h" "sha256sum '/opt/apptainers/${name}' 2>/dev/null | cut -d' ' -f1" 2>/dev/null)"
+        fi
+        if [ -z "$got" ]; then
+            echo "   ✗ ${h}: /opt/apptainers/${name} 를 확인하지 못했습니다"
+            fails=$((fails + 1))
+        elif [ "$got" = "$want" ]; then
+            echo "   ✓ ${h}:/opt/apptainers"
+        else
+            echo "   ✗ ${h}: 다른 판입니다 (${got:0:12}…) — 이 노드가 실제로 실행하는 이미지입니다"
+            fails=$((fails + 1))
+        fi
+    done
+}
+
+if $ALL_SITES; then
+    site_ref=""
+    for t in "$@"; do [ -f "$t" ] && site_ref="$t"; done
+    if [ -z "$site_ref" ]; then
+        echo ""
+        echo "✗ --all-sites 에는 기준이 될 SIF 를 인자로 주어야 합니다"
+        fails=$((fails + 1))
+    else
+        check_sites "$site_ref"
+    fi
+fi
 
 # 여러 대상을 줬으면 서로도 같은 판인지 본다 — 호스트와 SIF 가 어긋나는 것이
 # 이번 사건의 형태였다
