@@ -51,3 +51,7 @@
       · 대조군(잡 1212, 시간집계 기본): `mean_timemax` 0개 —
         "기본값이면 엔진 YAML 에 안 쓴다" 는 결정대로 동작
       · `max_shear` 의 `stress_mean` 이 두 실행에서 23/23 파트 동일 — 시간집계를 켜도 기존 값 불변
+- [x] **§2 CLI 도 상류 배선 확인** (KooChainRun 493a86d) —
+      `postprocess.sphere_viewer` → `--viewer`, `postprocess.hotspot_part` → `--hotspot-part`.
+      prepare 가 생성한 `sphere_report.sh` 에 `--hotspot-part 1,2 --viewer plotly` 가
+      박히는 것까지 저쪽에서 확인. **요청서 §1·§2 양쪽 모두 상류 연결 완료.**
