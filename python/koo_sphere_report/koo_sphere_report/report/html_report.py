@@ -275,6 +275,15 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
             rd["parts"][str(pid)] = pd
         data["results"].append(rd)
 
+    # 핫스팟 군집 — 런별로 붙인다 (각도는 rd["angle"] 에 이미 있다).
+    _hs_by_folder, _hs_cap = _compact_hotspot(report.results, s_prec, e_prec, t_prec)
+    for rd in data["results"]:
+        items = _hs_by_folder.get(rd["folder"])
+        if items:
+            rd["hotspot"] = items
+    if _hs_cap:
+        data["hotspot_cap_note"] = _hs_cap
+
     flows = getattr(report, "energy_flows", {}) or {}
     # 각도 X축 전개용 파트쌍 접촉력 프로파일 — **전 각도**를 담되 스칼라만.
     # (시계열까지 담으면 1144각도 × 26쌍 × 120점 으로 payload 가 터진다)
@@ -368,6 +377,81 @@ def _contact_trust(flows: dict) -> dict:
 
 #: 흐름 시계열을 담을 최대 run 수. 넘으면 접촉력이 큰 순으로 상위만 담는다.
 _FLOW_DETAIL_LIMIT = 60
+
+# payload 에 담을 군집 수 상한. 1144각도 캠페인은 런당 27개씩 3만개가 넘고
+# 원형 그대로면 17MB 다(실측). 잘라야 하지만 **무엇이 빠졌는지 반드시 알린다**.
+_HOTSPOT_CLUSTER_BUDGET = 20000
+
+
+def _compact_cluster(c: dict, s_prec: int, e_prec: int, t_prec: int) -> dict:
+    """군집 하나를 화면이 쓰는 값만 짧은 키로. 없는 값은 **키를 만들지 않는다**.
+
+    원형은 군집당 583B(10자리 부동소수)다. 화면은 중심·반경·리스크 4종·순위만
+    쓰므로 그것만 자릿수를 줄여 담는다. 0 으로 채우면 '값 0' 과 '미계측' 이
+    구분되지 않으므로, 없으면 키가 없다 (strain_available=false 인 덱이 실제로 있다).
+    """
+    out = {
+        "c": [round_keep_sig(v, 2) for v in c["center"]],
+        "r": round_keep_sig(c.get("radius_enclosing"), 2),
+        "k": c.get("rank"),
+        "n": c.get("element_count"),
+        "s": round_keep_sig(c.get("stress_max"), s_prec),
+    }
+    if c.get("strain_max") is not None:
+        out["e"] = round_keep_sig(c["strain_max"], e_prec)
+    if c.get("energy_total") is not None:
+        out["w"] = round_keep_sig(c["energy_total"], 6)
+    if c.get("energy_max") is not None:
+        out["wd"] = round_keep_sig(c["energy_max"], 6)
+    if c.get("peak_time") is not None:
+        out["t"] = round_keep_sig(c["peak_time"], t_prec)
+    return out
+
+
+def _compact_hotspot(results, s_prec: int, e_prec: int, t_prec: int) -> tuple:
+    """런별 군집 payload + 절삭 사유. 반환: ({run_folder: [항목...]}, note)
+
+    상한을 넘으면 **순위 라운드로빈**으로 고른다 — 모든 (런 × 파트 × 기준량)
+    에서 1위를 먼저 담고, 그 다음 2위를 담는 식이다. 런별로 뭉텅이로 자르면
+    뒤쪽 각도가 통째로 사라지고, 전체를 값으로 줄 세우면 기준량이 다른 항목
+    (von Mises 와 σ3)을 같은 자로 재는 꼴이 된다.
+    """
+    buckets = []        # (folder, 항목 dict, 순위순 군집 리스트)
+    by_folder: dict = {}
+    total = 0
+    for sr in results:
+        for item in (sr.hotspot_clusters or []):
+            if not isinstance(item, dict) or not item.get("clusters"):
+                continue
+            meta = {"p": item.get("part_id"), "cr": item.get("criterion"), "cl": []}
+            if item.get("element_type"):
+                meta["et"] = item["element_type"]
+            cl = sorted(item["clusters"], key=lambda c: c.get("rank") or 0)
+            total += len(cl)
+            by_folder.setdefault(sr.run_folder, []).append(meta)
+            buckets.append((meta, cl))
+
+    if total <= _HOTSPOT_CLUSTER_BUDGET:
+        for meta, cl in buckets:
+            meta["cl"] = [_compact_cluster(c, s_prec, e_prec, t_prec) for c in cl]
+        return by_folder, ""
+
+    budget = _HOTSPOT_CLUSTER_BUDGET
+    depth = 0
+    while budget > 0 and any(len(cl) > depth for _m, cl in buckets):
+        for meta, cl in buckets:
+            if budget <= 0:
+                break
+            if depth < len(cl):
+                meta["cl"].append(_compact_cluster(cl[depth], s_prec, e_prec, t_prec))
+                budget -= 1
+        depth += 1
+    kept = _HOTSPOT_CLUSTER_BUDGET - budget
+    return by_folder, (
+        f"군집은 순위 상위 {kept:,}개만 담았습니다 (전체 {total:,}개). 각 "
+        f"파트·기준량의 1위부터 돌아가며 담으므로 어느 각도도 통째로 빠지지 "
+        f"않습니다. 전수는 report.json 의 hotspot_clusters 에 있습니다."
+    )
 
 
 def _flow_detail_folders(flows: dict) -> tuple[set, str]:
@@ -917,6 +1001,23 @@ svg text { font-family: inherit; }
 .tfh-head { display: grid; grid-template-columns: 96px repeat(21, 1fr); gap: 1px; font-size: 9px; color: var(--dim); margin-bottom: 4px; }
 .tfh-head .h0 { color: var(--cyan); }
 .tfh-head .ht { text-align: center; }
+.hs3d-note { color: var(--dim); font-size: 12px; line-height: 1.6; margin: 4px 0 10px; }
+.hs3d-warn { color: var(--yellow); font-size: 12px; line-height: 1.6; margin: 4px 0 10px; }
+.hs3d-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; }
+.hs3d-bar select { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+.hs3d-btn { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; cursor: pointer; font-size: 11px; }
+.hs3d-btn:hover { border-color: var(--cyan); }
+.hs3d-count { color: var(--dim); margin-left: auto; }
+.hs3d-stage { position: relative; }
+.hs3d-stage canvas { display: block; width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; cursor: grab; }
+.hs3d-stage canvas:active { cursor: grabbing; }
+.hs3d-legend { position: absolute; right: 12px; top: 12px; width: 150px; background: rgba(16,18,26,.82); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; font-size: 10px; }
+.hs3d-cbtitle { color: var(--fg); margin-bottom: 4px; }
+.hs3d-cbar { display: flex; height: 10px; border-radius: 2px; overflow: hidden; }
+.hs3d-cbnums { display: flex; justify-content: space-between; color: var(--dim); margin-top: 3px; }
+.hs3d-clip { color: var(--dim); margin-top: 3px; font-size: 9px; opacity: .85; }
+.hs3d-angles { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--dim); }
+.hs3d-ang { display: inline-flex; align-items: center; gap: 3px; background: var(--bg2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 7px; cursor: pointer; }
 """
 
 _JS = r"""
@@ -1175,6 +1276,10 @@ function toggleLang() {
 function init(data) {
   DATA = data;
   setupTabs();
+  // 군집이 없는 캠페인에서는 핫스팟 탭을 아예 감춘다 — 열어 봐야 "없습니다"
+  // 한 줄뿐이고, 빈 탭은 "기능이 고장났나" 로 읽힌다.
+  const hsBtn = document.getElementById('tab-btn-16');
+  if (hsBtn && !hs3dRuns().length) hsBtn.style.display = 'none';
   renderTab(0);
 }
 
@@ -1213,6 +1318,7 @@ function renderTab(i) {
     case 13: renderContactProfile(); break;
     case 14: renderToleranceDoe(); break;
     case 15: renderSetReport(); break;
+    case 16: renderHotspot3D(); break;
   }
 }
 
@@ -2480,6 +2586,447 @@ function init3DDevice() {
 // STL 근사 메시를 CSS 박스 자리 캔버스에 렌더 (직교 투영 + 플랫 셰이딩).
 // 좌표 규약: 모델(sim body) → CSS 는 (x, -y, z), 화면 = M · v_css.
 let _dmCache = null;
+// ─── 핫스팟 3D 인벨롭 뷰어 ────────────────────────────────────────────────
+// 외부 스크립트 0 — sphere 리포트의 오프라인 원칙을 지킨다 (Plotly 는 G3 옵션).
+// 메시와 군집은 **같은 좌표계**다 (파이썬 _load_hotspot_mesh 가 군집이 나온
+// 바로 그 d3plot 에서 메시를 뽑고, 어긋나면 아예 싣지 않는다). 그래서 중심·배율을
+// 메시에서 한 번만 구해 둘 다에 그대로 쓴다.
+const HS3D = { az: -0.6, el: 0.35, zoom: 1, drag: null, measure: null,
+               off: null, offPart: null, labels: true, geo: null, range: 'p98' };
+
+function hs3dRuns() {
+  return (DATA.results || []).filter(r => r.hotspot && r.hotspot.length);
+}
+
+// 데이터에 실제로 있는 척도만 선택지에 둔다. 없는 것을 두면 빈 그림이 나오고,
+// 0 으로 채우면 '값 0' 과 '미계측' 이 구분되지 않는다 (G5b 규율).
+const HS3D_MEASURES = [
+  { k: 's',  label: '응력 최대' },
+  { k: 'e',  label: '변형률 최대' },
+  { k: 'w',  label: '소성일 (mJ)' },
+  { k: 'wd', label: '소성일 밀도 (mJ/mm³)' },
+];
+
+function hs3dAvailable() {
+  const has = {};
+  for (const r of hs3dRuns())
+    for (const it of r.hotspot)
+      for (const c of it.cl)
+        for (const m of HS3D_MEASURES)
+          if (c[m.k] !== undefined && c[m.k] !== null) has[m.k] = true;
+  return HS3D_MEASURES.filter(m => has[m.k]);
+}
+
+function hs3dEnabled(folder) {
+  return !(HS3D.off && HS3D.off[folder]);
+}
+
+// 켜진 각도의 군집을 납작하게 편다
+function hs3dClusters() {
+  const out = [];
+  for (const r of hs3dRuns()) {
+    if (!hs3dEnabled(r.folder)) continue;
+    for (const it of r.hotspot) {
+      if (!hs3dPartOn(it.p)) continue;
+      for (const c of it.cl)
+        out.push({ c: c, pid: it.p, cr: it.cr, angle: (r.angle && r.angle.name) || r.folder });
+    }
+  }
+  return out;
+}
+
+function hs3dPartOn(pid) {
+  return !(HS3D.offPart && HS3D.offPart[pid]);
+}
+
+// 켜진 파트만의 메시 + 그 파트 기준 중심·배율.
+// **배율을 켜진 파트에서 다시 잡는 것이 핵심이다.** 바닥 플레이트(300mm)가
+// 섞여 있으면 기기(70mm)가 화면의 1/4 로 쪼그라들어 아무것도 안 보인다.
+function hs3dGeometry() {
+  const M = DATA.hotspot_mesh;
+  if (!M || !M.v || !M.f) return null;
+  const sig = Object.keys(HS3D.offPart || {}).sort().join(',');
+  if (HS3D.geo && HS3D.geo.sig === sig) return HS3D.geo;
+
+  const V = M.v, F0 = M.f, PID = (M.p && M.p.length === F0.length / 3) ? M.p : null;
+  const tris = [];
+  for (let t = 0; t < F0.length / 3; t++)
+    if (!PID || hs3dPartOn(PID[t])) tris.push(t);
+  if (!tris.length) return null;
+
+  // 켜진 삼각형이 실제로 쓰는 정점만으로 중심·크기를 구한다
+  const used = new Set();
+  for (const t of tris) { used.add(F0[t*3]); used.add(F0[t*3+1]); used.add(F0[t*3+2]); }
+  let cx = 0, cy = 0, cz = 0;
+  for (const i of used) { cx += V[i*3]; cy += V[i*3+1]; cz += V[i*3+2]; }
+  cx /= used.size; cy /= used.size; cz /= used.size;
+
+  const n = V.length / 3;
+  let ext = 1e-9;
+  const P = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    P[i*3]   = V[i*3] - cx;
+    P[i*3+1] = -(V[i*3+1] - cy);        // 모델 → 화면 프레임 (y 뒤집기)
+    P[i*3+2] = V[i*3+2] - cz;
+  }
+  for (const i of used)
+    ext = Math.max(ext, Math.abs(P[i*3]), Math.abs(P[i*3+1]), Math.abs(P[i*3+2]));
+
+  const F = new Int32Array(tris.length * 3);
+  for (let k = 0; k < tris.length; k++) {
+    F[k*3] = F0[tris[k]*3]; F[k*3+1] = F0[tris[k]*3+1]; F[k*3+2] = F0[tris[k]*3+2];
+  }
+  HS3D.geo = { P, F, n, ext, cx, cy, cz, sig };
+  return HS3D.geo;
+}
+
+// 메시에 실린 파트 목록
+function hs3dMeshParts() {
+  const M = DATA.hotspot_mesh;
+  if (!M || !M.p) return [];
+  return Array.from(new Set(M.p.map(Number))).sort((a, b) => a - b);
+}
+
+// 체크박스에 올릴 파트 = 메시에 있는 것 ∪ 군집이 있는 것.
+// 메시에만 맞추면 형상이 안 뽑힌 파트(두께 0.4 라 복셀에 걸러진 파트 등)의
+// 군집이 그려지는데도 끌 수가 없다 — 화면에 있는 것은 모두 끌 수 있어야 한다.
+function hs3dAllParts() {
+  const set = new Set(hs3dMeshParts());
+  for (const r of hs3dRuns()) for (const it of r.hotspot) set.add(Number(it.p));
+  return Array.from(set).sort((a, b) => a - b);
+}
+
+function hs3dMatrix() {
+  const ca = Math.cos(HS3D.az), sa = Math.sin(HS3D.az);
+  const ce = Math.cos(HS3D.el), se = Math.sin(HS3D.el);
+  // Rx(el) · Ry(az)
+  return [ ca,  0,       sa,
+           se*sa, ce, -se*ca,
+          -ce*sa, se,  ce*ca ];
+}
+
+function hs3dDraw() {
+  const cv = document.getElementById('hs3d-canvas');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const geo = hs3dGeometry();
+  if (!geo) {
+    // 파트를 전부 끈 상태. 옛 그림을 남겨 두면 "껐는데 그대로다" 로 읽힌다.
+    ctx.fillStyle = '#8a90a6';
+    ctx.font = '500 26px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('켜진 파트가 없습니다', W / 2, H / 2);
+    ctx.textAlign = 'start';
+    const c0 = document.getElementById('hs3d-count');
+    if (c0) c0.textContent = '군집 0개 · 삼각형 0개';
+    return;
+  }
+
+  const M = hs3dMatrix();
+  const s = 0.42 * Math.min(W, H) / geo.ext * HS3D.zoom;
+  const ox = W / 2, oy = H / 2;
+  const rot = (x, y, z) => [M[0]*x + M[1]*y + M[2]*z,
+                            M[3]*x + M[4]*y + M[5]*z,
+                            M[6]*x + M[7]*y + M[8]*z];
+
+  // 1) 메시 정점 회전
+  const { P, F, n } = geo;
+  const R = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const v = rot(P[i*3], P[i*3+1], P[i*3+2]);
+    R[i*3] = v[0]; R[i*3+1] = v[1]; R[i*3+2] = v[2];
+  }
+
+  // 2) 군집 — 메시와 **같은 중심·배율**로 화면 좌표를 만든다
+  const measure = HS3D.measure;
+  const cls = hs3dClusters();
+  const vals = cls.map(o => o.c[measure]).filter(v => v !== undefined && v !== null && isFinite(v));
+  // 색 범위. 전체 min~max 를 쓰면 이상치 몇 개가 나머지를 통째로 눌러 버린다 —
+  // 실측(4각도 104군집): 최대/중앙 17.5배, 98개가 색 범위 하위 10% 에 몰렸다.
+  // 그래서 기본은 2~98 분위이고, 넘는 값은 양 끝 색으로 **뭉갠다는 것을 범례에 적는다.**
+  const sorted = vals.slice().sort((a, b) => a - b);
+  const qAt = p => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))))];
+  let vmin, vmax, clipped = false;
+  if (HS3D.range === 'full' || sorted.length < 10) {
+    vmin = sorted[0]; vmax = sorted[sorted.length - 1];
+  } else {
+    vmin = qAt(0.02); vmax = qAt(0.98);
+    clipped = (vmin > sorted[0]) || (vmax < sorted[sorted.length - 1]);
+    if (!(vmax > vmin)) { vmin = sorted[0]; vmax = sorted[sorted.length - 1]; clipped = false; }
+  }
+  // 균일값을 최고위험 색으로 칠하지 않는다 — 탄성 거동 파트가 전부 0 인데
+  // 가장 진한 빨강이 되는 것은 허구 값 표시와 같은 거짓말이다 (G5b 결정 1).
+  const uniform = !(sorted.length && sorted[sorted.length-1] > sorted[0]);
+  const spheres = [];
+  for (const o of cls) {
+    const c = o.c, ctr = c.c;
+    const v = rot(ctr[0] - geo.cx, -(ctr[1] - geo.cy), ctr[2] - geo.cz);
+    const val = c[measure];
+    const t = uniform || val === undefined || val === null || !isFinite(val)
+            ? null : Math.max(0, Math.min(1, (val - vmin) / (vmax - vmin)));
+    spheres.push({ x: v[0]*s + ox, y: v[1]*s + oy, z: v[2], r: Math.max(2, c.r * s),
+                   t: t, o: o, val: val });
+  }
+
+  // 3) 메시 삼각형과 군집 구를 **한 목록에 섞어** 뒤→앞으로 그린다.
+  //    따로 그리면 반투명 하우징 뒤의 군집이 앞으로 튀어나온다.
+  const nt = F.length / 3;
+  const items = new Array(nt + spheres.length);
+  for (let t = 0; t < nt; t++)
+    items[t] = { tri: t, z: (R[F[t*3]*3+2] + R[F[t*3+1]*3+2] + R[F[t*3+2]*3+2]) / 3 };
+  for (let i = 0; i < spheres.length; i++)
+    items[nt + i] = { sph: spheres[i], z: spheres[i].z };
+  items.sort((a, b) => a.z - b.z);
+
+  const lx = 0.35, ly = -0.5, lz = 0.79;
+  for (const it of items) {
+    if (it.tri !== undefined) {
+      const t = it.tri, a = F[t*3], b = F[t*3+1], c = F[t*3+2];
+      const ux = R[b*3]-R[a*3], uy = R[b*3+1]-R[a*3+1], uz = R[b*3+2]-R[a*3+2];
+      const vx = R[c*3]-R[a*3], vy = R[c*3+1]-R[a*3+1], vz = R[c*3+2]-R[a*3+2];
+      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+      const L = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+      const sh = 0.45 + 0.55 * Math.abs((nx*lx+ny*ly+nz*lz)/L);
+      const g = Math.round(150 * sh);
+      ctx.globalAlpha = 0.22;                       // 반투명 하우징
+      ctx.fillStyle = `rgb(${g},${g+10},${g+25})`;
+      ctx.beginPath();
+      ctx.moveTo(R[a*3]*s+ox, R[a*3+1]*s+oy);
+      ctx.lineTo(R[b*3]*s+ox, R[b*3+1]*s+oy);
+      ctx.lineTo(R[c*3]*s+ox, R[c*3+1]*s+oy);
+      ctx.closePath(); ctx.fill();
+    } else {
+      const sp = it.sph;
+      ctx.globalAlpha = 0.45;
+      const base = sp.t === null ? [150, 155, 165] : valueToColorRGB(sp.t);
+      const grd = ctx.createRadialGradient(sp.x - sp.r*0.3, sp.y - sp.r*0.3, sp.r*0.1,
+                                           sp.x, sp.y, sp.r);
+      grd.addColorStop(0, `rgb(${Math.min(255,base[0]+60)},${Math.min(255,base[1]+60)},${Math.min(255,base[2]+60)})`);
+      grd.addColorStop(1, `rgb(${base[0]},${base[1]},${base[2]})`);
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.r, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = 'rgba(20,22,30,.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // 4) 라벨 — 앞쪽 군집부터, 이미 찍은 글자와 겹치면 건너뛴다.
+  //    전부 찍으면 글자가 뭉개져 아무것도 읽히지 않는다.
+  if (HS3D.labels) {
+    // 순위는 **파트 × 기준량마다** 따로 매겨진다. 파트가 둘 이상 보이는데
+    // "F4_Left #1" 만 적으면 같은 라벨이 여러 개 생겨 어느 것이 1위인지
+    // 읽는 사람이 알 수 없다. 둘 이상일 때만 구분자를 덧붙인다.
+    const vp = new Set(), vc = new Set();
+    for (const o of cls) { vp.add(o.pid); vc.add(o.cr); }
+    const showPid = vp.size > 1, showCr = vc.size > 1;
+    const placed = [];
+    ctx.font = '600 20px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    const front = spheres.slice().sort((a, b) => b.z - a.z);
+    for (const sp of front) {
+      if (placed.length >= 16) break;
+      const txt = sp.o.angle
+                + (showPid ? ` p${sp.o.pid}` : '')
+                + (showCr ? ` ${sp.o.cr}` : '')
+                + ` #${sp.o.c.k}`;
+      const w = ctx.measureText(txt).width, h = 22;
+      const x = sp.x + sp.r + 6, y = sp.y;
+      if (placed.some(p => Math.abs(p.y - y) < h && x < p.x + p.w + 8 && p.x < x + w + 8)) continue;
+      placed.push({ x, y, w, h });
+      // 지시선 — 라벨이 어느 구의 것인지 없으면 읽을 수 없다.
+      // 구 표면에서 시작해 글자 왼쪽에 닿는다 (구 안을 가로지르지 않게).
+      const dx = x - sp.x, dy = y - sp.y, L = Math.hypot(dx, dy) || 1;
+      ctx.strokeStyle = 'rgba(232,236,251,.45)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sp.x + dx / L * sp.r, sp.y + dy / L * sp.r);
+      ctx.lineTo(x - 4, y);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(16,18,26,.78)';
+      ctx.fillRect(x - 4, y - h/2, w + 8, h);
+      ctx.fillStyle = '#e8ecfb';
+      ctx.fillText(txt, x, y);
+    }
+  }
+
+  // 5) 컬러바 / 균일값 안내
+  const legend = document.getElementById('hs3d-legend');
+  if (legend) {
+    const mlabel = (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure;
+    if (uniform) {
+      legend.innerHTML = `<div class="hs3d-note">${mlabel}: 모든 군집이 같은 값입니다 ` +
+        `— 색으로 구분할 것이 없어 중립 회색으로 칠했습니다.</div>`;
+    } else {
+      let bar = '';
+      for (let i = 0; i <= 40; i++)
+        bar += `<span style="flex:1;background:${valueToColor(i/40)}"></span>`;
+      legend.innerHTML =
+        `<div class="hs3d-cbtitle">${mlabel}</div>` +
+        `<div class="hs3d-cbar">${bar}</div>` +
+        `<div class="hs3d-cbnums"><span>${clipped ? '≤' : ''}${fmtHs3d(vmin)}</span>` +
+        `<span>${clipped ? '≥' : ''}${fmtHs3d(vmax)}</span></div>` +
+        (clipped ? `<div class="hs3d-clip">2~98 분위 (전체 ${fmtHs3d(sorted[0])}` +
+                   `~${fmtHs3d(sorted[sorted.length-1])})</div>` : '');
+    }
+  }
+  const cnt = document.getElementById('hs3d-count');
+  if (cnt) cnt.textContent = `군집 ${cls.length}개 · 삼각형 ${nt}개`;
+}
+
+// 각도명·폴더명·사유 문구는 데이터에서 온다 — innerHTML 에 그대로 넣지 않는다
+function hs3dEsc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 소성일은 1e-5 수준이라 공용 소수 2자리로는 0.00 이 된다 (G5b 결정 3)
+function fmtHs3d(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  if (v !== 0 && Math.abs(v) < 0.01) return v.toExponential(2);
+  return v.toFixed(Math.abs(v) < 10 ? 3 : 1);
+}
+
+function renderHotspot3D() {
+  const host = document.getElementById('hotspot3d-content');
+  if (!host) return;
+  const runs = hs3dRuns();
+  if (!runs.length) {
+    host.innerHTML = `<div class="panel"><h2>핫스팟 3D 인벨롭</h2>` +
+      `<p class="hs3d-note">군집 데이터가 없습니다. unified_analyzer 를 ` +
+      `<code>--hotspot-clusters</code> 로 다시 돌리면 생깁니다.</p></div>`;
+    return;
+  }
+  if (!DATA.hotspot_mesh) {
+    host.innerHTML = `<div class="panel"><h2>핫스팟 3D 인벨롭</h2>` +
+      `<p class="hs3d-note">파트 메시가 없어 3D 뷰를 그리지 않았습니다. ` +
+      `${DATA.hotspot_mesh_note ? hs3dEsc(DATA.hotspot_mesh_note) : ''}</p></div>`;
+    return;
+  }
+  if (host.dataset.built === '1') { hs3dDraw(); return; }
+
+  const avail = hs3dAvailable();
+  if (!HS3D.measure) HS3D.measure = avail.length ? avail[0].k : 's';
+  HS3D.off = HS3D.off || {};
+  HS3D.offPart = HS3D.offPart || {};
+
+  const opts = avail.map(m =>
+    `<option value="${m.k}"${m.k === HS3D.measure ? ' selected' : ''}>${m.label}</option>`).join('');
+  const meshSet = new Set(hs3dMeshParts());
+  const partName = pid => ((DATA.parts || {})[pid] || {}).name || ('파트 ' + pid);
+  const pboxes = hs3dAllParts().map(pid =>
+    `<label class="hs3d-ang" title="${meshSet.has(pid) ? '' : '형상이 메시에 없어 군집만 보입니다'}">` +
+    `<input type="checkbox" data-pid="${pid}" checked> ` +
+    `${hs3dEsc(partName(pid))} (${pid})${meshSet.has(pid) ? '' : ' ·형상없음'}</label>`).join('');
+  const boxes = runs.map(r => {
+    const nm = (r.angle && r.angle.name) || r.folder;
+    return `<label class="hs3d-ang"><input type="checkbox" data-folder="${hs3dEsc(r.folder)}" checked> ` +
+           `${hs3dEsc(nm)}</label>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="panel">
+      <h2>핫스팟 3D 인벨롭</h2>
+      <p class="hs3d-note">드래그로 회전, 휠로 확대. 군집 구의 반경은
+        <code>radius_enclosing</code>, 색은 아래에서 고른 리스크 척도입니다.
+        모든 각도가 한 좌표계에 있습니다 — 낙하 덱은 모델을 돌리지 않고 속도만 돌립니다.</p>
+      ${DATA.hotspot_mesh_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_mesh_note)}</p>` : ''}
+      ${DATA.hotspot_cap_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_cap_note)}</p>` : ''}
+      <div class="hs3d-bar">
+        <label>리스크 척도 <select id="hs3d-measure">${opts}</select></label>
+        <label>색 범위 <select id="hs3d-range">
+          <option value="p98" selected>2~98 분위</option>
+          <option value="full">전체 min~max</option>
+        </select></label>
+        <label><input type="checkbox" id="hs3d-labels" checked> 라벨</label>
+        <button id="hs3d-reset" class="hs3d-btn">시점 초기화</button>
+        <span id="hs3d-count" class="hs3d-count"></span>
+      </div>
+      <div class="hs3d-stage">
+        <canvas id="hs3d-canvas"></canvas>
+        <div id="hs3d-legend" class="hs3d-legend"></div>
+      </div>
+      <div class="hs3d-angles"><b>파트</b>
+        <button id="hs3d-pall" class="hs3d-btn">전체</button>
+        <button id="hs3d-pnone" class="hs3d-btn">해제</button>
+        ${pboxes}
+      </div>
+      <div class="hs3d-angles"><b>각도</b>
+        <button id="hs3d-all" class="hs3d-btn">전체</button>
+        <button id="hs3d-none" class="hs3d-btn">해제</button>
+        ${boxes}
+      </div>
+    </div>`;
+  host.dataset.built = '1';
+
+  const cv = document.getElementById('hs3d-canvas');
+  const stage = cv.parentElement;
+  const fit = () => {
+    const w = stage.clientWidth || 800, h = Math.max(420, Math.round(w * 0.55));
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    cv.width = w * 2; cv.height = h * 2;      // 2x 오버샘플
+    hs3dDraw();
+  };
+  fit();
+  window.addEventListener('resize', () => { if (currentTab === 16) fit(); });
+
+  cv.addEventListener('mousedown', e => { HS3D.drag = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener('mouseup', () => { HS3D.drag = null; });
+  window.addEventListener('mousemove', e => {
+    if (!HS3D.drag) return;
+    HS3D.az += (e.clientX - HS3D.drag.x) * 0.01;
+    HS3D.el += (e.clientY - HS3D.drag.y) * 0.01;
+    HS3D.el = Math.max(-1.5, Math.min(1.5, HS3D.el));
+    HS3D.drag = { x: e.clientX, y: e.clientY };
+    hs3dDraw();
+  });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    HS3D.zoom = Math.max(0.3, Math.min(8, HS3D.zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+    hs3dDraw();
+  }, { passive: false });
+
+  document.getElementById('hs3d-measure').onchange = e => { HS3D.measure = e.target.value; hs3dDraw(); };
+  document.getElementById('hs3d-range').onchange = e => { HS3D.range = e.target.value; hs3dDraw(); };
+  document.getElementById('hs3d-labels').onchange = e => { HS3D.labels = e.target.checked; hs3dDraw(); };
+  document.getElementById('hs3d-reset').onclick = () => {
+    HS3D.az = -0.6; HS3D.el = 0.35; HS3D.zoom = 1; hs3dDraw();
+  };
+  const setAll = on => {
+    host.querySelectorAll('.hs3d-ang input[data-folder]').forEach(b => {
+      b.checked = on;
+      if (on) delete HS3D.off[b.dataset.folder]; else HS3D.off[b.dataset.folder] = 1;
+    });
+    hs3dDraw();
+  };
+  document.getElementById('hs3d-all').onclick = () => setAll(true);
+  document.getElementById('hs3d-none').onclick = () => setAll(false);
+  const setParts = on => {
+    host.querySelectorAll('[data-pid]').forEach(b => {
+      b.checked = on;
+      if (on) delete HS3D.offPart[b.dataset.pid]; else HS3D.offPart[b.dataset.pid] = 1;
+    });
+    hs3dDraw();
+  };
+  document.getElementById('hs3d-pall').onclick = () => setParts(true);
+  document.getElementById('hs3d-pnone').onclick = () => setParts(false);
+  host.querySelectorAll('[data-pid]').forEach(b => {
+    b.onchange = () => {
+      if (b.checked) delete HS3D.offPart[b.dataset.pid]; else HS3D.offPart[b.dataset.pid] = 1;
+      hs3dDraw();
+    };
+  });
+  host.querySelectorAll('.hs3d-ang input[data-folder]').forEach(b => {
+    b.onchange = () => {
+      if (b.checked) delete HS3D.off[b.dataset.folder]; else HS3D.off[b.dataset.folder] = 1;
+      hs3dDraw();
+    };
+  });
+}
+
 function drawDeviceMesh(inner, M) {
   const host = inner.parentElement;
   let cv = document.getElementById('device-mesh-canvas');
@@ -6389,6 +6936,7 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <div class="tab" data-tab="13">Contact Profile</div>
   <div class="tab" data-tab="14">Tolerance DOE</div>
   <div class="tab" data-tab="15">Set Report</div>
+  <div class="tab" id="tab-btn-16" data-tab="16">Hotspot 3D</div>
 </div>
 
 <div class="content">
@@ -6477,6 +7025,11 @@ def generate_html(report: Report, path: str, ts_points: int = 0, test_dir: str =
   <!-- Tab 15: Set Report (Custom Report 세트 후처리 연동) -->
   <div class="tab-content hidden" id="tab-15">
     <div id="setreport-content"></div>
+  </div>
+
+  <!-- Tab 16: Hotspot 3D (핫스팟 군집 인벨롭) -->
+  <div class="tab-content hidden" id="tab-16">
+    <div id="hotspot3d-content"></div>
   </div>
 </div>
 
