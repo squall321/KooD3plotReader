@@ -11,7 +11,10 @@
 ## 2. lsprepost libgtk — 완료 (SIF 빌드 후 재확인 남음)
 - [x] def apt 3종 + %post·%test ldd 검사 (d72adb3)
       → verify: 샌드박스 렌더 22프레임 성공 / 현 SIF exit 127, 검사 통과·실패 확인
-- [ ] 새 SIF 안에서 ldd not found 0 + 분석기 경유 렌더 1회
+- [x] 새 SIF 안에서 ldd not found 0 + 분석기 경유 렌더 1회 — §8 에서 증명됨
+      (ff6cfc5 SIF: ldd not found 0, 헤드리스 렌더 22프레임 MP4). 현 배포본 be9d2b0 에서도
+      재확인함 — `LD_LIBRARY_PATH=lsprepost/{mesa_lib,lib}` 로 ldd 하면 not found 0
+      ⚠ 그 경로 없이 ldd 하면 73건이 'not found' 로 나온다. 래퍼가 쓰는 경로로 봐야 한다
 
 ## 3. JSON 시계열 잘림·자릿수 — 완료
 - [x] 전 상태 기록 + jnum (63577f5) → verify: 시험 8/8, 실덱 4952/4952점, 피크 472 보존

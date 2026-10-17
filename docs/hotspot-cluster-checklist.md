@@ -55,9 +55,12 @@
 
 ## F. 마감
 
-- [ ] 사용법 문서 (`docs/Reports_Usage.md` 또는 신규)
-- [ ] 커밋 (의미 단위 분할)
-- [ ] pyKooCAE 측에 사용법 전달 — scenario.json `deep_extra_args` 예시 포함
+- [x] 사용법 문서 — `docs/hotspot-cluster-usage.md` (12KB)
+- [x] 커밋 (의미 단위 분할)
+- [x] pyKooCAE 측에 사용법 전달 — 2026-10-17 요청서 대응에서 완료.
+      상류가 `postprocess.hotspot_criterion`/`_time_aggregate`/`sphere_viewer` 로 배선하고
+      `deep_extra_args` 로 `--no-section-view-per-part` 를 넘기는 것까지 확인
+      (docs/hotspot_wiring_2026-10/)
 
 ---
 
