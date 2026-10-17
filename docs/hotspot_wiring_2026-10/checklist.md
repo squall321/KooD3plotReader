@@ -66,8 +66,12 @@
 - [x] `compute-node-images` (노드 재설치 원본) — 두 판 모두 교체됨
 - [x] GUI 변종 — `672e835` 로 재빌드, %test(Plotly 검사 포함) 통과
 - [x] 여섯 지점 sha256 직접 대조 — 전부 일치
-- [ ] **절차 보강 (미결)** — `deploy_from_sif.sh`/`verify_deploy.sh` 가 네 지점을 보게.
-      지금은 NFS 만 보고 "전부 일치" 를 출력해 반쯤 배포된 상태가 통과한다
+- [ ] **절차 보강 (미결)** — `verify_deploy.sh` 가 네 지점을 보게. 지금은 NFS 만 보고
+      "전부 일치" 를 출력해 반쯤 배포된 상태가 통과한다.
+      ⚠ **노드 배포는 `deploy_from_sif.sh` 에 넣지 말 것** — 상류 표준 빌드가
+      `deploy_apptainers.sh` 로 따로 한다. 검증만 넣거나 옵션 뒤에 (상류 요청 2026-10-17)
+- [x] `deploy_from_sif.sh` 가 상류 공개 인터페이스가 됨 — 계약 셋을 머리말에 못박고
+      실제 호출로 확인(인자 없음·없는 SIF 둘 다 exit 1)
 - [x] 상류 `BuildSmartTwinPostprocessorOnly.sh` 패키지 목록 — 저쪽이 6개로 수정(확인함)
 - [ ] **⚠ `BuildAll.sh` Phase 4 는 패키지 둘만 동기화 (미결, 상류)** — impact·federate·
       custom·scatter 넷이 옛 판으로 남는다. 통합 빌드로 Post 를 릴리스하지 말 것

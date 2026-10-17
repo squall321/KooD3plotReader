@@ -215,3 +215,24 @@ Phase 3 를 써도 우리 배포본이 깨지지 않는다.
 
 저쪽이 사용자에게 보고했고 고치지는 않았다. **BuildAll.sh 로 Post 를 릴리스하지 말 것.**
 우리 절차(`deploy_from_sif.sh`)나 `BuildSmartTwinPostprocessorOnly.sh` 를 쓸 것.
+
+## deploy_from_sif.sh 가 공개 인터페이스가 됐다 (2026-10-17, 사용자 결정)
+
+serviceApptainers 의 두 표준 빌드(`BuildAll.sh` · `BuildSmartTwinPostprocessorOnly.sh`)가
+호스트 동기화를 **우리 `scripts/deploy_from_sif.sh` 호출 한 줄**로 바꿨다. 동기화가 세 벌로
+따로 놀며 어긋났기 때문이다 — 통합은 패키지 2개·`make_stl` 누락, 단독은 `koo_dyna_diag`·
+`koodyna` 누락, 둘 다 VERSION 미처리.
+
+**그래서 이 스크립트는 이제 바꾸기 전에 상류에 알려야 한다.** 계약 셋을 스크립트 머리말에
+못박았고, 지금 지켜지는지 실제로 돌려 확인했다:
+① 위치 인자 `<sif> <배포 디렉토리>` ② 대화형 입력 없음 ③ 실패 시 exit≠0
+(인자 없이 호출·없는 SIF 둘 다 exit 1 확인. `set -euo pipefail` + `die()`).
+
+**미결 항목 #1 의 설계가 좁혀졌다.** 네 지점 검증을 넣을 때 **노드 배포는 여기서 하면 안
+된다** — 상류 표준 빌드가 `deploy_apptainers.sh` 로 따로 하므로 겹친다. '검증만' 넣거나
+옵션 뒤에 둘 것(상류 요청). 애초에 내가 필요하다고 본 것도 "검증이 네 곳을 보게" 였으니
+방향은 같다.
+
+상류가 바꾼 것: 헤드리스 SIF 의 `/data` 복사는 표준 스크립트에서 빠졌고(우리 스크립트가
+백업·설치한다), tar 에 VERSION 이 들어갔고(우리 v39 와 같게), GUI·compute-node-images
+복사는 그대로다. `lsprepost` 는 우리 방침대로 보존된다(현재 호스트와 SIF 판이 바이트 동일).

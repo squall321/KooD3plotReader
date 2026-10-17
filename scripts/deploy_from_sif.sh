@@ -13,6 +13,22 @@
 #   scripts/deploy_from_sif.sh <sif> <배포 디렉토리>
 #   scripts/deploy_from_sif.sh apptainer/SmartTwinPostprocessor.sif /data/SmartTwinPostprocessor
 #
+# 🔴 이 스크립트는 **공개 인터페이스다 — 바꾸기 전에 상류에 알릴 것.**
+# 2026-10-17 사용자 결정으로 serviceApptainers 의 두 표준 빌드
+# (`BuildAll.sh`, `BuildSmartTwinPostprocessorOnly.sh`)가 호스트 동기화를
+# 이 스크립트 호출 한 줄로 대체했다. 동기화가 세 벌로 따로 놀며 어긋났기 때문이다
+# (통합은 패키지 2개·make_stl 누락, 단독은 koo_dyna_diag·koodyna 누락, 둘 다 VERSION 미처리).
+#
+# 상류가 의존하는 계약 셋 — 깨면 그쪽 릴리스가 조용히 틀어진다:
+#   ① 인자는 `<sif> <배포 디렉토리>` 위치 인자
+#   ② 묻지 않고 끝까지 돈다 (대화형 입력 금지 — 배치에서 멈춘다)
+#   ③ 실패하면 0 이 아닌 종료 코드 (그래야 상류가 tar·메일 전에 멈춘다)
+# 지금은 `set -euo pipefail` + `die()` 로 ②③ 이 지켜진다. 손댈 때 유지할 것.
+#
+# 노드 배포(`/opt/apptainers`)는 **여기서 하지 않는다.** 상류 표준 빌드가
+# deploy_apptainers.sh 로 따로 하므로 겹친다. 네 지점 검증을 넣더라도 '검증만'
+# 이거나 옵션 뒤에 두어야 한다 (상류 요청, 2026-10-17).
+#
 # 보존되는 것(호스트 고유): env.sh(PYTHONPATH 줄만 갱신), lsprepost/, bin/analyze_and_report
 # 생성되는 것: bin/koo_*_report 래퍼 — 호스트 lib/ 구조에 맞춘 형식
 #
