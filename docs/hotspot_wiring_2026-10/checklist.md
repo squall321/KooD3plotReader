@@ -19,9 +19,17 @@
 - [x] e2e (case_01) — 두 기준 항목·`mean_timemax`·HTML
 - [x] 새 기준 값 독립 대조 (lasso 60건, 3.5e-10) · `mean_timemax` 는 멤버 미노출로 불변식만
 
-## 배포
-- [ ] 커밋·push
-- [ ] Post SIF 빌드 (시작·끝 pykoocae-53 통보)
-- [ ] `deploy_from_sif.sh` 호스트 · 노드 · tar · `verify_deploy.sh`
-- [ ] 배포본으로 요청서 verify 명령 재실행
+## 배포 (2026-10-17)
+- [x] 커밋·push — origin/main `be9d2b0` (§2 3D 인벨롭 G1~G6 도 같이 올라감)
+- [x] Post SIF 빌드 — `--fakeroot`, %test 통과(Plotly 번들 3개 존재 검사 포함).
+      시작 통보 완료, 그쪽이 빌드 대기 회신
+- [x] `deploy_from_sif.sh` → 호스트·SIF 모두 `be9d2b0`, 래퍼 6개 환경변수 없이 실행,
+      node001 `be9d2b0` + SIF sha256 호스트와 동일(NFS 공유)
+      SIF sha256 `7142a658c67ec4b8e0460537…`
+- [x] tar — `SmartTwinPostprocessor_20261017_v39.tar.gz` (524M), 검증 통과
+- [x] 배포본으로 요청서 verify 재실행 — `.work/deploy_2026-10/verify_request.sh`
+      `--hotspot-criterion max_shear,x_tension --hotspot-time-aggregate both` rc=0,
+      JSON 에 두 기준(max_shear 6 · x_tension 7), `mean_timemax` 60군집·불변식 위반 0,
+      모르는 기준은 즉시 rc=1 로 거절, HTML 7.2MB 생성
+      §2 도 배포본으로 확인 — sphere canvas/plotly·프리셋·deep 폐쇄망 전부 PASS
 - [ ] pykoocae-53 에 배포 완료 통보
