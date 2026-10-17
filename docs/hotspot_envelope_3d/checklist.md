@@ -18,9 +18,13 @@
       브라우저 JS 예외 0
 
 ## G1. 파트 메쉬
-- [ ] `make_stl` 로 지정 파트만 추출 (`parts_csv`) → verify: p 배열 pid 집합 == {지정 pid}
-- [ ] 메쉬 payload 를 리포트에 임베드 (기존 device_preview 규약 재사용)
-      → verify: 삼각형 수·bbox 가 군집 bbox 와 같은 좌표계
+- [x] `make_stl` 로 지정 파트만 추출 (`parts_csv`)
+      → verify: `--hotspot-part 15` → p 집합 {15}(744삼각형), `1,21` → {1,21}(5392).
+      빠진 파트는 사유를 단정하지 않고 세 가능성 + `--hotspot-part` 안내
+- [x] 메쉬 payload 를 리포트에 임베드 (device_preview 규약 재사용 — 서명·원자 교체)
+      → verify: 군집 중심 85/85 가 메쉬 bbox 안(여유 2%). **형상 소스는 런의
+      d3plot** — 원본 `.k` 는 평행이동만큼 어긋나 90/104 가 밖으로 나갔다.
+      좌표계가 어긋나면 메쉬를 싣지 않는 가드 + 시험 9건 (test_hotspot_mesh.py)
 
 ## G2. 자체 캔버스 3D 뷰어 (기본)
 - [ ] `drawDeviceMesh` 기반 회전 뷰어 — 드래그 회전 · 휠 줌

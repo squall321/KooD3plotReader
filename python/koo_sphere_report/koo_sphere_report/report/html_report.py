@@ -1,5 +1,6 @@
 """Single-file interactive HTML report generator. No external dependencies."""
 import dataclasses
+import hashlib
 import html
 import json
 import math
@@ -288,6 +289,27 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
     elif data["device_mesh"] is None:
         data["device_mesh_note"] = ("device_preview.json 없음 — make_stl 로 생성하면 "
                                     "각도 미리보기가 실제 형상으로 바뀝니다")
+    # 핫스팟 군집을 얹을 파트 메시. 파트는 **수집된 군집에서** 뽑는다 — 로더가
+    # --hotspot-part 로 이미 좁혔으므로 같은 집합이고, 군집이 없는 파트의 형상을
+    # 괜히 뽑지 않는다. 군집이 없으면 키 자체를 만들지 않는다.
+    _hs_pids = sorted({
+        int(it["part_id"]) for sr in report.results
+        for it in (sr.hotspot_clusters or [])
+        if isinstance(it, dict) and isinstance(it.get("part_id"), (int, float))
+    })
+    if _hs_pids:
+        _hs_mesh, _hs_note = _load_hotspot_mesh(test_dir, _hs_pids)
+        data["hotspot_parts"] = _hs_pids
+        if _hs_mesh is not None:
+            _frame = _hotspot_frame_check(_hs_mesh, report.results)
+            if _frame:
+                # 좌표계가 어긋나면 그림은 멀쩡해 보이면서 군집만 엉뚱한 곳에
+                # 찍힌다. 틀린 그림을 그리느니 메시를 싣지 않고 사유를 말한다.
+                _hs_mesh, _hs_note = None, _frame
+            else:
+                data["hotspot_mesh"] = _hs_mesh
+        if _hs_note:
+            data["hotspot_mesh_note"] = _hs_note
     # 검출된 단위계 — peak-G 가 어느 환산으로 나온 값인지 화면에서 알 수 있게.
     # detected=False 면 그 환산은 '검출된 것' 이 아니라 기본값이고, note 가 사유다.
     data["unit_system"] = {
@@ -424,6 +446,35 @@ def _script_safe(js_text: str) -> str:
     return js_text.replace("</", "<\\/")
 
 
+def _find_make_stl() -> Path | None:
+    """make_stl 탐색: unified_analyzer 옆(KOOD3PLOT_HOME) → 저장소 빌드 트리.
+
+    메시를 만드는 곳이 둘(자세 미리보기·핫스팟 파트)이라 한 곳에 둔다 —
+    같은 목록이 두 벌로 갈라져 어긋나는 것이 이 저장소가 반복해 밟은 함정이다.
+    """
+    import os
+
+    cands = []
+    env = os.environ.get("KOOD3PLOT_HOME")
+    if env:
+        cands.append(Path(env) / "bin" / "make_stl")
+    for anc in Path(__file__).resolve().parents:
+        cands.append(anc / "build" / "examples" / "make_stl")
+    return next((c for c in cands if c.is_file()), None)
+
+
+def _first_run_d3plot(base: Path) -> Path | None:
+    """캠페인 첫 런의 d3plot (원본 .k 를 못 찾았을 때의 형상 소스)."""
+    out_dir = base / "output"
+    if not out_dir.is_dir():
+        return None
+    for run in sorted(out_dir.iterdir()):
+        cand = run / "d3plot"
+        if cand.is_file():
+            return cand
+    return None
+
+
 def _load_device_mesh(test_dir: str) -> dict | None:
     """자세 미리보기용 근사 외곽 메시 (make_stl 산출 JSON).
 
@@ -434,7 +485,6 @@ def _load_device_mesh(test_dir: str) -> dict | None:
     폴백한다. 실패하면 None — 보고서는 기존 CSS 박스로 폴백한다
     (무음 아님: device_mesh_note 로 사유 전달).
     """
-    import os
     import subprocess
 
     from .preview_cache import ensure_fresh, keyword_source_files
@@ -444,14 +494,7 @@ def _load_device_mesh(test_dir: str) -> dict | None:
     base = Path(test_dir)
     cache = base / "device_preview.json"
 
-    # make_stl 탐색: unified_analyzer 옆 → 저장소 빌드 트리
-    cands = []
-    env = os.environ.get("KOOD3PLOT_HOME")
-    if env:
-        cands.append(Path(env) / "bin" / "make_stl")
-    for anc in Path(__file__).resolve().parents:
-        cands.append(anc / "build" / "examples" / "make_stl")
-    tool = next((c for c in cands if c.is_file()), None)
+    tool = _find_make_stl()
 
     # 소스 집합 — 원본 .k 는 *INCLUDE 로 끌어오는 파일까지 전부 감시해야 한다.
     # (형상이 인클루드에 있고 마스터 덱은 안 바뀌는 것이 실무 표준이다)
@@ -463,14 +506,7 @@ def _load_device_mesh(test_dir: str) -> dict | None:
         def build_args(prefix: str) -> list:
             return [str(src), prefix, "6000", "128"]
     else:
-        d3 = None
-        out_dir = base / "output"
-        if out_dir.is_dir():
-            for run in sorted(out_dir.iterdir()):
-                cand = run / "d3plot"
-                if cand.is_file():
-                    d3 = cand
-                    break
+        d3 = _first_run_d3plot(base)
         if d3 is None:
             # 소스를 못 찾았다고 멀쩡한 캐시를 버리면 구코드 대비 회귀다.
             # 신선도는 확인 불가라고 정직하게 말하되, 있는 것은 쓴다.
@@ -501,6 +537,125 @@ def _load_device_mesh(test_dir: str) -> dict | None:
         return json.loads(cache.read_text(encoding="utf-8")), note
     except (json.JSONDecodeError, OSError) as e:
         return None, f"미리보기 캐시를 읽지 못했습니다 ({type(e).__name__})"
+
+
+def _hotspot_mesh_name(pids: list) -> str:
+    """파트 집합마다 다른 캐시 이름 — 파트를 바꿔 다시 뽑아도 서로 덮지 않는다.
+
+    파트가 많으면 파일명 길이 한계(255바이트)에 걸리므로 그때만 해시로 줄인다.
+    """
+    joined = "-".join(str(p) for p in sorted(pids))
+    if len(joined) > 60:
+        joined = hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
+    return f"hotspot_mesh_{joined}"
+
+
+def _hotspot_frame_check(mesh: dict, results) -> str | None:
+    """메시와 군집이 같은 좌표계인가. 어긋나면 사유, 맞으면 None.
+
+    같은 좌표계라면 군집 중심은 그 파트 메시의 bbox 안에 있어야 한다. 복셀
+    데시메이션이 경계를 조금 깎으므로 최대변의 2% 를 여유로 둔다. 캠페인이
+    런마다 모델을 회전시키거나(지금 규약은 속도만 회전), 메시를 다른 형상
+    소스에서 뽑으면 여기서 걸린다.
+    """
+    bb = mesh.get("bbox")
+    if not (isinstance(bb, list) and len(bb) == 6):
+        return None
+    mesh_pids = {int(p) for p in mesh.get("p", [])}
+    if not mesh_pids:
+        return None
+    tol = 0.02 * max(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2])
+    total = out = 0
+    for sr in results:
+        for item in (sr.hotspot_clusters or []):
+            if not isinstance(item, dict) or int(item.get("part_id", -1)) not in mesh_pids:
+                continue
+            for c in item.get("clusters") or []:
+                ctr = c.get("center")
+                if not (isinstance(ctr, list) and len(ctr) == 3):
+                    continue
+                total += 1
+                if any(ctr[i] < bb[i] - tol or ctr[i] > bb[i + 3] + tol for i in range(3)):
+                    out += 1
+    if total == 0 or out * 2 <= total:      # 절반 이하면 경계 근처 군집으로 본다
+        return None
+    return (f"핫스팟 파트 메시와 군집의 좌표계가 어긋나 메시를 싣지 않았습니다 "
+            f"(군집 중심 {out}/{total} 개가 메시 bbox 밖) — 캠페인이 런마다 모델을 "
+            f"회전시키는 구조일 수 있습니다")
+
+
+def _load_hotspot_mesh(test_dir: str, part_ids) -> tuple:
+    """핫스팟 군집을 얹을 **지정 파트만**의 외곽 메시 (make_stl parts_csv).
+
+    자세 미리보기(device_preview)와 같은 규약을 쓴다 — 서명으로 신선도를 보고,
+    임시 접두로 만든 뒤 검증에 성공했을 때만 원자적으로 바꾼다. 다른 점은
+    파트를 좁힌다는 것뿐이다.
+
+    **형상 소스는 런의 d3plot 이다** — 자세 미리보기와 다른 점이고, 이유가 있다.
+    각도별 런은 모델을 회전시키지 않고 낙하 속도 벡터만 회전시키므로 모든 런이
+    한 좌표계를 공유한다(덱 실측, context-notes 2026-10-17). 그러나 그 좌표계는
+    시나리오 원본 `.k` 와 **평행이동만큼 다르다** — 낙하 덱이 모델을 원점 중심으로
+    옮겨 놓는다(실측: 원본 x∈[1,71] 대 군집 x∈[-34,35]). 군집 `center` 는
+    d3plot 의 초기 형상 기준이므로(`HotspotClusterAnalyzer.hpp:157`) 원본 `.k` 로
+    메시를 뽑으면 군집이 통째로 어긋난 채 **그림은 멀쩡해 보인다.** 그래서
+    군집이 나온 바로 그 형상에서 뽑는다 — 변환이 필요 없다.
+
+    반환: (메시 dict | None, 사유 note | None)
+    """
+    from .preview_cache import ensure_fresh
+
+    if not test_dir or not part_ids:
+        return None, None
+    try:
+        pids = sorted({int(p) for p in part_ids})
+    except (TypeError, ValueError):
+        return None, "핫스팟 파트 ID 가 정수가 아닙니다"
+    base = Path(test_dir)
+    name = _hotspot_mesh_name(pids)
+    cache = base / f"{name}.json"
+    parts_csv = ",".join(str(p) for p in pids)
+    tool = _find_make_stl()
+
+    d3 = _first_run_d3plot(base)
+    if d3 is None:
+        return None, ("런의 d3plot 을 찾지 못해 핫스팟 파트 메시를 만들 수 "
+                      "없습니다 (군집과 같은 좌표계를 보장할 수 있는 형상은 "
+                      "d3plot 뿐입니다)")
+    sources = [d3]
+    params = {"mode": "parts-d3plot", "parts": pids, "target": 6000, "vr": 128}
+
+    def build_args(prefix: str) -> list:
+        return [str(d3), prefix, "6000", "128", parts_csv]
+
+    note = ensure_fresh(base, name, sources, params, tool, build_args)
+
+    if not cache.is_file():
+        return None, note
+    try:
+        if cache.stat().st_size > 3 * 1024 * 1024:
+            return None, "핫스팟 파트 메시가 3MB 를 넘어 임베드하지 않았습니다"
+        mesh = json.loads(cache.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        return None, f"핫스팟 파트 메시를 읽지 못했습니다 ({type(e).__name__})"
+
+    # 요청한 파트만 실렸는지 확인한다. make_stl 은 없는 파트를 경고만 하고
+    # 나머지로 진행하므로, 조용히 다른 파트를 그리지 않게 여기서 되묻는다.
+    got = {int(p) for p in mesh.get("p", [])}
+    if got and not got <= set(pids):
+        return None, (f"핫스팟 파트 메시에 요청하지 않은 파트가 섞였습니다 "
+                      f"(요청 {pids}, 산출 {sorted(got)})")
+    # 빠진 파트는 사유를 단정하지 않는다 — 실측으로 세 갈래가 다 나왔다.
+    # 모델에 없거나(바닥 플레이트처럼 덱에만 있는 파트의 반대 경우), 다른 파트
+    # 안에 가려 외피에 안 나오거나, 선택 전체의 bbox 가 커서 복셀 격자가
+    # 얇은 파트를 삼킨다(파트 15 는 두께 0.4 로, 바닥까지 고르면 사라졌다).
+    missing = [p for p in pids if p not in got] if got else pids
+    if missing:
+        why = ("모델에 없거나, 다른 파트 안에 가려졌거나, 선택 전체의 bbox 가 커서 "
+               "복셀 격자에 걸러진 것입니다 — --hotspot-part 로 좁히면 해상도가 "
+               "올라가 나올 수 있습니다")
+        note = (f"핫스팟 파트 {missing} 가 메시에 없습니다: {why}"
+                + (f" ({note})" if note else ""))
+    return mesh, note
 
 
 def _set_report_payload(results: list, test_dir: str) -> dict:
