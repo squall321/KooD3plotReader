@@ -42,3 +42,12 @@
       → verify: 세 대 모두 `7142a658…`, 노드에서 VERSION `be9d2b0` ·
         capabilities 기준 7종/집계 3종 · Plotly 번들 3개 확인
 - [x] pykoocae-53 에 배포 완료 통보 — VERSION·SIF sha256·tar 경로·verify 결과 전달
+- [x] **저쪽 e2e 통과 — 요청서 대응 종결** (2026-10-17, pykoocae-53 보고)
+      스택: Pre SIF v118(1147567e) · Post SIF 7142a658 · KooChainRun 493a86d · smarttwin-mcp 7dae7698
+      · MCP `post_deep_report` (잡 1211): 46항목(max_shear 23 + x_tension 23), 군집 65개 전부
+        `mean_timemax`, 부등식 위반 0/65, HTML 에 라벨 노출
+      · KooChainRun 캠페인 (잡 1214): `scenario.postprocess.hotspot_criterion`/`_time_aggregate`
+        → deep_report.sh 인자로 전달, 46항목·군집 58개·위반 0
+      · 대조군(잡 1212, 시간집계 기본): `mean_timemax` 0개 —
+        "기본값이면 엔진 YAML 에 안 쓴다" 는 결정대로 동작
+      · `max_shear` 의 `stress_mean` 이 두 실행에서 23/23 파트 동일 — 시간집계를 켜도 기존 값 불변
