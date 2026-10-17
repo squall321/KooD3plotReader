@@ -122,7 +122,7 @@
       sphere 두 뷰어 모두 외부 요청 0
 - [x] 커밋 분할 — fd73f0b(좌표계) / 9098505(G1) / 02b4dfa(G2) / 878b3c4(G3) /
       b37c10d(G4·G6)
-- [ ] push (미push 커밋 7개) · §1 배포는 사용자 확인 대기
+- [x] push 완료 — origin/main be9d2b0, 배포까지 끝남 (docs/hotspot_wiring_2026-10/checklist.md §배포)
 
 ### 범위 밖 (넘길 것)
 - 미계측 null 을 그리는 쪽이 안 막아 탭 3개가 죽는다 (`renderStatistics` ·

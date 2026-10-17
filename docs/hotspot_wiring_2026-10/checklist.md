@@ -32,4 +32,4 @@
       JSON 에 두 기준(max_shear 6 · x_tension 7), `mean_timemax` 60군집·불변식 위반 0,
       모르는 기준은 즉시 rc=1 로 거절, HTML 7.2MB 생성
       §2 도 배포본으로 확인 — sphere canvas/plotly·프리셋·deep 폐쇄망 전부 PASS
-- [ ] pykoocae-53 에 배포 완료 통보
+- [x] pykoocae-53 에 배포 완료 통보 — VERSION·SIF sha256·tar 경로·verify 결과 전달
