@@ -9,16 +9,27 @@
       `g_ts.max`/`disp_ts.max` 390/390 일치, 불일치 0.
       σ1·ε 시계열은 어느 캠페인에도 CSV 가 없어 미확인(요청서가 짚은 '분석 잡 미실행')
 - [x] 브라우저 회귀 — 탭 17개, JS 예외 0, 외부요청 0
-- [ ] push (PR #2 자동 종료 확인)
+- [x] push — 머지커밋 3e02720, 브랜치가 main 의 조상이 되어 PR #2 가 닫힌다
+- [x] (곁다리) σ1·σ3 시계열이 실데이터로 나오는 것 확인 — 분석을 `csv: true` 로 돌리면
+      `principal_ts` 23개(최대 358.0) · `principal_min_ts` 에 압축측 `min`(−270.7).
+      ε 계열 3종은 변형률 텐서(STRFLG)가 필요해 이 덱엔 없다
 
-## 2. hotspot-cluster 검증
-- [ ] 타 필드 불변 — 군집 켜고/끄고 돌려 나머지 필드 전수 대조
-- [ ] 실덱 육안 대조 — 군집 위치 vs 단면 뷰
-- [ ] 성능 — 요소 수십만 덱에서 켜고/끄고 시간 비교
+## 2. hotspot-cluster 검증  ✅ 완료
+- [x] 타 필드 불변 — 전 필드 재귀 대조, 차이는 `analysis_date` 2초뿐.
+      **이 대조가 결함을 잡았다** — 군집을 꺼도 `hotspot_clusters: []` 가 나갔다 (65ab673 수정)
+- [x] 실덱 대조 — 값·시각·피크요소 ID 완전 일치 + lasso 독립 계산 6/6.
+      육안 대조는 한계가 있었다(절단면이 군집을 비켜가고, 피크가 요소 1개)
+- [x] 성능 — 45,457 솔리드·400상태 1.01초 → 1.41초 (+38%). '수십만' 덱은 이 머신에 없다
 
 ## 3. impact V5·V6
 - [ ] V5 — 배포본 SIF 안에서 Test_Impact_A 실행·시간·배지·Finding 확인
+      ⚠ 1차 시도가 죽었다 — 기본 `parallel_runs=16 × threads 2` = 32 동시 읽기.
+      가용 메모리 23GB(VM·cpptools 점유)에서 OOM. `--parallel-runs 4 --threads-per-run 2`
+      로 재실행 중 (기억의 'max 2 threads' 권고와 같은 맥락)
 - [ ] V6 — pyKooCAE probe 연동 (상류 협의)
 
 ## 4. custom_report
-- [ ] KooChainRun 통합 실전 확인 (상류 의존 — 가능 여부부터)
+- [ ] KooChainRun 통합 실전 확인 — **상류에 문의함(2026-10-18)**.
+      우리 쪽은 끝났다: 단독 CLI·sphere 탭15·impact s10 전부 Playwright 검증 완료,
+      배포본 `bin/koo_custom_report` 환경변수 없이 실행됨.
+      KooChainRun 이 부르지 않으면 '해당 없음' 으로 닫는다
