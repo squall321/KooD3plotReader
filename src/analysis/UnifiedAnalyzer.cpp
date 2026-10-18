@@ -1484,6 +1484,9 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                 if (st.solid_data.empty()) continue;
                 double smax = -1.0, emax = -1.0;
                 int32_t s_id = 0, e_id = 0;
+                // 피크를 낸 요소의 **인덱스**도 들고 간다 — 파트를 매기려면 실 ID 가
+                // 아니라 인덱스가 필요하다 (mesh.solid_parts 는 인덱스로 찾는다).
+                int32_t s_idx = -1, e_idx = -1;
                 for (int32_t ei : sr.parent_elem_idx) {
                     const size_t base = (size_t)ei * nv3d;
                     if (base + 6 >= st.solid_data.size()) continue;
@@ -1494,11 +1497,15 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                     const double ep = st.solid_data[base + 6];
                     const int32_t rid = ((size_t)ei < mesh.solids.size())
                                         ? mesh.solids[ei].id : ei + 1;
-                    if (vm > smax) { smax = vm; s_id = rid; }
-                    if (ep > emax) { emax = ep; e_id = rid; }
+                    if (vm > smax) { smax = vm; s_id = rid; s_idx = ei; }
+                    if (ep > emax) { emax = ep; e_id = rid; e_idx = ei; }
                 }
                 if (smax < 0) continue;
-                auto push = [&](SetFieldResult& f, double v, int32_t id) {
+                // 세그먼트 세트는 부모 solid 요소를 훑는다. 그 요소가 어느 파트인지는
+                // 알 수 있는데 종전에는 채우지 않아 **peak_part_id 가 0 으로 남았다**
+                // (파트 ID 는 1부터라 0 은 존재하지 않는 파트다 — 화면에 "0" 으로 찍혀
+                // 실제 파트처럼 읽혔다). 2026-10-18 pykoocae-53 이 MCP e2e 에서 지적.
+                auto push = [&](SetFieldResult& f, double v, int32_t id, int32_t idx) {
                     f.times.push_back(st.time);
                     f.values.push_back(v);
                     if (!f.measured || v > f.peak) {
@@ -1506,14 +1513,13 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                         f.peak_time = st.time;
                         f.peak_state = (int32_t)t;
                         f.peak_element_id = id;
-                        if ((size_t)0 < mesh.solid_parts.size()) {
-                            // 대표 파트: 그 요소의 파트
-                        }
+                        f.peak_part_id = (idx >= 0 && (size_t)idx < mesh.solid_parts.size())
+                                         ? mesh.solid_parts[idx] : 0;
                     }
                     f.measured = true;
                 };
-                push(f_vm, smax, s_id);
-                push(f_eps, emax, e_id);
+                push(f_vm, smax, s_id, s_idx);
+                push(f_eps, emax, e_id, e_idx);
             }
             if (!f_vm.measured) f_vm.note = "solid 결과 없음";
             if (!f_eps.measured) f_eps.note = "solid 결과 없음";

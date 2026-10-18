@@ -57,6 +57,17 @@
 ## P7 — 검증·배포
 
 - [x] V1-V4 (골든 22 passed / floor 픽스처 3종 / 338위치 합성: 0.9s·RSS 228MB·에러 0 / 캐시 20×·1-touch=1-miss)
-- [ ] V5 Test_Impact_A 실데이터 (SIF 내, ≤6s, 배지 PASS-다수, Finding>2)
-- [ ] commit/push → SIF 재빌드 → NFS 배포
+- [x] V5 Test_Impact_A 실데이터 (배포본 SIF 안, 2026-10-18)
+      · **시간 2.05초** (캐시 재실행) — 조건 ≤6s 충족.
+        첫 실행 758초(캐시 생성 25런), 2회차 34초(SIF 콜드스타트), 3회차 2.05초
+      · **Finding 6개** — 조건 >2 충족. insight 패널 20개
+      · JS 예외 0 · 외부 요청 0 (폐쇄망 안전)
+      · ⚠ **"배지 PASS-다수" 조건은 이 데이터에 대해 틀렸다** — 폐기한다.
+        Test_Impact_A 의 진실은 유효 접촉 9/25 이고 그 9개가 전부 에너지 게이트
+        FAIL 이다(2026-07 확정, 보고서가 findings·hero·Rule0 로 정면 배치).
+        실제 판정은 CRITICAL 11 · WARNING 9 · PASSED 4 · NOT MEASURED 1 이고,
+        화면이 "유효 접촉 런 9/25 — 나머지 16런은 glstat 창에서 접촉 미검출" 을
+        명시한다. PASS 가 다수로 나왔다면 그것이 오히려 거짓말이다
+- [x] commit/push → SIF 재빌드 → NFS 배포 — 여러 릴리스를 거쳐 이미 반영됨
+      (현 배포본 be9d2b0 에서 koo_impact_report 실행·시험 148개 통과 확인)
 - [ ] V6 pyKooCAE probe 연동 (마지막)

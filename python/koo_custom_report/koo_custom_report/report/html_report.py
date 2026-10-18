@@ -145,7 +145,10 @@ def _set_section(sr: SetResult) -> str:
                     f'<td>{_fmt(float(f["peak"]))}</td>'
                     f'<td>{_fmt(float(f["peak_time"]))}</td>'
                     f'<td>{f.get("peak_element_id", "")}</td>'
-                    f'<td>{f.get("peak_part_id", "")}</td></tr>')
+                    # 파트 ID 는 1부터다. 0 은 '파트 0' 이 아니라 **안 매겨졌다**는 뜻이고
+                    # (노드셋은 절점이 파트에 속하지 않으니 원래 못 매긴다), 그대로 찍으면
+                    # 존재하지 않는 파트로 읽힌다. 미계측과 같은 '—' 로 둔다.
+                    f'<td>{f.get("peak_part_id") or "—"}</td></tr>')
             else:
                 note = html.escape(str(f.get("note") or "미계측"))
                 parts.append(
