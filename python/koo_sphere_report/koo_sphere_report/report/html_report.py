@@ -1039,6 +1039,12 @@ svg text { font-family: inherit; }
 .hs3d-stage { position: relative; }
 .hs3d-stage canvas { display: block; width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; cursor: grab; }
 .hs3d-stage canvas:active { cursor: grabbing; }
+.hs3d-tip { position: absolute; display: none; pointer-events: none; z-index: 5;
+            background: rgba(16,18,26,.94); border: 1px solid var(--line); border-radius: 5px;
+            padding: 6px 9px; font-size: 11px; line-height: 1.5; color: var(--fg);
+            white-space: nowrap; }
+.hs3d-tip b { color: var(--cyan); }
+.hs3d-tip .d { color: var(--dim); }
 .hs3d-legend { position: absolute; right: 12px; top: 12px; width: 150px; background: rgba(16,18,26,.82); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; font-size: 10px; }
 .hs3d-cbtitle { color: var(--fg); margin-bottom: 4px; }
 .hs3d-cbar { display: flex; height: 10px; border-radius: 2px; overflow: hidden; }
@@ -2675,7 +2681,8 @@ let _dmCache = null;
 // 바로 그 d3plot 에서 메시를 뽑고, 어긋나면 아예 싣지 않는다). 그래서 중심·배율을
 // 메시에서 한 번만 구해 둘 다에 그대로 쓴다.
 const HS3D = { az: -0.6, el: 0.35, zoom: 1, drag: null, measure: null,
-               off: null, offPart: null, labels: true, geo: null, range: 'p98', mode: 'bubble' };
+               off: null, offPart: null, labels: true, geo: null, range: 'p98', mode: 'bubble',
+               pick: null, pickMeasure: null };   // pick = 호버가 집을 화면좌표 구 목록
 
 function hs3dRuns() {
   return (DATA.results || []).filter(r => r.hotspot && r.hotspot.length);
@@ -2833,6 +2840,8 @@ function hs3dDrawCanvas() {
     ctx.textAlign = 'start';
     const c0 = document.getElementById('hs3d-count');
     if (c0) c0.textContent = '군집 0개 · 삼각형 0개';
+    HS3D.pick = [];           // 옛 목록을 남기면 빈 화면에서 호버가 뜬다
+    hs3dHideTip();
     return;
   }
 
@@ -2999,6 +3008,60 @@ function hs3dDrawCanvas() {
   }
   const cnt = document.getElementById('hs3d-count');
   if (cnt) cnt.textContent = `군집 ${cls.length}개 · 삼각형 ${nt}개`;
+
+  // 호버가 집을 수 있게 **화면 좌표 그대로** 보관한다. 다시 투영하면 회전·줌과
+  // 어긋나 엉뚱한 군집을 집는다.
+  HS3D.pick = spheres;
+  HS3D.pickMeasure = measure;
+}
+
+// ── 캔버스 호버 ───────────────────────────────────────────────
+// Plotly 뷰어에는 호버가 있지만 그쪽은 값 상위 HS3D_PLOTLY_MAX 개만 그린다.
+// 전수를 보는 쪽이 캔버스인데 거기에 호버가 없으면, 군집이 다 보이기는 해도
+// **어느 각도의 무엇인지는 알 수 없는** 그림이 된다. 라벨은 겹침 때문에 최대
+// 16개만 찍히므로 라벨로는 대신할 수 없다.
+function hs3dPick(mx, my) {
+  const list = HS3D.pick;
+  if (!list || !list.length) return null;
+  let best = null;
+  for (const sp of list) {
+    // 작은 군집도 집히게 최소 반경을 둔다 (화면 2배 오버샘플 기준 28px ≈ 14 CSS px)
+    const rr = Math.max(sp.r, 28);
+    if (Math.hypot(mx - sp.x, my - sp.y) > rr) continue;
+    // 겹치면 **앞쪽**을 고른다 — 눈에 보이는 것이 집혀야 한다
+    if (!best || sp.z > best.z) best = sp;
+  }
+  return best;
+}
+
+function hs3dHideTip() {
+  const t = document.getElementById('hs3d-tip');
+  if (t) t.style.display = 'none';
+}
+
+function hs3dShowTip(sp, cssX, cssY) {
+  const t = document.getElementById('hs3d-tip');
+  if (!t) return;
+  const m = HS3D.pickMeasure;
+  const mlabel = (HS3D_MEASURES.find(x => x.k === m) || {}).label || m;
+  // 값이 없으면 0 으로 적지 않는다 — '못 쟀다' 와 '값 0' 은 다른 말이다
+  const vtxt = (sp.val === undefined || sp.val === null || !isFinite(sp.val))
+             ? '<span class="d">미계측</span>' : fmtHs3d(sp.val);
+  t.innerHTML =
+    `<b>${hs3dEsc(sp.o.angle)}</b> · 파트 ${hs3dEsc(sp.o.pid)}` +
+    ` · <span class="d">${hs3dEsc(sp.o.cr)}</span> · #${hs3dEsc(sp.o.c.k)}<br>` +
+    `${hs3dEsc(mlabel)}: ${vtxt}<br>` +
+    `<span class="d">요소 ${hs3dEsc(sp.o.c.n)} · 포함반경 ${fmtHs3d(sp.o.c.r)}</span>`;
+  t.style.display = 'block';
+  // 가장자리에서 툴팁이 잘리지 않게 안쪽으로 접는다
+  const stage = t.parentElement;
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const tw = t.offsetWidth, th = t.offsetHeight;
+  let x = cssX + 14, y = cssY + 14;
+  if (x + tw > sw - 4) x = cssX - tw - 14;
+  if (y + th > sh - 4) y = cssY - th - 14;
+  t.style.left = Math.max(4, x) + 'px';
+  t.style.top  = Math.max(4, y) + 'px';
 }
 
 // 각도명·폴더명·사유 문구는 데이터에서 온다 — innerHTML 에 그대로 넣지 않는다
@@ -3325,6 +3388,7 @@ function renderHotspot3D() {
         ${isPlotly ? '<div id="hs3d-plotly" style="height:560px"></div>'
                    : '<canvas id="hs3d-canvas"></canvas>'}
         <div id="hs3d-legend" class="${isPlotly ? 'hs3d-legend-flat' : 'hs3d-legend'}"></div>
+        ${isPlotly ? '' : '<div id="hs3d-tip" class="hs3d-tip"></div>'}
       </div>
       <div class="hs3d-angles"><b>파트</b>
         <button id="hs3d-pall" class="hs3d-btn">전체</button>
@@ -3372,7 +3436,17 @@ function renderHotspot3D() {
     e.preventDefault();
     HS3D.zoom = Math.max(0.3, Math.min(8, HS3D.zoom * (e.deltaY < 0 ? 1.12 : 1/1.12)));
     hs3dDraw();
+    hs3dHideTip();            // 줌 뒤 좌표가 바뀌었다 — 옛 자리의 툴팁을 남기지 않는다
   }, { passive: false });
+  cv.addEventListener('mousemove', e => {
+    if (HS3D.drag) { hs3dHideTip(); return; }   // 돌리는 중에는 방해하지 않는다
+    const rc = cv.getBoundingClientRect();
+    const cssX = e.clientX - rc.left, cssY = e.clientY - rc.top;
+    // 캔버스는 CSS 크기의 2배로 오버샘플돼 있다 — 보관한 좌표계로 맞춘다
+    const sp = hs3dPick(cssX * cv.width / rc.width, cssY * cv.height / rc.height);
+    if (sp) hs3dShowTip(sp, cssX, cssY); else hs3dHideTip();
+  });
+  cv.addEventListener('mouseleave', hs3dHideTip);
   }
 
   document.getElementById('hs3d-measure').onchange = e => { HS3D.measure = e.target.value; hs3dDraw(); };
