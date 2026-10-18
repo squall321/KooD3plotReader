@@ -348,10 +348,23 @@ struct AnalysisResult {
         oss << indent << "\"acceleration_history\": " << partStatsArrayToJSON(acceleration_history, pretty, indent) << "," << nl;
 
         // Surface analysis
-        oss << indent << "\"surface_analysis\": " << surfaceStatsArrayToJSON(surface_analysis, pretty, indent) << "," << nl;
+        oss << indent << "\"surface_analysis\": " << surfaceStatsArrayToJSON(surface_analysis, pretty, indent);
 
-        // 핫스팟 군집 (비활성이면 빈 배열)
-        oss << indent << "\"hotspot_clusters\": " << hotspotArrayToJSON(hotspot_clusters, pretty, indent) << nl;
+        // 핫스팟 군집 — **비었으면 키 자체를 내지 않는다.**
+        // 전에는 비활성일 때도 `"hotspot_clusters": []` 를 냈다. 그러면 읽는 쪽이
+        // "돌렸는데 아무것도 안 잡혔다" 와 "애초에 안 돌렸다" 를 구분할 수 없다 —
+        // 이 저장소가 반복해 고쳐 온 '0 위장' 과 같은 종류다. 실제로
+        // koo_sphere_report 의 로더는 "--hotspot-clusters 없이 돌린 런에는 키 자체가
+        // 없다" 를 전제로 서로 다른 안내문을 내고 있었는데, 그 전제가 틀려 있었다
+        // (2026-10-18 실측: 군집 off 산출물에도 빈 배열이 있었다).
+        // 군집을 켜면 파트×기준량마다 항목이 하나씩 생기므로, 비어 있다는 것은
+        // 곧 '안 돌렸다' 는 뜻이다.
+        if (!hotspot_clusters.empty()) {
+            oss << "," << nl;
+            oss << indent << "\"hotspot_clusters\": " << hotspotArrayToJSON(hotspot_clusters, pretty, indent) << nl;
+        } else {
+            oss << nl;
+        }
 
         oss << "}";
 
