@@ -29,7 +29,13 @@
 - [ ] V6 — pyKooCAE probe 연동 (상류 협의)
 
 ## 4. custom_report
-- [ ] KooChainRun 통합 실전 확인 — **상류에 문의함(2026-10-18)**.
-      우리 쪽은 끝났다: 단독 CLI·sphere 탭15·impact s10 전부 Playwright 검증 완료,
-      배포본 `bin/koo_custom_report` 환경변수 없이 실행됨.
-      KooChainRun 이 부르지 않으면 '해당 없음' 으로 닫는다
+- [x] **KooChainRun 경유 — 해당 없음** (상류 회신 2026-10-18).
+      pyKooCAE Runner 전체에 custom_report 참조 0건이고 그런 postprocess 키가 없다.
+      부르려면 KooChainRun 에 새 키(auto_custom 등)가 필요하다 — 신규 기능이라
+      상류가 사용자께 문의 중. 우리 쪽에서 더 할 일은 없다
+- [x] 배포본 단독 실행 확인 (2026-10-18) — SIF 안에서 rc=0,
+      `set_reports/Seg_1/metrics.json`(set_type=segment·metric_source=segments·
+      resolved_parts·missing_parts·fields·highlights) + HTML + 미디어 2개
+      덱: `/data/Tests/Test_001_Full26_1Step/MinimumModel.k` (*SET_SEGMENT 50개)
+- [ ] MCP `post_custom_report` 경유 확인 — 상류가 노드 잡으로 돌려 주기로 함.
+      재료(캠페인·덱·세트 YAML) 전달 완료

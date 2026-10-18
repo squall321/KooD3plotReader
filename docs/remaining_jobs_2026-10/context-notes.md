@@ -93,3 +93,21 @@ SHA 가 바뀌어 PR 이 열린 채로 남고, 요청자(DynaForge) 쪽 기록�
 `output_dir` 기본값 `"section_views"` 가 **상대 경로**라 분석 출력 디렉토리가 아니라
 **실행한 자리**에 떨어진다. 저장소 루트에서 돌렸더니 401개 PNG 가 루트에 쌓였고
 `.gitignore` 에도 없어 자칫 커밋될 뻔했다. 절대 경로를 주면 거기로 간다.
+
+## custom_report 의 'KooChainRun 통합' 은 애초에 없는 경로였다 (2026-10-18)
+
+체크리스트에 "KooChainRun 통합 실전 확인" 이 미결로 남아 있었는데, 상류에 물어보니
+**KooChainRun 에 custom_report 를 부르는 키가 아예 없다** (pyKooCAE Runner 전체 참조 0건).
+postprocess 키는 `auto_deep`·`auto_sphere`·`auto_impact`(+`*_extra_args`)와
+`hotspot_*`·`hotspot_part`·`sphere_viewer` 뿐이다. 부르려면 새 키가 필요하고, 그건
+신규 기능이라 상류가 사용자께 묻기로 했다.
+
+**확인할 수 없는 것을 미결로 남겨 두는 대신 물어본 것이 맞았다.** 2026-08-20 에 쓴 항목이
+두 달 가까이 "상류 의존" 으로 떠 있었는데, 실은 의존할 상류 경로가 없었다.
+
+대신 두 가지를 했다.
+- **배포본 단독 실행 확인** — SIF 안에서 rc=0, `set_reports/Seg_1/metrics.json` 과 HTML·미디어
+  생성. 검증 덱은 `Test_001` 의 `MinimumModel.k`(*SET_SEGMENT 50개)다. 파트셋이 아니라
+  세그먼트셋이라 P6 에서 넣은 경로를 탄다(`metric_source=segments`).
+- **MCP `post_custom_report` 경유** — 상류가 알려 준 다른 자동화 경로다. 그쪽이 노드 잡으로
+  돌려 주기로 해서 재료(캠페인·덱·세트 YAML)를 넘겼다. 이게 확인되면 '자동화 경유' 로 닫는다.
