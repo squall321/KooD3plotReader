@@ -49,3 +49,16 @@
       `mesh.solid_parts` 를 찾아 채운다 → 실데이터 재확인 `part 1`(resolved_parts 와 일치),
       값은 불변. HTML 은 0/없음을 '—' 로 (파트 ID 는 1부터라 0 은 존재하지 않는 파트).
       시험 4건 추가, 수정 전 1건 FAIL 확인
+
+## 배포 (2026-10-18, ec35274)
+- [x] SIF 빌드 `--fakeroot` · %test 통과(Plotly 번들 검사 포함)
+- [x] `deploy_from_sif.sh` → 호스트·SIF ec35274 일치, 래퍼 6/6 환경변수 없이 실행
+- [x] 노드 로컬 `/opt/apptainers` 3대 — 헤드·node001·node002 `11901033611cc529…`
+- [x] tar v40 `SmartTwinPostprocessor_20261018_v40.tar.gz` (524M) 검증 통과
+- [x] CLI `--help` 재대조 — 6개 도구 전부 동일 → 상류 MCP 재생성 불요
+- [x] 배포본 확인 4/4
+      ① 핫스팟 끄면 `hotspot_clusters` 키 없음  ② 켜면 34항목
+      ③ sphere 새 키 442파트 중 390, 별칭 전부 일치
+      ④ custom_report 세그먼트 `peak_part_id` = 1 (수정 전이면 0)
+- [x] 상류 통보 — sha·tar 경로·`--help` 변화 없음·compute-node-images 잔여 명시
+- [ ] compute-node-images · GUI SIF — **상류 담당** (그쪽 파이프라인)
