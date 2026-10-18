@@ -51,6 +51,49 @@ namespace section_render {
 
 namespace {
 
+/**
+ * @brief config.field 의 절점평균 최대가 나온 절점 위치를 찾는다.
+ *
+ * 전 상태를 훑는다. 피크 시각을 미리 알 수 없고, 단면은 한 번 정해지면 전
+ * 프레임에 쓰이므로 "언젠가 가장 뜨거웠던 자리" 가 옳은 기준이다.
+ *
+ * 그려지는 값(절점평균)으로 고른다. 요소 생값으로 고르면 화면의 최대와
+ * 어긋난 자리를 자르게 된다.
+ *
+ * @return 찾았으면 true 와 out 채움. 타깃에 값이 없으면 false (호출자가 AABB 로 떨어진다).
+ */
+bool findFieldPeakNode(const data::Mesh& mesh,
+                       const data::ControlData& ctrl,
+                       const std::vector<data::StateData>& all_states,
+                       const SectionViewConfig& config,
+                       Vec3& out, double& out_value, size_t& out_state)
+{
+    if (mesh.nodes.empty() || all_states.empty()) return false;
+
+    NodalAverager avg(mesh, ctrl);
+    double best = -std::numeric_limits<double>::infinity();
+    int32_t best_node = -1;
+    size_t best_state = 0;
+
+    for (size_t si = 0; si < all_states.size(); ++si) {
+        avg.compute(all_states[si], config.field, config.target_parts);
+        for (size_t ni = 0; ni < mesh.nodes.size(); ++ni) {
+            const double v = avg.nodeValue(static_cast<int32_t>(ni));
+            if (v > best) { best = v; best_node = static_cast<int32_t>(ni); best_state = si; }
+        }
+    }
+
+    // 기여 요소가 없는 절점은 0 을 돌려준다. 전부 0 이면 "최대가 0" 이 아니라
+    // **타깃에서 아무 값도 못 읽었다**는 뜻이므로 피크를 고르면 안 된다.
+    if (best_node < 0 || !(best > 0.0)) return false;
+
+    const auto& nd = mesh.nodes[static_cast<size_t>(best_node)];
+    out = {nd.x, nd.y, nd.z};
+    out_value = best;
+    out_state = best_state;
+    return true;
+}
+
 /// Format frame index as zero-padded string (e.g. 0042)
 std::string frameName(int idx, int total)
 {
@@ -131,7 +174,32 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
 
     // ---- 1. Build plane (auto_center: move cut point to target/mesh centroid axis) ----
     Vec3 plane_point = config.point;
-    if (config.auto_center && !mesh.nodes.empty()) {
+    bool centered = false;
+    if (config.auto_center
+        && config.center_mode == SectionViewConfig::CenterMode::FieldPeak) {
+        Vec3 pk; double pv = 0.0; size_t ps = 0;
+        if (findFieldPeakNode(mesh, ctrl, all_states, config, pk, pv, ps)) {
+            if (config.use_axis) {
+                switch (config.axis) {
+                    case 'x': plane_point.x = pk.x; break;
+                    case 'y': plane_point.y = pk.y; break;
+                    default:  plane_point.z = pk.z; break;
+                }
+            } else {
+                plane_point = pk;
+            }
+            std::fprintf(stderr, "[%s] center_mode=peak: state %zu, value %.6g, "
+                         "node (%.3f, %.3f, %.3f) -> cut point (%.3f, %.3f, %.3f)\n",
+                         "section_view", ps, pv, pk.x, pk.y, pk.z,
+                         plane_point.x, plane_point.y, plane_point.z);
+            centered = true;
+        } else {
+            // 못 찾은 이유를 말하지 않으면 "피크로 잘랐겠지" 하고 AABB 그림을 믿는다.
+            std::fprintf(stderr, "[%s] center_mode=peak: no field value in target parts "
+                         "-> falling back to AABB center\n", "section_view");
+        }
+    }
+    if (config.auto_center && !centered && !mesh.nodes.empty()) {
         double xmin = 1e300, xmax = -1e300;
         double ymin = 1e300, ymax = -1e300;
         double zmin = 1e300, zmax = -1e300;
@@ -800,7 +868,32 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
 
     // ---- 1. Build plane (same auto_center logic as 2D) ----
     Vec3 plane_point = config.point;
-    if (config.auto_center && !mesh.nodes.empty()) {
+    bool centered = false;
+    if (config.auto_center
+        && config.center_mode == SectionViewConfig::CenterMode::FieldPeak) {
+        Vec3 pk; double pv = 0.0; size_t ps = 0;
+        if (findFieldPeakNode(mesh, ctrl, all_states, config, pk, pv, ps)) {
+            if (config.use_axis) {
+                switch (config.axis) {
+                    case 'x': plane_point.x = pk.x; break;
+                    case 'y': plane_point.y = pk.y; break;
+                    default:  plane_point.z = pk.z; break;
+                }
+            } else {
+                plane_point = pk;
+            }
+            std::fprintf(stderr, "[%s] center_mode=peak: state %zu, value %.6g, "
+                         "node (%.3f, %.3f, %.3f) -> cut point (%.3f, %.3f, %.3f)\n",
+                         "section_3d", ps, pv, pk.x, pk.y, pk.z,
+                         plane_point.x, plane_point.y, plane_point.z);
+            centered = true;
+        } else {
+            // 못 찾은 이유를 말하지 않으면 "피크로 잘랐겠지" 하고 AABB 그림을 믿는다.
+            std::fprintf(stderr, "[%s] center_mode=peak: no field value in target parts "
+                         "-> falling back to AABB center\n", "section_3d");
+        }
+    }
+    if (config.auto_center && !centered && !mesh.nodes.empty()) {
         double xmin = 1e300, xmax = -1e300;
         double ymin = 1e300, ymax = -1e300;
         double zmin = 1e300, zmax = -1e300;

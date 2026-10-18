@@ -114,6 +114,12 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--section-view-backend", default="lsprepost",
                    choices=["lsprepost", "software"],
                    help="단면뷰 백엔드: lsprepost=LSPrePost drawcut (기본, 고품질), software=내장 래스터라이저")
+    p.add_argument("--section-view-center", default="aabb",
+                   choices=["aabb", "peak"],
+                   help="단면 자를 자리 (software 백엔드만): aabb=형상 가운데(기본), "
+                        "peak=응력 피크가 지나는 자리. 형상 가운데가 피크라는 보장은 "
+                        "없어서, 모서리·체결부에서 터지는 덱이면 aabb 단면이 피크를 "
+                        "통째로 비켜 간다")
     p.add_argument("--section-view-mode", default="section",
                    choices=["section", "section_3d", "iso_surface"],
                    help="단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut 없는 iso 외곽 (기본: section)")
@@ -494,6 +500,12 @@ def _parse_section_view_block(block: str) -> dict:
     if m:
         out["section_view_backend"] = m.group(1).strip()
 
+    # center_mode
+    m = re.search(r'^\s+center_mode:\s*["\']?(\w+)["\']?\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        out["section_view_center"] = m.group(1).strip()
+
     # mode
     m = re.search(r'^\s+mode:\s*["\']?(\w+)["\']?\s*(?:#.*)?$',
                   block, re.MULTILINE)
@@ -730,6 +742,9 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         if (getattr(args, "section_view_mode", "section") == "section"
                 and "section_view_mode" in sv_cfg):
             args.section_view_mode = sv_cfg["section_view_mode"]
+        if (getattr(args, "section_view_center", "aabb") == "aabb"
+                and "section_view_center" in sv_cfg):
+            args.section_view_center = sv_cfg["section_view_center"]
         if (getattr(args, "section_view_background_alpha", 0.3) == 0.3
                 and "section_view_background_alpha" in sv_cfg):
             args.section_view_background_alpha = sv_cfg["section_view_background_alpha"]
@@ -1000,6 +1015,7 @@ def run_single(args: argparse.Namespace) -> None:
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
+            center_mode=getattr(args, "section_view_center", "aabb"),
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
@@ -1339,6 +1355,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
+            center_mode=getattr(args, "section_view_center", "aabb"),
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,

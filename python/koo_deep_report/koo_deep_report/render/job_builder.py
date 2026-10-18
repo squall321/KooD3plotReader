@@ -26,6 +26,11 @@ class SectionViewRenderConfig:
     target_part_ids: list[int] = field(default_factory=list)     # [] = all parts as target
     target_patterns: list[str] = field(default_factory=list)     # e.g. ["*PKG*", "*CELL*"]
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
+    # 자를 자리를 어디로 볼지 (software 백엔드 전용).
+    #   "aabb" = 형상 가운데(기본, 종전 동작) | "peak" = 응력 피크가 지나는 자리
+    # 형상 가운데가 피크라는 보장은 없다 — 실측(400상태 덱)에서 AABB 는 z=-10.025,
+    # 피크는 z=-2.300 으로 7.7mm 비켜 갔고, AABB 단면은 거의 빈 화면이 나왔다.
+    center_mode: str = "aabb"
     global_range: bool = True    # true = consistent red=max/blue=min across all states
     per_part_render: bool = False  # True = also generate per-part section views
     sv_threads: int = 2           # Parallel section view renderers (default 2)
@@ -126,6 +131,7 @@ def _sv_yaml_block(
         f"  axis: {axis_letter}\n"
         f"  point: [0.0, 0.0, 0.0]\n"
         f"auto_center: true\n"
+        f"center_mode: {config.center_mode}\n"
         f"{target_block}\n"
         f"background_parts:\n"
         f'  patterns: {background_patterns}\n'

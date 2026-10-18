@@ -60,7 +60,21 @@ struct SectionViewConfig {
     char        axis        = 'z';        ///< 'x','y','z' (when use_axis==true)
     Vec3        normal      = {0,0,1};   ///< Custom normal (when use_axis==false)
     Vec3        point        = {0,0,0};   ///< A point on the plane
-    bool        auto_center  = false;    ///< Auto-set cut point to mesh AABB center
+    bool        auto_center  = false;    ///< Auto-set cut point (see center_mode)
+    /**
+     * @brief auto_center 가 켜졌을 때 '어디를' 중심으로 볼지.
+     *
+     * AabbCenter(기본)는 **형상의 가운데**다. 형상 가운데가 응력 피크가 있는
+     * 자리라는 보장은 없다 — 모서리나 체결부에서 터지는 덱이면 단면이 피크를
+     * 통째로 비켜 가고, 그래도 그림은 멀쩡하게 나오므로 "여기는 괜찮네" 로
+     * 읽힌다. 자를 자리를 피크에 맞추려면 FieldPeak 를 쓴다.
+     *
+     * FieldPeak 는 전 상태를 훑어 config.field 의 절점평균 최대가 나온 절점을
+     * 찾고 그 자리를 지나게 자른다. 절점평균을 쓰는 이유는 그게 화면에 그려지는
+     * 값과 같은 양이기 때문이다 (요소 생값으로 고르면 그림의 최대와 어긋난다).
+     */
+    enum class CenterMode { AabbCenter, FieldPeak };
+    CenterMode  center_mode  = CenterMode::AabbCenter;
     bool        auto_slab        = true; ///< Auto-compute slab_thickness from element edge lengths at state 0
     double      slab_thickness  = 0.0;  ///< Half-slab: nodes within ±slab_thickness/2 treated as on-plane (0=exact)
     double      fade_distance   = 0.0;  ///< Fade: near-plane elements get alpha 0→1 (0=disabled, applies to both target & background)

@@ -1879,13 +1879,18 @@ function svGenYaml() {
   const fade = parseFloat(document.getElementById('sv-fade').value) || 0;
   const perPart = document.getElementById('sv-per-part').checked;
 
-  let yaml = 'section_views:\n';
+  // 경로는 **해석 출력 폴더 기준** 상대 경로다 (CWD 아님). 이 조각을 쓰는 설정의
+  // output.directory 아래 renders/ 로 들어가고, 보고서가 훑는 자리와 같다.
+  let yaml = '# 아래 output_dir 은 해석 출력 폴더(output.directory) 기준 상대 경로입니다.\n';
+  yaml += '# center_mode: aabb=형상 가운데(기본) | peak=응력 피크가 지나는 자리\n';
+  yaml += 'section_views:\n';
   for (const fld of fields) {
     for (const ax of axes) {
       yaml += `  - name: "section_view_${fld}_${ax}"\n`;
       yaml += `    view_mode: ${mode}\n`;
       yaml += `    plane:\n      axis: ${ax}\n`;
       yaml += '    auto_center: true\n    auto_slab: true\n';
+      yaml += '    center_mode: aabb\n';
       if (targets.length) yaml += `    target_parts:\n      ids: [${targets.join(', ')}]\n`;
       yaml += `    field: ${fld}\n`;
       yaml += '    colormap: fringe\n    global_range: true\n';
@@ -1904,6 +1909,7 @@ function svGenYaml() {
           yaml += `    view_mode: ${mode}\n`;
           yaml += `    plane:\n      axis: ${ax}\n`;
           yaml += '    auto_center: true\n    auto_slab: true\n';
+          yaml += '    center_mode: aabb\n';
           yaml += `    target_parts:\n      ids: [${pid}]\n`;
           yaml += `    field: ${fld}\n`;
           yaml += '    colormap: fringe\n    global_range: true\n';

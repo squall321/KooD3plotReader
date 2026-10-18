@@ -27,6 +27,32 @@
 namespace kood3plot {
 namespace analysis {
 
+namespace {
+
+/**
+ * Resolve a relative section-view output_dir against the analysis output dir.
+ *
+ * 상대 경로는 전에 **CWD 기준**이었다. 보고서 탭 11 이 만들어 주는 YAML 은
+ * `output_dir: "renders/section_view_..."` 처럼 상대 경로라, 사용자가 어디서
+ * 실행했든 그 자리에 산출물이 쏟아졌다 (실측: 저장소 루트에 PNG 401개).
+ * 게다가 보고서는 <output_directory>/renders 만 훑으므로, 운 좋게 출력 폴더에서
+ * 실행하지 않는 한 렌더는 **만들어지고도 보고서에 안 붙었다.**
+ *
+ * part_section_renders 는 이미 같은 규칙을 쓴다 (UnifiedAnalyzerRender.cpp).
+ * output_directory 가 비면 예전대로 CWD 기준 — 규칙을 모르는 호출자를 깨지 않는다.
+ */
+void rebaseSectionOutputDir(section_render::SectionViewConfig& sv,
+                            const UnifiedConfig& config)
+{
+    namespace fs = std::filesystem;
+    if (sv.output_dir.empty() || config.output_directory.empty()) return;
+    fs::path p(sv.output_dir);
+    if (p.is_absolute()) return;
+    sv.output_dir = (fs::path(config.output_directory) / p).string();
+}
+
+}  // namespace
+
 // ============================================================
 // processSectionViews — reader-only (legacy, reads states internally)
 // ============================================================
@@ -54,6 +80,7 @@ bool UnifiedAnalyzer::processSectionViews(
             all_ok = false;
             continue;
         }
+        rebaseSectionOutputDir(sv_config, config);
 
         section_render::SectionViewRenderer renderer;
         std::string err = renderer.render(reader, sv_config);
@@ -105,6 +132,7 @@ bool UnifiedAnalyzer::processSectionViews(
             if (callback) callback("  [section_view] YAML parse error: " + spec.name);
             continue;
         }
+        rebaseSectionOutputDir(job.sv_config, config);
         jobs.push_back(std::move(job));
     }
 

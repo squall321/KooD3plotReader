@@ -63,6 +63,11 @@ add_executable(test_config_inline_mapping test_config_inline_mapping.cpp)
 target_link_libraries(test_config_inline_mapping PRIVATE kood3plot)
 target_include_directories(test_config_inline_mapping PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# 단면 자를 자리(center_mode) 파싱 — 오타가 조용히 기본값으로 떨어지지 않는지
+add_executable(test_section_center_mode test_section_center_mode.cpp)
+target_link_libraries(test_section_center_mode PRIVATE kood3plot_section_render)
+target_include_directories(test_section_center_mode PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)

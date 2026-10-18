@@ -8,6 +8,7 @@
 #include "kood3plot/section_render/SectionViewConfig.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -210,6 +211,22 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
                 continue;
             }
             if (key == "auto_center")    { auto_center = parseBool(value); section = ""; continue; }
+            if (key == "center_mode") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (lower == "peak" || lower == "field_peak")
+                    center_mode = CenterMode::FieldPeak;
+                else if (lower == "aabb" || lower == "aabb_center" || lower == "center")
+                    center_mode = CenterMode::AabbCenter;
+                else
+                    // 오타를 조용히 AABB 로 떨구면, 피크를 자르라고 쓴 사람이
+                    // 형상 가운데 그림을 받고도 모른다. 말을 하고 떨어진다.
+                    std::fprintf(stderr, "[section_view] WARNING: 알 수 없는 "
+                                 "center_mode '%s' — aabb 로 진행합니다 "
+                                 "(쓸 수 있는 값: aabb, peak)\n", value.c_str());
+                section = "";
+                continue;
+            }
             if (key == "auto_slab")      { auto_slab = parseBool(value); section = ""; continue; }
             if (key == "slab_thickness") { try { slab_thickness = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "fade_distance")  { try { fade_distance  = std::stod(value); } catch(...) {} section = ""; continue; }
@@ -318,7 +335,8 @@ std::string SectionViewConfig::exampleYaml()
     axis: z                    # x | y | z  (or use normal: for arbitrary cut)
     # normal: [0.0, 0.0, 1.0]
     point: [0.0, 0.0, 0.0]    # cut plane passes through this point
-  auto_center: true            # auto-move cut point to mesh AABB center along cut axis
+  auto_center: true            # auto-move cut point along the cut axis
+  center_mode: aabb            # aabb = 형상 가운데(기본) | peak = 응력 피크가 지나는 자리
   auto_slab: true              # auto-compute slab_thickness from element edge lengths (state 0)
   slab_thickness: 0.0          # +-margin (model units); 0=exact, auto_slab overrides if > 0
   target_parts:
