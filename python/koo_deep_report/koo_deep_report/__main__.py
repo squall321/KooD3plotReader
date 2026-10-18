@@ -1185,6 +1185,20 @@ def run_batch(args: argparse.Namespace) -> None:
     from .core.sim_detector import find_all
     from .report.batch_report import generate_batch_html, load_results_from_dir
 
+    # 🔴 single 과 같은 함정 (903줄 참고). 전에는 여기서 안 불러 `batch --config`
+    #    가 설정 파일 전체를 **경고 없이 무시했다** — 항복응력·스레드·단면뷰·
+    #    핫스팟이 전부 기본값으로 돌았고 사용자는 설정대로 돈 줄 알았다.
+    _apply_config_to_args(args)
+
+    # batch 의 path 는 필수 위치인자라 설정 파일의 d3plot 경로는 쓰이지 않는다.
+    # 조용히 버리면 "설정에 적은 경로를 돌았겠지" 하고 오해하므로 알린다.
+    _cfg_file = getattr(args, "config", "")
+    if _cfg_file:
+        _cfg_path = _parse_config_yaml(_cfg_file).get("path")
+        if _cfg_path and Path(_cfg_path).resolve() != Path(args.path).resolve():
+            print(f"[batch] ※ 설정 파일의 경로({_cfg_path})는 쓰지 않습니다 — "
+                  f"배치 루트는 명령행 인자입니다: {args.path}")
+
     target = Path(args.path).resolve()
     output_root = Path(args.output).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
