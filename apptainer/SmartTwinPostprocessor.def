@@ -184,7 +184,7 @@ From: ubuntu:22.04
 %environment
     export KOOD3PLOT_HOME=/opt/kood3plot
     export PATH=/opt/kood3plot/bin:$PATH
-    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report:/opt/kood3plot/python/koo_custom_report
+    export PYTHONPATH=/opt/kood3plot/python/koo_deep_report:/opt/kood3plot/python/koo_sphere_report:/opt/kood3plot/python/koo_impact_report:/opt/kood3plot/python/koo_federate_report:/opt/kood3plot/python/koo_custom_report:/opt/kood3plot/python/koo_scatter_report
     export LSPREPOST_PATH=/opt/kood3plot/lsprepost
     export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
     # VirtualGL EGL 백엔드 기본 GPU 디바이스(헤드리스). KOOD3PLOT_GPU_RENDER=1
@@ -232,11 +232,16 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/koo_impact_report --help >/dev/null
     /opt/kood3plot/bin/koo_federate_report --help >/dev/null
     /opt/kood3plot/bin/koo_custom_report --help >/dev/null
+    /opt/kood3plot/bin/koo_scatter_report --help >/dev/null
     /opt/kood3plot/bin/koo_dyna_diag --help >/dev/null
     # make_stl 이 빠지면 실형상 미리보기가 개략도로 폴백한다 (과거 실제 사고)
     test -x /opt/kood3plot/bin/make_stl
-    # %environment 의 PYTHONPATH 가 5개 패키지를 다 담는지 — python3 -m 직접 호출 경로
-    for _p in koo_deep_report koo_sphere_report koo_impact_report koo_federate_report koo_custom_report; do
+    # %environment 의 PYTHONPATH 가 6개 패키지를 다 담는지 — python3 -m 직접 호출 경로.
+    # 래퍼는 자기 PYTHONPATH 를 직접 깔아 쓰므로 래퍼만 보면 이 구멍이 안 보인다.
+    # (2026-10-18 실측: koo_scatter_report 가 %environment 에만 빠져 있어
+    #  `apptainer exec SIF python3 -m koo_scatter_report` 가 No module 로 죽었다.
+    #  호스트 env.sh 와 SIF 래퍼는 6개인데 여기만 5개였다.)
+    for _p in koo_deep_report koo_sphere_report koo_impact_report koo_federate_report koo_custom_report koo_scatter_report; do
         python3 -c "import ${_p}" || exit 1
     done
     # Plotly 번들 — 빠지면 리포트가 조용히 CDN 을 참조하고, 폐쇄망에서 차트가
