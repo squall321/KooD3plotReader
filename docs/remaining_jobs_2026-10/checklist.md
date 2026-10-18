@@ -22,11 +22,11 @@
 - [x] 성능 — 45,457 솔리드·400상태 1.01초 → 1.41초 (+38%). '수십만' 덱은 이 머신에 없다
 
 ## 3. impact V5·V6
-- [ ] V5 — 배포본 SIF 안에서 Test_Impact_A 실행·시간·배지·Finding 확인
-      ⚠ 1차 시도가 죽었다 — 기본 `parallel_runs=16 × threads 2` = 32 동시 읽기.
-      가용 메모리 23GB(VM·cpptools 점유)에서 OOM. `--parallel-runs 4 --threads-per-run 2`
-      로 재실행 중 (기억의 'max 2 threads' 권고와 같은 맥락)
-- [ ] V6 — pyKooCAE probe 연동 (상류 협의)
+- [x] V5 — 배포본 SIF 안에서 **2.05초**(캐시 재실행) · Finding 6개 · JS 예외 0 · 외부요청 0
+      "배지 PASS-다수" 조건은 폐기 — 이 데이터의 진실이 FAIL 이다(유효 접촉 9/25)
+      ⚠ 1차가 죽은 줄 알았으나 **오판**이었다 — rc=0, 758초로 정상 완료했고
+      `pgrep` 매칭 실패 + `--output` 이 파일이라는 것을 못 알아본 탓이다
+- [ ] V6 — pyKooCAE probe 연동 (상류 협의 필요, 유일한 잔여 항목)
 
 ## 4. custom_report
 - [x] **KooChainRun 경유 — 해당 없음** (상류 회신 2026-10-18).
@@ -37,5 +37,12 @@
       `set_reports/Seg_1/metrics.json`(set_type=segment·metric_source=segments·
       resolved_parts·missing_parts·fields·highlights) + HTML + 미디어 2개
       덱: `/data/Tests/Test_001_Full26_1Step/MinimumModel.k` (*SET_SEGMENT 50개)
-- [ ] MCP `post_custom_report` 경유 확인 — 상류가 노드 잡으로 돌려 주기로 함.
-      재료(캠페인·덱·세트 YAML) 전달 완료
+- [x] MCP `post_custom_report` 경유 확인 (상류 노드 잡 1223, rc=0, 160초)
+      → 제 직접 실행과 **숫자 완전 일치**: von_mises 269.92447 @3.93743067e-05 elem 14886,
+      eff_plastic 0.00137966615 @3.53328978e-05 elem 19874, n_segments 7458, 미디어 2개
+      **자동화 경유가 직접 실행과 다르지 않다 — 이 항목 종결**
+- [x] 그 과정에서 결함 1건 발견·수정 — `peak_part_id` 가 세그먼트 세트에서 0 이었다.
+      C++ 세그먼트 직접 스윕(P6)이 채우려다 만 자리(빈 if + 주석). 피크 요소 인덱스로
+      `mesh.solid_parts` 를 찾아 채운다 → 실데이터 재확인 `part 1`(resolved_parts 와 일치),
+      값은 불변. HTML 은 0/없음을 '—' 로 (파트 ID 는 1부터라 0 은 존재하지 않는 파트).
+      시험 4건 추가, 수정 전 1건 FAIL 확인
