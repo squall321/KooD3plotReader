@@ -70,4 +70,14 @@
         명시한다. PASS 가 다수로 나왔다면 그것이 오히려 거짓말이다
 - [x] commit/push → SIF 재빌드 → NFS 배포 — 여러 릴리스를 거쳐 이미 반영됨
       (현 배포본 be9d2b0 에서 koo_impact_report 실행·시험 148개 통과 확인)
-- [ ] V6 pyKooCAE probe 연동 (마지막)
+- [x] V6 pyKooCAE probe 연동 — **pyKooCAE 측 일로 이관** (2026-10-18 상류 확인)
+      정의(2026-07-08 원문): "pyKooCAE build_impact_report_sh flag wiring with
+      `--help | grep -q -- --parallel-runs` probe (LAST, after SIF ships)".
+      즉 probe 는 별도 도구가 아니라 **생성 sh 가 새 플래그를 `--help` 로 확인하고
+      있을 때만 붙이는 장치**다. 옛 SIF 에는 새 플래그를 안 내보내기 위한 것.
+      상류 현황: 지금은 `import koo_impact_report` 성공 여부만 보고, 새 플래그
+      (`--parallel-runs`·`--threads-per-run`·`--g-limit`·`--stress-limit`·`--no-cache`·
+      `--refresh-cache`·`--single-file`·`--chunked`)는 `impact_extra_args` 로만 넘긴다.
+      **우리 쪽에서 할 일은 없다** — 상류가 기다리는 것도 없음을 확인했다.
+      우리 `--help` 문구는 probe 대상으로 유효하다:
+      "0 = auto: SLURM_CPUS_PER_TASK (or CPU count) // threads-per-run" 
