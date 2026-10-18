@@ -135,3 +135,22 @@ postprocess 키는 `auto_deep`·`auto_sphere`·`auto_impact`(+`*_extra_args`)와
 재실행했는데, **사실 1차는 정상 완료(rc=0, 758초)했다.** 내가 `pgrep` 한 순간 매칭이
 안 돼 '죽었다' 고 오판했고, `--output` 이 디렉토리가 아니라 **파일**이라 `ls` 로도
 못 알아봤다. 중복 실행 두 개가 같은 파일에 쓰고 있었다.
+
+## 배포 전 확인 항목이 하나 늘었다 — CLI `--help` 대조 (2026-10-18)
+
+상류가 알려 준 사실: **MCP `post_*` 도구 스키마는 배포본의 `<도구> --help` 에서 생성된다.**
+옵션이 바뀌면 그쪽이 생성기 재실행·시험·서비스 재기동을 해야 MCP 로도 새 옵션을 쓸 수 있다.
+그래서 배포 알림에 "`--help` 가 바뀐 도구가 있는가" 를 같이 적어야 한다.
+
+이번 릴리스 예정분을 미리 대조했다 — 배포본(be9d2b0) vs 현재 트리:
+6개 리포트 도구 전부 **동일**, `unified_analyzer` 는 사용법 줄의 argv[0] 문자열만 다르고
+옵션·`--capabilities` 동일. **MCP 재생성 불요.**
+
+이번 변경이 전부 **출력 쪽**이라 그렇다:
+- sphere `report.json` 의 파트 키 추가(DynaForge) — CLI 도 YAML 도 아니다
+- `analysis_result.json` 의 `hotspot_clusters` 키 생략
+- custom_report `metrics.json` 의 `peak_part_id`
+- 뷰어 빌드 의존성 고정
+
+**배포 때 한 번 더 대조할 것.** 지금과 배포 시점 사이에 옵션이 들어갈 수 있다.
+대조 방법: `.work/helpdiff` 의 방식 — 배포본 SIF 와 로컬에서 각각 `--help` 를 받아 diff.
