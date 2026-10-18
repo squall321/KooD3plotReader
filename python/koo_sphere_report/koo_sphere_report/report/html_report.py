@@ -2437,6 +2437,19 @@ function onRiskRowLeave(el) {
   onMollLeave();
 }
 
+// ── 미계측(null) 을 다루는 공용 헬퍼 ────────────────────────────────────
+// HTML payload 는 json_report 와 달리 **키를 항상 만들고 값에 null 을 넣는다**
+// (화면 JS 49곳이 그 키를 읽는 구조라 그렇다). 그래서 읽는 쪽이 null 을 막아야 한다.
+//
+// 막지 않으면 두 가지가 난다 — 하나는 보이고 하나는 안 보인다:
+//   ① `null.toFixed()` 로 탭이 통째로 죽는다 (2026-10-18 실측: 탭 3개)
+//   ② **`Math.max(...)`·`reduce` 가 null 을 0 으로 세어 평균·최대가 조용히 틀린다.**
+//      미계측 파트가 섞이면 평균이 희석되는데 화면에는 멀쩡한 숫자가 뜬다. 이쪽이 더 나쁘다.
+function isNum(v) { return v !== null && v !== undefined && isFinite(v); }
+function onlyNums(a) { return a.filter(isNum); }
+// 숫자면 소수 d 자리, 아니면 '—' (미계측과 '값 0' 을 구분한다)
+function fxd(v, d) { return isNum(v) ? v.toFixed(d) : '—'; }
+
 function valueToColor(norm) {
   norm = Math.max(0, Math.min(1, norm));
   const [cr, cg, cb] = valueToColorRGB(norm);
@@ -4413,29 +4426,35 @@ function renderStatistics() {
     for (const r of DATA.results) {
       const pd = r.parts[String(pid)];
       if (!pd) continue;
-      stresses.push(pd.peak_stress);
-      gs.push(pd.peak_g);
-      strains.push(pd.peak_strain);
+      // **미계측은 담지 않는다.** 담으면 reduce/Math.max 가 null 을 0 으로 세어
+      // 평균과 최대가 조용히 틀어진다 (크래시보다 나쁘다 — 숫자가 멀쩡해 보인다).
+      if (isNum(pd.peak_stress)) stresses.push(pd.peak_stress);
+      if (isNum(pd.peak_g)) gs.push(pd.peak_g);
+      if (isNum(pd.peak_strain)) strains.push(pd.peak_strain);
     }
-    if (stresses.length === 0) continue;
-    const mean_s = stresses.reduce((a,b)=>a+b,0)/stresses.length;
-    const std_s = Math.sqrt(stresses.map(v=>(v-mean_s)**2).reduce((a,b)=>a+b,0)/stresses.length);
-    const mean_g = gs.reduce((a,b)=>a+b,0)/gs.length;
-    const std_g = Math.sqrt(gs.map(v=>(v-mean_g)**2).reduce((a,b)=>a+b,0)/gs.length);
+    if (stresses.length === 0 && gs.length === 0) continue;
+    const avg = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+    const sd = (a, m) => (a.length && m !== null)
+        ? Math.sqrt(a.map(v=>(v-m)**2).reduce((x,y)=>x+y,0)/a.length) : null;
+    const mean_s = avg(stresses), std_s = sd(stresses, mean_s);
+    const mean_g = avg(gs), std_g = sd(gs, mean_g);
+    const gScale = v => isNum(v) ? v/1e6 : null;
     statsRows += `<tr><td>Part ${pid}</td><td>${p?p.name:''}</td>
-      <td style="text-align:right">${mean_s.toFixed(1)}</td>
-      <td style="text-align:right">${std_s.toFixed(1)}</td>
-      <td style="text-align:right">${Math.max(...stresses).toFixed(1)}</td>
-      <td style="text-align:right">${Math.min(...stresses).toFixed(1)}</td>
-      <td style="text-align:right">${(mean_g/1e6).toFixed(2)}</td>
-      <td style="text-align:right">${(std_g/1e6).toFixed(2)}</td></tr>`;
+      <td style="text-align:right">${fxd(mean_s, 1)}</td>
+      <td style="text-align:right">${fxd(std_s, 1)}</td>
+      <td style="text-align:right">${fxd(stresses.length ? Math.max(...stresses) : null, 1)}</td>
+      <td style="text-align:right">${fxd(stresses.length ? Math.min(...stresses) : null, 1)}</td>
+      <td style="text-align:right">${fxd(gScale(mean_g), 2)}</td>
+      <td style="text-align:right">${fxd(gScale(std_g), 2)}</td></tr>`;
   }
 
   // Correlation: stress vs G scatter
   const scatterData = [];
   for (const r of DATA.results) {
     for (const [pid, pd] of Object.entries(r.parts)) {
-      scatterData.push({ s: pd.peak_stress, g: pd.peak_g, angle: r.angle.name, pid });
+      // 미계측 점은 찍지 않는다 — 0 으로 찍으면 원점에 없는 군집이 생긴다
+      if (isNum(pd.peak_stress) && isNum(pd.peak_g))
+        scatterData.push({ s: pd.peak_stress, g: pd.peak_g, angle: r.angle.name, pid });
     }
   }
   // Simple scatter SVG
@@ -5091,6 +5110,12 @@ function buildStressEnvelopeSVG(m) {
   }
   sorted.forEach((d, i) => {
     const x = ml + i*(barW+1);
+    if (!isNum(d.stress)) {
+      // 미계측 각도 — 0 짜리 막대로 그리면 '응력이 0' 으로 읽힌다. 바닥에 회색 표식만 둔다.
+      svg += `<rect x="${x}" y="${mt+ph-2}" width="${barW}" height="2" fill="var(--dim)" opacity="0.5" rx="1">` +
+             `<title>${d.angleName}: 미계측</title></rect>`;
+      return;
+    }
     const h = (d.stress/smax)*ph;
     const y = mt + ph - h;
     const norm = m.stressRange.max > m.stressRange.min ? (d.stress-m.stressRange.min)/(m.stressRange.max-m.stressRange.min) : 0;
@@ -6269,10 +6294,14 @@ function reDrawMiniMollweide() {
       ? eulerToLonLat(r.angle.roll, r.angle.pitch, r.angle.yaw, r.angle.name, swap)
       : [0, 0];
     const [mx, my] = mollweideXY(lon, lat, cx, cy, rx, ry);
-    const norm = vals[ri] / vmax;
-    const color = typeof valueToColor === 'function' ? valueToColor(norm) : `hsl(${(1-norm)*240},80%,50%)`;
+    const measured = isNum(vals[ri]);
+    // 미계측은 **회색 점**이다 — 색 척도에 올리면 'norm=0 = 가장 안전' 으로 읽힌다.
+    // 점 자체를 빼면 그 각도를 고를 수 없게 되므로 남기되 값은 '미계측' 이라고 적는다.
+    const norm = measured ? vals[ri] / vmax : 0;
+    const color = !measured ? 'var(--dim)'
+                : (typeof valueToColor === 'function' ? valueToColor(norm) : `hsl(${(1-norm)*240},80%,50%)`);
     const isSel = reState.selectedRis.includes(ri);
-    svg += `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${isSel ? ptR+2 : ptR}" fill="${color}" opacity="${isSel ? 1 : 0.7}" class="${isSel ? 'sel' : ''}" style="cursor:pointer" onclick="reToggleAngle(${ri})"><title>${r.angle.name}: ${vals[ri].toFixed(1)} MPa</title></circle>`;
+    svg += `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${isSel ? ptR+2 : ptR}" fill="${color}" opacity="${isSel ? 1 : (measured ? 0.7 : 0.45)}" class="${isSel ? 'sel' : ''}" style="cursor:pointer" onclick="reToggleAngle(${ri})"><title>${r.angle.name}: ${measured ? vals[ri].toFixed(1) + ' MPa' : '미계측'}</title></circle>`;
   }
   svg += '</svg>';
   return svg;
