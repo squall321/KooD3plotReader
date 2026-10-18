@@ -31,7 +31,12 @@
 - [x] 단독 HTML — 피크 표(미계측 '—')·경고·3면 갤러리·클릭→영상 모달
 - [x] Playwright 검증 (콘솔 에러 favicon 뿐, 모달 영상 재생 확인)
 - [x] CLI: --config / --sets --part-set 속성 조합, 스키마 마커
-- [ ] KooChainRun 통합 실전 확인 (sphere/impact 탭과 함께 P4·P5 에서)
+- [x] 자동화 경유 확인 — **MCP `post_custom_report`** 로 종결 (2026-10-18)
+      상류 노드 잡 1223 rc=0 → 직접 실행과 **숫자 완전 일치**
+      (von_mises 269.92447 @3.93743067e-05 elem 14886 · n_segments 7458 · 미디어 2개)
+      ⚠ **KooChainRun 경유는 존재하지 않는 경로였다** — pyKooCAE Runner 전체에
+      custom_report 참조 0건이고 그런 postprocess 키가 없다. 부르려면 새 키
+      (auto_custom 등)가 필요해 상류가 사용자께 문의 중. 우리 쪽 할 일 없음
 
 ## P4 — sphere Set Report 탭
 - [x] _set_report_payload — analysis_results/<run>/custom_report/set_reports 스캔,
