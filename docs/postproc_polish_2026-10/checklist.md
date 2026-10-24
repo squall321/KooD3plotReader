@@ -47,4 +47,9 @@
 - [x] 시험 `test_hotspot_hover.py` 7건 — 수정 전 7건 전부 FAIL · sphere 137 통과
 
 ## 남은 것
-- [ ] push (미push 커밋 4개) · SIF 재빌드 · 4개 배포 지점 — 사용자 확인 필요
+- [x] push — origin/main `4405edc`
+- [x] 헤드리스 SIF 빌드 — sha256 `912e663493a12f17…`, `%test` 통과, 빌드본에서 ①~④ 동작 확인
+- [ ] **배포 4개 지점 — 사용자 결정 대기.** node001·002 가 10-19 부터 꺼져 있어
+      `deploy_from_sif.sh`(NFS 전용)만으로는 노드가 옛 판으로 남는다
+- [ ] ⚠ 상류 통보 시 **CLI `--help` 변화 있음** 명시 —
+      `koo_deep_report` 에 `--section-view-center {aabb,peak}` 추가 (MCP 재생성 걸릴 수 있음)
