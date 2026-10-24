@@ -51,6 +51,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# compile_commands.json 을 항상 낸다 — 편집기(cpptools·clangd)에 "이 프로젝트의
+# 번역 단위는 이것뿐" 을 알려 주는 유일한 권위 있는 목록이다.
+# 이게 없으면 cpptools 는 프로젝트 정보가 0인 채로 폴더를 통째로 훑는다
+# (2026-10-24 실측: 그래서 references 의 VTK 헤더 9,816개까지 색인했고,
+#  메모리가 수십 GB 로 불어 earlyoom 이 다른 작업을 죽였다).
+# 실제 번역 단위는 127개뿐이다.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Build options
 option(KOOD3PLOT_BUILD_TESTS "Build unit tests" ON)
 option(KOOD3PLOT_BUILD_EXAMPLES "Build example programs" ON)
