@@ -112,3 +112,45 @@ SI 덱에서 `--yield-stress 350` → 350 을 2.7e8 Pa 와 비교해 `sf ≈ 1.3
 
 ## 착수 순서
 (2) → (4, 위 단위 결함 포함) → (3). (3) 뒤에 워커 RSS 실측 → 상류 전달 → v42.
+
+---
+
+## 상류 인터페이스 갱신 (2026-10-26, 묶음 M — 아직 빌드·배포 전)
+
+### 1. `part_yield` — 스키마 불변, 값·출처 글만 바뀜 (pykoocae `253df8c`)
+- 초기 항복이 **εp=0 에서의 값**이다. 커브 점을 `SFA×(x+OFFA)` · `SFO×(y+OFFO)`
+  로 바꾼 뒤 사이면 보간, 밖이면 끝 두 점으로 외삽 (R16 EPS1: "If the first
+  point is nonzero, the yield stress is extrapolated").
+- `source` 예: `"MAT_024 LCSS <id> εp=0(SFA·OFFA·SFO·OFFO 적용)"`,
+  `"MAT_024 EPS·ES εp=0"`. 옛 문구("…첫 점", `"MAT_024 ES1"`)는 없어졌다.
+- `DATTYP 0 + OFFA>0` 커브는 맵에서 빠진다.
+- 🔴 **`source` 글을 파싱하지 말 것 — 보여 주기만 한다.** 문구가 또 바뀐다.
+
+### 2. 🔴 옵션 탐지가 좁아졌다 — `metavar` 를 반드시 준다
+셸이 `--help` 의 **argparse 옵션 정의 줄만** 본다 (줄머리 공백 + `--parallel-runs N`
+또는 `-j N, --parallel-runs N`). usage 줄·설명 글의 낱말은 안 센다.
+
+실측한 함정:
+```
+add_argument("--parallel-runs", type=int)              → "--parallel-runs PARALLEL_RUNS"  ← 안 걸림
+add_argument("--parallel-runs", type=int, metavar="N") → "--parallel-runs N"              ← 걸림
+```
+`metavar` 를 빠뜨리면 새 SIF 를 **옛 판으로 오인**해 옛 사이징(979런이면 130 GB)
+으로 돌고 `--parallel-runs` 도 안 넘어간다. 경고 없이 느려지고 커지는 쪽이라
+눈에 안 띈다.
+→ **`metavar="N"` / `metavar="FILE"` 필수.** `--help` 출력이 그 모양을 유지하는지
+  보는 **시험을 넣는다**(나중에 누가 metavar 를 지우면 같은 일이 재발한다).
+  상류에는 패턴을 느슨하게 하거나 탐지 결과를 로그에 남겨 달라고 요청함.
+
+### 3. `Loaded N results` 줄 보존
+`__main__.py:110`·`125` 두 자리. 셸이 이 줄을 보고 없으면 경고, 0 이면 rc 3.
+→ (2) 의 exit 3 을 넣어도 **그 줄이 먼저 찍히게** 한다.
+
+### 4. `SPHERE_SIZED_FOR=parallel|sequential`
+헤드 SIF 는 새 판인데 노드 SIF 가 옛 판이면 셸이 경고한다.
+**지금 실제로 그 상태다** — Post v41 이 헤드에만 배포됐고 node001·002 는
+VM 이 꺼져 v40 이다.
+
+### 5. 워커 수 W = `--parallel-runs` = `SLURM_CPUS_PER_TASK`
+노드 코어 수와 메모리(6+2W GB)에 맞춰 줄어든다. 워커 RSS 실측값을 주면
+`SPHERE_NEW_MEM_PER_WORKER_GB` 를 2 GB 에서 낮춘다. → (3) 구현 후 실측 전달.
