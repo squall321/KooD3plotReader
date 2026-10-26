@@ -126,21 +126,25 @@ SI 덱에서 `--yield-stress 350` → 350 을 2.7e8 Pa 와 비교해 `sf ≈ 1.3
 - `DATTYP 0 + OFFA>0` 커브는 맵에서 빠진다.
 - 🔴 **`source` 글을 파싱하지 말 것 — 보여 주기만 한다.** 문구가 또 바뀐다.
 
-### 2. 🔴 옵션 탐지가 좁아졌다 — `metavar` 를 반드시 준다
-셸이 `--help` 의 **argparse 옵션 정의 줄만** 본다 (줄머리 공백 + `--parallel-runs N`
-또는 `-j N, --parallel-runs N`). usage 줄·설명 글의 낱말은 안 센다.
+### 2. 옵션 탐지 — `metavar` 는 자유 (내가 한 경고는 틀렸다)
+셸이 `--help` 의 **argparse 옵션 정의 줄만** 본다. usage 줄·설명 글의 낱말은 안 센다.
+실제 규칙은 줄머리 공백(별칭 `-j X, ` 허용) 뒤 `--parallel-runs` 가 오고 **바로 뒤가
+낱말 글자·`-` 가 아니면** 된다. 상류 설명의 `N` 은 예시였다.
 
-실측한 함정:
-```
-add_argument("--parallel-runs", type=int)              → "--parallel-runs PARALLEL_RUNS"  ← 안 걸림
-add_argument("--parallel-runs", type=int, metavar="N") → "--parallel-runs N"              ← 걸림
-```
-`metavar` 를 빠뜨리면 새 SIF 를 **옛 판으로 오인**해 옛 사이징(979런이면 130 GB)
-으로 돌고 `--parallel-runs` 도 안 넘어간다. 경고 없이 느려지고 커지는 쪽이라
-눈에 안 띈다.
-→ **`metavar="N"` / `metavar="FILE"` 필수.** `--help` 출력이 그 모양을 유지하는지
-  보는 **시험을 넣는다**(나중에 누가 metavar 를 지우면 같은 일이 재발한다).
-  상류에는 패턴을 느슨하게 하거나 탐지 결과를 로그에 남겨 달라고 요청함.
+처음에 "`metavar` 없으면 `--parallel-runs PARALLEL_RUNS` 가 되어 안 걸린다" 고
+경고했는데 **틀렸다.** 상류가 venv312 argparse 실출력으로 확인: metavar 없음 /
+`metavar="N"` / `-j PARALLEL_RUNS, --parallel-runs PARALLEL_RUNS` /
+`nargs='?'` 의 `[PARALLEL_RUNS]` **네 가지 모두 잡힌다.** 설명 글 속 낱말만 있는
+옛 도구는 안 잡힌다(의도대로). Python `_help_has_option` 과 셸 `has_opt` 가 같은
+규칙이고 다섯 경우 결과가 같다. 상류가 시험으로 굳혔다 (pykoocae `1633041`).
+
+→ `metavar` 는 **읽기 좋으라고** 주는 것이지 탐지 때문이 아니다. 지워져도 된다.
+   `--help` 모양을 지키는 시험도 불필요하다.
+
+탐지 결과는 **이미 양쪽 로그에 한 줄씩** 남는다 —
+제출: `[Sphere Postprocess] 자원 — N런, 도구 병렬(--parallel-runs)|순차: …`
+잡 안: `[sphere_report] start: … 추가 옵션: --parallel-runs 16 …|없음`
+병렬 기준으로 잡혔는데 노드 도구가 옛 판이면 🔴 줄이 더 붙는다.
 
 ### 3. `Loaded N results` 줄 보존
 `__main__.py:110`·`125` 두 자리. 셸이 이 줄을 보고 없으면 경고, 0 이면 rc 3.
