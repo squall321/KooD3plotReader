@@ -158,3 +158,59 @@ VM 이 꺼져 v40 이다.
 ### 5. 워커 수 W = `--parallel-runs` = `SLURM_CPUS_PER_TASK`
 노드 코어 수와 메모리(6+2W GB)에 맞춰 줄어든다. 워커 RSS 실측값을 주면
 `SPHERE_NEW_MEM_PER_WORKER_GB` 를 2 GB 에서 낮춘다. → (3) 구현 후 실측 전달.
+
+---
+
+## (4) 확장 — `criterion` · `limits` (KMM v126~, 2026-10-27)
+
+### 스키마 추가
+`model.part_yield.parts.<pid>` 에 두 키가 더 붙는다. 기존 `yield`·`source`·`mid` 불변.
+```json
+{"yield": 30.0, "source": "...", "mid": 17,
+ "criterion": "von_mises" | "max_principal",
+ "limits": [{"value": 45.0, "criterion": "von_mises",    "source": "MAT_017 SIGY"},
+            {"value": 30.0, "criterion": "max_principal", "source": "MAT_017 FS"}]}
+```
+- `criterion` = 이 값을 **어느 응력과 비교할지**. MAT_017 의 FS(파괴응력)는 R16 상
+  "based on a maximum principal stress criterion" 이라 `max_principal`.
+  SIGY·커브(MAT_003·MAT_024)는 `von_mises`.
+- `limits` 는 그 파트의 **양수 한계를 모두** 담는다 (MAT_017 이면 SIGY·FS 둘 다).
+- MAT_017 의 `yield` 는 사용자 결정으로 `min(SIGY, FS)`.
+
+### 우리 쪽 측도는 이미 있다
+`models.py` `PartResult` —
+| criterion | 측도 |
+|---|---|
+| `von_mises` | `peak_stress` (= `stress.peak`) |
+| `max_principal` | `peak_principal` (= `principal.peak`) |
+
+`peak_principal` 은 **미계측이면 None 이고 von Mises 로 대체하지 않는다**는 규율이
+이미 주석에 박혀 있다. (`min_principal` = σ3 최소도 있다 — 지금 limits 엔 안 쓰임)
+
+### 🔴 미계측 한계를 그냥 빼면 안전율이 **위험한 쪽**으로 틀린다
+σ1 CSV 는 항상 있지 않다. `common_analysis.yaml` 이 파트별로 어느 양을 낼지 걸기
+때문에 von_mises 만 걸린 파트에는 σ1 이 없다(옛 산출물도). 그 상태에서 MAT_017 의
+limits 를 돌리면
+- von_mises SIGY → 계산됨
+- max_principal FS → 측도 부재로 **건너뜀**
+- `min()` 은 남은 SIGY 것만 보고 **더 큰 안전율**을 보고
+
+구속하는 한계가 FS 인데 못 재서 "더 안전하다" 고 말하게 된다. **놓치는 방향이
+위험한 쪽**이라 조용히 빼면 안 된다.
+
+### 확정 동작
+- `limits` 가 있으면 **한계마다** 안전율 → **작은 쪽** 채택.
+- 측도 부재로 건너뛴 한계가 있으면 그 파트 안전율을 **"불완전"** 으로 표시하고,
+  못 잰 기준과 해결법(그 파트에 `max_principal` 작업을 걸어 재실행)을 적는다.
+- 건너뛴 한계가 하나라도 있으면 **CRITICAL 로 단정하지 않는다** — 판정 근거가
+  반쪽이다. "불완전" 로 띄운다.
+- **모르는 `criterion` 문자열은 추측하지 않는다** — 같은 방식으로 건너뛰고 사유를
+  적는다 (나중에 기준이 늘어도 조용히 오독하지 않게).
+- `limits` 가 없는 옛 맵이면 `yield` 를 von Mises 로 본다.
+- `yield`(= min(SIGY, FS))는 **limits 가 없을 때의 폴백**으로만 쓴다. limits 가
+  있으면 기준별로 나뉜 그쪽이 정보가 많다.
+
+### 시험 대조
+pyKooCAE `tests/test_sphere_automation.py::test_part_yield` 의 파트 10~12
+(MAT_017 SIGY 45 · FS 30/60/0). FS 0 인 파트는 "양수 한계만" 규칙으로 limits 에서
+빠진다 — 그 경우도 맞춰 본다.
