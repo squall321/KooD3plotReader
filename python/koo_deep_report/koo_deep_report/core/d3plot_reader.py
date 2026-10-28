@@ -164,6 +164,7 @@ def run_analysis(
                     render_only=True,
                     install_dir=install_dir,
                     section_view_config=sv_per_part,
+                    overview=False,
                 )
             else:
                 rc_per_part = copy.copy(render_config)
@@ -172,6 +173,7 @@ def run_analysis(
                     extracted_ids, threads, render_threads, verbose,
                     render_only=True,
                     install_dir=install_dir,
+                    overview=False,
                 )
             try:
                 w = _run_ua(ua, yaml2, verbose)
@@ -258,7 +260,10 @@ def _build_yaml(
     hotspot: dict | None = None,
     install_dir: Path | None = None,
     section_view_config: "SectionViewRenderConfig | None" = None,
+    overview: bool = True,
 ) -> str:
+    """overview=False — 파트별 2차 패스용. 1차 패스가 이미 만든 전체 모델 개관 영상을
+    다시 만들지 않는다(각도당 LS-PrePost 세션 3개가 헛돌았다, 2026-10-28 P-1)."""
     parts_list = part_ids if part_ids else []
 
     lsprepost = _resolve_lsprepost(render_config, install_dir)
@@ -353,7 +358,7 @@ def _build_yaml(
         sv_overview.per_part_render = False
         overview_jobs = build_lsprepost_section_jobs(
             str(output_dir), sv_overview, part_ids
-        )
+        ) if overview else []
         if overview_jobs:
             lines.append("render_jobs:")
             for job in overview_jobs:
@@ -379,6 +384,7 @@ def _build_yaml(
             str(output_dir),
             render_config,
             part_ids,
+            include_overview=overview,
         )
         if jobs:
             lines.append("render_jobs:")

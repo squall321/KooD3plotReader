@@ -364,12 +364,14 @@ def build_render_jobs(
     output_dir: str,
     config: RenderConfig,
     part_ids: list[int] | None = None,
+    include_overview: bool = True,
 ) -> list[dict]:
     """
     Returns a list of render_job dicts to embed in unified_analyzer YAML.
 
     Overview: X/Y/Z 단면 애니메이션 (각 축에 수직한 뷰 자동 선택)
     Per-part: 각 부품 bbox 중심을 통과하는 X/Y/Z 단면 애니메이션
+    include_overview=False — 파트별 2차 패스용(개관은 1차 패스가 이미 만들었다)
     """
     if not config.enabled:
         return []
@@ -385,7 +387,7 @@ def build_render_jobs(
 
     # 전체 모델 X/Y/Z 단면 애니메이션
     # view 키 없음 → C++이 axis 기반 자동 선택 (X→right, Y→front, Z→top)
-    for axis in config.section_axes:
+    for axis in (config.section_axes if include_overview else []):
         job: dict = {
             "name": f"overview_{axis}",
             "type": "section_view",
