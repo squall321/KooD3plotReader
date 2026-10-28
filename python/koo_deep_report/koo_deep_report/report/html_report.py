@@ -31,7 +31,8 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
     has_motion = dr is not None and bool(dr.motion)
     has_energy = gl is not None and bool(gl.t)
     has_contact = bn is not None and (bool(bn.rcforc) or bool(bn.sleout) or bn.matsum is not None)
-    has_renders = dr is not None and bool(dr.render_files)
+    # 렌더가 실패만 했어도 탭을 연다 — 실패 사실이 갤러리 공백으로 사라지면 안 된다
+    has_renders = dr is not None and (bool(dr.render_files) or bool(dr.render_warnings))
     has_quality = dr is not None and bool(dr.element_quality)
     has_tensors = dr is not None and bool(dr.peak_element_tensors)
     # 덩어리가 하나도 없어도 항목이 있으면 탭을 연다 — "선별됐지만 흩어졌다" 도 정보다.
@@ -266,6 +267,7 @@ def _build_js_data(result: SingleResult) -> dict:
         data["renders"] = [
             str(p.relative_to(renders_dir)) for p in dr.render_files
         ]
+        data["render_warnings"] = list(dr.render_warnings)
         data["element_quality"] = [
             {
                 "part_id": eq.part_id,
@@ -1940,6 +1942,12 @@ function svCopyOutput() {
 
 function renderGallery() {
   let galleryHtml = _svConfigPanel();
+
+  // 렌더 일부 실패 — unified_analyzer 가 rc 3 으로 알렸다
+  for (const w of (DATA.render_warnings || [])) {
+    const t = String(w).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+    galleryHtml += `<div class="warn-box">렌더 일부 실패 — 아래 영상이 빠졌거나 불완전할 수 있다<pre style="white-space:pre-wrap;margin:6px 0 0">${t}</pre></div>`;
+  }
 
   if (!DATA.renders || !DATA.renders.length) {
     return galleryHtml + '<div class="warn-box">렌더 파일 없음</div>';

@@ -143,7 +143,11 @@ def run_analysis(
         rc_first.per_part_render = False
 
     yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first, hotspot=hotspot)
-    _run_ua(ua, yaml_content, verbose)
+    # 렌더 실패는 분석 실패가 아니다 — 보고서에 남겨 갤러리 공백이 조용히 지나가지 않게 한다
+    render_warnings: list[str] = []
+    w = _run_ua(ua, yaml_content, verbose)
+    if w:
+        render_warnings.append(w)
 
     result = _parse_outputs(output_dir, parse_motion=parse_motion, series=series)
 
@@ -170,9 +174,12 @@ def run_analysis(
                     install_dir=install_dir,
                 )
             try:
-                _run_ua(ua, yaml2, verbose)
-            except RuntimeError:
-                pass  # best-effort; analysis already done
+                w = _run_ua(ua, yaml2, verbose)
+            except RuntimeError as e:
+                # 분석은 이미 끝났다 — 파트별 렌더 실패로 보고서에 남긴다(예전에는 버렸다)
+                w = f"파트별 렌더 패스 실패: {e}"
+            if w:
+                render_warnings.append(w)
             # Refresh render_files list
             renders_dir = output_dir / "renders"
             render_files: list[Path] = []
@@ -181,11 +188,22 @@ def run_analysis(
                     render_files.extend(sorted(renders_dir.rglob(ext)))
             result.render_files = render_files
 
+    result.render_warnings = render_warnings
+    for w in render_warnings:
+        print(f"[koo_deep_report] 렌더 경고: {w}", file=sys.stderr)
     return result
 
 
-def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> None:
-    """Write YAML to temp file, run unified_analyzer, clean up."""
+# unified_analyzer 종료 코드 3 — 분석 결과는 썼지만 렌더·단면 영상이 실패했다
+_UA_RC_RENDER_FAILED = 3
+
+
+def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> str | None:
+    """Write YAML to temp file, run unified_analyzer, clean up.
+
+    반환: 분석은 됐지만 렌더·단면 영상이 실패했으면(rc 3) 그 설명, 아니면 None.
+    그 밖의 실패는 RuntimeError.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, prefix="sa_") as f:
         f.write(yaml_content)
         yaml_path = Path(f.name)
@@ -202,9 +220,16 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> None:
             capture_output=not verbose,
             text=True,
         )
+        if proc.returncode == _UA_RC_RENDER_FAILED:
+            # 실패한 작업 줄(FAILED …)은 진행 출력(stdout)으로 나온다
+            out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
+            failed = [ln.strip() for ln in out.splitlines() if "FAILED" in ln or "failed" in ln]
+            detail = "\n".join(failed[:10])
+            return "unified_analyzer 렌더 일부 실패 (rc=3)" + (f":\n{detail}" if detail else "")
         if proc.returncode != 0:
             stderr = getattr(proc, "stderr", "") or ""
             raise RuntimeError(f"unified_analyzer failed (rc={proc.returncode}):\n{stderr[:2000]}")
+        return None
     finally:
         yaml_path.unlink(missing_ok=True)
 

@@ -92,6 +92,8 @@ public:
 
     /** @brief True if section views were already processed inside analyze() */
     bool sectionViewsDone() const { return section_views_done_; }
+    /** @brief analyze() 안에서 돈 단면 영상이 모두 성공했나 (안 돌았으면 true) */
+    bool sectionViewsOk() const { return section_views_ok_; }
 
     /// *SET_SEGMENT 의 세그먼트들이 붙어 있는 부모 solid 요소를 찾는다.
     ///
@@ -115,6 +117,7 @@ private:
     std::string last_error_;
     bool success_ = false;
     bool section_views_done_ = false;
+    bool section_views_ok_ = true;
 
     // Internal analysis methods
 

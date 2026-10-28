@@ -295,6 +295,9 @@ class D3plotResult:
     #: 필드 뜻은 docs/hotspot-cluster-usage.md. 비활성이면 빈 리스트.
     hotspot_clusters: list[dict] = field(default_factory=list)
     render_files: list[Path] = field(default_factory=list)
+    #: 분석은 됐지만 렌더·단면 영상이 실패한 사연(unified_analyzer rc 3 등).
+    #: 비어 있지 않으면 보고서 렌더 갤러리에 경고로 드러낸다.
+    render_warnings: list[str] = field(default_factory=list)
     output_dir: Path | None = None
 
     @property

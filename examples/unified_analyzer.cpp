@@ -805,13 +805,16 @@ void saveAnalysisMetadata(const fs::path& result_dir,
 
 /**
  * @brief Run analysis on a single d3plot with specified output directory
+ * @param render_failed 분석은 됐지만 렌더·단면 영상이 하나라도 실패하면 true
  * @return true if analysis succeeded
  */
 bool runSingleAnalysis(const fs::path& d3plot_path,
                        const fs::path& result_dir,
                        UnifiedConfig base_config,
                        bool analysis_only,
-                       const std::string& config_path) {
+                       const std::string& config_path,
+                       bool& render_failed) {
+    render_failed = false;
     // Update config for this specific d3plot
     base_config.d3plot_path = d3plot_path.string();
     base_config.output_directory = result_dir.string();
@@ -839,34 +842,57 @@ bool runSingleAnalysis(const fs::path& d3plot_path,
         std::cerr << "Analysis failed: " << analyzer.getLastError() << "\n";
         return false;
     }
+    if (analyzer.sectionViewsDone() && !analyzer.sectionViewsOk()) render_failed = true;
 
     // Export results
     exportResults(result, base_config);
 
     // Run render jobs if not analysis_only
+    // 렌더 실패는 분석 실패가 아니다 — 결과는 이미 썼다. 대신 render_failed 로 올려
+    // 종료 코드에 남긴다(예전에는 렌더 성공 여부를 버려 rc 0 이었다, 2026-10-28 K-4).
     if (!analysis_only && base_config.hasRenderJobs()) {
-        D3plotReader render_reader(d3plot_path.string());
-        auto error = render_reader.open();
-        if (error == ErrorCode::SUCCESS) {
-            UnifiedAnalyzer render_analyzer;
-            render_analyzer.processRenderJobs(render_reader, base_config,
-                [](const std::string& msg) {
-                    std::cout << "  " << msg << "\n";
-                });
+        try {
+            D3plotReader render_reader(d3plot_path.string());
+            auto error = render_reader.open();
+            if (error != ErrorCode::SUCCESS) {
+                std::cerr << "  Failed to open d3plot for render jobs\n";
+                render_failed = true;
+            } else {
+                UnifiedAnalyzer render_analyzer;
+                if (!render_analyzer.processRenderJobs(render_reader, base_config,
+                        [](const std::string& msg) {
+                            std::cout << "  " << msg << "\n";
+                        })) {
+                    render_failed = true;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "  Render jobs failed: " << e.what() << "\n";
+            render_failed = true;
         }
     }
 
     // Run section view jobs if not analysis_only and not already done in analyze()
     if (!analysis_only && base_config.hasSectionViews() && !analyzer.sectionViewsDone()) {
-        D3plotReader sv_reader(d3plot_path.string());
-        auto error = sv_reader.open();
-        if (error == ErrorCode::SUCCESS) {
-            auto sv_states = sv_reader.read_all_states_parallel(base_config.num_threads);
-            UnifiedAnalyzer sv_analyzer;
-            sv_analyzer.processSectionViews(sv_reader, base_config, sv_states,
-                [](const std::string& msg) {
-                    std::cout << "  " << msg << "\n";
-                });
+        try {
+            D3plotReader sv_reader(d3plot_path.string());
+            auto error = sv_reader.open();
+            if (error != ErrorCode::SUCCESS) {
+                std::cerr << "  Failed to open d3plot for section view jobs\n";
+                render_failed = true;
+            } else {
+                auto sv_states = sv_reader.read_all_states_parallel(base_config.num_threads);
+                UnifiedAnalyzer sv_analyzer;
+                if (!sv_analyzer.processSectionViews(sv_reader, base_config, sv_states,
+                        [](const std::string& msg) {
+                            std::cout << "  " << msg << "\n";
+                        })) {
+                    render_failed = true;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "  Section view jobs failed: " << e.what() << "\n";
+            render_failed = true;
         }
     }
 
@@ -935,6 +961,7 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     int success_count = 0;
     int skip_count = 0;
     int fail_count = 0;
+    int render_fail_count = 0;
 
     for (size_t i = 0; i < d3plot_dirs.size(); ++i) {
         const auto& d3plot_dir = d3plot_dirs[i];
@@ -969,8 +996,11 @@ int runRecursiveAnalysis(const fs::path& root_dir,
         }
 
         // Run analysis
-        if (runSingleAnalysis(d3plot_path, result_dir, base_config, analysis_only, config_path)) {
+        bool run_render_failed = false;
+        if (runSingleAnalysis(d3plot_path, result_dir, base_config, analysis_only, config_path,
+                              run_render_failed)) {
             ++success_count;
+            if (run_render_failed) ++render_fail_count;
         } else {
             ++fail_count;
         }
@@ -985,6 +1015,10 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     std::cout << "Success: " << success_count << "\n";
     std::cout << "Skipped: " << skip_count << "\n";
     std::cout << "Failed: " << fail_count << "\n";
+    if (render_fail_count > 0) {
+        std::cout << "Render failed: " << render_fail_count
+                  << " (분석 결과는 있지만 렌더·단면 영상 일부가 실패한 런)\n";
+    }
     if (!unreadable.empty()) {
         std::cout << "Unreadable subtrees: " << unreadable.size()
                   << " (스캔 불완전 — 목록에 없는 d3plot 이 있다)\n";
@@ -993,11 +1027,14 @@ int runRecursiveAnalysis(const fs::path& root_dir,
     std::cout << "=============================================================\n";
 
     // 종료코드: 0 = 전부 정상, 1 = 분석이 실패한 런이 있음,
-    //          2 = 분석은 다 됐지만 스캔이 불완전함(못 읽은 하위 트리).
+    //          2 = 분석은 다 됐지만 스캔이 불완전함(못 읽은 하위 트리),
+    //          3 = 분석은 다 됐지만 렌더·단면 영상이 실패한 런이 있음.
     // 둘을 같은 1 로 묶으면, 읽기 권한 없는 폴더 하나로 `set -e` 파이프라인
     // (scripts/analyze_and_report.sh)이 보고서 단계 전에 죽는다. 그렇다고 0 을
     // 내면 목록이 불완전했다는 사실이 값에서 사라진다 — 그래서 코드를 나눈다.
+    // 여럿이 겹치면 1 > 3 > 2 순으로 하나만 낸다.
     if (fail_count > 0) return 1;
+    if (render_fail_count > 0) return 3;
     return unreadable.empty() ? 0 : 2;
 }
 
@@ -1046,7 +1083,9 @@ void printUsage(const char* prog_name) {
     std::cout << "  0  all runs succeeded\n";
     std::cout << "  1  at least one run failed (or a fatal error)\n";
     std::cout << "  2  recursive mode only: all runs succeeded but the scan was incomplete\n";
-    std::cout << "     (unreadable subtrees) — results on disk are valid\n\n";
+    std::cout << "     (unreadable subtrees) — results on disk are valid\n";
+    std::cout << "  3  analysis results were written, but a render / part section /\n";
+    std::cout << "     section view job failed (precedence when several apply: 1 > 3 > 2)\n\n";
 
     std::cout << "Features:\n";
     std::cout << "  - Job-based analysis configuration\n";
@@ -1362,6 +1401,9 @@ int main(int argc, char* argv[]) {
     // Run analysis
     auto start_time = std::chrono::high_resolution_clock::now();
     bool sv_done_in_analyze = false;
+    // 분석은 됐지만 렌더·단면 영상이 하나라도 실패했나 — 종료 코드 3 으로 남긴다.
+    // 예전에는 "Some render jobs failed" 만 찍고 0 을 내 아무도 못 잡았다(2026-10-28 K-4).
+    bool render_failed = false;
 
     if (!render_only && (config.hasAnalysisJobs() || !config.set_reports.empty())) {
         UnifiedAnalyzer analyzer;
@@ -1377,6 +1419,7 @@ int main(int argc, char* argv[]) {
         }
 
         sv_done_in_analyze = analyzer.sectionViewsDone();
+        if (sv_done_in_analyze && !analyzer.sectionViewsOk()) render_failed = true;
         analyzed_pids = result.metadata.analyzed_parts;
 
         // Export results
@@ -1395,22 +1438,29 @@ int main(int argc, char* argv[]) {
     if (!analysis_only && config.hasRenderJobs()) {
         std::cout << "\n[RENDER] Processing " << config.render_jobs.size() << " render job(s)...\n";
 
-        D3plotReader render_reader(config.d3plot_path);
-        auto error = render_reader.open();
-        if (error != ErrorCode::SUCCESS) {
-            std::cerr << "Failed to open d3plot for render jobs\n";
-        } else {
-            UnifiedAnalyzer render_analyzer;
-            bool render_success = render_analyzer.processRenderJobs(render_reader, config,
-                [](const std::string& msg) {
-                    std::cout << msg << "\n";
-                });
-
-            if (render_success) {
-                std::cout << "\n[RENDER] All render jobs completed successfully.\n";
+        try {
+            D3plotReader render_reader(config.d3plot_path);
+            auto error = render_reader.open();
+            if (error != ErrorCode::SUCCESS) {
+                std::cerr << "Failed to open d3plot for render jobs\n";
+                render_failed = true;
             } else {
-                std::cerr << "\n[RENDER] Some render jobs failed.\n";
+                UnifiedAnalyzer render_analyzer;
+                bool render_success = render_analyzer.processRenderJobs(render_reader, config,
+                    [](const std::string& msg) {
+                        std::cout << msg << "\n";
+                    });
+
+                if (render_success) {
+                    std::cout << "\n[RENDER] All render jobs completed successfully.\n";
+                } else {
+                    std::cerr << "\n[RENDER] Some render jobs failed.\n";
+                    render_failed = true;
+                }
             }
+        } catch (const std::exception& e) {
+            std::cerr << "\n[RENDER] Render jobs failed: " << e.what() << "\n";
+            render_failed = true;
         }
     }
 
@@ -1419,23 +1469,30 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[PART_SECTION] Processing " << config.part_section_renders.size()
                   << " part section render job(s)...\n";
 
-        D3plotReader psr_reader(config.d3plot_path);
-        auto error = psr_reader.open();
-        if (error != ErrorCode::SUCCESS) {
-            std::cerr << "Failed to open d3plot for part section renders\n";
-        } else {
-            UnifiedAnalyzer psr_analyzer;
-            bool psr_success = psr_analyzer.processPartSectionRenders(
-                psr_reader, config, analyzed_pids,
-                [](const std::string& msg) {
-                    std::cout << msg << "\n";
-                });
-
-            if (psr_success) {
-                std::cout << "\n[PART_SECTION] All part section renders completed.\n";
+        try {
+            D3plotReader psr_reader(config.d3plot_path);
+            auto error = psr_reader.open();
+            if (error != ErrorCode::SUCCESS) {
+                std::cerr << "Failed to open d3plot for part section renders\n";
+                render_failed = true;
             } else {
-                std::cerr << "\n[PART_SECTION] Some part section renders failed.\n";
+                UnifiedAnalyzer psr_analyzer;
+                bool psr_success = psr_analyzer.processPartSectionRenders(
+                    psr_reader, config, analyzed_pids,
+                    [](const std::string& msg) {
+                        std::cout << msg << "\n";
+                    });
+
+                if (psr_success) {
+                    std::cout << "\n[PART_SECTION] All part section renders completed.\n";
+                } else {
+                    std::cerr << "\n[PART_SECTION] Some part section renders failed.\n";
+                    render_failed = true;
+                }
             }
+        } catch (const std::exception& e) {
+            std::cerr << "\n[PART_SECTION] Part section renders failed: " << e.what() << "\n";
+            render_failed = true;
         }
     }
 
@@ -1444,29 +1501,42 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[SECTION_VIEW] Processing " << config.section_views.size()
                   << " section view job(s) with shared state data...\n";
 
-        D3plotReader sv_reader(config.d3plot_path);
-        auto error = sv_reader.open();
-        if (error != ErrorCode::SUCCESS) {
-            std::cerr << "Failed to open d3plot for section view jobs\n";
-        } else {
-            // Read all states once, then run all section views in parallel
-            std::cout << "[SECTION_VIEW] Reading all states...\n";
-            auto sv_states = sv_reader.read_all_states_parallel(config.num_threads);
-            std::cout << "[SECTION_VIEW] " << sv_states.size() << " states loaded\n";
-
-            UnifiedAnalyzer sv_analyzer;
-            bool sv_success = sv_analyzer.processSectionViews(sv_reader, config, sv_states,
-                [](const std::string& msg) {
-                    std::cout << msg << "\n";
-                });
-
-            if (sv_success) {
-                std::cout << "\n[SECTION_VIEW] All section view jobs completed successfully.\n";
+        try {
+            D3plotReader sv_reader(config.d3plot_path);
+            auto error = sv_reader.open();
+            if (error != ErrorCode::SUCCESS) {
+                std::cerr << "Failed to open d3plot for section view jobs\n";
+                render_failed = true;
             } else {
-                std::cerr << "\n[SECTION_VIEW] Some section view jobs failed.\n";
+                // Read all states once, then run all section views in parallel
+                std::cout << "[SECTION_VIEW] Reading all states...\n";
+                auto sv_states = sv_reader.read_all_states_parallel(config.num_threads);
+                std::cout << "[SECTION_VIEW] " << sv_states.size() << " states loaded\n";
+
+                UnifiedAnalyzer sv_analyzer;
+                bool sv_success = sv_analyzer.processSectionViews(sv_reader, config, sv_states,
+                    [](const std::string& msg) {
+                        std::cout << msg << "\n";
+                    });
+
+                if (sv_success) {
+                    std::cout << "\n[SECTION_VIEW] All section view jobs completed successfully.\n";
+                } else {
+                    std::cerr << "\n[SECTION_VIEW] Some section view jobs failed.\n";
+                    render_failed = true;
+                }
             }
+        } catch (const std::exception& e) {
+            // 상태 읽기 실패(잘림·메모리 부족)도 여기로 온다 — 예전에는 읽은 만큼으로
+            // 영상을 만들고 성공했다(4,952 상태 중 1,546, 2026-10-28 K-2).
+            std::cerr << "\n[SECTION_VIEW] Section view jobs failed: " << e.what() << "\n";
+            render_failed = true;
         }
     }
 
+    if (render_failed) {
+        std::cerr << "\n[RENDER] 분석 결과는 썼지만 렌더·단면 영상 일부가 실패했다 — 종료 코드 3\n";
+        return 3;
+    }
     return 0;
 }

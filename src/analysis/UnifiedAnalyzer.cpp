@@ -41,6 +41,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config) {
 
 ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, UnifiedProgressCallback callback) {
     success_ = false;
+    section_views_ok_ = true;
     last_error_.clear();
     ExtendedAnalysisResult result;
 
@@ -248,7 +249,7 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (config.hasSectionViews()) {
         current_step++;
         if (callback) callback("[Step " + std::to_string(current_step) + "/" + std::to_string(total_steps) + "] Section view rendering...");
-        processSectionViews(reader, config, all_states, callback);
+        section_views_ok_ = processSectionViews(reader, config, all_states, callback);
         section_views_done_ = true;
     }
 
