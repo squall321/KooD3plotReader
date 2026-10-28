@@ -136,6 +136,86 @@ bool LSPrePostRenderer::isAvailable() const {
 // Rendering
 // ============================================================
 
+// ============================================================
+// LS-PrePost 상태 메모리 예산 · 산출물 검사
+// ============================================================
+
+// 🔴 LS-PrePost 4.12 는 상태마다 메모리를 잡다가 합이 max_memory 를 넘으면 그 뒤
+//    상태에 메모리를 주지 않는다(AllocStateMemory). 그 상태들은 배치 영상에서
+//    「min=0, max=0, at node# 0」 으로 그려지고 오류도 종료 코드도 없다.
+//    기본 max_memory 는 0.8 × wxGetFreeMemory() 인데, 정적 링크된 wxWidgets 3.0 은
+//    /proc/meminfo 를 옛 형식(MemFree 다음 줄이 Buffers)으로 읽어 사실상 시작 시점
+//    MemFree + 초기화 안 된 값이다. 페이지 캐시에 따라 출렁여 운영 영상 24개 중 7개가
+//    어느 프레임부터 끝까지 0 이었다(2026-10-28 DynaForge 보고 K-1, lsppconf 20M 으로
+//    결정적 재현). 예산을 낮게 주는 것은 답이 아니다 — 넘는 순간 0 이 된다.
+//    크게 주면 예산 검사가 사실상 꺼지고, 진짜 메모리가 모자라면 LS-PrePost 가
+//    abort(134) 해 종료 코드·산출물 검사로 잡힌다(주소 공간 상한 시험으로 확인).
+static const char* kStateMemoryBudget = "1000G";
+
+// 작업자 HOME 의 lsppconf 에 max_physical_memory 를 적는다. 다른 설정은 그대로 둔다
+// (LS-PrePost 가 종료 때 파일 전체를 다시 쓴다).
+static void prepareWorkerHome(const std::filesystem::path& home) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    // 이 LS-PrePost(4.12)는 $HOME/LSTC/LS-PrePost4.12/lsppconf 를 읽는다. 판이 바뀌면
+    // 디렉터리 이름도 바뀌므로 이미 있는 LS-PrePost* 디렉터리에도 같이 적는다.
+    std::set<fs::path> dirs = {home / "LSTC" / "LS-PrePost4.12"};
+    for (const auto& e : fs::directory_iterator(home / "LSTC", ec)) {
+        if (e.is_directory(ec) && e.path().filename().string().rfind("LS-PrePost", 0) == 0)
+            dirs.insert(e.path());
+    }
+    const std::string line = std::string("max_physical_memory = ") + kStateMemoryBudget;
+    for (const auto& dir : dirs) {
+        fs::create_directories(dir, ec);
+        const fs::path conf = dir / "lsppconf";
+        std::vector<std::string> lines;
+        bool replaced = false;
+        {
+            std::ifstream in(conf);
+            for (std::string l; std::getline(in, l);) {
+                if (l.rfind("max_physical_memory", 0) == 0) {
+                    l = line;
+                    replaced = true;
+                }
+                lines.push_back(l);
+            }
+        }
+        if (!replaced) lines.insert(lines.begin(), line);
+        std::ofstream out(conf, std::ios::trunc);
+        for (const auto& l : lines) out << l << "\n";
+    }
+}
+
+// 영상 산출물이 온전한가. LS-PrePost 가 도중에 죽으면 moov 없는 mp4 가 남아
+// 존재·크기만 보면 통과한다 — ffprobe 로 열리는지까지 본다(없으면 크기만).
+static bool checkMovieFile(const std::string& file, std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::exists(file, ec) || fs::file_size(file, ec) < 1024) {
+        err = "영상이 없거나 1 KB 미만이다: " + file;
+        return false;
+    }
+#ifndef _WIN32
+    if (std::system("command -v ffprobe >/dev/null 2>&1") != 0) return true;
+    const std::string cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames "
+                            "-of csv=p=0 \"" + file + "\" 2>/dev/null";
+    FILE* p = popen(cmd.c_str(), "r");
+    if (!p) return true;
+    char buf[64] = {0};
+    const bool got = std::fgets(buf, sizeof(buf), p) != nullptr;
+    const int rc = pclose(p);
+    // 프레임 수를 못 적는 컨테이너는 N/A — 열리기만 하면 통과
+    char* end = nullptr;
+    const long frames = got ? std::strtol(buf, &end, 10) : 0;
+    const bool numeric = got && end != buf;
+    if (rc != 0 || !got || (numeric && frames <= 0)) {
+        err = "영상을 열 수 없다(ffprobe) — LS-PrePost 가 쓰다 멈춘 것으로 보인다: " + file;
+        return false;
+    }
+#endif
+    return true;
+}
+
 bool LSPrePostRenderer::renderImage(
     const std::string& d3plot_path,
     const std::string& output_path,
@@ -160,6 +240,12 @@ bool LSPrePostRenderer::renderImage(
     std::string working_dir = d3plot_dir.string();
 
     bool success = executeLSPrePost(script_path.string(), working_dir);
+    if (success) {
+        // generateScript 는 애니메이션이 아니면 늘 MP4/H264 로 쓴다
+        const std::string movie = abs_output.string() +
+            (options.create_animation ? videoFormatToExtension(options.video_format) : ".mp4");
+        success = checkMovieFile(movie, pImpl->last_error);
+    }
 
     if (!success) {
         // Keep failed script for debugging
@@ -375,7 +461,10 @@ bool LSPrePostRenderer::executeLSPrePost(
         << " DISPLAY=:" << display_num << ".0 "
         << gl_prefix
         << "\"" << pImpl->lsprepost_path << "\" c=\"" << script_path << "\";"
-        << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null";
+        // LS-PrePost 의 종료 코드를 내야 한다 — 예전에는 마지막 명령(wait Xvfb)의
+        // 코드가 나가 LS-PrePost 가 abort 해도 성공이었다(2026-10-28 K-1).
+        << " LSPP_RC=$?;"
+        << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null; exit $LSPP_RC";
 #else
     cmd << "\"" << pImpl->lsprepost_path << "\" -nographics c=\"" << script_path << "\"";
 #endif
@@ -420,6 +509,14 @@ bool LSPrePostRenderer::executeLSPrePost(
     return exit_code == 0;
 #else
     // Unix execution
+    // Isolate $HOME per worker to prevent lsppconf write conflicts
+    // when multiple LSPrePost instances run in parallel.
+    // 준비는 fork 전에 한다 — 렌더 작업자 스레드가 여럿일 때 fork 된 자식에서
+    // 파일 입출력을 하는 것은 안전하지 않다.
+    const std::string fake_home = "/tmp/lspp_worker_" + std::to_string(pImpl->worker_id);
+    std::filesystem::create_directories(fake_home);
+    prepareWorkerHome(fake_home);
+
     pid_t pid = fork();
 
     if (pid == -1) {
@@ -433,10 +530,6 @@ bool LSPrePostRenderer::executeLSPrePost(
             chdir(working_dir.c_str());
         }
 
-        // Isolate $HOME per worker to prevent lsppconf write conflicts
-        // when multiple LSPrePost instances run in parallel
-        std::string fake_home = "/tmp/lspp_worker_" + std::to_string(pImpl->worker_id);
-        std::filesystem::create_directories(fake_home);
         setenv("HOME", fake_home.c_str(), 1);
 
         // Execute LSPrePost (Mesa wrapper handles all environment setup)
@@ -455,6 +548,7 @@ bool LSPrePostRenderer::executeLSPrePost(
     int exit_code = WEXITSTATUS(status);
     if (exit_code != 0) {
         pImpl->last_error = "LSPrePost exited with code " + std::to_string(exit_code)
+                          + (exit_code == 134 ? " (abort — 메모리 부족일 수 있다)" : "")
                           + " (cmd: " + cmd.str().substr(0, 200) + ")";
         return false;
     }
@@ -661,10 +755,13 @@ int LSPrePostRenderer::renderAllPartSections(
 
                 fs::path cfile = part_dir / ("section_" + axis_name + ".cfile");
                 if (saveScript(script.str(), cfile.string())) {
-                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string())) {
+                    std::string movie_err;
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()) &&
+                        checkMovieFile(out_path.string() + ".mp4", movie_err)) {
                         reencodeMP4(out_path.string(), section_opts.crf);
                         success++;
                     } else {
+                        std::cerr << "[SectionView] " << (movie_err.empty() ? getLastError() : movie_err) << "\n";
                         std::cerr << "[SectionView] FAILED: Part " << pid << " section-" << axis_name << "\n";
                     }
                     fs::remove(cfile);
@@ -720,10 +817,13 @@ int LSPrePostRenderer::renderAllPartSections(
 
                 fs::path cfile = part_dir / ("iso_clip_" + axis_name + ".cfile");
                 if (saveScript(script.str(), cfile.string())) {
-                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string())) {
+                    std::string movie_err;
+                    if (executeLSPrePost(cfile.string(), abs_d3plot.parent_path().string()) &&
+                        checkMovieFile(out_path.string() + ".mp4", movie_err)) {
                         reencodeMP4(out_path.string(), section_opts.crf);
                         success++;
                     } else {
+                        std::cerr << "[SectionView] " << (movie_err.empty() ? getLastError() : movie_err) << "\n";
                         std::cerr << "[SectionView] FAILED: Part " << pid << " iso_clip-" << axis_name << "\n";
                     }
                     fs::remove(cfile);
