@@ -342,9 +342,13 @@ std::vector<data::StateData> D3plotReader::read_all_states_parallel(size_t num_t
     //    더 못 띄우면 띄운 만큼으로 계속한다.
     std::vector<FileResult> results(file_count - 1);
     std::atomic<size_t> next_idx{1};
+    // 한 파일이 실패하면 어차피 전체가 실패다 — 남은 파일을 더 집지 않는다
+    // (메모리 부족이면 남은 작업자가 파일마다 같은 오류를 내며 시간만 쓴다).
+    std::atomic<bool> any_failed{false};
     auto worker = [&]() {
-        for (size_t i = next_idx++; i < file_count; i = next_idx++) {
+        for (size_t i = next_idx++; i < file_count && !any_failed; i = next_idx++) {
             results[i - 1] = read_file(i);
+            if (!results[i - 1].success) any_failed = true;
         }
     };
     std::vector<std::thread> pool;
@@ -361,10 +365,13 @@ std::vector<data::StateData> D3plotReader::read_all_states_parallel(size_t num_t
     for (auto& t : pool) t.join();
 
     // 한 파일이라도 실패하면 읽은 만큼 돌려주지 않는다 — 시간 축에 구멍이 난 채
-    // '성공' 하면 피크·시계열이 조용히 틀린다.
-    for (const auto& result : results) {
-        if (!result.success) {
-            throw std::runtime_error(result.error_msg);
+    // '성공' 하면 피크·시계열이 조용히 틀린다. 빨리 멈춰 읽지 않은 파일은
+    // 사유가 비어 있으니 사유가 있는 첫 실패를 낸다.
+    if (any_failed) {
+        for (const auto& result : results) {
+            if (!result.success && !result.error_msg.empty()) {
+                throw std::runtime_error(result.error_msg);
+            }
         }
     }
 
