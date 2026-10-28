@@ -36,40 +36,32 @@ std::vector<data::StateData> StateDataParser::parse_all() {
     // Get file size in words for boundary checking
     size_t file_size_words = reader_->get_file_size_words();
 
-    // Read states until we hit EOF or invalid time
-    bool done = false;
-    while (!done) {
-        // Check if we have enough data for at least the time word
+    // 🔴 예외를 여기서 잡으면 안 된다 — 잡아서 멈추면 그때까지 읽은 상태가
+    //    '성공' 으로 나간다. 12 GiB 상한 아래 bad_alloc 을 삼켜 4,952 상태 중
+    //    1,546 만 읽고 rc 0 으로 끝났다(2026-10-28 DynaForge 보고 K-2).
+    //    경계는 아래에서 미리 검사하므로 정상 덱에서 여기 예외는 나지 않는다.
+    // EOF 표지를 크기 검사보다 먼저 본다 — 표지 뒤 패딩이 상태 하나보다 짧아도
+    // '정상 끝' 으로 기록해야 잘림 판정이 패딩을 잘림으로 오인하지 않는다.
+    while (true) {
         if (offset >= file_size_words) {
-            done = true;
-            continue;
+            stop_reason_ = StopReason::OUT_OF_DATA;
+            break;
         }
-
-        // Check if we have enough data for a full state
+        double time = reader_->read_double(offset);
+        if (std::abs(time + 999999.0) < 1e-6) {
+            stop_reason_ = StopReason::EOF_MARKER;
+            break;
+        }
         if (offset + state_size > file_size_words) {
-            done = true;
-            continue;
+            stop_reason_ = StopReason::OUT_OF_DATA;
+            break;
         }
 
-        try {
-            // Try to read time word
-            double time = reader_->read_double(offset);
-
-            // Check for EOF marker (-999999.0)
-            if (std::abs(time + 999999.0) < 1e-6) {
-                done = true;
-            } else {
-                // Parse this state (fast or legacy based on mode)
-                data::StateData state = parse_state(offset);
-                states.push_back(std::move(state));
-
-                // Move to next state
-                offset += state_size;
-            }
-        } catch (const std::exception& e) {
-            done = true;
-        }
+        // Parse this state (fast or legacy based on mode)
+        states.push_back(parse_state(offset));
+        offset += state_size;
     }
+    trailing_words_ = file_size_words > offset ? file_size_words - offset : 0;
 
     return states;
 }
@@ -111,33 +103,27 @@ std::vector<double> StateDataParser::parse_time_values_only() {
     size_t file_size_words = reader_->get_file_size_words();
 
     // Scan states - only read time values, skip the rest
-    bool done = false;
-    while (!done) {
+    // 멈춤 규칙은 parse_all() 과 같아야 한다 — 상태 수가 두 경로에서 갈리면 안 된다.
+    while (true) {
         if (offset >= file_size_words) {
-            done = true;
-            continue;
+            stop_reason_ = StopReason::OUT_OF_DATA;
+            break;
         }
-
+        double time = reader_->read_double(offset);
+        if (std::abs(time + 999999.0) < 1e-6) {
+            stop_reason_ = StopReason::EOF_MARKER;
+            break;
+        }
         if (offset + state_size > file_size_words) {
-            done = true;
-            continue;
+            stop_reason_ = StopReason::OUT_OF_DATA;
+            break;
         }
 
-        try {
-            double time = reader_->read_double(offset);
-
-            // Check for EOF marker (-999999.0)
-            if (std::abs(time + 999999.0) < 1e-6) {
-                done = true;
-            } else {
-                time_values.push_back(time);
-                // Skip to next state (don't read the actual data)
-                offset += state_size;
-            }
-        } catch (const std::exception&) {
-            done = true;
-        }
+        time_values.push_back(time);
+        // Skip to next state (don't read the actual data)
+        offset += state_size;
     }
+    trailing_words_ = file_size_words > offset ? file_size_words - offset : 0;
 
     return time_values;
 }

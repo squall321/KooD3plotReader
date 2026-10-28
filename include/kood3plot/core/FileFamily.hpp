@@ -33,9 +33,17 @@ public:
      */
     std::string get_file_path(size_t index) const;
 
+    /**
+     * @brief 번호에 구멍이 있는가 — 탐색이 멈춘 번호 뒤에 가족 파일이 더 있으면
+     *        그 뒤 상태가 통째로 빠진다. 비어 있으면 구멍 없음.
+     * @return 예 "d3plot05 이 없는데 d3plot06 이 있다"
+     */
+    const std::string& gap_description() const { return gap_description_; }
+
 private:
     std::string base_path_;
     std::vector<std::string> family_files_;
+    std::string gap_description_;
 
     /**
      * @brief Discover all files in the family

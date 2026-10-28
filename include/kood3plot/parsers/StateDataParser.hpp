@@ -77,11 +77,23 @@ public:
      */
     data::StateData parse_state_legacy(size_t offset);
 
+    /// parse_all() · parse_time_values_only() 가 멈춘 까닭 — 파일이 잘렸는지
+    /// 판정하는 데 쓴다(판정은 파일 위치를 아는 D3plotReader 가 한다).
+    enum class StopReason {
+        EOF_MARKER,   ///< 다음 상태 자리에 -999999.0 — 정상 끝
+        OUT_OF_DATA   ///< 남은 워드가 상태 하나에 못 미침 — 패딩이거나 덜 써진 상태
+    };
+    StopReason stop_reason() const { return stop_reason_; }
+    /// 마지막으로 읽은 상태 다음부터 파일 끝까지 남은 워드 수
+    size_t trailing_words() const { return trailing_words_; }
+
 private:
     std::shared_ptr<core::BinaryReader> reader_;
     const data::ControlData& control_data_;
     bool is_family_file_;  ///< True if this is a family file (starts at offset 0)
     bool use_fast_mode_ = true;  ///< Use bulk read mode by default
+    StopReason stop_reason_ = StopReason::OUT_OF_DATA;
+    size_t trailing_words_ = 0;
 
     /**
      * @brief Find offset to first state data

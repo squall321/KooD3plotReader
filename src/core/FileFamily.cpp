@@ -62,6 +62,22 @@ void FileFamily::discover_files() {
             family_files_.push_back(family_file_path.string());
         } else {
             // Stop at first missing file (assume sequential numbering)
+            // 뒤 번호가 남아 있으면 구멍이다 — 그대로 멈추면 뒤 파일의 상태가
+            // 조용히 빠진 채 '성공' 한다. 판정은 읽는 쪽(D3plotReader)이 한다.
+            std::error_code ec;
+            for (const auto& entry : fs::directory_iterator(directory, ec)) {
+                const std::string name = entry.path().filename().string();
+                if (name.size() <= base_name.size() || name.compare(0, base_name.size(), base_name) != 0)
+                    continue;
+                const std::string digits = name.substr(base_name.size());
+                if (digits.size() < 2 || digits.size() > 3 ||
+                    digits.find_first_not_of("0123456789") != std::string::npos)
+                    continue;
+                if (std::stoi(digits) > i) {
+                    gap_description_ = oss.str() + " 이 없는데 " + name + " 이 있다";
+                    break;
+                }
+            }
             break;
         }
     }

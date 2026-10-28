@@ -51,6 +51,15 @@ if(TARGET kood3plot_writer)
     add_test(NAME MotionAnalyzer COMMAND test_motion_analyzer)
 endif()
 
+# d3plot 가족 파일 읽기 무결성 (합성 d3plot) — 잘림·누락·열기 실패·스레드 생성 실패.
+# fork·setrlimit 을 써서 POSIX 만.
+if(TARGET kood3plot_writer AND UNIX)
+    add_executable(test_family_read_integrity test_family_read_integrity.cpp)
+    target_link_libraries(test_family_read_integrity PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_family_read_integrity PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME FamilyReadIntegrity COMMAND test_family_read_integrity)
+endif()
+
 # TET10(NEL8<0) 덱의 표면 응력 침식 제외 tests — Writer 로 합성 덱을 만든다
 if(TARGET kood3plot_writer)
     add_executable(test_surface_stress_tet10 test_surface_stress_tet10.cpp)

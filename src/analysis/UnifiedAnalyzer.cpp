@@ -69,7 +69,15 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (callback) callback("Reading all states (parallel)...");
 
     // Read all states in parallel (family files read concurrently)
-    auto all_states = reader.read_all_states_parallel(config.num_threads);
+    // 읽기 실패(잘림·누락·메모리 부족)는 예외로 온다 — 받아서 실패로 끝낸다.
+    // 잡지 않으면 main 까지 올라가 terminate(SIGABRT) 로 죽는다.
+    std::vector<data::StateData> all_states;
+    try {
+        all_states = reader.read_all_states_parallel(config.num_threads);
+    } catch (const std::exception& e) {
+        last_error_ = std::string("상태 읽기 실패 — ") + e.what();
+        return result;
+    }
     if (all_states.empty()) {
         last_error_ = "No states found in d3plot";
         return result;
