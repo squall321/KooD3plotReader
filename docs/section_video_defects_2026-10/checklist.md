@@ -39,5 +39,6 @@
 
 ## 남은 것 (사용자 판단)
 - [ ] origin push · SIF 재빌드 · 호스트(deploy_from_sif.sh)·node001 배포
+- [ ] 배포 뒤 이미지 VERSION 을 DynaForge(kooremapper 세션)에 알리기 — 그쪽이 같은 덱(Run_20260602_093237_801e2b)으로 단면 영상을 다시 재 0 프레임이 사라졌는지 확인해 준다. 그쪽은 rc 3 을 경고로 다루기로 했다(KooRemapper ca0b6e1)
 - [ ] 이미 나간 운영 영상 0 프레임 일괄 점검 여부 (회신 §5-2)
 - [ ] P-2 세션 수 · P-3 state_step · P-4 한 세션 여러 단면
