@@ -355,6 +355,11 @@ class Report:
     #: 여러 개면 캠페인이 서로 다른 판으로 분석된 것이다 — 그 사실이 드러나야 한다.
     #: 옛 산출물에는 tool_commit 이 없으므로 그런 런은 세지 않는다(빈 dict 가능).
     tool_builds: dict = field(default_factory=dict)
+    #: 파트별 항복 한계 {pid: yield_map.PartYield}. 값은 **덱 단위**다 —
+    #: 안전율은 비율이라 덱 단위끼리면 약분되므로 환산하지 않는다.
+    part_yields: dict = field(default_factory=dict)
+    #: 항복 맵을 읽으며 생긴 안내(모르는 기준 등). 조용히 버리지 않는다.
+    yield_notes: list = field(default_factory=list)
     #: 적재에서 빠진 런의 {사유: 건수}. 빈 dict 면 전부 읽혔다.
     #: 조용히 버리면 "Loaded 0 results" 의 까닭을 아무도 모른다 — 세어서 말한다.
     drop_reasons: dict = field(default_factory=dict)

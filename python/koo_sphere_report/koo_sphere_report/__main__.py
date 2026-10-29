@@ -83,6 +83,11 @@ def main():
         help="Material yield stress (MPa) for safety factor calculation",
     )
     parser.add_argument(
+        "--yield-map", default="", metavar="FILE",
+        help="파트별 항복 한계 JSON (값은 **덱 단위**, MPa 아님). 생략하면 "
+             "첫 DropSet.json 의 model.part_yield 를 쓴다",
+    )
+    parser.add_argument(
         "--ts-points", type=int, default=0,
         help="Time series points per chart (0=auto)",
     )
@@ -153,6 +158,7 @@ def main():
         print(f"Loading data from {test_dir}...")
         t0 = time.time()
         report = analyze(test_dir, yield_stress=args.yield_stress,
+                         yield_map_path=args.yield_map,
                          hotspot_part_ids=hotspot_part_ids)
         base_dir = str(test_dir.resolve())
         # 🔴 이 줄이 **먼저** 나가야 한다 — 상류 자동화 셸이 이 줄을 보고,
