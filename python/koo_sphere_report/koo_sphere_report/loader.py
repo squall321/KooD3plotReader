@@ -298,14 +298,34 @@ def _apply_unit_system(sim_params, output_dir: Path) -> None:
     MotionData.set_unit_system(uid, gf, note=caveat, labels=labels)
 
 
-def load_dropset(run_dir: Path) -> AngleCondition | None:
-    """Load DropSet.json from a run folder."""
+#: 런이 적재에서 빠지는 사유. 사람에게 보일 문구이자 집계 키다.
+DROP_NO_DROPSET = "output/<run>/DropSet.json 없음"
+DROP_BAD_DROPSET = "DropSet.json 을 읽지 못함(깨짐/권한)"
+DROP_NO_RESULT = "analysis_results/<run>/analysis_result.json 없음"
+
+
+def load_dropset(run_dir: Path, reason: list | None = None) -> AngleCondition | None:
+    """Load DropSet.json from a run folder.
+
+    못 읽으면 None 이고, `reason` 을 주면 **왜** 못 읽었는지 한 줄 담는다.
+    예전에는 `json.load` 가 맨몸이라 **깨진 파일 하나가 캠페인 적재를 통째로
+    죽였다** — 979런짜리에서 그 대가가 크다. 깨짐도 사유로 세고 나머지는 계속
+    읽는다. 조용히 넘기는 것이 아니라 세어서 말하는 것이다.
+    """
     ds_path = run_dir / "DropSet.json"
     if not ds_path.exists():
+        if reason is not None:
+            reason.append(DROP_NO_DROPSET)
         return None
 
-    with open(ds_path, encoding="utf-8") as f:
-        ds = json.load(f)
+    try:
+        with open(ds_path, encoding="utf-8") as f:
+            ds = json.load(f)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        print(f"[sphere] {ds_path} 를 읽지 못했습니다 ({type(e).__name__}: {e})")
+        if reason is not None:
+            reason.append(DROP_BAD_DROPSET)
+        return None
 
     orient = ds.get("initial_conditions", {}).get("orientation_euler_deg", {})
     return AngleCondition(
@@ -317,14 +337,25 @@ def load_dropset(run_dir: Path) -> AngleCondition | None:
 
 
 def load_part_names(output_dir: Path) -> dict[int, PartInfo]:
-    """Load part names from the first available DropSet.json."""
+    """Load part names from the first available DropSet.json.
+
+    "available" 은 **읽히는** 것이다. 예전에는 `json.load` 가 맨몸이라 첫
+    DropSet.json 하나가 깨져 있으면 캠페인 적재가 통째로 죽었다 — 파트 이름
+    때문에 979런이 날아가는 건 값이 너무 크다. 깨진 것은 사유를 남기고 다음
+    런으로 넘어간다(조용히 넘기는 게 아니라 말하고 넘어간다).
+    """
     parts: dict[int, PartInfo] = {}
     for run_dir in sorted(output_dir.iterdir()):
         ds_path = run_dir / "DropSet.json"
         if not ds_path.exists():
             continue
-        with open(ds_path, encoding="utf-8") as f:
-            ds = json.load(f)
+        try:
+            with open(ds_path, encoding="utf-8") as f:
+                ds = json.load(f)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+            print(f"[sphere] 파트 이름: {ds_path} 를 건너뜁니다 "
+                  f"({type(e).__name__}: {e})")
+            continue
         raw_parts = ds.get("model", {}).get("parts", {})
         for pid_str, pname in raw_parts.items():
             pid = int(pid_str)
@@ -640,13 +671,21 @@ def load_simulation_result(
     part_info: dict[int, PartInfo],
     target_points: int | None = None,
     hotspot_part_ids: set[int] | None = None,
+    reason: list | None = None,
 ) -> SimulationResult | None:
-    """Load complete analysis result for one run."""
+    """Load complete analysis result for one run.
+
+    `reason` 을 주면 None 을 돌려줄 때 **그 사유**를 한 줄 담는다. 호출부가
+    `sr is None` 만 보고 조용히 버리면 "Loaded 0 results" 의 까닭을 아무도
+    모른다(M3_P2 샤드에서 실제로 그랬다). 사유를 호출부가 **다시 판정하지
+    않는** 이유는 같은 조건이 두 곳에 생기면 한쪽만 바뀌어 조용히 틀리기
+    때문이다 — `__main__.py` 903줄이 경고하는 복제 함정과 같은 부류다.
+    """
     result_dir = analysis_dir / run_name
     run_output_dir = output_dir / run_name
 
     # Load angle from DropSet.json
-    ds_angle = load_dropset(run_output_dir)
+    ds_angle = load_dropset(run_output_dir, reason=reason)
     if ds_angle is None:
         return None
     angle = _resolve_angle(ds_angle, doe_angles)
@@ -654,6 +693,8 @@ def load_simulation_result(
     # Load analysis_result.json for metadata
     json_path = result_dir / "analysis_result.json"
     if not json_path.exists():
+        if reason is not None:
+            reason.append(DROP_NO_RESULT)
         return None
 
     with open(json_path, encoding="utf-8") as f:
@@ -954,6 +995,7 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     tool_builds: {unified_analyzer 빌드 커밋: 런 수}. 여러 개면 캠페인이 서로 다른
     판으로 분석된 것이다.
 
+    drop_reasons: {사유: 건수} — 적재에서 빠진 런. 빈 dict 면 전부 읽혔다.
     energy_flows: {run_folder: neutral flow dict} — 파트간 접촉 에너지 전달.
     """
     test_dir = Path(test_dir)
@@ -980,6 +1022,8 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     # Target points chosen to give 4x safety margin over the final report's
     # downsample step (html_report/json_report use these same thresholds).
     results: list[SimulationResult] = []
+    #: 적재에서 빠진 런의 사유별 건수. 0건이어도 키를 만들지 않는다.
+    drop_reasons: dict[str, int] = {}
     if analysis_dir.exists():
         run_dirs = [
             d for d in sorted(analysis_dir.iterdir())
@@ -998,13 +1042,19 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
             report_pts = 10
         load_target = report_pts * 4
         for result_folder in run_dirs:
+            _why: list = []
             sr = load_simulation_result(
                 analysis_dir, output_dir, result_folder.name, doe_angles, part_info,
                 target_points=load_target,
                 hotspot_part_ids=hotspot_part_ids,
+                reason=_why,
             )
             if sr is not None:
                 results.append(sr)
+            else:
+                # 조용히 버리지 않는다 — 사유별로 세어 두고 __main__ 이 말한다.
+                r = _why[0] if _why else "사유 미상"
+                drop_reasons[r] = drop_reasons.get(r, 0) + 1
 
     # 분석에 쓰인 빌드 집계. 여러 개면 캠페인이 섞인 판으로 분석된 것이라
     # 리포트에서 그 사실이 보여야 한다 (docs/postproc_gap_2026-09/plan.md §P0-3).
@@ -1090,4 +1140,4 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
               "flow tab will be empty (install koo_deep_report + lasso to enable)")
 
     return (project_name, doe_strategy, sim_params, part_info, results,
-            doe_angles, energy_flows, tool_builds)
+            doe_angles, energy_flows, tool_builds, drop_reasons)

@@ -10,6 +10,39 @@ from .report.html_report import generate_html
 from .report.json_report import save_json
 
 
+def _report_load_losses(report, test_dir: Path) -> None:
+    """적재에서 빠진 런을 사실대로 알린다. 전멸이면 exit 3.
+
+    배경 (2026-10, M3_P2 979런). 샤드가 "Loaded 0 results" 만 찍고 성공으로
+    끝났다. 런 폴더는 있는데 `output/<run>/DropSet.json` 이 없어 전부 탈락한
+    것이었지만, 로더가 `sr is None` 을 조용히 버려 **까닭을 아무도 몰랐다.**
+    수동 복구에 9시간이 들었다.
+
+    여기서 못박는 것 — **빠진 런은 사유별로 세어 말하고, 전멸이면 실패로
+    끝낸다.** 0건 성공은 성공이 아니다.
+    """
+    reasons = getattr(report, "drop_reasons", None) or {}
+    n_loaded = report.successful_runs
+    n_drop = sum(reasons.values())
+    if not n_drop:
+        return
+
+    lines = [f"  - {why}: {cnt}런" for why, cnt in
+             sorted(reasons.items(), key=lambda kv: -kv[1])]
+    if n_loaded == 0:
+        print(f"Error: {test_dir}/analysis_results 에 런 폴더가 "
+              f"{n_drop}개 있지만 하나도 읽지 못했습니다.", file=sys.stderr)
+        print("\n".join(lines), file=sys.stderr)
+        print("  → 해석이 산출물을 남겼는지, output/<run>/ 에 DropSet.json 이 "
+              "있는지 확인하세요.", file=sys.stderr)
+        sys.exit(3)
+
+    # 부분 손실 — 보고서는 나가되, 몇 개가 왜 빠졌는지 적는다.
+    print(f"Warning: 런 {n_loaded + n_drop}개 중 {n_drop}개를 읽지 못했습니다 "
+          f"(보고서는 {n_loaded}개로 만듭니다).", file=sys.stderr)
+    print("\n".join(lines), file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="koo_sphere_report",
@@ -122,7 +155,14 @@ def main():
         report = analyze(test_dir, yield_stress=args.yield_stress,
                          hotspot_part_ids=hotspot_part_ids)
         base_dir = str(test_dir.resolve())
+        # 🔴 이 줄이 **먼저** 나가야 한다 — 상류 자동화 셸이 이 줄을 보고,
+        #    없으면 경고하고 0 이면 자기도 rc 3 을 낸다. 아래 진단보다 뒤로
+        #    밀리면 셸이 "줄이 없다" 로 읽어 우리 사유가 묻힌다.
         print(f"Loaded {report.successful_runs} results in {time.time()-t0:.1f}s")
+        # 파이프로 보내면 stdout 은 블록 버퍼, stderr 는 무버퍼라 **아래 진단이
+        # 먼저 나간다.** 상류 셸이 'Loaded N results' 를 찾으므로 순서를 지킨다.
+        sys.stdout.flush()
+        _report_load_losses(report, test_dir)
 
     formats = ["terminal"] if args.terminal_only else args.format
 

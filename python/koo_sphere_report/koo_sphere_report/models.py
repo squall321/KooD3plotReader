@@ -355,6 +355,9 @@ class Report:
     #: 여러 개면 캠페인이 서로 다른 판으로 분석된 것이다 — 그 사실이 드러나야 한다.
     #: 옛 산출물에는 tool_commit 이 없으므로 그런 런은 세지 않는다(빈 dict 가능).
     tool_builds: dict = field(default_factory=dict)
+    #: 적재에서 빠진 런의 {사유: 건수}. 빈 dict 면 전부 읽혔다.
+    #: 조용히 버리면 "Loaded 0 results" 의 까닭을 아무도 모른다 — 세어서 말한다.
+    drop_reasons: dict = field(default_factory=dict)
     # 파트간 에너지 흐름: {run_folder: neutral flow dict from build_flow_graph}.
     # binout/keyword/lasso 부재 run 은 조용히 누락(키 없음) — 무음 실패 대신
     # 로그를 남기되 보고서는 정상 진행. 자유낙하라 impactor 노드 없이 최조기
