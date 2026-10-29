@@ -38,7 +38,10 @@
 - [x] 의미 단위 커밋 (66c9f7b · 6a0d0d1 · c65bf31 · 441cfbd · efd6c6c)
 
 ## 남은 것 (사용자 판단)
-- [ ] origin push · SIF 재빌드 · 호스트(deploy_from_sif.sh)·node001 배포
-- [ ] 배포 뒤 이미지 VERSION 을 DynaForge(kooremapper 세션)에 알리기 — 그쪽이 같은 덱(Run_20260602_093237_801e2b)으로 단면 영상을 다시 재 0 프레임이 사라졌는지 확인해 준다. 그쪽은 rc 3 을 경고로 다루기로 했다(KooRemapper ca0b6e1)
+- [x] origin push (5abbc76, 10-28 사용자 승인)
+- [x] v42 빌드·배포 — 상류 pykoocae-53 이 표준 스크립트로(10-29 04:37Z). VERSION 5abbc76, 헤드리스 sha256 1a6e0933…, GUI 4536ea72…, tar `SmartTwinPostprocessor_20261029_v42.tar.gz`. 빌드 원본·/data·compute-node-images·헤드 /opt 4곳 동일
+- [x] v42 검증(우리, `.work/v42_verify/`) — 헤드 /opt·/data sha 일치, 12 GiB 분석 rc 1+사유, 1.6 GB 상한 렌더 rc 3, 20M 심은 작업자 설정 덮어씀·영상 정상. DynaForge 도 운영 덱·20M 심기로 새 판 정상·옛 판 0 재현 확인(KooRemapper 7818cbc)
+- [ ] node001·node002 노드 로컬 /opt/apptainers — VM 꺼짐, 켜지면 상류가 deploy_apptainers.sh 로 보냄
+- [x] 배포 뒤 이미지 VERSION 을 DynaForge(kooremapper 세션)에 알리기 — 그쪽이 같은 덱(Run_20260602_093237_801e2b)으로 단면 영상을 다시 재 0 프레임이 사라졌는지 확인해 준다. 그쪽은 rc 3 을 경고로 다루기로 했다(KooRemapper ca0b6e1)
 - [ ] 이미 나간 운영 영상 0 프레임 일괄 점검 여부 (회신 §5-2)
 - [ ] P-2 세션 수 · P-3 state_step · P-4 한 세션 여러 단면
