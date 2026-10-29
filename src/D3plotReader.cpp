@@ -199,6 +199,44 @@ std::vector<data::StateData> D3plotReader::read_all_states() {
     return all_states;
 }
 
+size_t D3plotReader::for_each_state(const std::function<void(size_t, const data::StateData&)>& visit,
+                                    const std::function<bool(size_t)>& want) {
+    if (!is_open_) {
+        throw std::runtime_error("File not open");
+    }
+    check_family_gap(*file_family_);
+
+    const size_t file_count = file_family_->get_file_count();
+    size_t base = 0;   // 이 파일 첫 상태의 전체 번호
+    for (size_t file_idx = 0; file_idx < file_count; ++file_idx) {
+        const std::string file_path = file_family_->get_file_path(file_idx);
+        std::shared_ptr<core::BinaryReader> family_reader = reader_;
+        if (file_idx != 0) {
+            family_reader = std::make_shared<core::BinaryReader>(file_path);
+            if (family_reader->open_family_file(reader_->get_precision(), reader_->get_endian())
+                    != ErrorCode::SUCCESS) {
+                throw std::runtime_error(file_name_of(file_path) +
+                                         " 을 열지 못했다 — 그 뒤 상태가 빠지므로 읽기를 멈춘다");
+            }
+        }
+        parsers::StateDataParser parser(family_reader, control_data_, file_idx > 0);
+        size_t n = 0;
+        try {
+            n = parser.for_each(
+                want ? std::function<bool(size_t)>([&](size_t i) { return want(base + i); })
+                     : std::function<bool(size_t)>(),
+                [&](size_t i, data::StateData&& st) { visit(base + i, st); });
+        } catch (const std::exception& e) {
+            throw std::runtime_error(read_error_message(file_path, e));
+        }
+        const std::string tail_warning = check_family_tail(parser, file_idx, file_count, file_path, n);
+        if (!tail_warning.empty()) std::cerr << "WARNING: " << tail_warning << std::endl;
+        if (file_idx != 0) family_reader->close();
+        base += n;
+    }
+    return base;
+}
+
 std::vector<data::StateData> D3plotReader::read_all_states_parallel(size_t num_threads) {
     if (!is_open_) {
         throw std::runtime_error("File not open");

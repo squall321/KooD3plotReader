@@ -20,11 +20,18 @@ StateDataParser::StateDataParser(std::shared_ptr<core::BinaryReader> reader,
 // ============================================================================
 
 std::vector<data::StateData> StateDataParser::parse_all() {
+    std::vector<data::StateData> states;
+    for_each(nullptr, [&](size_t, data::StateData&& s) { states.push_back(std::move(s)); });
+    return states;
+}
+
+size_t StateDataParser::for_each(const std::function<bool(size_t)>& want,
+                                 const std::function<void(size_t, data::StateData&&)>& visit) {
     if (!reader_ || !reader_->is_open()) {
         throw std::runtime_error("BinaryReader not initialized or file not open");
     }
 
-    std::vector<data::StateData> states;
+    size_t count = 0;
 
     // Find offset to first state
     size_t offset = find_state_offset();
@@ -58,12 +65,13 @@ std::vector<data::StateData> StateDataParser::parse_all() {
         }
 
         // Parse this state (fast or legacy based on mode)
-        states.push_back(parse_state(offset));
+        if (!want || want(count)) visit(count, parse_state(offset));
+        ++count;
         offset += state_size;
     }
     trailing_words_ = file_size_words > offset ? file_size_words - offset : 0;
 
-    return states;
+    return count;
 }
 
 data::StateData StateDataParser::parse_state(size_t offset) {

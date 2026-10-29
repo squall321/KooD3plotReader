@@ -9,6 +9,7 @@
 #include "kood3plot/core/BinaryReader.hpp"
 #include "kood3plot/core/FileFamily.hpp"
 
+#include <functional>
 #include <string>
 #include <memory>
 #include <vector>
@@ -90,6 +91,18 @@ public:
      * Recommended for datasets with many d3plot files (d3plot, d3plot01, etc.)
      */
     std::vector<data::StateData> read_all_states_parallel(size_t num_threads = 0);
+
+    /**
+     * @brief 상태를 하나씩 읽어 visit 에 넘긴다 — 전부를 메모리에 올리지 않는다.
+     *
+     * 가족 파일 검사(번호 구멍 · 열기 실패 · 중간 파일 잘림 → 예외, 마지막 파일의
+     * 덜 써진 상태 → 경고)는 read_all_states() 와 같다.
+     * @param visit (전체 상태 번호 0.., 상태)
+     * @param want  있으면 want(i) 가 false 인 상태는 풀지 않는다(솎기용)
+     * @return 전체 상태 수(건너뛴 것 포함)
+     */
+    size_t for_each_state(const std::function<void(size_t, const data::StateData&)>& visit,
+                          const std::function<bool(size_t)>& want = nullptr);
 
     /**
      * @brief Read single state by index

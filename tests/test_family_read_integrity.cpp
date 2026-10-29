@@ -158,6 +158,11 @@ void checkAllPaths(const std::string& label, const std::string& d3plot, int expe
         {"병렬(2)", [](D3plotReader& r) { return timesOf(r.read_all_states_parallel(2)); }},
         {"병렬(기본)", [](D3plotReader& r) { return timesOf(r.read_all_states_parallel()); }},
         {"상태 수 훑기", [](D3plotReader& r) { return r.get_time_values(); }},
+        {"하나씩(for_each_state)", [](D3plotReader& r) {
+             std::vector<double> t;
+             r.for_each_state([&](size_t, const data::StateData& s) { t.push_back(s.time); });
+             return t;
+         }},
     };
     for (const auto& p : paths) {
         D3plotReader reader(d3plot);
@@ -216,6 +221,20 @@ int main() {
 
     std::printf("[1] 온전한 덱\n");
     checkAllPaths("온전", base, kNumStates);
+
+    std::printf("[1b] 하나씩 읽기 솎기 — 3개마다(파일 경계를 넘는다)\n");
+    {
+        D3plotReader reader(base);
+        reader.open();
+        std::vector<size_t> idx;
+        std::vector<double> t;
+        const size_t total = reader.for_each_state(
+            [&](size_t i, const data::StateData& s) { idx.push_back(i); t.push_back(s.time); },
+            [](size_t i) { return i % 3 == 0; });
+        bool ok = total == kNumStates && idx == std::vector<size_t>{0, 3, 6, 9};
+        for (size_t k = 0; ok && k < idx.size(); ++k) ok = std::abs(t[k] - 1e-3 * idx[k]) < 1e-9;
+        checkTrue("전체 12, 고른 번호 0·3·6·9 와 그 시각", ok);
+    }
 
     std::printf("[2] 중간 가족 파일(d3plot02) 이 상태 도중 잘림\n");
     {

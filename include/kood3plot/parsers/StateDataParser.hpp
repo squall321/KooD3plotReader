@@ -4,6 +4,7 @@
 #include "kood3plot/data/ControlData.hpp"
 #include "kood3plot/data/StateData.hpp"
 #include "kood3plot/core/BinaryReader.hpp"
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -35,6 +36,15 @@ public:
      * @return Vector of state data for each time step
      */
     std::vector<data::StateData> parse_all();
+
+    /**
+     * @brief 상태를 하나씩 visit 에 넘긴다 — 파일 하나의 상태를 다 올리지 않는다.
+     * @param want  있으면 want(i) 가 false 인 상태는 풀지 않고 건너뛴다(시간 워드만 본다)
+     * @param visit (이 파일 안 순번, 상태)
+     * @return 이 파일의 상태 수(건너뛴 것 포함). 멈춤 규칙 · stop_reason() 은 parse_all() 과 같다.
+     */
+    size_t for_each(const std::function<bool(size_t)>& want,
+                    const std::function<void(size_t, data::StateData&&)>& visit);
 
     /**
      * @brief Parse single state at given offset (uses fast mode by default)
