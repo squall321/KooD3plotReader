@@ -680,6 +680,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     }
                 } else if (key == "fps") {
                     try { current_psr.fps = std::stoi(value); } catch (...) {}
+                } else if (key == "state_step") {
+                    try { current_psr.state_step = std::max(1, std::stoi(value)); } catch (...) {}
                 }
                 continue;
             }
@@ -883,6 +885,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     current_render_job.parts = parseIntArray(value);
                 } else if (key == "part_pattern") {
                     current_render_job.part_pattern = value;
+                } else if (key == "state_step") {
+                    try { current_render_job.state_step = std::max(1, std::stoi(value)); } catch (...) {}
                 } else if (key == "states") {
                     if (value == "all") {
                         current_render_job.states.clear();  // empty = all

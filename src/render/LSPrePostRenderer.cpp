@@ -388,6 +388,9 @@ std::string LSPrePostRenderer::generateScript(
 
     // Generate animation (LSPrePost batch mode only supports movie output, not single images)
     script << "$# Generate movie output\n";
+    // 보폭 N 이면 상태 0, N, 2N … 만 그린다. 시간 창(anim first/last)은 쓰지 않는다 —
+    // 함께 주면 첫 프레임이 현재 화면(상태 0)이고 그 뒤가 first+N 부터라 어긋난다(실측).
+    if (options.state_step > 1) script << "anim incr " << options.state_step << "\n";
     script << "anim forward\n";
 
     // LSPrePost appends the extension automatically to the filename given in the movie command.
@@ -748,7 +751,8 @@ int LSPrePostRenderer::renderAllPartSections(
 
                 writeRestoreAll(script);
 
-                script << "anim forward\nmovie mt 0\n"
+                script << (options.state_step > 1 ? "anim incr " + std::to_string(options.state_step) + "\n" : std::string())
+                       << "anim forward\nmovie mt 0\n"
                        << "movie MP4/H264 " << options.image_width << "x" << options.image_height
                        << " \"" << out_path.string() << "\" " << options.fps << "\n\n"
                        << "splane done\nexit\n";
@@ -810,7 +814,8 @@ int LSPrePostRenderer::renderAllPartSections(
                        << "splane clipplane -\nac\n"
                        << "zin " << im << " " << im << " " << (1.0-im) << " " << (1.0-im) << "\n\n";
 
-                script << "anim forward\nmovie mt 0\n"
+                script << (options.state_step > 1 ? "anim incr " + std::to_string(options.state_step) + "\n" : std::string())
+                       << "anim forward\nmovie mt 0\n"
                        << "movie MP4/H264 " << options.image_width << "x" << options.image_height
                        << " \"" << out_path.string() << "\" " << options.fps << "\n\n"
                        << "splane done\nexit\n";

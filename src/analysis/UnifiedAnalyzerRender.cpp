@@ -571,6 +571,7 @@ bool UnifiedAnalyzer::processRenderJobs(
                 else                task.options.view = render::ViewOrientation::TOP;
             }
 
+            task.options.state_step = job.state_step;
             task.options.image_width = job.output.resolution[0];
             task.options.image_height = job.output.resolution[1];
 
@@ -940,6 +941,7 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         ropts.image_width  = job.resolution.size() > 0 ? job.resolution[0] : 1280;
         ropts.image_height = job.resolution.size() > 1 ? job.resolution[1] : 720;
         ropts.fps = job.fps;
+        ropts.state_step = job.state_step;
         ropts.create_animation = true;
         ropts.video_format = render::VideoFormat::MP4;
 

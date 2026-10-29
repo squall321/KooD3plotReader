@@ -733,6 +733,9 @@ struct RenderJob {
 
     // State selection
     std::vector<int> states;  ///< Empty = all, -1 = last state
+    /// 영상 프레임 보폭 — N 이면 상태 0, N, 2N … 만 그린다(LS-PrePost `anim incr N`).
+    /// 1 = 전 상태(기본). 4,952 상태 덱이면 프레임이 곧 상태라 영상이 206 초였다(P-3).
+    int state_step = 1;
 
     // View override (empty = auto-select based on section axis or ISOMETRIC)
     std::string view_str;  ///< "right", "front", "top", "iso", "left", "bottom", "back"
@@ -1141,6 +1144,7 @@ struct PartSectionRenderJob {
     std::string output_directory = "renders/part_sections";
     std::vector<int32_t> resolution{1280, 720};
     int fps = 24;
+    int state_step = 1;                     ///< 영상 프레임 보폭 (RenderJob::state_step 과 같은 뜻)
 };
 
 // ============================================================

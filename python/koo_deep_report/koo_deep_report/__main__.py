@@ -120,6 +120,9 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                         "peak=응력 피크가 지나는 자리. 형상 가운데가 피크라는 보장은 "
                         "없어서, 모서리·체결부에서 터지는 덱이면 aabb 단면이 피크를 "
                         "통째로 비켜 간다")
+    p.add_argument("--section-view-state-step", type=int, default=1, metavar="N",
+                   help="LS-PrePost 단면 영상 프레임 보폭: 상태 0, N, 2N … 만 그린다 "
+                        "(기본 1 = 전 상태). 상태가 수천 개인 덱의 영상 길이·렌더 시간을 줄인다")
     p.add_argument("--section-view-mode", default="section",
                    choices=["section", "section_3d", "iso_surface"],
                    help="단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut 없는 iso 외곽 (기본: section)")
@@ -1016,6 +1019,7 @@ def run_single(args: argparse.Namespace) -> None:
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
             center_mode=getattr(args, "section_view_center", "aabb"),
+            state_step=max(1, int(getattr(args, "section_view_state_step", 1) or 1)),
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,
@@ -1356,6 +1360,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
             backend=getattr(args, "section_view_backend", "lsprepost"),
             view_mode=getattr(args, "section_view_mode", "section"),
             center_mode=getattr(args, "section_view_center", "aabb"),
+            state_step=max(1, int(getattr(args, "section_view_state_step", 1) or 1)),
             background_alpha=getattr(args, "section_view_background_alpha", 0.3),
             axes=getattr(args, "section_view_axes", ["x", "y", "z"]),
             scalar_fields=sv_fields,

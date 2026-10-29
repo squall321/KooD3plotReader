@@ -37,6 +37,9 @@ class SectionViewRenderConfig:
     width: int = 1280
     height: int = 720
     fps: int = 24
+    # LS-PrePost 영상 프레임 보폭 — N 이면 상태 0, N, 2N … 만 그린다. 1 = 전 상태(기본).
+    # 4,952 상태 덱은 프레임이 곧 상태라 24 fps 로 206 초짜리 영상이 됐다(2026-10-28 P-3).
+    state_step: int = 1
     supersampling: int = 2
     png_frames: bool = False
 
@@ -263,6 +266,7 @@ def build_part_section_render_yaml_entries(
             f'  directory: "{sub}"\n'
             f"  resolution: [{config.width}, {config.height}]\n"
             f"  fps: {config.fps}\n"
+            + (f"  state_step: {config.state_step}\n" if config.state_step > 1 else "")
         )
         name = f"Per-Part Sections ({fld})"
         entries.append((name, body))
@@ -310,6 +314,8 @@ def build_lsprepost_section_jobs(
                     "filename": "section_view",
                 },
             }
+            if config.state_step > 1:
+                job["state_step"] = config.state_step
             if config.target_part_ids:
                 job["parts"] = config.target_part_ids
             elif config.target_patterns:
@@ -327,7 +333,7 @@ def build_lsprepost_section_jobs(
                     else:
                         name = f"section_view_{fld}_part_{pid}_{axis}"
 
-                    jobs.append({
+                    job = {
                         "name": name,
                         "type": "section_view",
                         "fringe": fringe,
@@ -341,7 +347,10 @@ def build_lsprepost_section_jobs(
                             "directory": str(Path(renders_dir) / name),
                             "filename": "section_view",
                         },
-                    })
+                    }
+                    if config.state_step > 1:
+                        job["state_step"] = config.state_step
+                    jobs.append(job)
 
     return jobs
 
