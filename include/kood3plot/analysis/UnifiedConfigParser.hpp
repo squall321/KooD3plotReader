@@ -160,6 +160,14 @@ public:
     static std::vector<int32_t> filterPartsByPattern(
         const class D3plotReader& reader,
         const std::string& pattern);
+
+    /**
+     * @brief d3plot 옆 키워드 덱에서 파트 이름을 읽는다(리포트와 같은 후보 순서, *INCLUDE 추적).
+     * @param keyword_path [출력] 이름을 읽은 덱 경로(못 찾으면 빈 문자열)
+     * @return PID → 이름 (못 찾으면 빈 맵)
+     */
+    static std::unordered_map<int32_t, std::string> loadPartNames(
+        const std::string& d3plot_path, std::string* keyword_path = nullptr);
 };
 
 } // namespace analysis

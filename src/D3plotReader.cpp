@@ -205,6 +205,7 @@ size_t D3plotReader::for_each_state(const std::function<void(size_t, const data:
         throw std::runtime_error("File not open");
     }
     check_family_gap(*file_family_);
+    last_read_warnings_.clear();
 
     const size_t file_count = file_family_->get_file_count();
     size_t base = 0;   // 이 파일 첫 상태의 전체 번호
@@ -230,7 +231,10 @@ size_t D3plotReader::for_each_state(const std::function<void(size_t, const data:
             throw std::runtime_error(read_error_message(file_path, e));
         }
         const std::string tail_warning = check_family_tail(parser, file_idx, file_count, file_path, n);
-        if (!tail_warning.empty()) std::cerr << "WARNING: " << tail_warning << std::endl;
+        if (!tail_warning.empty()) {
+            std::cerr << "WARNING: " << tail_warning << std::endl;
+            last_read_warnings_.push_back(tail_warning);
+        }
         if (file_idx != 0) family_reader->close();
         base += n;
     }

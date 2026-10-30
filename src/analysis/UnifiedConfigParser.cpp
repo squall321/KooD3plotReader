@@ -248,6 +248,27 @@ std::vector<std::string> collectKeywordCandidates(const std::string& d3plot_path
     return candidates;
 }
 
+// 후보 덱을 우선순위대로 훑어 **이름이 나오는 첫 덱**을 쓴다.
+// (*INCLUDE 는 parsePartNamesInto 가 따라 들어간다)
+std::unordered_map<int32_t, std::string> loadPartNamesImpl(const std::string& d3plot_path,
+                                                           std::string* used,
+                                                           size_t* missing_includes) {
+    const auto candidates = collectKeywordCandidates(d3plot_path);
+    const std::filesystem::path root_dir = std::filesystem::path(d3plot_path).parent_path();
+    for (const auto& cand : candidates) {
+        std::set<std::string> visited;
+        size_t missing = 0;
+        std::unordered_map<int32_t, std::string> found;
+        parsePartNamesInto(cand, found, visited, root_dir, 0, missing);
+        if (!found.empty()) {
+            if (used) *used = cand;
+            if (missing_includes) *missing_includes = missing;
+            return found;
+        }
+    }
+    return {};
+}
+
 // Global cache for part names (loaded once per d3plot path)
 std::unordered_map<std::string, std::unordered_map<int32_t, std::string>> g_part_name_cache;
 
@@ -1462,27 +1483,10 @@ std::vector<int32_t> UnifiedConfigParser::filterPartsByPattern(
 
     // Check cache first
     if (g_part_name_cache.find(d3plot_path) == g_part_name_cache.end()) {
-        // 후보 덱을 우선순위대로 훑어 **이름이 나오는 첫 덱**을 쓴다.
-        // (*INCLUDE 는 parsePartNamesInto 가 따라 들어간다)
-        const auto candidates = collectKeywordCandidates(d3plot_path);
-        const std::filesystem::path root_dir =
-            std::filesystem::path(d3plot_path).parent_path();
-
-        std::unordered_map<int32_t, std::string> names;
         std::string used;
         size_t missing_includes = 0;
-        for (const auto& cand : candidates) {
-            std::set<std::string> visited;
-            size_t missing = 0;
-            std::unordered_map<int32_t, std::string> found;
-            parsePartNamesInto(cand, found, visited, root_dir, 0, missing);
-            if (!found.empty()) {
-                names = std::move(found);
-                used = cand;
-                missing_includes = missing;
-                break;
-            }
-        }
+        const auto names = loadPartNamesImpl(d3plot_path, &used, &missing_includes);
+        const size_t n_candidates = collectKeywordCandidates(d3plot_path).size();
 
         g_part_name_cache[d3plot_path] = names;
         if (!used.empty()) {
@@ -1494,7 +1498,7 @@ std::vector<int32_t> UnifiedConfigParser::filterPartsByPattern(
             std::cerr << ")" << std::endl;
         } else {
             std::cerr << "[UnifiedConfigParser] 파트 이름을 가진 키워드 파일을 찾지 못함 ("
-                      << candidates.size() << "개 후보 확인). "
+                      << n_candidates << "개 후보 확인). "
                       << "Using fallback Part_N names." << std::endl;
         }
     }
@@ -1531,6 +1535,11 @@ std::vector<int32_t> UnifiedConfigParser::filterPartsByPattern(
     }
 
     return matching_parts;
+}
+
+std::unordered_map<int32_t, std::string> UnifiedConfigParser::loadPartNames(
+    const std::string& d3plot_path, std::string* keyword_path) {
+    return loadPartNamesImpl(d3plot_path, keyword_path, nullptr);
 }
 
 } // namespace analysis

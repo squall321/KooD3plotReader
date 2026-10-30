@@ -104,6 +104,9 @@ public:
     size_t for_each_state(const std::function<void(size_t, const data::StateData&)>& visit,
                           const std::function<bool(size_t)>& want = nullptr);
 
+    /// 마지막 for_each_state() 가 낸 경고(마지막 파일의 덜 써진 상태 등) — stderr 에도 찍힌다
+    const std::vector<std::string>& last_read_warnings() const { return last_read_warnings_; }
+
     /**
      * @brief Read single state by index
      * @param state_index Index of state to read (0-based)
@@ -143,6 +146,7 @@ private:
     mutable std::vector<std::pair<size_t, size_t>> state_file_map_;  // (file_idx, local_state_idx)
     mutable std::vector<data::StateData> cached_states_;  // Full state data cache
     mutable bool full_cache_loaded_ = false;
+    std::vector<std::string> last_read_warnings_;
 
     /**
      * @brief Initialize control data
