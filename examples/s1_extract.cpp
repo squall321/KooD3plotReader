@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -139,6 +140,25 @@ std::string isoNowUtc() {
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&t));
     return buf;
+}
+
+// ── 곁파일 JSON ─────────────────────────────────────────────
+std::string jstr(const std::string& v) {
+    std::string o = "\"";
+    for (unsigned char c : v) {
+        if (c == '"' || c == '\\') { o += '\\'; o += static_cast<char>(c); }
+        else if (c == '\n') o += "\\n";
+        else if (c < 0x20) { char b[8]; std::snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+        else o += static_cast<char>(c);
+    }
+    return o + "\"";
+}
+
+std::string jnum(double v) {
+    if (!std::isfinite(v)) return "null";
+    char b[40];
+    std::snprintf(b, sizeof(b), "%.17g", v);
+    return b;
 }
 
 // ── HDF5 쓰기 ───────────────────────────────────────────────
@@ -474,24 +494,33 @@ int run(const Options& o) {
                 hi = std::max(hi, c3[c]);
             }
         }
+        // 삭제(침식)된 요소는 게이트에서 뺀다 — 리포트 파트 최대(SinglePassAnalyzer)와 같은 정의.
+        // deleted_solids 는 솔리드 배열 안 1-based 순번이다. 스케일 범위에는 넣는다(저장 값이 넘치지 않게).
+        std::vector<uint8_t> dead;
+        if (deletion && !st.deleted_solids.empty()) {
+            dead.assign(mesh.solids.size(), 0);
+            for (int32_t ord : st.deleted_solids)
+                if (ord >= 1 && static_cast<size_t>(ord) <= dead.size()) dead[ord - 1] = 1;
+        }
         for (size_t s = 0; s < mesh.solids.size(); ++s) {
             const int32_t pi = solid_pidx[s];
             if (pi < 0) continue;
             const double vm = s1::solidVonMises(st, s, cd.NV3D);
+            if (is_surface_solid[s]) {
+                vmin[pi] = std::min(vmin[pi], vm);
+                vmax[pi] = std::max(vmax[pi], vm);
+            }
+            if (!dead.empty() && dead[s]) continue;
             PartGate& g = gate[pi];
             if (vm > g.vm_all) {
                 g.vm_all = vm;
                 g.all_elem = realSolid(s);
                 g.all_time = st.time;
             }
-            if (is_surface_solid[s]) {
-                if (vm > g.vm_surf) {
-                    g.vm_surf = vm;
-                    g.surf_elem = realSolid(s);
-                    g.surf_time = st.time;
-                }
-                vmin[pi] = std::min(vmin[pi], vm);
-                vmax[pi] = std::max(vmax[pi], vm);
+            if (is_surface_solid[s] && vm > g.vm_surf) {
+                g.vm_surf = vm;
+                g.surf_elem = realSolid(s);
+                g.surf_time = st.time;
             }
         }
         if (si == 0 && !st.node_velocities.empty()) {
@@ -633,6 +662,8 @@ int run(const Options& o) {
 
     // /parts
     std::string keyword_path;
+    std::string parts_json;          // 곁파일 s1.json 에 그대로 싣는다
+    std::string posture_json = "null";
     {
         const auto names = analysis::UnifiedConfigParser::loadPartNames(o.d3plot, &keyword_path);
         hid_t g = H5Gcreate2(file, "parts", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
@@ -665,8 +696,17 @@ int run(const Options& o) {
         writeArrayClose<uint32_t>(g, "vm_max_surface_elem_id", {P}, es.data());
         writeArrayClose<double>(g, "vm_max_surface_time", {P}, ts.data());
         writeArrayClose<uint8_t>(g, "max_elem_on_surface", {P}, on.data());
-        attrStr(g, "note", "전 상태(솎기 전)·양자화 전 원값. 겉면이 없는 파트의 vm_max_surface 는 -1");
+        attrStr(g, "note", "전 상태(솎기 전)·양자화 전 원값, 삭제된 요소 제외. 겉면이 없는 파트의 vm_max_surface 는 -1");
         H5Gclose(g);
+        for (size_t k = 0; k < P; ++k) {
+            parts_json += std::string(k ? ",\n    " : "\n    ") + "{\"part_id\": " + std::to_string(parts[k]) +
+                          ", \"name\": " + jstr(nm[k]) + ", \"n_surface_elems\": " + std::to_string(nsurf[k]) +
+                          ", \"vm_max_all\": " + jnum(va[k]) + ", \"vm_max_all_elem_id\": " + std::to_string(ea[k]) +
+                          ", \"vm_max_all_time\": " + jnum(ta[k]) + ", \"vm_max_surface\": " + jnum(vs[k]) +
+                          ", \"vm_max_surface_elem_id\": " + std::to_string(es[k]) +
+                          ", \"vm_max_surface_time\": " + jnum(ts[k]) +
+                          ", \"max_elem_on_surface\": " + (on[k] ? "true" : "false") + "}";
+        }
     }
 
     // /posture
@@ -717,6 +757,17 @@ int run(const Options& o) {
             attrScalar<double>(g, "velocity_normal_angle_deg", angle);
             attrScalar<int32_t>(g, "floor_part", o.floor_part);
             H5Gclose(g);
+            posture_json = "{\"initial_velocity\": [" + jnum(v3[0]) + ", " + jnum(v3[1]) + ", " + jnum(v3[2]) +
+                           "], \"velocity_source\": " + jstr(vel_source.empty() ? "none" : vel_source) +
+                           ", \"floor_part\": " + std::to_string(o.floor_part) +
+                           ", \"floor_point\": [" + jnum(pt[0]) + ", " + jnum(pt[1]) + ", " + jnum(pt[2]) +
+                           "], \"floor_normal\": [" + jnum(nn[0]) + ", " + jnum(nn[1]) + ", " + jnum(nn[2]) +
+                           "], \"floor_flatness\": " + jnum(fp.flatness) +
+                           ", \"floor_layer_nodes\": " + std::to_string(fp.n_layer_nodes) +
+                           ", \"gap\": " + jnum(gap) +
+                           ", \"first_contact_s\": " + jnum(speed > 0 ? gap / speed : -1.0) +
+                           ", \"first_contact_basis\": \"gap_over_speed\"" +
+                           ", \"velocity_normal_angle_deg\": " + jnum(angle) + "}";
             if (speed <= 0) warn("초기 속도가 0 이라 first_contact_s 를 셈할 수 없다(-1)");
             std::cerr << "[s1] 자세 — 틈 " << gap << " · 속도 " << speed << " · 법선각 " << angle
                       << "° · 평평함 " << fp.flatness << "\n";
@@ -799,13 +850,15 @@ int run(const Options& o) {
         H5Gclose(g);
     }
 
-    // 루트 속성
+    // 루트 속성 (곁파일 머리도 같은 값으로)
+    std::string root_json;
     {
         attrStr(file, "schema", "kood3plot.s1");
         attrScalar<int32_t>(file, "schema_version", kSchemaVersion);
         attrStr(file, "tool", "s1_extract");
         attrStr(file, "tool_version", KOOD3PLOT_GIT_COMMIT);
-        attrStr(file, "created_utc", isoNowUtc());
+        const std::string created = isoNowUtc();
+        attrStr(file, "created_utc", created);
         const std::string src = fs::absolute(o.d3plot).string();
         attrStr(file, "source_d3plot", src);
         std::string fp = "files=";
@@ -829,9 +882,41 @@ int run(const Options& o) {
         attrScalar<int32_t>(file, "selection_step", o.state_step);
         attrNum<double>(file, "selection_window_s", {o.t0, o.t1});
         attrStrArray(file, "warnings", warnings);
+        std::string ws, ex;
+        for (const auto& w : warnings) ws += (ws.empty() ? "" : ", ") + jstr(w);
+        for (int32_t e : o.excluded) ex += (ex.empty() ? "" : ", ") + std::to_string(e);
+        root_json = "  \"schema\": \"kood3plot.s1\", \"schema_version\": " + std::to_string(kSchemaVersion) +
+                    ",\n  \"tool\": \"s1_extract\", \"tool_version\": " + jstr(KOOD3PLOT_GIT_COMMIT) +
+                    ",\n  \"created_utc\": " + jstr(created) +
+                    ",\n  \"source_d3plot\": " + jstr(src) + ",\n  \"source_fingerprint\": " + jstr(fp) +
+                    ",\n  \"deck_path\": " + jstr(keyword_path) + ", \"deck_sha256\": " +
+                    jstr(keyword_path.empty() ? "" : runCapture("sha256sum " + shellQuote(keyword_path))) +
+                    ",\n  \"units\": " + jstr(o.units) + ", \"surface_rule_id\": \"deck-surface/stepforge-2026-10\"" +
+                    ",\n  \"excluded_parts\": [" + ex + "], \"selection_step\": " + std::to_string(o.state_step) +
+                    ", \"selection_window_s\": [" + jnum(o.t0) + ", " + jnum(o.t1) + "]" +
+                    ",\n  \"n_states\": " + std::to_string(T) + ", \"n_states_source\": " + std::to_string(n_states) +
+                    ", \"encoding\": " + jstr(o.float32 ? "float32" : "linear_q16") +
+                    ",\n  \"warnings\": [" + ws + "]";
     }
     h5check(H5Fclose(file), "파일 닫기");
     fs::rename(tmp, out);
+
+    // 곁파일 s1.json — 큰 파일을 받지 않고도 manifest·게이트를 지을 수 있게(DynaForge 요청).
+    // sha256 은 파일 안에 넣을 수 없어 여기에만 있다. 바로 쓴 파일이라 페이지 캐시에서 읽는다.
+    {
+        const std::string sha = runCapture("sha256sum " + shellQuote(out.string()));
+        if (sha.size() != 64) throw std::runtime_error("s1.h5 의 sha256 을 구하지 못했다");
+        const fs::path jpath = out.parent_path() / (out.stem().string() + ".json");
+        const fs::path jtmp = jpath.string() + ".tmp";
+        {
+            std::ofstream js(jtmp);
+            js << "{\n" << root_json << ",\n  \"file\": " << jstr(out.filename().string())
+               << ", \"bytes\": " << fs::file_size(out) << ", \"sha256\": " << jstr(sha)
+               << ",\n  \"parts\": [" << parts_json << "\n  ],\n  \"posture\": " << posture_json << "\n}\n";
+            if (!js) throw std::runtime_error("곁파일을 쓰지 못했다: " + jtmp.string());
+        }
+        fs::rename(jtmp, jpath);
+    }
 
     const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
     std::cerr << "[s1] 완성 " << out.string() << " — 상태 " << T << "/" << n_states << ", "

@@ -100,6 +100,7 @@ done
 echo "s1 ${d3} -> ${out}" >> "${STUB_LOG}"
 case "${d3}" in *FAIL_S1*) echo "ERROR: 대역 실패"; exit 1 ;; esac
 printf 'fake-s1\n' > "${out}"
+printf '{"schema": "kood3plot.s1", "file": "s1.h5"}\n' > "$(dirname "${out}")/s1.json"
 STUBEOF
 chmod +x "$BIN/unified_analyzer" "$BIN/koo_deep_report" "$BIN/koo_sphere_report" "$BIN/s1_extract"
 export PATH="$BIN:$PATH"
@@ -351,8 +352,11 @@ else
     echo "  NG  S1 요약이 '완료: 2 / 스킵: 0 / 실패: 1' 이 아니다"
     fails=$((fails + 1))
 fi
+chk_file "캠페인 색인 output/s1_index.json" "$T11/output/s1_index.json"
+chk "색인에 성공한 런 둘" 2 "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["runs"]))' "$T11/output/s1_index.json")"
 run_pa "$T11" --sphere-only --s1
 chk "다시 돌리면 있는 것은 건너뛰고 실패한 것만 다시" 1 "$(n_calls s1)"
+chk "건너뛴 런도 색인에 남는다" 2 "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["runs"]))' "$T11/output/s1_index.json")"
 run_pa "$T11" --sphere-only --s1 --force
 chk "--force 면 전부 다시" 3 "$(n_calls s1)"
 

@@ -695,6 +695,30 @@ run_step_s1() {
         fi
     done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
     echo "  완료: ${_ok} / 스킵: ${_skip} / 실패: ${_fail}"
+
+    # 캠페인 색인 — 런마다의 곁파일 s1.json 을 하나로 모은다. cae00 의 DynaForge 가 1,000각도를
+    # 한 번에 받아 manifest·게이트를 짓는다(s1.h5 를 받지 않고). 건너뛴 런의 것도 들어간다.
+    python3 - "${OUTPUT_DIR}" << 'PYEOF'
+import json, os, sys
+root = sys.argv[1]
+runs = []
+for d, _, files in os.walk(root):
+    if "s1.json" in files:
+        p = os.path.join(d, "s1.json")
+        try:
+            with open(p, encoding="utf-8") as fh:
+                j = json.load(fh)
+        except (OSError, ValueError) as e:
+            j = {"error": f"{type(e).__name__}: {e}"}
+        j["s1_json"] = os.path.relpath(p, root)
+        runs.append(j)
+runs.sort(key=lambda j: j["s1_json"])
+tmp = os.path.join(root, "s1_index.json.tmp")
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump({"schema": "kood3plot.s1_index", "schema_version": 1, "runs": runs}, fh, ensure_ascii=False, indent=1)
+os.replace(tmp, os.path.join(root, "s1_index.json"))
+print(f"  s1_index.json — 런 {len(runs)}개")
+PYEOF
 }
 
 # ============================================================

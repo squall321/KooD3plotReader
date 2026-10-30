@@ -1,6 +1,6 @@
 # 계약 C-3 — S1 경량 추출본 초안 (KooD3plotReader → DynaForge · SceneForge · StepForge)
 
-**판** 초안 2 (2026-10-30 — 1단계 구현 실측 반영: §1 warnings 예, §5 발산 덱, §7 정밀도·실측) · **스키마** `kood3plot.s1` 판 1
+**판** 초안 3 (2026-10-30 — DynaForge 이견 반영: §6 게이트 정의(삭제 요소 제외), §7 속성/데이터셋 구분·floor_layer_nodes, §9-1 곁파일·색인) · **스키마** `kood3plot.s1` 판 1
 **요청** KooRemapper `docs/requests/kood3plotreader-s1-extractor-request-2026-10-28.md` (§1–§8, 3481788 · 7818cbc)
 **성격** 꼴을 먼저 맞추려는 초안입니다. 이름·뜻에 이견이 있으면 구현 전에 말씀해 주십시오. 바뀌면 판을 올립니다.
 
@@ -118,19 +118,27 @@
 
 게이트 판정(같음/이하)은 DynaForge 가 이 값으로 합니다. 값은 솎기 · 양자화 전 원값입니다.
 
+**정의는 리포트(정본)의 파트 최대와 같다.** 솔리드 요소의 응력 6성분(d3plot 은 솔리드마다 한 벌 — lasso 의 「적분점 0층」 이
+그것이다)으로 `√(½Σ(σi−σj)² + 3Στ²)`, 상태마다 **삭제(침식)된 요소는 뺀다**(리포트 SinglePassAnalyzer 와 같은 규칙 — 삭제표의
+1-based 순번). sphere · deep 리포트는 둘 다 unified_analyzer 의 같은 값을 쓴다. 저장 배열의 양자화 범위에는 삭제된 요소 값도
+넣는다(저장 값이 넘치지 않게) — 삭제 여부는 `alive` 가 말한다.
+
 ## 7. `/posture` — 각도별 자세 재료 (§8)
+
+데이터셋 셋과 그룹 속성으로 나뉜다(읽는 쪽 코드가 갈리는 자리라 꼴을 그대로 적는다).
 
 | 이름 | 꼴 | 뜻 |
 |---|---|---|
-| `initial_velocity` | float64 [3] | 장치 절점 평균 초기 속도(덱 단위, mm-s 면 mm/s) |
-| `velocity_source` | str 속성 | `"d3plot_state0"`(절점 속도가 실린 덱 — 운영 덱은 IV=1) · `"deck_initial_velocity"` · `"displacement_difference"`(앞 둘이 없을 때, 상태 0→1 차분) |
-| `floor_part` | int 속성 | 바닥 파트 ID(`--floor-part`, 예 23) |
-| `floor_point`, `floor_normal` | float64 [3] | 바닥의 **기기 쪽 면** 한 점(그 층 절점 무게중심)과 기기 쪽 단위 법선 |
-| `floor_flatness` | float64 | 그 층 절점의 평면 잔차 최대 |
-| `gap` | float64 | 기기 절점에서 바닥 평면까지 최소 거리(t=0) |
-| `first_contact_s` | float64 | `gap / |initial_velocity|` |
-| `first_contact_basis` | str 속성 | `"gap_over_speed"` |
-| `velocity_normal_angle_deg` | float64 | `initial_velocity` 와 `−floor_normal` 사이 각 — SceneForge 거절 기준(0.1°)을 미리 볼 수 있게 |
+| `initial_velocity` | **데이터셋** float64 [3] | 장치 절점 평균 초기 속도(덱 단위, mm-s 면 mm/s) |
+| `initial_velocity` 의 `velocity_source` | 데이터셋 속성 str | `"d3plot_state0"`(절점 속도가 실린 덱 — 운영 덱은 IV=1) · `"displacement_difference"`(속도가 없을 때 상태 0→1 차분) |
+| `floor_point`, `floor_normal` | **데이터셋** float64 [3] | 바닥의 **기기 쪽 면** 한 점(그 층 절점 무게중심)과 기기 쪽 단위 법선 |
+| `floor_part` | 그룹 속성 int32 | 바닥 파트 ID(`--floor-part`, 예 23) |
+| `floor_flatness` | 그룹 속성 float64 | 그 층 절점의 평면 잔차 최대 |
+| `floor_layer_nodes` | 그룹 속성 uint32 | 기기 쪽 층으로 고른 절점 수(운영 덱 961 — 3층 × 961 중 한 층) |
+| `gap` | 그룹 속성 float64 | 기기 절점에서 바닥 평면까지 최소 거리(t=0) |
+| `first_contact_s` | 그룹 속성 float64 | `gap / |initial_velocity|` (속도 0 이면 −1 + 경고) |
+| `first_contact_basis` | 그룹 속성 str | `"gap_over_speed"` |
+| `velocity_normal_angle_deg` | 그룹 속성 float64 | `initial_velocity` 와 `−floor_normal` 사이 각 — SceneForge 거절 기준(0.1°)을 미리 볼 수 있게 |
 
 평면은 바닥 절점에 주성분 분석으로 법선을 잡고, 법선 방향 투영으로 층을 나눠 기기에 가장 가까운 층을 쓴다. 바닥 파트를 주지 않으면 `/posture` 를 쓰지 않고 경고한다.
 
@@ -168,6 +176,15 @@
   - deep report 의 읽기에 얹지 않은 까닭: 그 경로는 상태를 전부 메모리에 올린다(이 덱 RSS 34 GB). S1 은 상태를 하나씩 두 번 읽어 수백 MB 안에서 끝난다. 읽기 두 번의 값은 각도당 수 분(원형 2–4 분과 같은 자릿수)이다.
 - 종료 코드: 0 = 완성(경고는 `warnings` · stderr 의 `WARNING:` 줄), 1 = 실패. 임시 이름으로 쓰고 끝나면 바꿔 단다 — 실패 때 반쯤 쓴 `s1.h5` 가 남지 않는다.
 - 상태를 다 못 읽으면(가족 파일 잘림 · 누락 · 메모리) **실패**다. K-2 수정과 같은 리더 규칙을 쓴다. 마지막 파일 끝의 덜 써진 상태는 경고로 남기고 앞 상태로 만든다.
+
+## 9-1. 곁파일 `s1.json` · 캠페인 색인 `s1_index.json` (DynaForge 이견 1)
+
+- `s1.h5` 를 다 쓰고 이름을 바꿔 단 **뒤**, 같은 폴더에 `s1.json`(`<출력 이름>.json`)을 쓴다 — 임시 이름으로 쓰고 바꿔 단다.
+  담는 것: 루트 속성 전부(같은 값) · `n_states` · `n_states_source` · `encoding` · `file` · `bytes` · `sha256`(파일 안에 넣을 수 없는
+  값) · `parts`(§6 표, 줄마다 객체) · `posture`(§7, 바닥을 안 주면 `null`). 수 형식은 `%.17g`, 유한하지 않으면 `null`.
+- `post_analyze.sh --s1` 은 S1 단계 끝에 `<output>/s1_index.json` 을 쓴다:
+  `{"schema": "kood3plot.s1_index", "schema_version": 1, "runs": [<s1.json 내용> + "s1_json": <output 기준 상대 경로>, …]}`.
+  건너뛴(이미 있던) 런도 들어가고, 못 읽은 곁파일은 `{"error": …}` 로 남는다.
 
 ## 10. 요청 §6 · §8 질문에 대한 답
 
