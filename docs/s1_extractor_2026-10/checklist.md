@@ -6,11 +6,12 @@
 - [ ] 받는 쪽 의견 반영(판 올림)
 
 ## 구현
-- [ ] D3plotReader::for_each_state (가족 파일 검사 공유, 상태 하나씩)
-- [ ] 겉면 규칙(StepForge 꼴) + 원형 · StepForge 집합 대조
-- [ ] /mesh · /parts 게이트 · /posture
-- [ ] /states 두 번 읽기 · float32 · linear_q16 · 솎기
-- [ ] /sections
-- [ ] CMake HDF5(C) · SIF def libhdf5-dev · build_module.sh
-- [ ] 시험(합성 덱 · 운영 덱) · h5py 복원 확인
-- [ ] 후처리 잡 연결 · 배포(상류) · DynaForge 통보
+- [x] D3plotReader::for_each_state (5f46be2)
+- [x] 겉면 규칙(StepForge 꼴) — 운영 덱 면 32,082·절점 23,012·요소 28,251, 원형과 같음
+- [x] /mesh · /parts 게이트 · /posture
+- [x] /states 두 번 읽기 · float32 · linear_q16 · 솎기 · 청크 [64,256]
+- [ ] /sections — 2단계, D-8 확정 뒤
+- [x] CMake HDF5(C) · SIF def libhdf5-dev · build_module.sh (격리 작업 트리에서 build_module.sh rc 0)
+- [x] 시험: ctest S1Core · 운영 덱 lasso 대조(변위·응력·시각·삭제, 게이트 22파트 일치)
+- [x] 후처리 잡 연결 post_analyze.sh --s1 (기본 끔, 시험 [11])
+- [ ] 배포(상류, 다음 이미지) · DynaForge 통보
