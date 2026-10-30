@@ -17,6 +17,7 @@
 #include <hdf5.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -114,6 +115,16 @@ Options parseArgs(int argc, char** argv) {
     }
     if (o.d3plot.empty() || o.output.empty()) throw std::runtime_error("d3plot 과 --output 이 필요하다");
     if (o.floor_part >= 0) o.excluded.insert(o.floor_part);
+    // units 는 「길이, 질량, 시간, 응력」 넷을 ", " 로 이은 꼴로 정규화한다 — 같은 단위가 표본마다
+    // "mm, t, s, MPa" · "mm,t,s,MPa" 로 갈렸다(post_analyze --s1-opts 는 빈칸을 못 넘긴다)
+    if (o.units != "deck_units") {
+        std::string norm;
+        for (std::string t : splitComma(o.units)) {
+            t.erase(std::remove_if(t.begin(), t.end(), [](unsigned char c) { return std::isspace(c); }), t.end());
+            if (!t.empty()) norm += (norm.empty() ? "" : ", ") + t;
+        }
+        o.units = norm;
+    }
     return o;
 }
 
@@ -598,6 +609,12 @@ int run(const Options& o) {
     for (size_t k = 0; k < P * 3; ++k) {
         if (dmin[k] > dmax[k]) dmin[k] = dmax[k] = 0;  // 이 묶음에 겉면 절점이 없다
         dscale[k] = dmax[k] > dmin[k] ? (dmax[k] - dmin[k]) / 65535.0 : 1.0;
+        // 0 이 범위 안이면 offset 을 scale 의 정수배로 내린다 — 변위 0(상태 0 등)이 정수 q 에 떨어져
+        // offset + scale·q 가 정확히 0 이 된다(SceneForge 제안). 한 칸을 비워 둬 최댓값이 넘치지 않게.
+        if (dmax[k] > dmin[k] && dmin[k] <= 0.0 && dmax[k] >= 0.0) {
+            dscale[k] = (dmax[k] - dmin[k]) / 65534.0;
+            dmin[k] = std::floor(dmin[k] / dscale[k]) * dscale[k];
+        }
     }
     for (size_t k = 0; k < P; ++k) {
         if (vmin[k] > vmax[k]) vmin[k] = vmax[k] = 0;
@@ -655,8 +672,6 @@ int run(const Options& o) {
         attrScalar<uint32_t>(g, "n_device_elems", static_cast<uint32_t>(surf.n_device_elems));
         attrScalar<uint32_t>(g, "n_inter_part_shared_faces", static_cast<uint32_t>(surf.n_inter_part_shared_faces));
         attrScalar<uint32_t>(g, "n_shell_elems_skipped", static_cast<uint32_t>(surf.n_shell_elems_skipped));
-        // SceneForge 리더(sceneforge/s1.py)는 단위를 /mesh 속성에서 읽는다 — 루트와 같은 값을 여기에도
-        attrStr(g, "units", o.units);
         H5Gclose(g);
     }
 

@@ -1,6 +1,6 @@
 # 계약 C-3 — S1 경량 추출본 초안 (KooD3plotReader → DynaForge · SceneForge · StepForge)
 
-**판** 초안 3 (2026-10-30 — DynaForge 이견 반영: §6 게이트 정의(삭제 요소 제외), §7 속성/데이터셋 구분·floor_layer_nodes, §9-1 곁파일·색인) · **스키마** `kood3plot.s1` 판 1
+**판** 초안 4 (2026-10-30 — SceneForge 부탁 반영: §1 units 꼴·정규화, §2 /mesh units 뺌, §5 청크 문구·변위 offset 정수배. 초안 3: §6 게이트 정의, §7 속성/데이터셋, §9-1 곁파일·색인) · **스키마** `kood3plot.s1` 판 1
 **요청** KooRemapper `docs/requests/kood3plotreader-s1-extractor-request-2026-10-28.md` (§1–§8, 3481788 · 7818cbc)
 **성격** 꼴을 먼저 맞추려는 초안입니다. 이름·뜻에 이견이 있으면 구현 전에 말씀해 주십시오. 바뀌면 판을 올립니다.
 
@@ -29,7 +29,7 @@
 | `source_d3plot` | str | 원본 d3plot 절대 경로 |
 | `source_fingerprint` | str | 가족 파일 수 · 각 크기 · 제어부 앞 4 KiB 의 sha256 — 18 GB 전체 해시는 하지 않는다(값싸고 바뀌면 갈린다) |
 | `deck_path`, `deck_sha256` | str | 같은 폴더의 키워드 덱(`*.k` 등, 리포트와 같은 찾기 규칙). 못 찾으면 빈 문자열 + 경고 |
-| `units` | str | 예 `"mm, t, s, MPa"`. d3plot 은 단위를 싣지 않으므로 **잡이 `--units` 로 준다**. 안 주면 `"deck_units"`(미상) + 경고 |
+| `units` | str | **「길이, 질량, 시간, 응력」 넷을 `", "` 로 이은 꼴** — 예 `"mm, t, s, MPa"`. d3plot 은 단위를 싣지 않으므로 **잡이 `--units` 로 준다**. 도구가 쉼표로 가르고 빈칸을 지워 이 꼴로 정규화한다(`mm,t,s,MPa` 를 줘도 같은 값). 안 주면 `"deck_units"`(미상) + 경고. 정본은 이 루트 속성 하나다 |
 | `surface_rule_id`, `surface_rule` | str | §3 규칙의 이름(`"deck-surface/stepforge-2026-10"`)과 전문 |
 | `excluded_parts` | int[] | 겉면 · 게이트에서 뺀 환경 파트(예 바닥 23) |
 | `selection_step`, `selection_window_s` | int, float[2] | 상태 솎기 설정(§4). 창이 없으면 `[-inf, inf]` |
@@ -50,7 +50,7 @@
 | `elem_ids` | uint32 [Ne] | 겉면을 가진 요소의 **실제 요소 ID** |
 | `elem_part_id` | int32 [Ne] | 그 요소의 파트 ID |
 
-속성: `n_device_nodes`, `n_device_elems`(제외 파트를 뺀 솔리드), `n_inter_part_shared_faces`(§3), `n_shell_elems_skipped`, `units`(루트와 같은 값 — SceneForge 리더가 /mesh 에서 읽는다).
+속성: `n_device_nodes`, `n_device_elems`(제외 파트를 뺀 솔리드), `n_inter_part_shared_faces`(§3), `n_shell_elems_skipped`. (단위는 루트 `units` 하나 — SceneForge 새 리더도 루트를 읽는다.)
 
 원형과의 차이 — `face_part_id` · `elem_part_id` 를 int32 로(파트 ID 255 초과 대비), `face_elem_id` 는 `elem_ids[face_elem_index]` 로 같은 값을 얻을 수 있어 뺐다.
 
@@ -97,8 +97,9 @@
   - 변위의 g 는 `/mesh/node_group[i]`, von Mises 의 g 는 요소의 파트 순번(`/parts` 표의 줄).
   - 표: `/states/displacement_offset` · `displacement_scale` float64 [G,3], `/states/von_mises_offset` · `von_mises_scale` float64 [P].
   - 스케일은 **1차 읽기에서 전 상태(솎기 전)의 묶음별 최소 · 최대**로 정한다: `offset = min`, `scale = (max − min) / 65535`(범위 0 이면 1). 그래서 넘침이 없고, 최대 오차는 `scale / 2`.
+  - 변위는 0 이 범위 안이면 `scale = (max − min) / 65534`, `offset = floor(min / scale) · scale`(scale 의 정수배)로 잡는다 — 변위 0 이 정수 q 에 떨어져 **정확히 0** 으로 되돌아온다(SceneForge 제안. 운영 모델 런 상태 0 의 69,036 값 모두 0). 복원 식은 같다.
   - 피크 보존 — 묶음의 최댓값은 q = 65535 에서 정확히(반올림 오차 내로) 되돌아온다.
-- **시간 델타는 판 1 에 없다.** 원형에서 델타 하나만 넘쳐도 단계를 통째로 저장해 델타가 거의 쓰이지 않았다. 시간 축 중복은 청크(16 상태) + shuffle + deflate 가 줄인다. 크기가 모자라면 판 2 에서 이름 붙은 델타 인코딩을 더한다.
+- **시간 델타는 판 1 에 없다.** 원형에서 델타 하나만 넘쳐도 단계를 통째로 저장해 델타가 거의 쓰이지 않았다. 시간 축 중복은 청크([64 상태, 256 항목], §4) + shuffle + deflate 가 줄인다. 크기가 모자라면 판 2 에서 이름 붙은 델타 인코딩을 더한다.
 - 기본은 `linear_q16`, `--precision float32` 로 바꾼다. SceneForge 리더가 지금 float32 만 읽는 것을 압니다 — 그 동안은 float32 + 솎기로 시작하실 수 있습니다.
 - **발산한 덱 (구현 중 실측).** 해석이 발산해 절점이 날아가면(작은 시험 덱 Test_Cum26x3 마지막 상태 — 절점 283개가 약 5e9 mm)
   그 파트 묶음의 범위가 커져 q16 오차 한계(scale/2)가 함께 커진다(그 덱 파트 8 은 1.3e5 mm). 값은 계약대로지만 쓸모가 없다.
