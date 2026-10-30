@@ -51,6 +51,12 @@ if(TARGET kood3plot_writer)
     add_test(NAME MotionAnalyzer COMMAND test_motion_analyzer)
 endif()
 
+# S1 기하 핵심 (StepForge 겉면 규칙 이식·바깥 방향·von Mises·바닥 평면) — 덱 불필요
+add_executable(test_s1_core test_s1_core.cpp)
+target_link_libraries(test_s1_core PRIVATE kood3plot)
+target_include_directories(test_s1_core PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME S1Core COMMAND test_s1_core)
+
 # d3plot 가족 파일 읽기 무결성 (합성 d3plot) — 잘림·누락·열기 실패·스레드 생성 실패.
 # fork·setrlimit 을 써서 POSIX 만.
 if(TARGET kood3plot_writer AND UNIX)

@@ -242,6 +242,7 @@ set(KOOD3PLOT_SOURCES
     src/analysis/SinglePassAnalyzer.cpp
     src/analysis/AnalysisConfigParser.cpp
     src/analysis/UnifiedConfigParser.cpp
+    src/s1/S1Core.cpp
     src/analysis/MotionAnalyzer.cpp
     src/analysis/SurfaceStrainAnalyzer.cpp
     src/analysis/HotspotClusterAnalyzer.cpp

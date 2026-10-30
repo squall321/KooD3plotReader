@@ -172,6 +172,21 @@ install(TARGETS comprehensive_example
 # ============================================================
 # Unified Analyzer (v2.0 - Job-based YAML configuration)
 # ============================================================
+# S1 경량 추출기 (DynaForge 계약 C-3) — 직렬 HDF5 C 라이브러리만 쓴다(KOOD3PLOT_BUILD_HDF5 와 무관).
+# FindHDF5 는 C 언어를 켜야 해서(이 프로젝트는 CXX 만) 헤더·라이브러리를 직접 찾는다.
+# 호스트처럼 병렬(openmpi) 판만 있으면 건너뛴다 — SIF 는 libhdf5-dev(직렬, hdf5/serial).
+find_path(S1_HDF5_INCLUDE_DIR hdf5.h PATH_SUFFIXES hdf5/serial NO_CMAKE_PATH)
+find_library(S1_HDF5_LIBRARY NAMES hdf5_serial hdf5 PATH_SUFFIXES hdf5/serial)
+if(S1_HDF5_INCLUDE_DIR AND S1_HDF5_LIBRARY AND NOT S1_HDF5_INCLUDE_DIR MATCHES "openmpi|mpich")
+    add_executable(s1_extract s1_extract.cpp)
+    target_include_directories(s1_extract PRIVATE ${S1_HDF5_INCLUDE_DIR})
+    target_link_libraries(s1_extract PRIVATE kood3plot ${S1_HDF5_LIBRARY})
+    target_compile_definitions(s1_extract PRIVATE KOOD3PLOT_GIT_COMMIT="${KOOD3PLOT_GIT_COMMIT}")
+    message(STATUS "s1_extract: HDF5 ${S1_HDF5_LIBRARY}")
+else()
+    message(STATUS "s1_extract: 직렬 HDF5(C) 없음 — 건너뜀")
+endif()
+
 add_executable(unified_analyzer unified_analyzer.cpp)
 target_link_libraries(unified_analyzer PRIVATE kood3plot)
 # --capabilities 가 스스로 버전을 답할 수 있게 빌드 시 주입
