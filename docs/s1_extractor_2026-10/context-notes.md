@@ -40,3 +40,15 @@
 - 개발 환경: `apptainer build --sandbox .work/sif_dev <운영 SIF>` 후 `--fakeroot --writable` 로 libhdf5-dev 설치(2.9 GB).
   새 def 와 같은 꼴이라 시험 결과가 운영과 맞는다.
 - SIF 안 파이썬은 `PYTHONNOUSERSITE=1` — 아니면 호스트 ~/.local 의 h5py 가 끼어든다.
+
+## DynaForge 이견 1차 반영 (10-30)
+- **게이트 정의 = 리포트 정의.** unified_analyzer(SinglePassAnalyzer::extractVonMises)는 S1 과 같은 성분 자리
+  (`solid_data[e*NV3D + 0..5]`)·같은 식이고, 상태마다 삭제된 요소를 뺀다(deletedMask, 1-based 순번). S1 게이트도 빼도록 고쳤다
+  (양자화 범위에는 넣음). 운영 덱 두 런은 삭제 요소 0개라 결과가 같다.
+- **리포트 대조**: 같은 모델의 다른 런(Test_Postprocess_v14 Run_20260522_103123_7ad7d9)에 새 판을 돌려 그 런의 deep 리포트
+  `report/analysis_result.json`(5월 22일 판, 4,952 상태)의 `stress_history[].global_max` 와 견줬다 — 22파트 모두 상대차 ≤ 2.2e-10,
+  최대 시각도 같다(리포트 23파트 중 23은 바닥이라 S1 에서 뺌). 옛 빌드 산출물이라 정답이 아니라 「같은 정의인가」 확인용.
+  이 런에서 543.7 MB(새 청크), 166.6 초(페이지 캐시), 자세 틈 0.0500 mm·법선각 0.0008°.
+- 곁파일 s1.json(sha256·bytes·parts·posture) · post_analyze.sh 색인 s1_index.json — DynaForge 가 cae00 에서 s1.h5 를 안 받고
+  manifest 를 짓기 위해.
+- §7 표를 구현대로 고쳤다 — 데이터셋은 initial_velocity·floor_point·floor_normal 셋, 나머지는 그룹 속성(+floor_layer_nodes).
