@@ -17,3 +17,26 @@
 ## 덤으로 발견 (S1 과 별개, 고치지 않음)
 - SectionClipper.cpp:148/200/268 · NodalAverager.cpp:388/434/464/507/526/545 가 삭제표의 **요소 순번**을 실제 요소 ID(`elem.id`,
   NARBS 가 덮어씀)와 견준다 → ID 가 연속이 아닌 덱에서 소프트웨어 단면 영상이 삭제 요소를 못 거른다. 별도 수정 과제.
+
+## 1단계 구현·실측 (10-30)
+- **운영 덱(Test_005 801e2b, /data HDD)**: rc 0, 4,952/4,952, 경고 0, RSS 52.8 MB, 17.5 분(두 번 읽기, CPU 2% — HDD I/O 대기).
+  겉면 면 32,082 · 절점 23,012 · 요소 28,251(원형과 같음), 뒤집은 요소 0. 자세: 틈 0.0500 mm, 속도 5,424.38 mm/s, 법선각 0.0021°,
+  평평함 6.5e-6 mm(d3plot 단정밀도 좌표 한계), 첫 접촉 9.2 µs.
+- **lasso 독립 대조**(`check_s1_against_lasso.py`): 상태 0·1650·3301·4951 — 시각 일치, 변위 오차 ≤ 4.7e-4 mm(한계 대비 0.967),
+  von Mises ≤ 0.018 MPa(0.996), 삭제 불일치 0. lasso 는 이 덱을 `state_filter` 만으로 열면 「negative dimensions」 로 죽는다 —
+  원형처럼 `buffered_reading=True` + `state_array_filter` 여야 한다.
+- **크기**: [16 상태, 전 항목] 청크로 789.5 MB. deflate 창(32 KB)이 한 상태(138 KB)를 못 넘어 시간 중복을 못 봤다.
+  [64, 256, …] 로 바꿔 같은 값을 다시 담으니 변위 581 → 344 MB, von Mises 208 → 198 MB(잡음이 많아 거의 그대로) → 약 543 MB.
+- **발산 덱**: 작은 시험 덱(Test_Cum26x3)은 마지막 상태에서 절점 283개가 약 5e9 mm 로 날아간다. q16 묶음 스케일이 그 값에
+  묶여 오차 한계가 1.3e5 mm 까지 커진다 → 묶음 범위 > 장치 크기 10배면 경고하고 float32 를 권한다. 우리 리더와 lasso 는
+  그 값도 float32 반올림 수준으로 같게 읽는다(버그 아님).
+- **P-4 를 되돌린 것**은 단면 영상 작업 노트에 적었다(PSNR 16.6–32 dB).
+
+## 빌드·시험에서 밟은 함정
+- `scripts/build_module.sh` 는 `BUILD_DIR="${PROJECT_ROOT}/build"` 로 **공유 build/ 를 못 박는다.** 샌드박스에서 그대로 돌렸다가
+  build/ 캐시(설치 경로·CAPI·뷰어·HDF5 경로)를 덮어 되돌렸다(설치 경로 /tmp/kood3plot_nuitka, CAPI·VIEWER ON 은 기존 산출물로 추정).
+  이미지 빌드 경로 시험은 `git worktree add .work/wt_bm` 에서 한다.
+- FindHDF5 는 CXX 전용 프로젝트에서 try_compile 이 「Unknown extension .c」 로 깨진다 → hdf5/serial 을 직접 찾는다.
+- 개발 환경: `apptainer build --sandbox .work/sif_dev <운영 SIF>` 후 `--fakeroot --writable` 로 libhdf5-dev 설치(2.9 GB).
+  새 def 와 같은 꼴이라 시험 결과가 운영과 맞는다.
+- SIF 안 파이썬은 `PYTHONNOUSERSITE=1` — 아니면 호스트 ~/.local 의 h5py 가 끼어든다.
