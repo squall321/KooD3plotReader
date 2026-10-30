@@ -41,7 +41,11 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr int kSchemaVersion = 1;
-constexpr hsize_t kChunkStates = 16;
+// 상태 배열 청크 [64 상태, 256 항목, …] — 시간 쪽으로 길게 잡아야 deflate(창 32 KB)가 이웃 상태의
+// 중복을 본다. [16 상태, 전 항목] 이면 한 상태(운영 덱 138 KB)가 창보다 커서 못 본다
+// (운영 덱 실측: 변위 581 → 344 MB, von Mises 208 → 198 MB).
+constexpr hsize_t kChunkStates = 64;
+constexpr hsize_t kChunkItems = 256;
 
 const char* kSurfaceRule =
     "대상은 제외 파트를 뺀 솔리드. 요소 꼴은 고유 절점 8=육면체, 4=사면체(배치 무관), 6=쐐기, 5=피라미드, "
@@ -263,6 +267,7 @@ public:
         dims.insert(dims.end(), tail_.begin(), tail_.end());
         std::vector<hsize_t> chunk{std::min<hsize_t>(kChunkStates, std::max<hsize_t>(1, T_))};
         chunk.insert(chunk.end(), tail_.begin(), tail_.end());
+        if (chunk.size() > 1) chunk[1] = std::max<hsize_t>(1, std::min<hsize_t>(kChunkItems, chunk[1]));
         hid_t sp = H5Screate_simple(static_cast<int>(dims.size()), dims.data(), nullptr);
         hid_t dcpl = H5Pcreate(H5P_DATASET_CREATE);
         if (T_ > 0 && row_ > 0) {
@@ -274,7 +279,7 @@ public:
                          name.c_str());
         H5Pclose(dcpl);
         H5Sclose(sp);
-        buf_.reserve(static_cast<size_t>(chunk[0] * row_) * elem_size_);
+        buf_.reserve(static_cast<size_t>(kChunkStates * row_) * elem_size_);
     }
     hid_t id() const { return ds_; }
     void append(const void* row) {
