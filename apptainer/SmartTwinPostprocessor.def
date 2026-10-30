@@ -55,7 +55,7 @@ From: ubuntu:22.04
     apt-get install -y --no-install-recommends \
         build-essential cmake g++ git ca-certificates pkg-config wget \
         libomp-dev python3 python3-pip python3-venv libpython3.10 \
-        ffmpeg libpng-dev xvfb \
+        ffmpeg libpng-dev xvfb libhdf5-dev \
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
         libxinerama1 libxkbcommon0 \
         libgtk-3-0 libnotify4 libsecret-1-0
@@ -207,6 +207,8 @@ From: ubuntu:22.04
     # 생성된 /.singularity.d/test 에 set -e 가 없음을 확인했다.
     set -e
     /opt/kood3plot/bin/unified_analyzer --help >/dev/null
+    # S1 경량 추출기(DynaForge 계약 C-3) — libhdf5-dev 가 빠지면 빌드에서 조용히 건너뛰므로 여기서 잡는다
+    /opt/kood3plot/bin/s1_extract --help >/dev/null
     # LSPrePost 본 바이너리 존재를 무조건 확인한다. `[ -x … ] &&` 를 가드로 앞에 두면
     # 바이너리가 없을 때 조건 전체가 거짓이 되어 검사가 스스로 비켜선다.
     if [ ! -x /opt/kood3plot/lsprepost/lsprepost ]; then

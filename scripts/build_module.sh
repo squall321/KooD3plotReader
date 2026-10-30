@@ -196,6 +196,17 @@ ok "unified_analyzer built"
 build_target make_stl
 ok "make_stl built"
 
+# s1_extract — S1 경량 추출본(DynaForge 계약 C-3). 직렬 HDF5(libhdf5-dev)가 있을 때만
+# CMake 가 대상을 만든다. SIF 는 def 가 libhdf5-dev 를 깔고 %test 가 있는지 확인한다.
+HAVE_S1=false
+if cmake --build "${BUILD_DIR}" --target help 2>/dev/null | grep -q "s1_extract"; then
+    build_target s1_extract
+    ok "s1_extract built"
+    HAVE_S1=true
+else
+    warn "s1_extract 건너뜀 — 직렬 HDF5(libhdf5-dev) 없음"
+fi
+
 if [ "$BUILD_VIEWER" = true ]; then
     build_target koo_viewer
     ok "koo_viewer built"
@@ -217,6 +228,11 @@ cp "${BUILD_DIR}/examples/make_stl" "${PREFIX}/bin/"
 ok "make_stl → bin/"
 chmod +x "${PREFIX}/bin/unified_analyzer"
 ok "unified_analyzer → bin/"
+if [ "$HAVE_S1" = true ]; then
+    cp "${BUILD_DIR}/examples/s1_extract" "${PREFIX}/bin/"
+    chmod +x "${PREFIX}/bin/s1_extract"
+    ok "s1_extract → bin/"
+fi
 
 if [ "$BUILD_VIEWER" = true ] && [ -f "${BUILD_DIR}/viewer/koo_viewer" ]; then
     cp "${BUILD_DIR}/viewer/koo_viewer" "${PREFIX}/bin/"
