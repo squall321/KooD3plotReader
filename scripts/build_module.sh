@@ -199,7 +199,8 @@ ok "make_stl built"
 # s1_extract — S1 경량 추출본(DynaForge 계약 C-3). 직렬 HDF5(libhdf5-dev)가 있을 때만
 # CMake 가 대상을 만든다. SIF 는 def 가 libhdf5-dev 를 깔고 %test 가 있는지 확인한다.
 HAVE_S1=false
-if cmake --build "${BUILD_DIR}" --target help 2>/dev/null | grep -q "s1_extract"; then
+# 대상 유무는 설정 로그로 본다(생성기와 무관 — Ninja 에는 help 대상이 없다)
+if grep -q "s1_extract: HDF5" "${BUILD_DIR}/cmake_config.log" 2>/dev/null; then
     build_target s1_extract
     ok "s1_extract built"
     HAVE_S1=true
