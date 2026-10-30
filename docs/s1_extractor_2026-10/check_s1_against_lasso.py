@@ -93,16 +93,24 @@ def main():
     if full_gate:
         # 100 상태씩 끊어 읽어 요소별 전 상태 최대만 남긴다 (메모리 상한)
         n_src = int(f["states"].attrs["n_states_source"])
-        vm_elem_max = None
-        for s0 in range(0, n_src, 100):
-            d3a = D3plot(d3_path, state_filter=set(range(s0, min(n_src, s0 + 100))), buffered_reading=True,
-                         state_array_filter=[ArrayType.element_solid_stress])
-            st = d3a.arrays[ArrayType.element_solid_stress][:, :, 0, :]
-            m = vm_of(st.astype(np.float64)).max(axis=0)
-            vm_elem_max = m if vm_elem_max is None else np.maximum(vm_elem_max, m)
+        cache = s1_path + ".vm_elem_max.npy"   # 다시 돌릴 때 d3plot 을 또 읽지 않게
+        try:
+            vm_elem_max = np.load(cache)
+        except OSError:
+            vm_elem_max = None
+            for s0 in range(0, n_src, 100):
+                d3a = D3plot(d3_path, state_filter=set(range(s0, min(n_src, s0 + 100))), buffered_reading=True,
+                             state_array_filter=[ArrayType.element_solid_stress])
+                st = d3a.arrays[ArrayType.element_solid_stress][:, :, 0, :]
+                m = vm_of(st.astype(np.float64)).max(axis=0)
+                vm_elem_max = m if vm_elem_max is None else np.maximum(vm_elem_max, m)
+            np.save(cache, vm_elem_max)
         vm = vm_elem_max[None, :]
+        d3a = D3plot(d3_path, state_filter={0}, buffered_reading=True,
+                     state_array_filter=[ArrayType.global_timesteps])
         spart = d3a.arrays[ArrayType.element_solid_part_indexes]
-        pids = d3a.arrays[ArrayType.part_ids]
+        # NARBS 파트 ID 가 있으면 part_ids, 없으면 파트 제목 순서의 ID (이 덱은 1..23)
+        pids = d3a.arrays.get(ArrayType.part_ids, d3a.arrays.get(ArrayType.part_titles_ids))
         solid_pid = pids[spart]
         surf_mask = np.zeros(len(sid), bool)
         surf_mask[ei] = True
