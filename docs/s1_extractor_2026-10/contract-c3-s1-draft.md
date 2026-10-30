@@ -50,7 +50,7 @@
 | `elem_ids` | uint32 [Ne] | 겉면을 가진 요소의 **실제 요소 ID** |
 | `elem_part_id` | int32 [Ne] | 그 요소의 파트 ID |
 
-속성: `n_device_nodes`, `n_device_elems`(제외 파트를 뺀 솔리드), `n_inter_part_shared_faces`(§3), `n_shell_elems_skipped`.
+속성: `n_device_nodes`, `n_device_elems`(제외 파트를 뺀 솔리드), `n_inter_part_shared_faces`(§3), `n_shell_elems_skipped`, `units`(루트와 같은 값 — SceneForge 리더가 /mesh 에서 읽는다).
 
 원형과의 차이 — `face_part_id` · `elem_part_id` 를 int32 로(파트 ID 255 초과 대비), `face_elem_id` 는 `elem_ids[face_elem_index]` 로 같은 값을 얻을 수 있어 뺐다.
 

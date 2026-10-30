@@ -626,6 +626,8 @@ int run(const Options& o) {
         attrScalar<uint32_t>(g, "n_device_elems", static_cast<uint32_t>(surf.n_device_elems));
         attrScalar<uint32_t>(g, "n_inter_part_shared_faces", static_cast<uint32_t>(surf.n_inter_part_shared_faces));
         attrScalar<uint32_t>(g, "n_shell_elems_skipped", static_cast<uint32_t>(surf.n_shell_elems_skipped));
+        // SceneForge 리더(sceneforge/s1.py)는 단위를 /mesh 속성에서 읽는다 — 루트와 같은 값을 여기에도
+        attrStr(g, "units", o.units);
         H5Gclose(g);
     }
 
