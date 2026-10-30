@@ -1,6 +1,6 @@
 # 계약 C-3 — S1 경량 추출본 초안 (KooD3plotReader → DynaForge · SceneForge · StepForge)
 
-**판** 초안 1 (2026-10-29) · **스키마** `kood3plot.s1` 판 1
+**판** 초안 2 (2026-10-30 — 1단계 구현 실측 반영: §1 warnings 예, §5 발산 덱, §7 정밀도·실측) · **스키마** `kood3plot.s1` 판 1
 **요청** KooRemapper `docs/requests/kood3plotreader-s1-extractor-request-2026-10-28.md` (§1–§8, 3481788 · 7818cbc)
 **성격** 꼴을 먼저 맞추려는 초안입니다. 이름·뜻에 이견이 있으면 구현 전에 말씀해 주십시오. 바뀌면 판을 올립니다.
 
@@ -33,7 +33,7 @@
 | `surface_rule_id`, `surface_rule` | str | §3 규칙의 이름(`"deck-surface/stepforge-2026-10"`)과 전문 |
 | `excluded_parts` | int[] | 겉면 · 게이트에서 뺀 환경 파트(예 바닥 23) |
 | `selection_step`, `selection_window_s` | int, float[2] | 상태 솎기 설정(§4). 창이 없으면 `[-inf, inf]` |
-| `warnings` | str[] | 경고 문장들(없으면 빈 배열) |
+| `warnings` | str[] | 경고 문장들(없으면 빈 배열). 예 — 마지막 가족 파일 끝의 덜 써진 상태, 발산 의심(§5), 덱 · 단위 · 바닥 미지정 |
 
 압축은 deflate 6 + shuffle, 파일은 `libver = latest`(HDF5 1.10 꼴)로 만든다.
 
@@ -98,6 +98,10 @@
   - 피크 보존 — 묶음의 최댓값은 q = 65535 에서 정확히(반올림 오차 내로) 되돌아온다.
 - **시간 델타는 판 1 에 없다.** 원형에서 델타 하나만 넘쳐도 단계를 통째로 저장해 델타가 거의 쓰이지 않았다. 시간 축 중복은 청크(16 상태) + shuffle + deflate 가 줄인다. 크기가 모자라면 판 2 에서 이름 붙은 델타 인코딩을 더한다.
 - 기본은 `linear_q16`, `--precision float32` 로 바꾼다. SceneForge 리더가 지금 float32 만 읽는 것을 압니다 — 그 동안은 float32 + 솎기로 시작하실 수 있습니다.
+- **발산한 덱 (구현 중 실측).** 해석이 발산해 절점이 날아가면(작은 시험 덱 Test_Cum26x3 마지막 상태 — 절점 283개가 약 5e9 mm)
+  그 파트 묶음의 범위가 커져 q16 오차 한계(scale/2)가 함께 커진다(그 덱 파트 8 은 1.3e5 mm). 값은 계약대로지만 쓸모가 없다.
+  그래서 묶음 변위 범위가 장치 크기의 10배를 넘으면 `warnings` 에 파트 · 범위 · 오차 한계를 적고 float32 를 권한다.
+  넘친 값만 따로 적는 예외 목록은 판 2 후보로 둔다(정상 덱에서는 필요가 없었다).
 
 ## 6. `/parts` — 파트 표와 게이트
 
@@ -127,6 +131,11 @@
 | `velocity_normal_angle_deg` | float64 | `initial_velocity` 와 `−floor_normal` 사이 각 — SceneForge 거절 기준(0.1°)을 미리 볼 수 있게 |
 
 평면은 바닥 절점에 주성분 분석으로 법선을 잡고, 법선 방향 투영으로 층을 나눠 기기에 가장 가까운 층을 쓴다. 바닥 파트를 주지 않으면 `/posture` 를 쓰지 않고 경고한다.
+
+- 좌표는 d3plot 의 것이다. d3plot 은 좌표를 단정밀도로 담아, 100 mm 규모에서 `floor_flatness` 가 약 1e-5 mm 아래로 내려가지 않는다
+  (운영 덱 6.5e-6 mm — DynaForge 가 덱 텍스트에서 잰 6e-7 mm 보다 크다). 판정에 그보다 작은 값이 필요하면 덱 값을 쓰십시오.
+- 운영 덱 실측: `gap` 0.0500 mm, `|initial_velocity|` 5,424.38 mm/s, `first_contact_s` 9.2 µs, `velocity_normal_angle_deg` 0.0021°
+  (DynaForge 의 덱 `*INITIAL_VELOCITY` 기준 0.007° 와 같은 자릿수 — 여기서는 상태 0 의 장치 절점 평균 속도를 쓴다).
 
 ## 8. `/sections` — 기준 단면 조각 (D-8)
 
