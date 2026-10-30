@@ -44,4 +44,6 @@
 - [ ] node001·node002 노드 로컬 /opt/apptainers — VM 꺼짐, 켜지면 상류가 deploy_apptainers.sh 로 보냄
 - [x] 배포 뒤 이미지 VERSION 을 DynaForge(kooremapper 세션)에 알리기 — 그쪽이 같은 덱(Run_20260602_093237_801e2b)으로 단면 영상을 다시 재 0 프레임이 사라졌는지 확인해 준다. 그쪽은 rc 3 을 경고로 다루기로 했다(KooRemapper ca0b6e1)
 - [ ] 이미 나간 운영 영상 0 프레임 일괄 점검 여부 (회신 §5-2)
-- [ ] P-2 세션 수 · P-3 state_step · P-4 한 세션 여러 단면
+- [x] P-3 state_step (aa5883f, 기본 1)
+- [x] P-4 시도 → 되돌림: 둘째 영상부터 출력이 바뀜(PSNR 16.6–32 dB) — context-notes 참고, 사용자 판단 필요
+- [ ] P-2 (파트별·iso_clip 기본값) — 사용자 결정으로 하지 않음
