@@ -61,6 +61,10 @@ IMPACT_ONLY=false
 # 리스크맵을 낸다. 기본은 끔 — 켜면 마지막 단계로 붙는다.
 SCATTER=false
 SCATTER_EXTRA=()
+# S1 경량 추출본(s1_extract — DynaForge 계약 C-3). 기본은 끔 — 켜면 런마다
+# <d3plot 폴더>/s1.h5 를 마지막 단계로 만든다.
+S1=false
+S1_EXTRA=()
 FORCE=false
 SCHEMA_CHECK=true    # false 면 산출물 존재만 보고 스킵(옛 동작)
 THREADS=4
@@ -137,6 +141,9 @@ usage() {
     --scatter-opts "..."    koo_scatter_report 옵션 pass-through
                             (예: '--criterion max_principal --ground-truth ng.tsv')
     --impact-opts "..."     koo_impact_report 추가 옵션 pass-through (예: '--units ton-mm-s')
+    --s1                    런마다 S1 경량 추출본(<d3plot 폴더>/s1.h5) 생성 — 마지막 단계
+    --s1-opts "..."         s1_extract 옵션 pass-through (공백으로 쪼갠다 — 단위는 공백 없이)
+                            (예: '--floor-part 23 --units mm,t,s,MPa --state-step 10')
     -h|--help
 
 예시:
@@ -214,6 +221,8 @@ while [[ $# -gt 0 ]]; do
         --scatter-opts)  SCATTER=true; read -r -a _extra <<< "$2"
                          SCATTER_EXTRA+=("${_extra[@]}"); shift 2 ;;
         --impact-opts)   read -r -a _extra <<< "$2"; IMPACT_EXTRA+=("${_extra[@]}"); shift 2 ;;
+        --s1)            S1=true; shift ;;
+        --s1-opts)       S1=true; read -r -a _extra <<< "$2"; S1_EXTRA+=("${_extra[@]}"); shift 2 ;;
 
         -h|--help)       usage ;;
         -*)              echo "ERROR: 알 수 없는 옵션: $1"; usage ;;
@@ -314,6 +323,7 @@ check_bin() {
 }
 check_bin unified_analyzer
 check_bin koo_deep_report
+${S1} && check_bin s1_extract
 # koo_sphere_report / koo_impact_report 는 실제 사용 분기에서만 강제. 옛 SIF
 # (impact 미포함) 호환성을 위해 여기서 강제하지 않고, 호출 직전에 검사.
 
@@ -660,6 +670,34 @@ run_step_unified() {
 }
 
 # ============================================================
+# Step S1: s1_extract  (런마다 겉면 경량 추출본 — DynaForge 계약 C-3)
+# ============================================================
+# 결과는 d3plot 옆 s1.h5, 로그는 s1.log. 이미 있으면 건너뛴다(--force 면 다시).
+# 실패는 세되 파이프라인을 멈추지 않는다 — 리포트 단계와 무관하다.
+run_step_s1() {
+    echo ""
+    echo "=== [Step S1] s1_extract (런마다 경량 추출본) ==="
+    local _ok=0 _skip=0 _fail=0 _d3 _dir _out
+    while IFS= read -r _d3; do
+        _dir=$(dirname "${_d3}")
+        _out="${_dir}/s1.h5"
+        if [ -f "${_out}" ] && ! ${FORCE}; then
+            _skip=$(( _skip + 1 ))
+            continue
+        fi
+        printf "  %s ... " "${_d3#${OUTPUT_DIR}/}"
+        if s1_extract "${_d3}" --output "${_out}" "${S1_EXTRA[@]}" > "${_dir}/s1.log" 2>&1; then
+            echo "OK"
+            _ok=$(( _ok + 1 ))
+        else
+            echo "FAIL ($(grep -m1 '^ERROR' "${_dir}/s1.log" || tail -1 "${_dir}/s1.log"))"
+            _fail=$(( _fail + 1 ))
+        fi
+    done < <(find "${OUTPUT_DIR}" -name "d3plot" -type f 2>/dev/null | sort)
+    echo "  완료: ${_ok} / 스킵: ${_skip} / 실패: ${_fail}"
+}
+
+# ============================================================
 # Step 3: koo_scatter_report  (각도 산포 — 캠페인을 가로로 묶는다)
 #  - 편차각 산포·방향도·히트맵·회수율·리스크맵을 한 장으로
 #  - 그림은 외부 라이브러리 없이 SVG (망이 막혀도 열린다)
@@ -995,6 +1033,7 @@ else
     run_step_deep
     ${SCATTER} && run_step_scatter
 fi
+${S1} && run_step_s1
 
 echo ""
 echo "============================================================"

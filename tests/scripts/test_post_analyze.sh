@@ -89,7 +89,19 @@ set -uo pipefail
 echo "sphere $*" >> "${STUB_LOG}"
 STUBEOF
 
-chmod +x "$BIN/unified_analyzer" "$BIN/koo_deep_report" "$BIN/koo_sphere_report"
+# s1_extract 대역 — 경로에 FAIL_S1 이 들면 실패를 흉내 낸다
+cat > "$BIN/s1_extract" << 'STUBEOF'
+#!/usr/bin/env bash
+d3="$1"; shift
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in --output) out="$2"; shift 2 ;; *) shift ;; esac
+done
+echo "s1 ${d3} -> ${out}" >> "${STUB_LOG}"
+case "${d3}" in *FAIL_S1*) echo "ERROR: 대역 실패"; exit 1 ;; esac
+printf 'fake-s1\n' > "${out}"
+STUBEOF
+chmod +x "$BIN/unified_analyzer" "$BIN/koo_deep_report" "$BIN/koo_sphere_report" "$BIN/s1_extract"
 export PATH="$BIN:$PATH"
 
 # ============================================================
@@ -317,6 +329,32 @@ else
     echo "  NG  실행 파일 변경 사유가 화면에 없다"
     fails=$((fails + 1))
 fi
+
+# ============================================================
+# [11] S1 단계 — 켜야만 돌고, 런마다 d3plot 옆에 만들고, 있으면 건너뛰고(--force 면
+#      다시), 한 런이 실패해도 끝까지 간다(DynaForge 계약 C-3).
+# ============================================================
+echo "[11] S1 단계"
+T11="$W/t11"
+mk_tree "$T11" Run_a/Output/d3plot Run_b/Output/d3plot Run_FAIL_S1/Output/d3plot
+mk_config "$T11"
+run_pa "$T11" --sphere-only
+chk "--s1 없으면 s1_extract 를 부르지 않는다" 0 "$(n_calls s1)"
+run_pa "$T11" --sphere-only --s1-opts "--floor-part 23 --units mm,t,s,MPa"
+chk "--s1-opts 만으로 켜진다 — 런 셋 모두 부른다" 3 "$(n_calls s1)"
+chk_file "Run_a 의 s1.h5 는 d3plot 옆" "$T11/output/Run_a/Output/s1.h5"
+chk_file "런마다 s1.log" "$T11/output/Run_b/Output/s1.log"
+chk_no_file "실패한 런에는 s1.h5 가 없다" "$T11/output/Run_FAIL_S1/Output/s1.h5"
+if grep -q "완료: 2 / 스킵: 0 / 실패: 1" "$W/last_run.log"; then
+    echo "  OK  실패 1건을 세고 끝까지 간다"
+else
+    echo "  NG  S1 요약이 '완료: 2 / 스킵: 0 / 실패: 1' 이 아니다"
+    fails=$((fails + 1))
+fi
+run_pa "$T11" --sphere-only --s1
+chk "다시 돌리면 있는 것은 건너뛰고 실패한 것만 다시" 1 "$(n_calls s1)"
+run_pa "$T11" --sphere-only --s1 --force
+chk "--force 면 전부 다시" 3 "$(n_calls s1)"
 
 echo ""
 if [ "$fails" -gt 0 ]; then
