@@ -1,5 +1,5 @@
 {
-  "_note": "DynaForge 해석 결과 어휘 초안 v0.1 (KooD3plotReader 작성) — SP import 꼴. 전각도 낙하·전위치 부분충격·단일 런 후처리 결과를 온톨로지 인스턴스로 싣기 위한 타입·관계. 용어는 구조·충격해석 개념을 DynaForge 전용 slug(cae_ 접두)로 묶었다. 정본 위치·채택은 DynaForge 결정. 이 파일은 python/koo_deep_report/koo_deep_report/ontology/vocabulary.py 에서 뽑는다.",
+  "_note": "DynaForge 해석 결과 어휘 초안 v0.2 (KooD3plotReader 작성) — SP import 꼴. 전각도 낙하·전위치 부분충격·단일 런 후처리 결과를 온톨로지 인스턴스로 싣기 위한 타입·관계. 용어는 구조·충격해석 개념을 DynaForge 전용 slug(cae_ 접두)로 묶었다. 정본 위치·채택은 DynaForge 결정. 이 파일은 python/koo_deep_report/koo_deep_report/ontology/vocabulary.py 에서 뽑는다.",
   "groups": [
     {
       "slug": "cae",

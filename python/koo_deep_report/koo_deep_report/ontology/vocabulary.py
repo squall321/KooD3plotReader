@@ -18,7 +18,7 @@ import hashlib
 import json
 
 #: 어휘 판. 타입·속성·관계가 바뀌면 올린다. 꾸러미 머리에 실린다.
-VERSION = "0.1"
+VERSION = "0.2"
 GROUP = "cae"
 
 #: 속성 `unit` 글자 → 양의 종류. 꾸러미 작성기가 이것으로 환산 계수를 고른다.
