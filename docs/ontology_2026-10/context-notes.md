@@ -89,3 +89,15 @@
   push 하지 않는다** — SIF def 가 GitHub main 최신을 clone 하므로 지금 올리면 상류에 말한 판과 다른 것이 빌드된다.
 - DynaForge 에: 정본은 0.3 바이트로 먼저 들일 것, 판 전환 때 받아들인 판들의 지문 목록으로 받을 것(아니면 배포된 생산 쪽
   꾸러미가 막힌다).
+
+## DynaForge 채택 · 7-1 길 (10-31)
+- DynaForge 가 채택 · 적재 · 질의를 지었다(KooRemapper 0e9c9da 정본 = 이쪽 e6cce7f 0.3 바이트, 220df28 적재 · 질의, 4ada7ba MCP,
+  57a41bf 화면). 받아들인 판 목록으로 받는다. 정본이 생겨 이쪽 「사본 = 정본 바이트」 시험이 켜졌고 통과했다.
+- **7-1 길에서는 꾸러미가 안 생겼다** — pyKooCAE PostprocessShellGenerator 셸이 koo_sphere_report/koo_impact_report 를 바로 부르고
+  꾸러미 단계는 post_analyze Step O 뿐이었다. (A) 도구가 스스로 / (B) 셸이 koo_ontology 를 부른다 중 **(A)** — 사용자 결정
+  「세 리포트가 늘 함께 낸다」 그대로이고, 짝 HTML 지문 · 항복값 규칙이 생산 쪽 한 곳에 남는다. emit.beside 를 만들고 impact 는
+  연결(c0ac6cf), sphere 는 a9 가 붙인다(그쪽 파일 · 미커밋 -j 변경이 있어서).
+- impact --from-json 은 HTML 재렌더 전용이라 연결을 거치지 않는다 — 실데이터 확인은 산출물 사본에 같은 함수를 돌려서 했다
+  (--test-dir 실분석은 캐시가 안 맞으면 해석을 다시 돌릴 수 있어 피했다).
+- 상류에는 e6cce7f 빌드를 멈추고 최종 커밋(e9d841d · 752c7e6 · c2595eb · c0ac6cf · a9 sphere 연결)으로 하자고 했다. -j 배선은 v44.
+- 0.4(cae_run.flow_scalars_only) 칸 정의를 DynaForge 에 보냈다. 생산 쪽은 이번 판 0.3 유지, 0.4 는 다음 판.

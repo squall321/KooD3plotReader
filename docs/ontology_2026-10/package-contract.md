@@ -12,11 +12,18 @@
 
 ## 1. 어디에 생기나
 
-| 리포트 | 꾸러미 | 만드는 때 |
+**리포트 도구가 스스로 낸다** — 세 도구 모두 HTML·JSON 을 다 쓴 뒤 `-o` HTML 곁에 `<HTML 줄기>.ontology.json` 을 쓴다
+(`koo_deep_report.ontology.emit.beside`, 실패해도 예외를 올리지 않는다 — 리포트가 정본). 그래서 post_analyze 를 거치지 않는
+길(stcx 후처리 예약 7-1 — 셸이 도구를 바로 부른다)도 같은 파일을 낸다. post_analyze 는 마지막 단계(S1 다음)에서 같은 파일을
+S1 정보(첫 접촉 시각 · S1 해시)까지 실어 다시 쓴다.
+
+| 리포트 | 꾸러미 (post_analyze 길) | 7-1 길 |
 |---|---|---|
-| 전각도 낙하 (koo_sphere_report) | `<캠페인>/report.ontology.json` (그룹이면 `report_<그룹>.ontology.json`) | post_analyze 마지막 단계(S1 다음) |
-| 전위치 부분충격 (koo_impact_report) | `<캠페인>/impact_report.ontology.json` | 같음 |
-| 런 하나 (koo_deep_report) | deep 산출 폴더의 `report.ontology.json` (report.html 옆) | deep 리포트가 스스로(HTML 뒤) |
+| 전각도 낙하 (koo_sphere_report) | `<캠페인>/report.ontology.json` (그룹이면 `report_<그룹>.ontology.json`) | `<출력>/sphere_report.ontology.json` |
+| 전위치 부분충격 (koo_impact_report) | `<캠페인>/impact_report.ontology.json` | `<출력>/impact_report.ontology.json` |
+| 런 하나 (koo_deep_report) | deep 산출 폴더의 `report.ontology.json` (report.html 옆) | 같음 |
+
+sphere 는 JSON 을 쓸 때(`--format … json`)만 꾸러미를 낸다 — 꾸러미의 원천이 그 JSON 이다. post_analyze 와 7-1 셸은 늘 JSON 을 쓴다.
 
 **짝짓기 규칙 하나** — 꾸러미는 늘 짝 리포트 HTML 과 같은 폴더 · 같은 이름 줄기다(`report.html` ↔ `report.ontology.json`,
 `report_<그룹>.html` ↔ `report_<그룹>.ontology.json`, `impact_report.html` ↔ `impact_report.ontology.json`). 그리고 머리
