@@ -904,7 +904,14 @@ def _slim_flow(g: dict) -> dict:
                  "final_ie", "final_ke")}
         if any(v is not None for v in vals.values()):
             pe[nid] = vals
-    out = {"edges": edges, "_part_energy": pe, "_pf_max": pf_max}
+    # 🔴 **줄였다는 사실을 산출물에 적는다.** report.json 은 energy_flows 를
+    #    그대로 싣고 온톨로지·DynaForge 가 그걸 읽는다. 표식이 없으면
+    #    `first_engage_t` 가 없는 것이 "안 쟀다" 인지 "메모리 때문에 뺐다" 인지
+    #    읽는 쪽이 구분할 수 없다.
+    out = {"edges": edges, "scalars_only": True,
+           "dropped": ["first_engage_t", "first_engage_idx", "confidence",
+                       "depth_map", "force_mag_ts", "impulse_cum_ts", "nodes"],
+           "_part_energy": pe, "_pf_max": pf_max}
     cm = g.get("contact_metrics")
     if cm:
         out["contact_metrics"] = cm
@@ -1279,6 +1286,10 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None,
             if g:
                 energy_flows[folder] = g      # 시계열까지 있는 판으로 교체
                 n_full += 1
+        # 내부용 키는 산출물로 내보내지 않는다 (적재 중에만 쓴다).
+        for g in energy_flows.values():
+            g.pop("_part_energy", None)
+            g.pop("_pf_max", None)
         print(f"[sphere] flow cache: {n_hit}/{len(results)} hit · "
               f"시계열 보유 {n_full}/{len(slim_all)} (나머지는 스칼라만)")
         n_e = sum(1 for sr in results for pr in sr.parts.values() if pr.energy)

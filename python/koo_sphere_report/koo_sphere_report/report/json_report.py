@@ -78,6 +78,12 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         # 파트간 에너지 흐름(run_folder→중립 flow dict). --from-json 재생성 시
         # 흐름 탭을 유지하려면 그대로 실어 보낸다.
         "energy_flows": getattr(report, "energy_flows", {}) or {},
+        # 어느 런이 줄었는지 읽는 쪽이 알아야 한다 — 값이 빈 것이 '안 쟀다' 가
+        # 아니라 '메모리 때문에 뺐다' 일 수 있다. 각 흐름의 scalars_only 와
+        # dropped 가 그 사실을 담고, 여기서 수를 요약한다.
+        "energy_flows_reduced": sum(
+            1 for g in (getattr(report, "energy_flows", {}) or {}).values()
+            if isinstance(g, dict) and g.get("scalars_only")),
     }
 
     # Enum fix for findings
