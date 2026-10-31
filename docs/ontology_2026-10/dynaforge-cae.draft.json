@@ -1,5 +1,5 @@
 {
-  "_note": "DynaForge 해석 결과 어휘 초안 v0 (KooD3plotReader 작성 2026-10-31) — SP import 꼴. 전각도 낙하·전위치 부분충격·단일 런 후처리 결과를 온톨로지 인스턴스로 싣기 위한 타입·관계. 용어는 구조·충격해석 개념을 DynaForge 전용 slug(cae_ 접두)로 묶었다. 정본 위치·채택은 DynaForge 결정.",
+  "_note": "DynaForge 해석 결과 어휘 초안 v0.1 (KooD3plotReader 작성) — SP import 꼴. 전각도 낙하·전위치 부분충격·단일 런 후처리 결과를 온톨로지 인스턴스로 싣기 위한 타입·관계. 용어는 구조·충격해석 개념을 DynaForge 전용 slug(cae_ 접두)로 묶었다. 정본 위치·채택은 DynaForge 결정. 이 파일은 python/koo_deep_report/koo_deep_report/ontology/vocabulary.py 에서 뽑는다.",
   "groups": [
     {
       "slug": "cae",
@@ -14,7 +14,7 @@
       "nav_group_slug": "cae",
       "icon": "Layers",
       "key_policy": "required",
-      "description": "후처리 한 번이 다룬 해석 묶음 — 전각도 낙하(구면 DOE), 전위치 부분충격 DOE, 또는 런 하나(deep). 리포트(`impact_report`) 하나에 캠페인 하나. 키는 적재 때 DynaForge 가 `<리포트 키>/campaign` 으로 붙인다. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "후처리 한 번이 다룬 해석 묶음 — 전각도 낙하(구면 DOE), 전위치 부분충격 DOE, 또는 런 하나(deep). 리포트(`impact_report`) 하나에 캠페인 하나. 키는 적재 때 DynaForge 가 `<리포트 키>/campaign` 으로 붙인다. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "report",
@@ -88,7 +88,7 @@
             "g_mm_ms",
             "unknown"
           ],
-          "help": "덱 *MAT 밀도로 감지한 단위계. 감지 못 하면 unknown.",
+          "help": "덱 *MAT 밀도로 감지한 단위계(부분충격은 --units 로 줄 수도 있다). 감지 못 하면 unknown.",
           "required": true
         },
         {
@@ -98,17 +98,29 @@
           "help": "참이면 모든 수치를 이 어휘의 단위로 바꿔 실었다. 거짓이면 덱 단위 원값이다(단위계를 감지 못 했을 때)."
         },
         {
+          "key": "unit_note",
+          "label": "단위 판정 단서",
+          "data_type": "text_long",
+          "help": "단위계를 못 정한 사유, 또는 정했지만 붙은 단서. 비어 있으면 깨끗이 판정했다."
+        },
+        {
           "key": "g_factor",
           "label": "1 G 환산값",
           "data_type": "number",
           "help": "1 G 를 덱 가속도 단위로 나타낸 값(ton-mm-s 이면 9806.65). G 값은 이것으로 나눈 결과다."
         },
         {
-          "key": "drop_height",
-          "label": "낙하 높이",
+          "key": "impactor_part_id",
+          "label": "충격체 파트",
           "data_type": "number",
-          "unit": "mm",
-          "help": "DropSet 의 낙하 높이. runner 템플릿 값일 수 있다(덱 값이 아닐 수 있음)."
+          "help": "부분충격 DOE 의 충격체 PID. 낙하에는 없다."
+        },
+        {
+          "key": "impact_speed",
+          "label": "충격 속도",
+          "data_type": "number",
+          "unit": "mm/s",
+          "help": "충격 직전 속력. 낙하는 S1 /posture 의 초기 속도 크기, 부분충격은 충격체 초기 속도 크기."
         },
         {
           "key": "yield_source",
@@ -166,7 +178,7 @@
           "key": "angle_name",
           "label": "방향 이름",
           "data_type": "text",
-          "help": "DOE 표의 이름(F_TOP, E_…, C_…, P_0123 등). 못 맞추면 R{roll}_P{pitch}_Y{yaw}."
+          "help": "DOE 표의 이름(F_TOP, E_…, C_…, P0123 등). 못 맞추면 R{roll}_P{pitch}_Y{yaw}."
         },
         {
           "key": "roll_deg",
@@ -214,13 +226,44 @@
           "key": "impact_dir_z",
           "label": "충격 방향 z",
           "data_type": "number",
-          "help": "기기 좌표계에서 본 낙하 방향 단위벡터 d = Rᵀ(0,0,−1), R = Rx(roll)·Ry(pitch)·Rz(yaw)."
+          "help": "기기 좌표계에서 본 낙하 방향 단위벡터 d = Rᵀ(0,0,−1), R = Rx(roll)·Ry(pitch)·Rz(yaw) (리포트 지도와 같은 식)."
         },
         {
           "key": "impact_location",
           "label": "충격 위치",
           "data_type": "text",
-          "help": "부분충격 DOE 의 면·위치 이름. 낙하에는 없다."
+          "help": "부분충격 DOE 의 위치 이름(pos_id). 낙하에는 없다."
+        },
+        {
+          "key": "impact_face",
+          "label": "충격 면",
+          "data_type": "text",
+          "help": "부분충격 DOE 의 면 코드(F1…F6)."
+        },
+        {
+          "key": "impact_x",
+          "label": "충격 위치 x",
+          "data_type": "number",
+          "unit": "mm",
+          "help": "면 좌표계의 충격 위치(step_config LocationX)."
+        },
+        {
+          "key": "impact_y",
+          "label": "충격 위치 y",
+          "data_type": "number",
+          "unit": "mm"
+        },
+        {
+          "key": "solver_quality",
+          "label": "해석 품질",
+          "data_type": "enum",
+          "enum_options": [
+            "pass",
+            "warn",
+            "fail",
+            "unknown"
+          ],
+          "help": "glstat 에너지 수지 게이트(총에너지 표류·hourglass·sliding) 판정. 부분충격 리포트가 낸다."
         },
         {
           "key": "num_states",
@@ -266,7 +309,7 @@
       "nav_group_slug": "cae",
       "icon": "Box",
       "key_policy": "required",
-      "description": "해석 모델의 파트(PID) — 캠페인 안에서 하나. 런마다의 값은 `cae_part_response`, 여기에는 **전 런을 걸친 최악값(포락)**과 안전율·판정을 둔다. 키 `<캠페인>/part/<PID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "해석 모델의 파트(PID) — 캠페인 안에서 하나. 런마다의 값은 `cae_part_response`, 여기에는 **전 런을 걸친 최악값(포락)**과 안전율·판정을 둔다. 키 `<캠페인>/part/<PID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "campaign",
@@ -300,13 +343,13 @@
           "label": "항복 한계",
           "data_type": "number",
           "unit": "MPa",
-          "help": "안전율에 쓴 한계 중 가장 작은 값."
+          "help": "최소 안전율을 정한 한계(binding)."
         },
         {
           "key": "yield_criterion",
           "label": "항복 기준",
           "data_type": "text",
-          "help": "한계가 무엇에 대한 것인가(von_mises, max_principal 등)."
+          "help": "그 한계가 무엇에 대한 것인가(von_mises, max_principal)."
         },
         {
           "key": "worst_von_mises",
@@ -363,6 +406,12 @@
           "help": "min(항복 한계 ÷ 최대 응력) — 한계 기준별로 맞는 응력을 쓴다. 한계가 없으면 비운다."
         },
         {
+          "key": "safety_factor_complete",
+          "label": "안전율 완전",
+          "data_type": "bool",
+          "help": "거짓이면 한계 일부의 응력을 재지 못해 안전율이 실제보다 클 수 있다(리포트는 이때 critical 로 단정하지 않는다)."
+        },
+        {
           "key": "severity",
           "label": "판정",
           "data_type": "enum",
@@ -372,7 +421,7 @@
             "critical",
             "unknown"
           ],
-          "help": "안전율 < 1 critical, < 1.5 warning, 가속도 > 200,000 G critical, > 50,000 G warning(리포트 규칙과 같음). 한계가 없으면 unknown."
+          "help": "안전율 < 1 critical, < 1.5 warning(불완전하면 warning), 가속도 > 200,000 G critical, > 50,000 G warning — 리포트 규칙과 같다. 한계도 가속도도 없으면 unknown."
         },
         {
           "key": "von_mises_cov",
@@ -384,7 +433,7 @@
           "key": "n_runs_measured",
           "label": "잰 런 수",
           "data_type": "number",
-          "help": "이 파트 값이 있는 런 수(포락의 분모)."
+          "help": "이 파트의 등가응력이 있는 런 수(포락·변동계수의 분모)."
         }
       ]
     },
@@ -394,7 +443,7 @@
       "nav_group_slug": "cae",
       "icon": "Activity",
       "key_policy": "required",
-      "description": "한 런에서 한 파트가 보인 최대 응답. 시계열은 담지 않는다(리포트·S1 에 있다). 키 `<캠페인>/resp/<런 키>/<PID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "한 런에서 한 파트가 보인 최대 응답. 시계열은 담지 않는다(리포트·S1 에 있다). 키 `<캠페인>/resp/<런 키>/<PID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "run",
@@ -529,7 +578,7 @@
           "key": "safety_factor",
           "label": "안전율(이 런)",
           "data_type": "number",
-          "help": "항복 한계 ÷ 이 런의 최대 응력."
+          "help": "항복 한계 ÷ 이 런의 최대 응력(기준별, 작은 쪽)."
         }
       ]
     },
@@ -539,7 +588,7 @@
       "nav_group_slug": "cae",
       "icon": "Link2",
       "key_policy": "required",
-      "description": "덱의 `*CONTACT…_ID` 카드 하나 — 어느 파트와 어느 파트가 닿을 수 있게 정의했나. 키 `<캠페인>/contact/<CID>`.",
+      "description": "덱의 `*CONTACT` 카드 하나(rcforc 인터페이스) — 어느 파트와 어느 파트가 닿을 수 있게 정의했나. 키 `<캠페인>/contact/<CID>`.",
       "properties": [
         {
           "key": "campaign",
@@ -553,7 +602,7 @@
           "key": "contact_id",
           "label": "접촉 번호",
           "data_type": "number",
-          "help": "*CONTACT…_ID 의 CID.",
+          "help": "rcforc 인터페이스 번호(_ID 카드면 CID).",
           "required": true
         },
         {
@@ -571,7 +620,7 @@
           "key": "resolution_confidence",
           "label": "파트 매핑 신뢰도",
           "data_type": "number",
-          "help": "양쪽을 파트로 푼 신뢰도의 작은 쪽(1.0 = PID 직독, 세그먼트 집합은 다수결 비율)."
+          "help": "양쪽을 파트로 푼 신뢰도(1.0 = PID 직독, 세그먼트 집합은 다수결 비율, 0 = 못 풂)."
         }
       ]
     },
@@ -581,7 +630,7 @@
       "nav_group_slug": "cae",
       "icon": "ArrowRightLeft",
       "key_policy": "required",
-      "description": "한 런에서 접촉 인터페이스 하나를 건너간 힘·충격량·일 — 파트 사이 에너지 흐름 네트워크의 엣지. 방향은 충격이 퍼진 순서(먼저 닿은 쪽 → 나중 쪽). 키 `<캠페인>/xfer/<런 키>/<CID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "한 런에서 접촉 인터페이스 하나를 건너간 힘·충격량·일 — 파트 사이 에너지 흐름 네트워크의 엣지. 방향은 충격이 퍼진 순서(먼저 닿은 쪽 → 나중 쪽). 키 `<캠페인>/xfer/<런 키>/<CID>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "run",
@@ -620,12 +669,6 @@
           "help": "rcforc 접촉력 크기의 최대."
         },
         {
-          "key": "peak_force_time",
-          "label": "최대 접촉력 시각",
-          "data_type": "number",
-          "unit": "s"
-        },
-        {
           "key": "total_impulse",
           "label": "충격량",
           "data_type": "number",
@@ -656,6 +699,12 @@
           "key": "confidence",
           "label": "파트 매핑 신뢰도",
           "data_type": "number"
+        },
+        {
+          "key": "unresolved_side",
+          "label": "파트로 못 푼 쪽",
+          "data_type": "text",
+          "help": "한쪽이 파트가 아니면(집합·전 모델·이름 없는 인터페이스) 그 그래프 노드 이름. 그쪽 파트 참조는 비운다."
         }
       ]
     },
@@ -665,7 +714,7 @@
       "nav_group_slug": "cae",
       "icon": "Route",
       "key_policy": "required",
-      "description": "두 파트 사이 하중 전달을 **모든 런에 걸쳐** 모은 것 — 어느 방향에서 이 경로로 힘이 얼마나 자주·크게 건너갔나. 파트 쌍은 순서 없음(작은 PID 가 a). 키 `<캠페인>/path/<PID a>-<PID b>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "두 파트 사이 하중 전달을 **모든 런에 걸쳐** 모은 것 — 어느 방향에서 이 경로로 힘이 얼마나 자주·크게 건너갔나. 파트 쌍은 순서 없음(작은 PID 가 a). 키 `<캠페인>/path/<PID a>-<PID b>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "campaign",
@@ -700,7 +749,7 @@
           "key": "engage_ratio",
           "label": "맞닿은 비율",
           "data_type": "number",
-          "help": "맞닿은 런 수 ÷ 잰 런 수."
+          "help": "맞닿은 런 수 ÷ 에너지 흐름을 잰 런 수."
         },
         {
           "key": "n_runs_a_to_b",
@@ -736,7 +785,8 @@
           "key": "impulse_p90",
           "label": "충격량 90%",
           "data_type": "number",
-          "unit": "N·s"
+          "unit": "N·s",
+          "help": "맞닿은 런들의 90 백분위(선형 보간)."
         },
         {
           "key": "peak_force_max",
@@ -758,7 +808,7 @@
       "nav_group_slug": "cae",
       "icon": "Flame",
       "key_policy": "required",
-      "description": "한 런·한 파트에서 기준량 상위 요소가 모인 덩어리(핫스팟). 키 `<캠페인>/hs/<런 키>/<PID>/<기준>/<순위>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
+      "description": "한 런·한 파트에서 기준량 상위 요소가 모인 덩어리(핫스팟). 키 `<캠페인>/hs/<런 키>/<PID>/<기준>/<요소 종류>/<순위>`. 값은 이 어휘의 단위(MPa·mm·s·mJ·N·N·s·mm/s·G)로 싣는다. 캠페인의 `values_normalized` 가 거짓이면 덱 단위 원값이니 캠페인끼리 견주지 말 것.",
       "properties": [
         {
           "key": "response",
@@ -780,6 +830,16 @@
             "x_tension",
             "y_tension",
             "z_tension"
+          ]
+        },
+        {
+          "key": "element_type",
+          "label": "요소 종류",
+          "data_type": "enum",
+          "enum_options": [
+            "solid",
+            "thick_shell",
+            "shell"
           ]
         },
         {
@@ -923,7 +983,7 @@
       "slug": "campaign_report",
       "label": "리포트",
       "inverse_label": "해석 캠페인",
-      "description": "캠페인을 낸 리포트(1급 표 — 선의 한쪽 끝이 바깥이다).",
+      "description": "캠페인을 낸 리포트(1급 표 — 선의 한쪽 끝이 바깥이다). 적재 때 DynaForge 가 긋는다.",
       "cardinality": "one_to_one",
       "transitive": false,
       "acyclic": false,
