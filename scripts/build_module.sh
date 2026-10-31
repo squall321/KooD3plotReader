@@ -378,6 +378,7 @@ ENTRY
         cd "${DEEP_SRC}"
         python3 -m nuitka "${NUITKA_COMMON[@]}" \
             --include-package=koo_deep_report \
+            --include-package-data=koo_deep_report \
             --output-filename=koo_deep_report \
             --output-dir="${PREFIX}/bin" \
             "${NUITKA_TMP}/entry_deep.py" \

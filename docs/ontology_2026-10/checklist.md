@@ -5,9 +5,9 @@
 - [x] 조사: 후처리가 내는 사실(런별 · 각도 사이 · 에너지 흐름 · report.json · 단위)
 - [x] 어휘 초안 — DynaForge 검증기 결함 0 · 주의 0(core 와 합쳐도 0)
 - [x] 설계안 `plan.md`, 꾸러미 계약 `package-contract.md`
-- [ ] 사용자 확인 — 권장안 4건으로 진행했다(plan.md §7)
+- [x] 사용자 결정(10-31) — 권장안 그대로 확정, 정본은 DynaForge, 적재 (가), push · 배포
 - [x] koo_sphere_report(a9) 와 범위 맞춤 — 사후 읽기라 겹치지 않음, 캐시 결함 · 화면 안전율 고침(2eeb7c0)
-- [ ] DynaForge(kooremapper) 검토 · 채택
+- [x] DynaForge(kooremapper) 검토 — 답신 반영(계약 초안 2, 어휘 0.3)
 
 ## 구현 — KooD3plotReader
 - [x] 공용 모듈 koo_deep_report/ontology (어휘 정본 · 꾸러미 작성기 · 검증 · 단위 정규화)

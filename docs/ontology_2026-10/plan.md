@@ -6,7 +6,8 @@ DynaForge 온톨로지 모듈 안에서 **DynaForge 전용 용어**로 만든다
 
 ## 1. 목표
 - 세 후처리(deep · sphere · impact)가 리포트 옆에 **온톨로지 꾸러미**(`ontology.json`)를 함께 낸다.
-- 꾸러미는 DynaForge 전용 해석 어휘(`cae_*`, 초안 `dynaforge-cae.draft.json`)로 쓴 인스턴스(객체 · 관계)다.
+- 꾸러미는 DynaForge 전용 해석 어휘(`cae_*`)로 쓴 인스턴스(객체 · 관계)다. 어휘 정본은 DynaForge(10-31 결정), 이쪽은 바이트 사본
+  `python/koo_deep_report/koo_deep_report/ontology/dynaforge-cae.json`.
 - DynaForge 가 리포트를 받을 때 꾸러미도 받아 `onto_objects` · `onto_relations` 에 올리고, 파트 · 런 · 하중 경로
   네트워크로 질의한다(예 「이 파트로 충격량이 가장 많이 들어오는 경로와 방향」, 「안전율 1.5 미만인 파트의 최악 방향」).
 - 1차 대상은 전각도 낙하(sphere). 같은 어휘로 deep(런 하나) · impact(전위치)를 잇는다.
@@ -29,7 +30,7 @@ DynaForge 온톨로지 모듈 안에서 **DynaForge 전용 용어**로 만든다
 - 에너지 흐름에 **단위가 없고**, 접촉 종류(TIED 등)는 버려지며, 각도를 가로지르는 하중 경로 집계가 없다.
 - report.json 에 스키마 판 · 생성 시각 · 도구 커밋이 없다.
 
-## 3. 어휘 — 초안 v0 (`dynaforge-cae.draft.json`)
+## 3. 어휘 — 초안 v0 (지금은 사본 `ontology/dynaforge-cae.json`, 정본 DynaForge)
 그룹 `cae` 「해석 결과」, 타입 9 · 속성 118 · 관계 13. **DynaForge 검증기 결함 0 · 주의 0, `dynaforge-core.json` 과 합쳐도 0.**
 
 | 타입 | 이름 | 무엇 | 키(캠페인 안) |
@@ -104,11 +105,12 @@ DynaForge 온톨로지 모듈 안에서 **DynaForge 전용 용어**로 만든다
 3. 리포트를 받을 때 `ontology.json` 을 받아 upsert(키 접두 · 같은 리포트 재적재 때 옛 행 삭제 표시). 쓰기 경로 목록 시험 갱신.
 4. 질의 — MCP 도구 · 화면(하중 경로 상위, 파트 최악 방향, 안전율 미달 목록).
 
-## 7. 결정 — 권장안으로 진행, 사용자 확인 대기 (10-31)
+## 7. 결정 — 사용자 확정 (10-31)
 1. **단위** — 감지된 단위계면 어휘 단위(MPa · mm · s · mJ · N · N·s · mm/s · G)로 바꿔 싣고, 못 감지하면 원값 + 표시. ✅ 구현
 2. **세밀도** — 런별 응답 · 전달까지 전부 + 캠페인 집계. 시계열은 담지 않는다. ✅ 구현
 3. **기본 산출** — 세 리포트가 늘 함께 낸다(기존 산출 불변, 꾸러미 실패는 경고만). ✅ 구현
-4. **DynaForge 쪽 작업** — 어휘 채택 · 적재는 DynaForge 세션에 검토를 청했다. 담당은 사용자 결정 대기.
+4. **DynaForge 쪽 작업** — DynaForge 세션이 채택 · 적재 · 질의를 맡는다. 어휘 정본은 DynaForge `platform/core/ontology/dynaforge-cae.json`, 이쪽은 바이트 사본. 적재는 (가) 캠페인 수준만 행으로.
+5. **내보내기** — push 하고 상류 표준 경로로 SIF 재빌드 · 배포를 청한다.
 
 ## 8. 진행 (10-31)
 - 어휘 v0.1(9타입 126속성 13관계) · 꾸러미 작성기 · sphere/impact/deep 어댑터 · post_analyze 마지막 단계 · koo_ontology 래퍼.

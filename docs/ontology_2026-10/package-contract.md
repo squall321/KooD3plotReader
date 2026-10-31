@@ -5,8 +5,10 @@
 낙하 높이 · 충돌 속도 · 재질 칸.
 
 후처리(KooD3plotReader)가 리포트와 함께 내는 **DynaForge 해석 어휘(`cae_*`) 인스턴스 꾸러미**의 꼴과 받는 법.
-어휘 정의는 [dynaforge-cae.draft.json](dynaforge-cae.draft.json)(SP import 꼴, DynaForge 검증기 결함 0·주의 0),
-정본 소스는 `python/koo_deep_report/koo_deep_report/ontology/vocabulary.py` 다.
+어휘 정의(SP import 꼴, DynaForge 검증기 결함 0·주의 0)의 **정본은 DynaForge** `platform/core/ontology/dynaforge-cae.json` 이다
+(2026-10-31 사용자 결정). 이 저장소는 그 바이트 사본
+[`dynaforge-cae.json`](../../python/koo_deep_report/koo_deep_report/ontology/dynaforge-cae.json)을 싣고, 꾸러미 머리
+`vocabulary.sha256` 은 그 바이트의 지문이다. 고칠 때는 정본을 고치고 `_version` 을 올린 뒤 사본을 바이트 그대로 옮긴다.
 
 ## 1. 어디에 생기나
 

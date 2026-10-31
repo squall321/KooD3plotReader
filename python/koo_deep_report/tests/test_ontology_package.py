@@ -1,4 +1,5 @@
-# 온톨로지 어휘·꾸러미 작성기 시험 — 어휘 정본과 docs 사본 일치, DynaForge 검증기 통과, 검증·단위 환산
+# 온톨로지 어휘·꾸러미 작성기 시험 — 어휘 사본 = DynaForge 정본 바이트, DynaForge 검증기 통과, 검증·단위 환산
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -8,14 +9,22 @@ import pytest
 from koo_deep_report.ontology import package as P
 from koo_deep_report.ontology import vocabulary as V
 
-_REPO = Path(__file__).resolve().parents[3]
-_DOCS_JSON = _REPO / "docs" / "ontology_2026-10" / "dynaforge-cae.draft.json"
+_VENDORED = Path(V.__file__).with_name("dynaforge-cae.json")
 _DF_VALIDATOR = Path("/home/koopark/claude/KooRemapper/platform/backend/app/runner/ontology_def.py")
+_DF_CANON = Path("/home/koopark/claude/KooRemapper/platform/core/ontology/dynaforge-cae.json")
 
 
-def test_docs_copy_is_generated_from_module():
-    # docs 의 JSON 은 사람이 고치지 않는다 — `python3 -m koo_deep_report.ontology vocab <파일>` 로 뽑는다
-    assert _DOCS_JSON.read_text(encoding="utf-8") == V.dumps()
+def test_vocabulary_is_the_vendored_bytes():
+    # 지문은 사본 파일 바이트의 sha256 — 다시 직렬화한 것이 아니다(그러면 받는 쪽 정본과 어긋난다)
+    raw = _VENDORED.read_bytes()
+    assert V.sha256() == hashlib.sha256(raw).hexdigest() and V.dumps().encode("utf-8") == raw
+    assert V.VERSION and V.VOCABULARY["_version"] == V.VERSION
+
+
+@pytest.mark.skipif(not _DF_CANON.exists(), reason="DynaForge 정본이 아직 이 머신에 없다")
+def test_vendored_copy_matches_dynaforge_canonical():
+    # 정본은 DynaForge 에 있다(2026-10-31 결정) — 한 바이트라도 다르면 받는 쪽이 적재를 거절한다
+    assert _VENDORED.read_bytes() == _DF_CANON.read_bytes()
 
 
 @pytest.mark.skipif(not _DF_VALIDATOR.exists(), reason="DynaForge 저장소가 이 머신에 없다")
