@@ -327,6 +327,18 @@ WRAPPER
 chmod +x "${PREFIX}/bin/koo_custom_report"
 ok "koo_custom_report wrapper → bin/"
 
+# CLI wrapper: koo_ontology (리포트 JSON → DynaForge 해석 어휘 온톨로지 꾸러미)
+cat > "${PREFIX}/bin/koo_ontology" << WRAPPER
+#!/bin/bash
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="\$(cd "\${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${_KOOPY}:\${PYTHONPATH:-}"
+export KOOD3PLOT_HOME="\${MODULE_DIR}"
+exec python3 -m koo_deep_report.ontology "\$@"
+WRAPPER
+chmod +x "${PREFIX}/bin/koo_ontology"
+ok "koo_ontology wrapper → bin/"
+
 # post_analyze orchestration script
 cp "${PROJECT_ROOT}/scripts/post_analyze.sh" "${PREFIX}/bin/post_analyze"
 chmod +x "${PREFIX}/bin/post_analyze"

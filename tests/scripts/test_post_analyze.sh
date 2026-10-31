@@ -102,7 +102,13 @@ case "${d3}" in *FAIL_S1*) echo "ERROR: 대역 실패"; exit 1 ;; esac
 printf 'fake-s1\n' > "${out}"
 printf '{"schema": "kood3plot.s1", "file": "s1.h5"}\n' > "$(dirname "${out}")/s1.json"
 STUBEOF
-chmod +x "$BIN/unified_analyzer" "$BIN/koo_deep_report" "$BIN/koo_sphere_report" "$BIN/s1_extract"
+# koo_ontology 대역 — 인자를 그대로 기록하고, 경로에 FAIL_ONTO 가 들면 실패를 흉내 낸다
+cat > "$BIN/koo_ontology" << 'STUBEOF'
+#!/usr/bin/env bash
+echo "onto $*" >> "${STUB_LOG}"
+case "$*" in *FAIL_ONTO*) echo "Error: 대역 실패" >&2; exit 1 ;; esac
+STUBEOF
+chmod +x "$BIN/unified_analyzer" "$BIN/koo_deep_report" "$BIN/koo_sphere_report" "$BIN/s1_extract" "$BIN/koo_ontology"
 export PATH="$BIN:$PATH"
 
 # ============================================================
@@ -359,6 +365,50 @@ chk "다시 돌리면 있는 것은 건너뛰고 실패한 것만 다시" 1 "$(n
 chk "건너뛴 런도 색인에 남는다" 2 "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["runs"]))' "$T11/output/s1_index.json")"
 run_pa "$T11" --sphere-only --s1 --force
 chk "--force 면 전부 다시" 3 "$(n_calls s1)"
+
+# ============================================================
+# [12] 온톨로지 꾸러미 단계 — 리포트 JSON 마다 부르고, 리포트에 준 항복값을 그대로
+#      넘기고, S1 뒤에 돌고, 실패해도 끝까지 간다. deep 만이면 부르지 않는다.
+# ============================================================
+echo "[12] 온톨로지 꾸러미"
+T12="$W/t12"
+mk_tree "$T12" Run_a/Output/d3plot Run_b/Output/d3plot
+mk_config "$T12"
+run_pa "$T12" --sphere-only
+chk "리포트 JSON 이 없으면 부르지 않는다" 0 "$(n_calls onto)"
+printf '{}\n' > "$T12/report.json"
+printf '{}\n' > "$T12/report_Output2.json"
+printf '{}\n' > "$T12/report.ontology.json"
+run_pa "$T12" --sphere-only --s1 --yield-stress 300 --sphere-opts "--yield-map /m/yield.json"
+chk "그룹 리포트까지 둘, 꾸러미 파일은 다시 먹지 않는다" 2 "$(n_calls onto)"
+chk "리포트와 같은 항복값·캠페인 폴더를 넘긴다" 1 \
+    "$(grep -c "^onto sphere $T12/report.json --test-dir $T12 --yield-stress 300 --yield-map /m/yield.json\$" "$W/calls.log")"
+chk "S1 다음에 돈다" "s1" "$(grep -v '^ua \|^sphere \|^deep ' "$W/calls.log" | head -1 | cut -d' ' -f1)"
+printf '{}\n' > "$T12/impact_report.json"
+run_pa "$T12" --sphere-only
+chk "impact_report.json 도 impact 로" 1 "$(grep -c "^onto impact $T12/impact_report.json\$" "$W/calls.log")"
+run_pa "$T12" --deep-only --no-render
+chk "--deep-only 면 부르지 않는다(deep 은 스스로 쓴다)" 0 "$(n_calls onto)"
+T12F="$W/t12_FAIL_ONTO"
+mk_tree "$T12F" Run_a/Output/d3plot
+mk_config "$T12F"
+printf '{}\n' > "$T12F/report.json"
+run_pa "$T12F" --sphere-only
+if grep -q "WARN: 꾸러미 실패 — report.json" "$W/last_run.log" && grep -q "결과 위치" "$W/last_run.log"; then
+    echo "  OK  꾸러미가 실패해도 경고만 하고 끝까지 간다"
+else
+    echo "  NG  꾸러미 실패가 파이프라인을 멈췄거나 경고가 없다"
+    fails=$((fails + 1))
+fi
+mv "$BIN/koo_ontology" "$W/koo_ontology.off"
+run_pa "$T12" --sphere-only
+mv "$W/koo_ontology.off" "$BIN/koo_ontology"
+if grep -q "koo_ontology 가 PATH 에 없음" "$W/last_run.log"; then
+    echo "  OK  옛 SIF(koo_ontology 없음)면 건너뛴다고 말한다"
+else
+    echo "  NG  koo_ontology 없을 때 사유가 없다"
+    fails=$((fails + 1))
+fi
 
 echo ""
 if [ "$fails" -gt 0 ]; then

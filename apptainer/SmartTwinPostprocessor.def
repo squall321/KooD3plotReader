@@ -236,6 +236,8 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/koo_custom_report --help >/dev/null
     /opt/kood3plot/bin/koo_scatter_report --help >/dev/null
     /opt/kood3plot/bin/koo_dyna_diag --help >/dev/null
+    # 온톨로지 꾸러미 — post_analyze 마지막 단계가 부른다. 어휘가 뽑혀야 모듈이 산 것이다.
+    /opt/kood3plot/bin/koo_ontology vocab >/dev/null
     # make_stl 이 빠지면 실형상 미리보기가 개략도로 폴백한다 (과거 실제 사고)
     test -x /opt/kood3plot/bin/make_stl
     # %environment 의 PYTHONPATH 가 6개 패키지를 다 담는지 — python3 -m 직접 호출 경로.

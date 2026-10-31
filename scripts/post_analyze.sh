@@ -90,6 +90,8 @@ usage() {
 
   전체 파이프라인: unified_analyzer → sphere_report (빠름) → deep_report (느림)
   각 단계는 기존 결과가 있으면 자동 스킵 (--force 로 강제 재계산)
+  끝으로 sphere/impact 리포트 JSON 옆에 DynaForge 온톨로지 꾸러미(<이름>.ontology.json)를 낸다
+  (deep 은 런 폴더에 ontology.json 을 스스로 쓴다)
 
 [모드]
     --deep-only             deep report 만
@@ -1006,6 +1008,43 @@ run_step_impact() {
 }
 
 # ============================================================
+# 마지막 단계: 온톨로지 꾸러미 (DynaForge 해석 어휘 cae_*)
+#  - sphere/impact 리포트 JSON 마다 옆에 <이름>.ontology.json
+#  - S1 다음에 돈다 — 꾸러미가 런마다 첫 접촉 시각·S1 해시를 싣는다
+#  - 리포트에 준 항복값(--yield-stress, --sphere-opts 의 --yield-map)을 그대로 넘긴다:
+#    안전율이 리포트 소견과 같아야 한다
+#  - 실패해도 파이프라인은 계속 — 리포트가 정본이고 꾸러미는 덧붙이는 산출물이다
+# ============================================================
+run_step_ontology() {
+    echo ""
+    echo "=== [Step O] 온톨로지 꾸러미 (DynaForge) ==="
+    if ! command -v koo_ontology >/dev/null 2>&1; then
+        echo "  WARN: koo_ontology 가 PATH 에 없음 (옛 SIF?) — SKIP"
+        return 0
+    fi
+    local _base=() _i _j _n=0
+    [ -n "${YIELD_STRESS}" ] && _base+=(--yield-stress "${YIELD_STRESS}")
+    for (( _i=0; _i<${#SPHERE_EXTRA[@]}; _i++ )); do
+        if [ "${SPHERE_EXTRA[$_i]}" = "--yield-map" ] && [ $(( _i + 1 )) -lt ${#SPHERE_EXTRA[@]} ]; then
+            _base+=(--yield-map "${SPHERE_EXTRA[$(( _i + 1 ))]}")
+        fi
+    done
+    for _j in "${TEST_DIR}/report.json" "${TEST_DIR}"/report_*.json; do
+        [ -f "${_j}" ] || continue
+        case "${_j}" in *.ontology.json) continue ;; esac
+        _n=$(( _n + 1 ))
+        koo_ontology sphere "${_j}" --test-dir "${TEST_DIR}" "${_base[@]}" \
+            || echo "  WARN: 꾸러미 실패 — $(basename "${_j}") (리포트는 그대로)"
+    done
+    if [ -f "${TEST_DIR}/impact_report.json" ]; then
+        _n=$(( _n + 1 ))
+        koo_ontology impact "${TEST_DIR}/impact_report.json" \
+            || echo "  WARN: 꾸러미 실패 — impact_report.json (리포트는 그대로)"
+    fi
+    [ "${_n}" -gt 0 ] || echo "  리포트 JSON 이 없음 — SKIP"
+}
+
+# ============================================================
 # 실행 분기 (auto-detect + override)
 #   --deep-only        : deep_report 만
 #   --sphere-only      : unified → sphere
@@ -1058,6 +1097,7 @@ else
     ${SCATTER} && run_step_scatter
 fi
 ${S1} && run_step_s1
+${DEEP_ONLY} || run_step_ontology
 
 echo ""
 echo "============================================================"
