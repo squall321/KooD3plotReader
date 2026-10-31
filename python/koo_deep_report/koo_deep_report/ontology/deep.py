@@ -52,7 +52,7 @@ def run_folder_of(sim_path: Path) -> str:
     return sim_path.parent.name if sim_path.name == "Output" else sim_path.name
 
 
-def build(result, *, flow=None, keyword=None) -> dict:
+def build(result, *, flow=None, keyword=None, html_path: Path | None = None) -> dict:
     """SingleResult → 꾸러미 dict. `flow`=(흐름 그래프, contact_map), `keyword`=KeywordData 를 주면
     다시 짓지 않는다(시험·재사용)."""
     si = result.sim_info
@@ -79,7 +79,8 @@ def build(result, *, flow=None, keyword=None) -> dict:
     graph, contact_map = flow if flow else ({}, None)
 
     pkg = Package(scenario_kind="single_run", units=units, adapter="deep",
-                  source_kind="koo_deep_report/SingleResult", source_file=str(si.d3plot or ""))
+                  source_kind="koo_deep_report/SingleResult", source_file=str(si.d3plot or ""),
+                  html_path=html_path)
 
     folder = run_folder_of(Path(si.path))
     case = "single"
@@ -170,5 +171,10 @@ def build(result, *, flow=None, keyword=None) -> dict:
 
 
 def write_for_result(result, output_dir: Path) -> Path:
-    """deep 리포트 산출 폴더에 ontology.json 을 쓴다."""
-    return write(build(result), Path(output_dir) / "ontology.json")
+    """deep 리포트 산출 폴더에 report.ontology.json 을 쓴다 — report.html 과 같은 이름 줄기.
+
+    HTML 을 다 쓴 **뒤에** 부른다. 머리에 HTML 의 sha256 을 실어 받는 쪽이 리포트와 짝짓는다.
+    """
+    out = Path(output_dir)
+    html = out / "report.html"
+    return write(build(result, html_path=html if html.is_file() else None), out / "report.ontology.json")

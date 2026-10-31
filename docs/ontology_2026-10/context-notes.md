@@ -64,3 +64,6 @@
 - **낙하 높이는 검산될 때만** — DropSet.json 의 drop_height 는 단위가 적혀 있지 않다. 덱 *INITIAL_VELOCITY 크기와 √(2gh) 가
   3% 안에서 맞으면 덱 길이 단위로 확인된 것으로 보고 싣는다(v14: 5424.0 vs 5424.5 mm/s). 안 맞으면 빼고 unit_note 에 사유.
 - **재질** — keyword_parser 가 *MAT_…_TITLE 제목을 버리고 있었다. title 칸을 더해 material_name 으로 싣는다.
+- **짝짓기 = HTML** — DynaForge 는 리포트를 HTML 에서 반입한다(답신 2). 그래서 꾸러미는 짝 HTML 과 같은 이름 줄기로 두고 머리
+  `source.html` 에 HTML sha256 을 싣는다. deep 은 `ontology.json` 이던 것을 `report.ontology.json` 으로, HTML 을 다 쓴 뒤에 낸다.
+  표본 셋을 어휘 0.2 로 다시 냈다(답신이 짚은 대로 0.1 지문이 남아 있으면 받는 쪽이 적재를 거절한다).

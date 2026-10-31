@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import common as C
 from . import flows as F
-from .package import Package, Units
+from .package import Package, Units, paired_html
 from .sphere import _sha256, find_kfile
 
 #: 1 G 를 덱 가속도 단위로 — 표준중력 9.80665 m/s².
@@ -47,7 +47,7 @@ def load_payload(report_path: Path | None) -> dict:
 
 
 def build(report: dict, *, report_path: Path | None = None, payload: dict | None = None,
-          contact_map=None) -> dict:
+          contact_map=None, html_path: Path | None = None) -> dict:
     """impact report json(dict) → 꾸러미 dict. 어휘와 안 맞으면 PackageError."""
     sp = report.get("sim_params") or {}
     unit_id = str(sp.get("units") or "")
@@ -61,7 +61,8 @@ def build(report: dict, *, report_path: Path | None = None, payload: dict | None
     pkg = Package(scenario_kind="impact_all_position", units=units, adapter="impact",
                   source_kind="koo_impact_report/report.json",
                   source_file=report_path.name if report_path else "",
-                  source_sha256=_sha256(report_path))
+                  source_sha256=_sha256(report_path),
+                  html_path=html_path if html_path is not None else paired_html(report_path))
 
     # ── 항복 한계: 리포트가 쓴 파트별 값(덱 단위, *MAT 카드) — 분석기와 같은 evaluate ──
     yields = {}

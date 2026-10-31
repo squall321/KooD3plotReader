@@ -91,7 +91,7 @@ usage() {
   전체 파이프라인: unified_analyzer → sphere_report (빠름) → deep_report (느림)
   각 단계는 기존 결과가 있으면 자동 스킵 (--force 로 강제 재계산)
   끝으로 sphere/impact 리포트 JSON 옆에 DynaForge 온톨로지 꾸러미(<이름>.ontology.json)를 낸다
-  (deep 은 런 폴더에 ontology.json 을 스스로 쓴다)
+  (deep 은 리포트 폴더에 report.ontology.json 을 스스로 쓴다 — 꾸러미는 늘 짝 HTML 과 같은 이름 줄기)
 
 [모드]
     --deep-only             deep report 만
@@ -1009,7 +1009,7 @@ run_step_impact() {
 
 # ============================================================
 # 마지막 단계: 온톨로지 꾸러미 (DynaForge 해석 어휘 cae_*)
-#  - sphere/impact 리포트 JSON 마다 옆에 <이름>.ontology.json
+#  - sphere/impact 리포트 JSON 마다 옆에 <이름>.ontology.json (같은 줄기의 HTML 지문을 머리에 싣는다)
 #  - S1 다음에 돈다 — 꾸러미가 런마다 첫 접촉 시각·S1 해시를 싣는다
 #  - 리포트에 준 항복값(--yield-stress, --sphere-opts 의 --yield-map)을 그대로 넘긴다:
 #    안전율이 리포트 소견과 같아야 한다

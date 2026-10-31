@@ -269,3 +269,17 @@ def test_drop_height_needs_speed_check_and_materials(tmp_path):
     ds.write_text(json.dumps(doc))
     camp = _objs(sphere.build(_report(), test_dir=td, contact_map=_cmap()), "cae_campaign")["campaign"]
     assert "drop_height" not in camp and "3% 넘게" in camp["unit_note"]
+
+
+def test_package_pairs_with_report_html_by_stem(tmp_path):
+    # DynaForge 는 리포트를 HTML 에서 반입한다 — 같은 줄기 HTML 의 지문이 머리에 있어야 짝을 짓는다
+    import hashlib
+    rj = tmp_path / "report_Output2.json"
+    rj.write_text(json.dumps(_report()))
+    (tmp_path / "report_Output2.html").write_text("<html>x</html>")
+    doc = sphere.build(json.loads(rj.read_text()), report_path=rj, contact_map=_cmap())
+    assert doc["source"]["html"] == {"file": "report_Output2.html",
+                                     "sha256": hashlib.sha256(b"<html>x</html>").hexdigest()}
+    (tmp_path / "report_Output2.html").unlink()
+    doc = sphere.build(json.loads(rj.read_text()), report_path=rj, contact_map=_cmap())
+    assert "html" not in doc["source"]                     # 짝이 없으면 지어내지 않는다

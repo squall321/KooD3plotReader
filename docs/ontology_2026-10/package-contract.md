@@ -14,10 +14,15 @@
 |---|---|---|
 | 전각도 낙하 (koo_sphere_report) | `<캠페인>/report.ontology.json` (그룹이면 `report_<그룹>.ontology.json`) | post_analyze 마지막 단계(S1 다음) |
 | 전위치 부분충격 (koo_impact_report) | `<캠페인>/impact_report.ontology.json` | 같음 |
-| 런 하나 (koo_deep_report) | deep 산출 폴더의 `ontology.json` (result.json 옆) | deep 리포트가 스스로 |
+| 런 하나 (koo_deep_report) | deep 산출 폴더의 `report.ontology.json` (report.html 옆) | deep 리포트가 스스로(HTML 뒤) |
+
+**짝짓기 규칙 하나** — 꾸러미는 늘 짝 리포트 HTML 과 같은 폴더 · 같은 이름 줄기다(`report.html` ↔ `report.ontology.json`,
+`report_<그룹>.html` ↔ `report_<그룹>.ontology.json`, `impact_report.html` ↔ `impact_report.ontology.json`). 그리고 머리
+`source.html` 에 그 HTML 의 파일 이름 · sha256 을 싣는다 — DynaForge 는 리포트를 HTML(박힌 JSON)에서 반입하므로
+`source.sha256`(report.json 의 해시)으로는 짝이 안 지어진다. 짝 HTML 이 없으면 `source.html` 은 없다(지어내지 않는다).
 
 손으로 다시 만들 때는 `koo_ontology sphere <report.json> [--test-dir DIR] [--yield-stress MPa] [--yield-map FILE]`,
-`koo_ontology impact <impact_report.json>`. 어휘 JSON 은 `koo_ontology vocab`.
+`koo_ontology impact <impact_report.json>` (둘 다 `--html` 로 짝 HTML 을 따로 줄 수 있다). 어휘 JSON 은 `koo_ontology vocab`.
 
 ## 2. 꼴 (`dynaforge.onto_package` format_version 1)
 
@@ -27,7 +32,8 @@
   "vocabulary": {"group": "cae", "version": "0.1", "sha256": "<어휘 JSON 의 sha256>"},
   "producer": {"tool": "koo_deep_report.ontology", "adapter": "sphere|impact|deep",
                "version": "<모듈 VERSION>", "created_utc": "..."},
-  "source": {"kind": "koo_sphere_report/report.json", "file": "report.json", "sha256": "..."},
+  "source": {"kind": "koo_sphere_report/report.json", "file": "report.json", "sha256": "...",
+             "html": {"file": "report.html", "sha256": "..."}},
   "scope": {"scenario_kind": "drop_all_angle|impact_all_position|single_run", "campaign_key": "campaign"},
   "units": {"system": "ton_mm_s", "normalized": true, "factors": {"stress": 1.0, "...": 1.0},
             "deck_labels": {"stress": "MPa", "disp": "mm"}, "note": ""},
@@ -96,7 +102,10 @@ DynaForge 소견과 같은 대문자다(`cae_finding.severity` = CRITICAL · WAR
   `impact_cases` 를 끝점으로, 하중 전달은 꾸러미 파일 + 도구) 를 권한다. (나) 전부 행, (다) 파일로만과의 비교는 답신 §4.
 - **어느 범위든** 리포트를 지우거나 다시 반입하면 그 리포트 접두의 행 · 선을 함께 정리해야 한다(지금 트리거는 끝점이
   `impact_report` 인 선만 본다).
-- 전각도 그룹 리포트(`report_<그룹>.json`)가 DynaForge 리포트로 따로 생기는지는 반입 쪽에서 확인할 일이다.
+- 전각도 그룹 리포트 — 길에 따라 다르다(답신 2). stcx 후처리 예약(7-1) 길은 KooSlurm 귀환 매니페스트가 종류마다 리포트를
+  하나만 적어(`<출력>/<kind>_report.html`) 잡 하나에 DynaForge 리포트 하나다. 사람이 올리는 길(화면 · MCP · 번들)은 올린 HTML
+  하나가 리포트 하나라 그룹마다 따로 생긴다. 7-1 길로 꾸러미를 저절로 받으려면 매니페스트에 꾸러미 항목(경로 · 크기 ·
+  sha256)이 더해져야 한다 — 적재를 하기로 정해지면 DynaForge 가 KooSlurm 에 함께 청한다.
 
 ## 7. 실측 (2026-10-31)
 

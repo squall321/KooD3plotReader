@@ -1120,16 +1120,17 @@ def run_single(args: argparse.Namespace) -> None:
     except Exception as _e:  # noqa: BLE001
         print(f"[koo_deep_report] contact-metrics skip: {type(_e).__name__}: {_e}")
 
-    # 5d. 온톨로지 꾸러미 (DynaForge 해석 어휘) — 실패해도 리포트는 그대로 나간다
-    try:
-        from .ontology.deep import write_for_result
-        print(f"[koo_deep_report] ontology.json 저장: {write_for_result(result, output_dir)}")
-    except Exception as _e:  # noqa: BLE001
-        print(f"[koo_deep_report] ontology skip: {type(_e).__name__}: {_e}")
-
     # 6. HTML 생성
     html_path = output_dir / "report.html"
     generate_html(result, html_path)
+
+    # 6b. 온톨로지 꾸러미 (DynaForge 해석 어휘) — HTML 뒤에(머리에 HTML 지문을 싣는다).
+    #     실패해도 리포트는 그대로 나간다
+    try:
+        from .ontology.deep import write_for_result
+        print(f"[koo_deep_report] 온톨로지 꾸러미 저장: {write_for_result(result, output_dir)}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[koo_deep_report] ontology skip: {type(_e).__name__}: {_e}")
     print(f"[koo_deep_report] 완료: {html_path}")
 
     _print_summary(result)
@@ -1425,12 +1426,12 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
                               d3plot_path=sim_info.d3plot)
     except Exception:  # noqa: BLE001 — 배치 무회귀
         pass
+    generate_html(result, output_dir / "report.html")
     try:
         from .ontology.deep import write_for_result
         write_for_result(result, output_dir)
     except Exception as _e:  # noqa: BLE001 — 배치 무회귀
         print(f"[koo_deep_report] ontology skip ({output_dir.name}): {type(_e).__name__}: {_e}")
-    generate_html(result, output_dir / "report.html")
 
 
 def _aggregate(

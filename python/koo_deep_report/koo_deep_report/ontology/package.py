@@ -7,7 +7,7 @@
     {"format": "dynaforge.onto_package", "format_version": 1,
      "vocabulary": {"group", "version", "sha256"},
      "producer":   {"tool", "adapter", "version", "created_utc"},
-     "source":     {"kind", "file", "sha256"},
+     "source":     {"kind", "file", "sha256", "html": {"file", "sha256"}},
      "scope":      {"scenario_kind", "campaign_key"},
      "units":      {"system", "normalized", "factors", "deck_labels", "note"},
      "counts":     {"objects": {타입: 수}, "relations": {관계: 수}},
@@ -113,6 +113,23 @@ def module_version() -> str:
     return ""
 
 
+def file_sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def paired_html(json_path: Path | None) -> Path | None:
+    """리포트 JSON 과 같은 폴더 · 같은 이름 줄기의 HTML (report.json ↔ report.html). 없으면 None."""
+    if json_path is None:
+        return None
+    h = json_path.with_suffix(".html")
+    return h if h.is_file() else None
+
+
 def _is_number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(float(v))
 
@@ -121,11 +138,15 @@ class Package:
     """객체·관계를 모으며 바로 어휘로 검사하고, `finish()` 에서 참조를 맞춰 본다."""
 
     def __init__(self, *, scenario_kind: str, units: Units, adapter: str,
-                 source_kind: str = "", source_file: str = "", source_sha256: str = ""):
+                 source_kind: str = "", source_file: str = "", source_sha256: str = "",
+                 html_path: Path | None = None):
         self.units = units
         self.adapter = adapter
         self.scenario_kind = scenario_kind
         self.source = {"kind": source_kind, "file": source_file, "sha256": source_sha256}
+        if html_path is not None:
+            # 받는 쪽(DynaForge)은 리포트를 HTML 에서 반입한다 — 꾸러미를 리포트와 짝짓는 열쇠다
+            self.source["html"] = {"file": html_path.name, "sha256": file_sha256(html_path)}
         self._types = V.types_by_slug()
         self._rels = V.relations_by_slug()
         self._props = {slug: {p["key"]: p for p in t["properties"]} for slug, t in self._types.items()}

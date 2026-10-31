@@ -6,7 +6,9 @@
     python3 -m koo_deep_report.ontology impact <impact_report.json> [-o OUT]
     python3 -m koo_deep_report.ontology vocab [OUT]
 
-기본 출력은 입력 옆 `<이름>.ontology.json` (report.json → report.ontology.json).
+기본 출력은 입력 옆 `<이름>.ontology.json` (report.json → report.ontology.json). 같은 이름 줄기의 리포트
+HTML(report.html)이 있으면 그 sha256 을 머리 `source.html` 에 싣는다 — DynaForge 는 리포트를 HTML 에서
+반입하므로 그것이 꾸러미와 리포트를 짝짓는 열쇠다.
 종료 코드: 0 성공, 2 입력을 못 읽음, 1 꾸러미가 어휘와 안 맞음(만드는 쪽 결함).
 """
 from __future__ import annotations
@@ -54,10 +56,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--test-dir", default="", help="캠페인 폴더(생략하면 report.json 의 test_dir)")
     s.add_argument("--yield-map", default="", help="리포트에 준 것과 같은 파트별 항복 맵(덱 단위)")
     s.add_argument("--yield-stress", type=float, default=0.0, help="리포트에 준 것과 같은 기본 항복응력(MPa)")
+    s.add_argument("--html", default="", help="짝 리포트 HTML(생략하면 같은 폴더 · 같은 이름 줄기의 .html)")
 
     i = sub.add_parser("impact", help="전위치 부분충격 report json (옆의 impact_payload.json 도 읽는다)")
     i.add_argument("report_json")
     i.add_argument("-o", "--output", default="")
+    i.add_argument("--html", default="", help="짝 리포트 HTML(생략하면 같은 폴더 · 같은 이름 줄기의 .html)")
 
     v = sub.add_parser("vocab", help="어휘 JSON 을 쓴다(인자 없으면 표준출력)")
     v.add_argument("out", nargs="?", default="")
@@ -78,10 +82,12 @@ def main(argv: list[str] | None = None) -> int:
             from . import sphere
             doc = sphere.build(_load_json(src), report_path=src,
                                test_dir=Path(a.test_dir) if a.test_dir else None,
-                               yield_map_path=a.yield_map, yield_stress=a.yield_stress)
+                               yield_map_path=a.yield_map, yield_stress=a.yield_stress,
+                               html_path=Path(a.html) if a.html else None)
         elif a.cmd == "impact":
             from . import impact
-            doc = impact.build(_load_json(src), report_path=src)
+            doc = impact.build(_load_json(src), report_path=src,
+                               html_path=Path(a.html) if a.html else None)
     except P.PackageError as e:
         print(f"Error: {e}", file=sys.stderr)
         for f in e.faults[:40]:

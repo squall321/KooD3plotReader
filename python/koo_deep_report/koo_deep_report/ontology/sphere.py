@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import common as C
 from . import flows as F
-from .package import Package, Units
+from .package import Package, Units, paired_html
 
 _CATEGORIES = ("face", "edge", "corner", "fibonacci")
 
@@ -161,7 +161,8 @@ def _sha256(path: Path | None) -> str:
 
 
 def build(report: dict, *, report_path: Path | None = None, test_dir: Path | None = None,
-          yield_map_path: str = "", yield_stress: float = 0.0, contact_map=None) -> dict:
+          yield_map_path: str = "", yield_stress: float = 0.0, contact_map=None,
+          html_path: Path | None = None) -> dict:
     """sphere report.json(dict) → 꾸러미 dict. 어휘와 안 맞으면 PackageError.
 
     `test_dir` 를 안 주면 report.json 의 test_dir 가 있을 때 그것을 쓴다.
@@ -184,7 +185,8 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     pkg = Package(scenario_kind="drop_all_angle", units=units, adapter="sphere",
                   source_kind="koo_sphere_report/report.json",
                   source_file=report_path.name if report_path else "",
-                  source_sha256=_sha256(report_path))
+                  source_sha256=_sha256(report_path),
+                  html_path=html_path if html_path is not None else paired_html(report_path))
 
     limits, default_lim, evaluate, yield_source, yield_notes = load_yields(
         test_dir, yield_map_path, yield_stress, labels.get("stress", ""))

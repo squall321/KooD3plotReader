@@ -151,3 +151,12 @@ def test_single_run_units_need_time_cross_check():
     assert "peak_g" not in _objs(doc, "cae_part_response")["resp/single/1"]
     doc = deep.build(_single(), flow=None, keyword=None)
     assert doc["units"]["system"] == "unknown"
+
+
+def test_deep_writes_report_ontology_next_to_html(tmp_path):
+    (tmp_path / "report.html").write_text("<html/>")
+    out = deep.write_for_result(_single(), tmp_path)
+    assert out.name == "report.ontology.json"
+    import json
+    doc = json.loads(out.read_text())
+    assert doc["source"]["html"]["file"] == "report.html" and doc["scope"]["scenario_kind"] == "single_run"
