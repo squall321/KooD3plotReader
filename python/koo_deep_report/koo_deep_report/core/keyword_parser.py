@@ -31,6 +31,7 @@ class MaterialInfo:
     yield_stress: float = 0.0    # SIGY (MPa) — 0 means not defined
     failure_strain: float = 0.0  # FAIL — 0 means not defined
     tangent_modulus: float = 0.0 # ETAN
+    title: str = ""              # *MAT_…_TITLE 의 제목 줄 (없으면 빈 문자열)
 
 
 @dataclass
@@ -73,6 +74,9 @@ class KeywordData:
     #: 읽지 못한 것들의 사유 (따라가지 않은 *INCLUDE, 해석하지 않은 *PART_ 변형 등).
     #: 비어 있지 않으면 parts/materials 가 덱 전체를 담고 있지 않다는 뜻이다.
     warnings: list[str] = field(default_factory=list)
+    #: 첫 *INITIAL_VELOCITY 의 병진 속도 (VX, VY, VZ) — 덱 단위. 낙하 덱에서는 충돌 속도다.
+    #: 카드가 없으면 None (0 벡터로 채우지 않는다).
+    initial_velocity: tuple[float, float, float] | None = None
 
     def get_design_criteria(
         self,
@@ -347,6 +351,20 @@ def _parse_into(path: Path, data: KeywordData, seen: set[str], depth: int) -> No
                 i = _parse_include(lines, i, path, data, seen, depth)
                 continue
 
+            if upper.rstrip() == "*INITIAL_VELOCITY" and data.initial_velocity is None:
+                # 카드 1: NSID NSIDEX BOXID IRIGID ICID, 카드 2: VX VY VZ VXR VYR VZR
+                cards = _collect_cards(lines, i + 1, 2)
+                if len(cards) == 2:
+                    # 빈 칸은 LS-DYNA 기본값 0 이다. 숫자가 아닌 것만 못 읽은 것으로 친다.
+                    v = [0.0 if not x.strip() else _to_float(x, float("nan"))
+                         for x in _read_fields(cards[1], 3)]
+                    if all(c == c for c in v):
+                        data.initial_velocity = (v[0], v[1], v[2])
+                    else:
+                        data.warnings.append(f"*INITIAL_VELOCITY 카드 2 를 읽지 못했다: {cards[1].strip()!r}")
+                i += 1
+                continue
+
             if _MAT_AUX_RE.match(upper):
                 # 베이스 재료가 아니다. *MAT_ADD_* 는 이미 있는 MID 에 파단·
                 # 손상 기준을 덧붙이는 보조 카드이고(카드 1 = MID EXCL MXPRES
@@ -474,11 +492,13 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
 
     # *MAT_XXX_TITLE has an extra title line before card 1. Detect any
     # non-numeric / non-comment leading line as a title and skip it.
+    title = ""
     if mat_name.endswith("_TITLE"):
         # Strip the _TITLE suffix from the type name to match material number maps
         mat_name = mat_name[:-len("_TITLE")]
         # Skip the title line
         if i < len(lines) and not lines[i].lstrip().startswith(("$", "*")):
+            title = lines[i].strip()
             i += 1
             while i < len(lines) and lines[i].strip().startswith("$"):
                 i += 1
@@ -514,6 +534,7 @@ def _parse_mat(lines: list[str], i: int, mat_name: str, mat_number: int,
         density=_to_float(card1[1]),
         youngs_modulus=_to_float(card1[2]),
         poissons_ratio=_to_float(card1[3]),
+        title=title,
     )
 
     # Read SIGY from known position
