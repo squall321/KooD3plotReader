@@ -205,6 +205,21 @@ def main():
         save_json(report, json_path)
         print(f"JSON report saved: {json_path}")
 
+        # 온톨로지 꾸러미 — HTML 곁에 <줄기>.ontology.json.
+        # stcx 후처리 예약(7-1) 셸은 post_analyze 를 거치지 않고 이 도구를 바로
+        # 부른다. "세 리포트는 늘 함께 낸다" 를 지키려면 도구가 스스로 내야 한다.
+        # 실패해도 리포트는 그대로다 (emit.beside 가 예외를 올리지 않는다).
+        # 항복값을 리포트와 **같은 인자**로 넘겨야 꾸러미 안전율이 소견과 같다.
+        try:
+            from koo_deep_report.ontology.emit import beside
+        except ImportError:
+            print("Warning: 온톨로지 꾸러미 모듈(koo_deep_report.ontology)이 없어 건너뜀",
+                  file=sys.stderr)
+        else:
+            beside("sphere", json_path, html_path if "html" in formats else None,
+                   test_dir=Path(args.test_dir) if args.test_dir else None,
+                   yield_map_path=args.yield_map, yield_stress=args.yield_stress)
+
     print("Done.")
 
 
