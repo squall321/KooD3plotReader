@@ -300,3 +300,26 @@ def test_reads_run_end_time_commit_and_finding_part_id_when_present():
     about = {(s[1], d[1]) for s, d, _ in _rels(doc, "finding_about")}
     assert ("finding/1", "part/1") in about and ("finding/3", "part/2") in about
     assert "first_engage_time" not in _objs(doc, "cae_load_transfer")["xfer/Run_B/10"]
+
+
+def test_cli_yield_stress_is_mpa_converted_by_detected_unit(tmp_path):
+    # --yield-stress 는 사람이 넣는 MPa — 분석기(yield_map.default_limit)처럼 검출된 응력 라벨로 덱 단위로 바꾼다.
+    # SI 덱(Pa)에서 200 MPa 를 Pa 응력에 바로 나누면 안전율이 1e6 배 틀린다(화면 JS 에서 실제로 났던 함정).
+    rep = _report("SI")
+    for r in rep["results_summary"]:
+        for pd in r["parts"].values():
+            if "peak_stress" in pd:
+                pd["peak_stress"] *= 1e6                       # Pa
+    p1 = _objs(sphere.build(rep, contact_map=_cmap(), yield_stress=200.0), "cae_part")["part/1"]
+    assert p1["min_safety_factor"] == pytest.approx(0.8)        # 2e8 Pa / 2.5e8 Pa
+    assert p1["yield_limit"] == pytest.approx(200.0)             # 꾸러미에는 MPa 로
+    assert p1["severity"] == "CRITICAL"
+    camp = _objs(sphere.build(rep, contact_map=_cmap(), yield_stress=200.0), "cae_campaign")["campaign"]
+    assert camp["yield_source"] == "cli_yield_stress"
+    # 단위를 모르면 바꾸지 않고 판정을 건너뛴다(지어내지 않는다) — 이유는 unit_note 에
+    rep["unit_system"] = {"id": "", "g_factor": 9810.0, "detected": False, "note": "밀도를 못 읽음"}
+    rep["unit_labels"] = {}
+    out = sphere.build(rep, contact_map=_cmap(), yield_stress=200.0)
+    p1 = _objs(out, "cae_part")["part/1"]
+    assert "min_safety_factor" not in p1 and p1["severity"] == "UNKNOWN"
+    assert "덱 단위로 바꿀 수 없습니다" in _objs(out, "cae_campaign")["campaign"]["unit_note"]
