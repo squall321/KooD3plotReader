@@ -842,6 +842,109 @@ def _find_kfile(run_output_dir: Path) -> Path | None:
     return None
 
 
+#: 시계열까지 담을 run_folder 수의 상한. **단일 출처** — html_report 가 이 값을
+#: 가져다 쓴다. 두 곳에 두면 한쪽만 바뀌어, 로더가 60개만 남겼는데 리포트는
+#: 80개를 담으려 하는 식으로 조용히 어긋난다.
+FLOW_DETAIL_LIMIT = 60
+
+
+def _resolve_parallel_runs(n: int) -> int:
+    """`--parallel-runs` 값 → 실제 워커 수.
+
+    0 = auto. SLURM 잡 안에서는 **배정받은 CPU** 를 따른다 — 노드 전체 코어를
+    쓰면 다른 잡을 밀어낸다. 밖에서는 cpu_count.
+    """
+    import os
+    if n is None or n < 0:
+        return 1
+    if n > 0:
+        return n
+    env = os.environ.get("SLURM_CPUS_PER_TASK")
+    if env and env.isdigit() and int(env) > 0:
+        return int(env)
+    return os.cpu_count() or 1
+
+
+def _slim_flow(g: dict) -> dict:
+    """흐름 dict → **전 각도에 필요한 스칼라만**. 시계열은 버린다.
+
+    흐름을 쓰는 데가 넷인데 시계열이 필요한 건 하나(`_compact_energy_flows`,
+    상위 `FLOW_DETAIL_LIMIT` 개)뿐이다. 나머지 셋 —
+    `_contact_profile`(파트쌍 pf/ti/tw) · `_contact_trust`(contact_metrics) ·
+    `_attach_part_energy`(파트별 IE/KE 스칼라 6개) — 은 전 각도를 보지만
+    **스칼라만** 읽는다.
+
+    그래서 여기서 줄인 모양이 그 셋의 **구조적 부분집합**이 되게 맞춘다.
+    리포트 쪽은 고칠 것이 없다 — `nodes` 가 없으니 시계열 소비처는 알아서
+    건너뛰고, `edges`·`contact_metrics` 는 그대로 읽힌다.
+
+    실측(mini26): 전체 0.60 MB/run → 스칼라 0.0005 MB/run, **1266배**.
+    M3_P2(87 MB/run × 979)의 85 GB 누적이 이것 때문에 생긴다.
+    """
+    edges = []
+    pf_max = 0.0
+    for e in (g.get("edges") or []):
+        pf = float(e.get("peak_force") or 0.0)
+        pf_max = max(pf_max, pf)
+        edges.append({
+            "src": e.get("src"), "dst": e.get("dst"),
+            "contact_id": e.get("contact_id", -1), "name": e.get("name", ""),
+            "peak_force": pf,
+            "total_impulse": float(e.get("total_impulse") or 0.0),
+            "total_work": float(e.get("total_work") or 0.0),
+        })
+    # 파트별 에너지 — _attach_part_energy 가 쓰는 스칼라 6개뿐이다.
+    pe = {}
+    for node in (g.get("nodes") or []):
+        nid = str(node.get("node_id") or "")
+        if not nid.isdigit():
+            continue
+        vals = {k: node.get(k) for k in
+                ("peak_ie", "peak_ie_time", "peak_ke", "peak_ke_time",
+                 "final_ie", "final_ke")}
+        if any(v is not None for v in vals.values()):
+            pe[nid] = vals
+    out = {"edges": edges, "_part_energy": pe, "_pf_max": pf_max}
+    cm = g.get("contact_metrics")
+    if cm:
+        out["contact_metrics"] = cm
+    return out
+
+
+def _attach_slim_energy(sr, slim: dict) -> None:
+    """`_slim_flow` 가 남긴 파트별 스칼라를 SimulationResult 에 붙인다.
+
+    값이 없는 파트는 건드리지 않는다 — None 유지. 0 으로 채우면
+    '계측 안 됨' 이 '0 이었음' 으로 둔갑한다.
+    """
+    from .models import PartEnergy
+    for nid, vals in (slim.get("_part_energy") or {}).items():
+        pr = sr.parts.get(int(nid))
+        if pr is not None:
+            pr.energy = PartEnergy(**vals)
+
+
+def _flow_pass1(job):
+    """1패스 워커 — 흐름을 만들어 **캐시에 쓰고 스칼라만** 돌려준다.
+
+    큰 것을 돌려주면 부모가 전부 받아 들게 되어 봉우리가 그대로다. 그래서
+    워커는 `_slim_flow` 결과만 보낸다(run 당 수백 바이트).
+    프로세스 풀이 집을 수 있게 **모듈 수준 함수**로 둔다.
+    """
+    test_dir, run_dir, run_folder, part_names = job
+    test_dir, run_dir = Path(test_dir), Path(run_dir)
+    fp = _flow_fingerprint(run_dir)
+    g = _flow_cache_load(test_dir, run_folder, fp)
+    hit = g is not None
+    if not hit:
+        g = load_energy_flow(run_dir, part_names)
+        if g:
+            _flow_cache_save(test_dir, run_folder, fp, g)
+    if not g:
+        return run_folder, None, hit
+    return run_folder, _slim_flow(g), hit
+
+
 def _attach_part_energy(sr, flow: dict) -> None:
     """흐름 그래프의 파트 노드 → SimulationResult.parts[pid].energy.
 
@@ -932,7 +1035,16 @@ def load_energy_flow(
 # <test_dir>/.sphere_flow_cache/v<N>/<run_folder>.json — 흐름이 순수 dict 라
 # JSON 왕복이 무손실. best-effort: 읽기/쓰기 실패는 조용히 miss/skip
 # (읽기전용 NFS 안전). 지문은 내용 해시가 아닌 stat(size:mtime_ns) — ~ms.
-_FLOW_CACHE_SCHEMA = 3   # v3: 흐름 dict 에 contact_metrics(rcforc 계측·검증) 추가
+# 🔴 **빌더(energy_flow_builder)의 출력 꼴이 바뀌면 반드시 올린다.**
+# 지문은 binout·k 파일의 stat 과 이 번호뿐이라, 빌더 코드가 바뀌어도 파일이
+# 그대로면 옛 캐시가 계속 "맞다" 고 판정된다.
+# v4: 63bad07(2026-09-17)이 total_impulse·peak_force 를 _r4(4자리 반올림)에서
+#     원값으로 바꾸고 first_engage_t 를 더했는데 번호를 7-21 이후 3 으로 두어,
+#     그 전에 만든 캐시가 계속 쓰였다. 실측(Test_Postprocess_v14 CID 92):
+#     캐시 total_impulse 0.4151 · first_engage_t 없음 / 새로 셈하면 0.415073 ·
+#     first_engage_t 1.9998e-05. 작은 접촉의 충격량이 0.0 으로 사라지고
+#     't=0 부터 접촉' 이 되살아나는 바로 그 결함이다(22엣지 전부).
+_FLOW_CACHE_SCHEMA = 4
 
 
 def _flow_fingerprint(run_output_dir: Path) -> str:
@@ -983,7 +1095,8 @@ def _flow_cache_save(test_dir: Path, run_folder: str, fp: str, flow: dict) -> No
         pass
 
 
-def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
+def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None,
+             parallel_runs: int = 1) -> tuple[
     str, str, SimulationParams, dict[int, PartInfo],
     list[SimulationResult], dict[str, AngleCondition], dict, dict,
 ]:
@@ -1113,25 +1226,61 @@ def load_all(test_dir: Path, hotspot_part_ids: set[int] | None = None) -> tuple[
     # 결과가 있는 run 만 대상(보고서 탭이 소비). 의존성 부재/파일 부재는
     # load_energy_flow 가 로그 남기고 빈 dict → 여기서 스킵(무회귀).
     # per-run JSON 캐시: 지문(hit) 이면 파싱 생략, 빈 흐름은 캐시하지 않음.
+    # ── 2패스 ────────────────────────────────────────────────────────
+    # 예전에는 전 run 의 흐름을 **전부 메모리에 들고** 그대로 반환했다.
+    # 0.087 GB/run × 979 = 85 GB — M3_P2 의 MaxRSS 84.7 GB 가 그것이다.
+    # 봉우리는 캐시 생성 비용이 아니라 **최종 누적분**이라, 앞단만 병렬화해도
+    # 안 내려간다.
+    #
+    # 1패스: 흐름을 만들어 캐시에 쓰고 **스칼라만** 남긴다(전체는 버린다).
+    # 2패스: 그 스칼라로 순위를 매겨 **상위 FLOW_DETAIL_LIMIT 개만** 캐시에서
+    #        되읽는다. 캐시 히트라 binout 재파싱이 없어 거의 공짜다.
+    # 봉우리 ≈ 상위 60개 + 전 run 스칼라 ≈ 5 GB (85 GB → 16배↓).
     energy_flows: dict = {}
     part_names = {pid: pi.part_name for pid, pi in part_info.items()}
     deps = _import_energy_flow_deps()
     if deps[0] is not None and results:
+        jobs = [(str(test_dir), str(output_dir / sr.run_folder), sr.run_folder,
+                 part_names) for sr in results]
+        by_folder = {sr.run_folder: sr for sr in results}
         n_hit = 0
-        for sr in results:
-            run_dir = output_dir / sr.run_folder
-            fp = _flow_fingerprint(run_dir)
-            g = _flow_cache_load(test_dir, sr.run_folder, fp)
-            if g is not None:
-                n_hit += 1
-            else:
-                g = load_energy_flow(run_dir, part_names, deps=deps)
-                if g:
-                    _flow_cache_save(test_dir, sr.run_folder, fp, g)
+        slim_all: dict[str, dict] = {}
+
+        workers = _resolve_parallel_runs(parallel_runs)
+        if workers > 1 and len(jobs) > 1:
+            import concurrent.futures as _cf
+            print(f"[sphere] flow 1패스: 워커 {workers}개로 {len(jobs)}런")
+            with _cf.ProcessPoolExecutor(max_workers=workers) as ex:
+                for folder, slim, hit in ex.map(_flow_pass1, jobs):
+                    n_hit += 1 if hit else 0
+                    if slim:
+                        slim_all[folder] = slim
+        else:
+            for job in jobs:
+                folder, slim, hit = _flow_pass1(job)
+                n_hit += 1 if hit else 0
+                if slim:
+                    slim_all[folder] = slim
+
+        for folder, slim in slim_all.items():
+            _attach_slim_energy(by_folder[folder], slim)
+            energy_flows[folder] = slim
+
+        # 2패스 — 시계열이 필요한 상위 몇 개만 되읽는다.
+        if len(slim_all) > FLOW_DETAIL_LIMIT:
+            top = sorted(slim_all, key=lambda f: -slim_all[f].get("_pf_max", 0.0))
+            top = top[:FLOW_DETAIL_LIMIT]
+        else:
+            top = list(slim_all)
+        n_full = 0
+        for folder in top:
+            run_dir = output_dir / folder
+            g = _flow_cache_load(test_dir, folder, _flow_fingerprint(run_dir))
             if g:
-                energy_flows[sr.run_folder] = g
-                _attach_part_energy(sr, g)
-        print(f"[sphere] flow cache: {n_hit}/{len(results)} hit")
+                energy_flows[folder] = g      # 시계열까지 있는 판으로 교체
+                n_full += 1
+        print(f"[sphere] flow cache: {n_hit}/{len(results)} hit · "
+              f"시계열 보유 {n_full}/{len(slim_all)} (나머지는 스칼라만)")
         n_e = sum(1 for sr in results for pr in sr.parts.values() if pr.energy)
         if n_e:
             print(f"[sphere] 파트별 에너지(IE/KE) 부착: {n_e}건")

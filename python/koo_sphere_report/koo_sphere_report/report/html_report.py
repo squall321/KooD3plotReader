@@ -7,7 +7,7 @@ import math
 from enum import Enum
 from pathlib import Path
 
-from ..loader import extreme_indices, round_keep_sig
+from ..loader import FLOW_DETAIL_LIMIT, extreme_indices, round_keep_sig
 from .json_report import _series_payload
 from . import plotly_bundle
 from ..models import MotionData, Report, Severity, SimulationResult
@@ -26,6 +26,18 @@ class _Encoder(json.JSONEncoder):
         if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
             return 0.0
         return super().default(obj)
+
+
+def _yield_default(report):
+    """`--yield-stress`(MPa) → 덱 단위 한계. 단위를 모르면 None.
+
+    분석기와 **같은 함수**를 쓴다 — 두 곳에서 따로 환산하면 한쪽만 바뀌어
+    화면과 소견이 조용히 갈린다.
+    """
+    from ..yield_map import default_limit
+    lim, _ = default_limit(getattr(report, "yield_stress", 0.0) or 0.0,
+                           (MotionData.UNIT_LABELS or {}).get("stress", ""))
+    return lim
 
 
 def _compact_energy_flows(energy_flows: dict, detail_folders=None) -> dict:
@@ -110,6 +122,18 @@ def _build_report_data(report: Report, ts_points: int = 0, test_dir: str = "") -
         "angular_spacing_deg": report.angular_spacing_deg,
         "sphere_coverage": report.sphere_coverage,
         "yield_stress": report.yield_stress,
+        # 🔴 화면이 쓰는 값은 **덱 단위** 한계다. yield_stress 는 사람이 넣은
+        #    MPa 라, 덱 단위 응력(SI 덱이면 Pa)과 바로 나누면 1e6 배 틀린다.
+        #    분석기(yield_map)와 **같은 값**을 쓰게 여기서 실어 보낸다.
+        #    단위를 모르면 null — 화면은 안전율을 숨기고 사유를 말한다.
+        "yield_deck": (_yd.value if (_yd := _yield_default(report)) else None),
+        "stress_unit": (MotionData.UNIT_LABELS or {}).get("stress", ""),
+        # 파트별 한계 {pid: [{value, criterion, source}]} — 덱 단위.
+        "part_yield_limits": {
+            str(pid): [{"value": l.value, "criterion": l.criterion, "source": l.source}
+                       for l in py.limits]
+            for pid, py in (getattr(report, "part_yields", None) or {}).items()
+        },
         # 런들을 분석한 unified_analyzer 빌드 {커밋: 런 수}. 비었으면 키를 만들지
         # 않는다 — 2026-09-13 이전 산출물에는 기록이 없다.
         **({"tool_builds": report.tool_builds} if getattr(report, "tool_builds", None) else {}),
@@ -404,7 +428,9 @@ def _contact_trust(flows: dict) -> dict:
 
 
 #: 흐름 시계열을 담을 최대 run 수. 넘으면 접촉력이 큰 순으로 상위만 담는다.
-_FLOW_DETAIL_LIMIT = 60
+#: 단일 출처는 loader. 두 곳에 두면 로더가 남긴 개수와 리포트가 담으려는
+#: 개수가 조용히 어긋난다.
+_FLOW_DETAIL_LIMIT = FLOW_DETAIL_LIMIT
 
 # payload 에 담을 군집 수 상한. 1144각도 캠페인은 런당 27개씩 3만개가 넘고
 # 원형 그대로면 17MB 다(실측). 잘라야 하지만 **무엇이 빠졌는지 반드시 알린다**.
@@ -1388,8 +1414,8 @@ function renderOverview() {
       if (pd.peak_vel != null && (globalMaxVel == null || pd.peak_vel > globalMaxVel)) globalMaxVel = pd.peak_vel;
     }
   }
-  const ys = DATA.yield_stress;
-  const globalSF = ys > 0 ? (ys / globalMaxStress) : 0;
+  const ys = DATA.yield_deck;          // 덱 단위 (MPa 아님)
+  const globalSF = isNum(ys) && globalMaxStress > 0 ? (ys / globalMaxStress) : 0;
 
   const guide = document.getElementById('overview-guide');
   if (guide) guide.innerHTML = `
@@ -1402,7 +1428,7 @@ function renderOverview() {
           <div style="color:var(--fg2);font-size:12px;line-height:1.7">
             ${L('vonMisesDesc')}<br>
             <b>${L('reportMax')}: ${globalMaxStress.toFixed(1)} MPa</b><br>
-            ${ys > 0 ? `${L('yieldStress')}: ${ys.toFixed(0)} MPa → ${L('safetyFactor')}: <span style="color:${globalSF<1?'var(--red)':globalSF<1.5?'var(--yellow)':'var(--green)'};font-weight:bold">${globalSF.toFixed(2)}</span><br>` : ''}
+            ${isNum(ys) ? `${L('yieldStress')}: ${ys.toFixed(0)} ${stressUnit()} → ${L('safetyFactor')}: <span style="color:${globalSF<1?'var(--red)':globalSF<1.5?'var(--yellow)':'var(--green)'};font-weight:bold">${globalSF.toFixed(2)}</span><br>` : ''}
             <span style="color:var(--dim)">SF &gt; 1.5: ${L('sfSafe')} | SF 1.0–1.5: ${L('sfMarginal')} | SF &lt; 1.0: ${L('sfYielding')}</span>
           </div>
         </div>
@@ -2451,6 +2477,35 @@ function onRiskRowLeave(el) {
 //   ① `null.toFixed()` 로 탭이 통째로 죽는다 (2026-10-18 실측: 탭 3개)
 //   ② **`Math.max(...)`·`reduce` 가 null 을 0 으로 세어 평균·최대가 조용히 틀린다.**
 //      미계측 파트가 섞이면 평균이 희석되는데 화면에는 멀쩡한 숫자가 뜬다. 이쪽이 더 나쁘다.
+// ── 안전율 ─────────────────────────────────────────────────────────
+// 🔴 예전에는 화면이 `DATA.yield_stress`(사람이 넣은 **MPa**)를 덱 단위 응력으로
+//    바로 나눴다. SI 덱(Pa)에서는 1e6 배 틀린 값이 나오고 라벨은 "MPa" 로
+//    박혀 있었다. 이제 파이썬이 **덱 단위**로 환산한 `DATA.yield_deck` 과
+//    파트별 한계 `DATA.part_yield_limits` 를 실어 주므로 화면과 소견이 같은
+//    값을 쓴다. 단위를 모르면 yield_deck 이 null 이고 안전율을 내지 않는다.
+function stressUnit() { return DATA.stress_unit || ''; }
+function yieldLimits(pid) {
+  const m = DATA.part_yield_limits || {};
+  const ls = m[String(pid)];
+  if (ls && ls.length) return ls;
+  const d = DATA.yield_deck;
+  return isNum(d) ? [{ value: d, criterion: 'von_mises', source: '--yield-stress' }] : [];
+}
+// 한계마다 안전율을 내 **작은 쪽**. σ1 과 σvm 에는 대소가 없어 하나만 보면
+// 삼축 인장에서 파괴응력을, 일축 압축에서 항복을 놓친다.
+// 못 잰 기준은 빼되 complete=false 로 알린다 — 남은 것으로 낸 값은 실제보다
+// **크다**(구속하는 한계가 빠졌을 수 있다).
+function safetyFactor(pid, peaks) {
+  const out = { sf: null, binding: null, complete: true };
+  for (const l of yieldLimits(pid)) {
+    const obs = peaks[l.criterion];
+    if (!isNum(obs)) { out.complete = false; continue; }
+    if (!(obs > 0)) continue;
+    const sf = l.value / obs;
+    if (out.sf === null || sf < out.sf) { out.sf = sf; out.binding = l; }
+  }
+  return out;
+}
 function isNum(v) { return v !== null && v !== undefined && isFinite(v); }
 function onlyNums(a) { return a.filter(isNum); }
 // 숫자면 소수 d 자리, 아니면 '—' (미계측과 '값 0' 을 구분한다)
@@ -2492,8 +2547,9 @@ const _MAG_QTYS = { min_principal_stress: 1, min_principal_strain: 1 };
 function getQtyValue(pd, qty) {
   if (!pd) return 0;
   if (qty === 'safety_factor') {
-    const ys = DATA.yield_stress || 0;
-    return (ys > 0 && pd.peak_stress > 0) ? ys / pd.peak_stress : 0;
+    const r = safetyFactor(pid, { von_mises: pd.peak_stress,
+                                 max_principal: pd.peak_principal });
+    return r.sf === null ? 0 : r.sf;
   }
   const v = pd[qty];
   if (v == null) return 0;          // 미계측 — 0 으로 그리되 값 표시는 '—'
@@ -2541,7 +2597,10 @@ function thAvailable() {
 
 // 그 물리량이 이 데이터셋에 실제로 있는가. 없으면 선택지에서 감춘다.
 function hasQty(qty) {
-  if (qty === 'safety_factor') return (DATA.yield_stress || 0) > 0;
+  // 안전율을 쓸 수 있는지 — 파트별 한계가 있거나 덱 단위 기본값이 있을 때.
+  if (qty === 'safety_factor')
+    return isNum(DATA.yield_deck) ||
+           Object.keys(DATA.part_yield_limits || {}).length > 0;
   for (const r of (DATA.results || [])) {
     for (const k in (r.parts || {})) {
       if (r.parts[k] && r.parts[k][qty] != null) return true;
@@ -4444,7 +4503,7 @@ function renderFailure() {
   if (!container || container.dataset.done) return;
   container.dataset.done = '1';
 
-  const ys = DATA.yield_stress;
+  const ys = DATA.yield_deck;          // 덱 단위
   let sfRows = '';
   const pids = getAllPartIds();
 
@@ -4457,7 +4516,7 @@ function renderFailure() {
       if (pd && pd.peak_stress > maxStress) { maxStress = pd.peak_stress; worstAngle = r.angle.name; }
     }
     if (maxStress === 0) continue;
-    const sf = ys > 0 ? ys / maxStress : 0;
+    const sf = isNum(ys) && maxStress > 0 ? ys / maxStress : 0;
     const sfColor = sf > 0 ? (sf < 1 ? 'var(--red)' : sf < 1.5 ? 'var(--yellow)' : 'var(--green)') : 'var(--dim)';
     sfRows += `<tr><td>Part ${pid}</td><td>${p ? p.name : ''}</td>
       <td style="text-align:right">${maxStress.toFixed(1)}</td>
@@ -4471,7 +4530,7 @@ function renderFailure() {
 
   container.innerHTML = `
     <div class="panel"><h2>Safety Factor Analysis</h2>
-      ${ys > 0 ? `<div style="margin-bottom:8px;color:var(--fg2)">Yield stress: <b>${ys.toFixed(1)} MPa</b> | SF &lt; 1.0 = <span style="color:var(--red)">FAIL</span> | SF &lt; 1.5 = <span style="color:var(--yellow)">WARNING</span></div>` :
+      ${isNum(ys) ? `<div style="margin-bottom:8px;color:var(--fg2)">Yield stress: <b>${ys.toFixed(1)} ${stressUnit()}</b> | SF &lt; 1.0 = <span style="color:var(--red)">FAIL</span> | SF &lt; 1.5 = <span style="color:var(--yellow)">WARNING</span></div>` :
         '<div style="color:var(--yellow);margin-bottom:8px">Set --yield-stress to enable safety factor calculation</div>'}
       <div class="table-wrap" style="max-height:500px;overflow-y:auto;">
       <table><tr><th>Part</th><th>Name</th><th>Peak Stress (MPa)</th><th>Worst Angle</th><th>Safety Factor</th></tr>${sfRows}</table></div>
@@ -4831,7 +4890,7 @@ let deepDiveState = { partId: 0 };
 function computePartDeepDive(pid) {
   const pidStr = String(pid);
   const partInfo = DATA.parts[pidStr] || { name: 'Part '+pid, group: 'Other' };
-  const ys = DATA.yield_stress;
+  const ys = (yieldLimits(pid)[0] || {}).value;   // 덱 단위 (없으면 undefined)
   const perAngle = [];
   let worstStress={val:0,angle:'',ri:-1,category:''}, worstG={val:0,angle:'',ri:-1};
   let worstStrain={val:0,angle:'',ri:-1}, worstDisp={val:0,angle:'',ri:-1};
@@ -4886,7 +4945,7 @@ function computePartDeepDive(pid) {
   const stdStress = n ? Math.sqrt(allStress.map(v=>(v-meanStress)**2).reduce((a,b)=>a+b,0)/n) : 0;
   const meanG = n ? allG.reduce((a,b)=>a+b,0)/n : 0;
   const cov = meanStress > 0 ? stdStress/meanStress : 0;
-  const sf = ys > 0 && worstStress.val > 0 ? ys/worstStress.val : 0;
+  const sf = isNum(ys) && worstStress.val > 0 ? ys/worstStress.val : 0;
   const catRanking = Object.entries(byCat).map(([cat,d]) => ({
     cat, avgStress: d.stresses.reduce((a,b)=>a+b,0)/d.count,
     maxStress: Math.max(...d.stresses), avgG: d.gs.reduce((a,b)=>a+b,0)/d.count, count: d.count
@@ -5863,7 +5922,7 @@ function buildCorrelationMatrix(pid) {
 function buildCrackArrestSection(pid) {
   const pidStr = String(pid);
   const ko = reportLang === 'ko';
-  const ys = DATA.yield_stress || 0;
+  const ys = (yieldLimits(pid)[0] || {}).value;   // 덱 단위
   const results = [];
 
   for (const r of DATA.results) {
