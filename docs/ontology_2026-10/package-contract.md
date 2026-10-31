@@ -9,6 +9,13 @@
 (2026-10-31 사용자 결정). 이 저장소는 그 바이트 사본
 [`dynaforge-cae.json`](../../python/koo_deep_report/koo_deep_report/ontology/dynaforge-cae.json)을 싣고, 꾸러미 머리
 `vocabulary.sha256` 은 그 바이트의 지문이다. 고칠 때는 정본을 고치고 `_version` 을 올린 뒤 사본을 바이트 그대로 옮긴다.
+받는 쪽은 받아들인 판들(정본 + `history/`)의 지문 목록으로 받고, 꾸러미마다 **그 판의 어휘로** 검사한다 — 배포판은 정본보다
+늦을 수 있다.
+
+| 판 | 지문 | 바뀐 것 | 생산 쪽 |
+|---|---|---|---|
+| 0.3 | `72ff9b49…4d64` | 첫 정본(0.2 와 내용 같음, 정본 위치 · `_version` 칸) | f60d1d5 배포판 |
+| 0.4 | `59b4e70b…24fa` | `cae_run.flow_scalars_only`(bool) — 2패스가 시계열을 뺀 런(DynaForge bd03428) | 그다음 판 |
 
 ## 1. 어디에 생기나
 
@@ -87,7 +94,7 @@ sphere 는 JSON 을 쓸 때(`--format … json`)만 꾸러미를 낸다 — 꾸�
 | `cae_part` | 전 방향 포락·안전율·판정·방향 의존도 | 포락·안전율(*MAT 항복) | 이 런 값·안전율(*MAT SIGY) |
 | `cae_part_response` | σvm·σ1·σ3·εp·ε_vm·ε1·ε3·G·변위·IE/KE·시각 | σvm·σ1·σ3·εp·G·변위 | σvm·σ1·σ3·εp·ε 계열·G·변위·IE/KE |
 | `cae_contact` | 덱 *CONTACT(카드 종류·양쪽 파트) | 같음 | 같음 |
-| `cae_load_transfer` | 전 런(첫 맞닿음·깊이·신뢰도는 시계열 판 런만) | payload 흐름이 있는 위치 | 이 런 |
+| `cae_load_transfer` | 전 런(첫 맞닿음·깊이·신뢰도는 시계열 판 런만 — 나머지 런은 0.4 부터 `cae_run.flow_scalars_only` 참) | payload 흐름이 있는 위치 | 이 런 |
 | `cae_load_path` | 파트 쌍 전 런 집계 | 같음 | 이 런 |
 | `cae_hotspot` | `--hotspot-clusters` 로 분석한 캠페인만 | 없음 | 있으면 |
 | `cae_finding` | 리포트 소견(파트 소견은 `finding_about`) | 리포트 소견 | 없음 |

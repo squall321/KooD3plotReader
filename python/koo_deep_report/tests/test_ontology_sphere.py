@@ -300,6 +300,8 @@ def test_reads_run_end_time_commit_and_finding_part_id_when_present():
     about = {(s[1], d[1]) for s, d, _ in _rels(doc, "finding_about")}
     assert ("finding/1", "part/1") in about and ("finding/3", "part/2") in about
     assert "first_engage_time" not in _objs(doc, "cae_load_transfer")["xfer/Run_B/10"]
+    # 어휘 0.4 — 축약된 런은 flow_scalars_only 참, 아닌 런은 비운다(거짓을 지어내지 않는다)
+    assert runs["run/Run_B"]["flow_scalars_only"] is True and "flow_scalars_only" not in runs["run/Run_A"]
 
 
 def test_cli_yield_stress_is_mpa_converted_by_detected_unit(tmp_path):

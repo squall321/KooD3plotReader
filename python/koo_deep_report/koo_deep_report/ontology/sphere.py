@@ -203,6 +203,7 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
         names[pid] = (nm, (pi or {}).get("group") or "")
 
     # ── 런·응답 (덱 단위 값을 먼저 모은다 — 파트 포락이 그것으로 셈된다) ──
+    flows = report.get("energy_flows") or {}
     results = [r for r in (report.get("results_summary") or report.get("results") or [])
                if isinstance(r, dict)]
     run_keys: dict[str, str] = {}      # 런 폴더 → 런 객체 키 (흐름이 폴더로 매달린다)
@@ -238,6 +239,9 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
             "end_time": C.num(r.get("end_time")), "analyzer_commit": r.get("tool_commit") or None,
             "first_contact_time": C.num(post.get("first_contact_s")),
             "s1_sha256": s1j.get("sha256") or None,
+            # 2패스 적재가 시계열을 뺀 런(report.json 흐름의 scalars_only). 표식이 있을 때만 참 —
+            # 없으면 비운다(축약 안 됨이거나 표식이 없는 옛 산출물, 어휘 0.4 설명 그대로)
+            "flow_scalars_only": True if (flows.get(folder) or {}).get("scalars_only") is True else None,
         })
         for pid_s, pd in (r.get("parts") or {}).items():
             try:
@@ -285,7 +289,6 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
             _add_hotspots(pkg, item, case, f"run/{case}", part_keys, names)
 
     # ── 접촉 정의·하중 전달·하중 경로 ──
-    flows = report.get("energy_flows") or {}
     if contact_map is None and flows and kfile is not None:
         from koo_deep_report.core.contact_map import parse_contact_map
         contact_map = parse_contact_map(kfile, {pid: v[0] for pid, v in names.items()})
