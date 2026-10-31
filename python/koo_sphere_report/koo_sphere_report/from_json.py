@@ -105,6 +105,28 @@ def _filter_clusters(items: list, part_ids: set[int] | None) -> list[dict]:
     return out
 
 
+def _restore_part_yields(raw) -> dict:
+    """사이드카의 `part_yield_limits` → {pid: PartYield}. 값은 **덱 단위**다.
+
+    없으면 빈 dict — 옛 사이드카에는 이 칸이 없다(결함이 아니다).
+    """
+    from .yield_map import PartYield, YieldLimit
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for pid_s, lims in raw.items():
+        try:
+            pid = int(pid_s)
+        except (TypeError, ValueError):
+            continue
+        ls = [YieldLimit(float(l["value"]), str(l.get("criterion") or "von_mises"),
+                         str(l.get("source") or ""))
+              for l in (lims or []) if isinstance(l, dict) and "value" in l]
+        if ls:
+            out[pid] = PartYield(pid, ls)
+    return out
+
+
 def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
                           hotspot_part_ids: set[int] | None = None) -> Report:
     """Reconstruct a Report object from a saved report JSON file."""
@@ -280,6 +302,17 @@ def load_report_from_json(json_path: str | Path, yield_stress: float = 0.0,
         angular_spacing_deg=d.get("angular_spacing_deg", 0.0),
         sphere_coverage=d.get("sphere_coverage", 0.0),
         findings=findings,
-        yield_stress=yield_stress,
+        # 인자로 준 값이 우선, 없으면 사이드카에 적힌 것 — 재생성 때 안전율의
+        # 바탕이 바뀌지 않게 한다.
+        yield_stress=yield_stress or float(d.get("yield_stress") or 0.0),
         energy_flows=d.get("energy_flows", {}) or {},
+        # 사이드카에 있는 것은 되살린다. 빠지면 --from-json 으로 다시 쓴
+        # report.json 이 원본보다 가난해지고, 그걸 읽는 쪽(온톨로지 꾸러미)은
+        # **덱 정보가 통째로 빈** 결과를 낸다 — 사라진 줄도 모른 채.
+        # (2026-10-31 kood3plotreader-bf 지적: v14 에서 test_dir 이
+        #  '/data/koopark/Test_Postprocess_v14' → '' 가 됐다.)
+        test_dir=d.get("test_dir") or "",
+        tool_builds=d.get("tool_builds") or {},
+        drop_reasons=d.get("drop_reasons") or {},
+        part_yields=_restore_part_yields(d.get("part_yield_limits")),
     )

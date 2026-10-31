@@ -84,6 +84,24 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         # 어느 런이 줄었는지 읽는 쪽이 알아야 한다 — 값이 빈 것이 '안 쟀다' 가
         # 아니라 '메모리 때문에 뺐다' 일 수 있다. 각 흐름의 scalars_only 와
         # dropped 가 그 사실을 담고, 여기서 수를 요약한다.
+        # 어떤 항복값으로 판정했는지 — 없으면(0) 키를 만들지 않는다.
+        # 이게 없으면 --from-json 재생성 때 안전율의 바탕을 잃는다.
+        **({"yield_stress": report.yield_stress}
+           if getattr(report, "yield_stress", 0.0) else {}),
+        # 런들을 분석한 unified_analyzer 빌드 {커밋: 런 수}. 여럿이면 캠페인이
+        # 서로 다른 판으로 분석된 것이고 그 사실이 재생성본에도 남아야 한다.
+        **({"tool_builds": dict(report.tool_builds)}
+           if getattr(report, "tool_builds", None) else {}),
+        # 적재에서 빠진 런의 사유별 건수. 0건이면 키를 만들지 않는다.
+        **({"drop_reasons": dict(report.drop_reasons)}
+           if getattr(report, "drop_reasons", None) else {}),
+        # 파트별 항복 한계(**덱 단위**). --from-json 재생성 때 이것이 없으면
+        # 화면이 기본값으로 떨어져 **소견과 다른 안전율**을 말한다.
+        **({"part_yield_limits": {
+            str(pid): [{"value": l.value, "criterion": l.criterion,
+                        "source": l.source} for l in py.limits]
+            for pid, py in report.part_yields.items()}}
+           if getattr(report, "part_yields", None) else {}),
         "energy_flows_reduced": sum(
             1 for g in (getattr(report, "energy_flows", {}) or {}).values()
             if isinstance(g, dict) and g.get("scalars_only")),
