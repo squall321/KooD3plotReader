@@ -11,12 +11,18 @@
      "scope":      {"scenario_kind", "campaign_key"},
      "units":      {"system", "normalized", "factors", "deck_labels", "note"},
      "counts":     {"objects": {타입: 수}, "relations": {관계: 수}},
+     "ref_relations": [{"type", "property", "relation"}],
      "objects":    [{"type", "key", "label", "properties"}],
      "relations":  [{"relation", "src": [타입, 키], "dst": [타입, 키], "properties"}]}
 
 **키는 캠페인 안 상대 키**다(`run/Run_…`). DynaForge 가 적재할 때 `<리포트 키>/` 를 붙이고,
 `object_ref` 값(역시 상대 키)도 같은 규칙으로 바꾼다. 바깥 타입(`impact_report` 등)을 가리키는
 칸·관계는 만드는 쪽이 비워 두고 DynaForge 가 채운다(`vocabulary.FILLED_AT_INGEST`).
+
+**다대일 관계는 줄로 싣지 않는다** — 참조 속성(`cae_run.campaign` 등)이 곧 그 관계다(`ref_relations` 가
+어느 속성이 어느 관계인지 적는다). 줄로 싣는 것은 속성으로 정해지지 않는 다대다(`contact_side` ·
+`path_between` · `finding_about`)뿐이다. 같은 사실을 두 번 쓰면 v14 에서 관계의 96% 가 중복이었고,
+DynaForge 도 다대일은 줄로 쓰지 않기로 했다(검토 답신 2026-10-31).
 
 지키는 것
 - 어휘에 없는 타입·속성·관계·열거값, 빠진 필수값, 가리킬 곳 없는 참조는 **쓰지 않고 실패**한다.
@@ -160,10 +166,6 @@ class Package:
         obj = {"type": type_slug, "key": key, "label": str(label or key), "properties": out}
         self.objects.append(obj)
         self._obj_index[(type_slug, key)] = obj
-        for k, v in out.items():
-            rel = V.REF_RELATIONS.get((type_slug, k))
-            if rel is not None:
-                self.relate(rel, (type_slug, key), (spec[k]["ref_type_slug"], v))
         return obj
 
     def _check_value(self, where: str, p: dict, v):
@@ -208,6 +210,9 @@ class Package:
         where = f"{relation} {src}→{dst}"
         if r is None:
             self.faults.append(f"{where}: 어휘에 없는 관계")
+            return
+        if relation in set(V.REF_RELATIONS.values()):
+            self.faults.append(f"{where}: 참조 속성이 곧 이 관계다 — 줄로 싣지 않는다")
             return
         if src[0] not in r["src_type_slugs"] or dst[0] not in r["dst_type_slugs"]:
             self.faults.append(f"{where}: 이 관계가 잇지 않는 타입")
@@ -259,6 +264,8 @@ class Package:
             "scope": {"scenario_kind": self.scenario_kind, "campaign_key": "campaign"},
             "units": self.units.header(),
             "counts": {"objects": counts_o, "relations": counts_r},
+            "ref_relations": [{"type": t, "property": k, "relation": r}
+                              for (t, k), r in V.REF_RELATIONS.items()],
             "objects": self.objects,
             "relations": self.relations,
         }

@@ -3,9 +3,12 @@
 하중 전달(런 × 접촉) · 하중 경로(파트 쌍 전 런 집계) · 핫스팟 · 소견.
 
 report.json 에 없는 것은 캠페인 폴더에서 **있으면** 더 읽는다(없어도 꾸러미는 나온다).
-- `output/<런>/DropSet.json` 의 part_yield → 안전율 (분석기와 같은 yield_map 모듈로 셈한다)
-- 첫 런의 덱(DropSet.k) → 접촉 카드 종류·양쪽 파트 (흐름 빌더와 같은 덱 고르기 규칙)
-- `output/s1_index.json` → 런마다 첫 접촉 시각·S1 해시, 충격 속도
+- `output/<런>/DropSet.json` 의 part_yield → 안전율 (분석기와 같은 yield_map 모듈로 셈한다), drop_height
+- 첫 런의 덱(DropSet.k) → 접촉 카드 종류·양쪽 파트 (흐름 빌더와 같은 덱 고르기 규칙), 재질, 초기 속도
+- `output/s1_index.json` → 런마다 첫 접촉 시각·S1 해시
+
+런 키는 DynaForge 리포트 반입과 같은 순서로 고른다 — 런 폴더, 없으면 방향 이름, 그것도 없으면
+`run_<순번>`(parser.py `case_key`). 그래야 꾸러미의 런이 `impact_cases` 한 줄과 바로 이어진다.
 
 값은 덱 단위 그대로 넘기고 꾸러미 작성기가 어휘 단위로 바꾼다(`package.Units`).
 """
@@ -133,6 +136,20 @@ def load_s1_index(test_dir: Path | None) -> dict[str, dict]:
     return out
 
 
+def first_dropset(test_dir: Path | None) -> dict:
+    """output/ 아래 첫 **읽히는** DropSet.json (yield_map 과 같은 규칙). 없으면 빈 dict."""
+    import json
+    out = test_dir / "output" if test_dir is not None else None
+    if out is None or not out.is_dir():
+        return {}
+    for run_dir in sorted(out.iterdir()):
+        try:
+            return json.loads((run_dir / "DropSet.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+    return {}
+
+
 def _sha256(path: Path | None) -> str:
     if path is None:
         return ""
@@ -185,15 +202,19 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
 
     # ── 런·응답 (덱 단위 값을 먼저 모은다 — 파트 포락이 그것으로 셈된다) ──
     results = [r for r in (report.get("results_summary") or report.get("results") or [])
-               if isinstance(r, dict) and r.get("run_folder")]
-    run_keys: dict[str, str] = {}
+               if isinstance(r, dict)]
+    run_keys: dict[str, str] = {}      # 런 폴더 → 런 객체 키 (흐름이 폴더로 매달린다)
+    case_of: list[str] = []            # results 순서대로의 런 키(case_key)
     rows: dict[int, list[tuple[str, dict]]] = {}
     speeds = []
     for r in results:
-        folder = str(r["run_folder"])
-        rk = f"run/{folder}"
-        run_keys[folder] = rk
         ang = r.get("angle") or {}
+        folder = str(r.get("run_folder") or "")
+        case = folder or str(ang.get("name") or "") or f"run_{len(case_of)}"
+        case_of.append(case)
+        rk = f"run/{case}"
+        if folder:
+            run_keys[folder] = rk
         roll, pitch, yaw = (C.num(ang.get(k)) for k in ("roll", "pitch", "yaw"))
         dx = dy = dz = None
         if roll is not None and pitch is not None:
@@ -204,8 +225,8 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
         v0 = post.get("initial_velocity")
         if isinstance(v0, list) and len(v0) == 3 and all(C.num(c) is not None for c in v0):
             speeds.append(math.sqrt(sum(float(c) ** 2 for c in v0)))
-        pkg.add("cae_run", rk, ang.get("name") or folder, {
-            "campaign": "campaign", "case_key": folder, "run_folder": folder,
+        pkg.add("cae_run", rk, ang.get("name") or case, {
+            "campaign": "campaign", "case_key": case, "run_folder": folder or None,
             "angle_name": ang.get("name") or None,
             "roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw,
             "angle_category": cat if cat in _CATEGORIES else "unknown",
@@ -224,6 +245,18 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
                 rows.setdefault(pid, []).append((rk, resp))
                 names.setdefault(pid, (f"Part {pid}", ""))
 
+    # ── 덱 (첫 런) — 재질·초기 속도·접촉 ──
+    kfile, keyword = None, None
+    first = next((r for r in results if r.get("run_folder")), None)
+    if test_dir is not None and first is not None:
+        kfile = find_kfile(test_dir / "output" / str(first["run_folder"]))
+    if kfile is not None:
+        try:
+            from koo_deep_report.core.keyword_parser import parse_keyword_file
+            keyword = parse_keyword_file(kfile)
+        except Exception:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다(재질·속도만 빈다)
+            keyword = None
+
     # ── 파트 (전 방향 포락·판정) ──
     part_keys = {pid: f"part/{pid}" for pid in names}
     for pid in sorted(names):
@@ -231,7 +264,8 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
         lims = limits.get(pid) or ([default_lim] if default_lim is not None else [])
         env = C.envelope(rows.get(pid, []), lims, evaluate)
         pkg.add("cae_part", part_keys[pid], nm, {
-            "campaign": "campaign", "part_id": pid, "name": nm, "part_group": grp or None, **env})
+            "campaign": "campaign", "part_id": pid, "name": nm, "part_group": grp or None,
+            **C.material_props(keyword, pid), **env})
 
     # ── 파트 응답 ──
     for pid in sorted(rows):
@@ -242,18 +276,15 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
                     {"run": rk, "part": part_keys[pid], **resp, "safety_factor": sf})
 
     # ── 핫스팟 ──
-    for r in results:
-        folder = str(r["run_folder"])
+    for r, case in zip(results, case_of):
         for item in r.get("hotspot_clusters") or []:
-            _add_hotspots(pkg, item, folder, run_keys[folder], part_keys, names)
+            _add_hotspots(pkg, item, case, f"run/{case}", part_keys, names)
 
     # ── 접촉 정의·하중 전달·하중 경로 ──
     flows = report.get("energy_flows") or {}
-    if contact_map is None and flows and test_dir is not None and results:
-        kf = find_kfile(test_dir / "output" / str(results[0]["run_folder"]))
-        if kf is not None:
-            from koo_deep_report.core.contact_map import parse_contact_map
-            contact_map = parse_contact_map(kf, {pid: v[0] for pid, v in names.items()})
+    if contact_map is None and flows and kfile is not None:
+        from koo_deep_report.core.contact_map import parse_contact_map
+        contact_map = parse_contact_map(kfile, {pid: v[0] for pid, v in names.items()})
     contact_keys = F.add_contacts(pkg, contact_map, part_keys)
     F.add_transfers(pkg, flows, run_keys, part_keys, contact_keys)
 
@@ -263,6 +294,10 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     # ── 캠페인 ──
     from datetime import datetime, timezone
     td = report.get("test_dir") or ""
+    ds_height = C.num(((first_dropset(test_dir).get("initial_conditions") or {}).get("drop_height")))
+    speed, height, drop_note = C.drop_condition(
+        keyword, statistics.median(speeds) if speeds else None, ds_height,
+        g_factor if units.system != "unknown" else None)
     pkg.add("cae_campaign", "campaign", report.get("project_name") or Path(td).name or "campaign", {
         "scenario_kind": "drop_all_angle",
         "test_dir": Path(td).name or None,
@@ -272,9 +307,9 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
         "angular_spacing_deg": C.num(report.get("angular_spacing_deg")),
         "sphere_coverage": C.num(report.get("sphere_coverage")),
         "unit_system": units.system, "values_normalized": units.normalized,
-        "unit_note": "; ".join(x for x in [units.note, *yield_notes] if x) or None,
+        "unit_note": "; ".join(x for x in [units.note, *yield_notes, drop_note] if x) or None,
         "g_factor": g_factor,
-        "impact_speed": statistics.median(speeds) if speeds else None,
+        "impact_speed": speed, "drop_height": height,
         "yield_source": yield_source,
         "producer": "koo_sphere_report",
         "produced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

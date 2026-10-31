@@ -51,3 +51,16 @@
 - **sphere 화면 안전율이 파트별 항복값 · 단위를 무시** — JS 5곳. a9 가 파이썬에서 한 번 환산해 싣는 식으로 고침(2eeb7c0).
 - impact 의 ton-mm-ms 라벨 프리셋(MPa · kN · kJ)은 일관 단위계가 아니다(ton·mm/ms² = MN). 꾸러미는 이 단위계를 환산하지
   않는다. impact 담당에 알릴 것.
+
+## DynaForge 검토 답신 반영 (10-31, 계약 초안 2)
+- 답신: KooRemapper `docs/requests/kood3plotreader-ontology-review-2026-10-31.md`(7e8252d). 의견이며 채택 · 적재 범위는 사용자 결정.
+- **심각도 대문자** — DynaForge 소견 · find_reports · max_severity · 화면이 CRITICAL/WARNING/INFO 다. 같은 개념 두 철자는 질의를
+  두 벌로 만든다. 파트 판정 OK/WARNING/CRITICAL/UNKNOWN, 해석 품질도 impact 원문 철자(PASS/WARN/FAIL/UNKNOWN)로 맞췄다.
+- **런 키 = impact_cases.case_key** — DynaForge parser 가 전각도는 folder → 방향 이름 → run_<len(cases)>, deep 은 `single`.
+  같은 규칙으로 고르면 꾸러미의 런이 그 표 한 줄과 바로 이어진다. 실제 폴더는 run_folder.
+- **다대일 줄을 뺐다** — v14 관계의 96% 가 참조 속성과 같은 사실의 두 번째 기록이었다. DynaForge 는 다대일을 줄로 쓰지 않기로
+  했고, 「정본 하나」 원칙에도 맞다. 대응표는 머리 `ref_relations`. path_between 은 다대다라 줄로 남긴다(처음에 대응표에 넣어
+  같이 빠졌던 것을 시험이 잡았다). v14 0.90 → 0.51 MB.
+- **낙하 높이는 검산될 때만** — DropSet.json 의 drop_height 는 단위가 적혀 있지 않다. 덱 *INITIAL_VELOCITY 크기와 √(2gh) 가
+  3% 안에서 맞으면 덱 길이 단위로 확인된 것으로 보고 싣는다(v14: 5424.0 vs 5424.5 mm/s). 안 맞으면 빼고 unit_note 에 사유.
+- **재질** — keyword_parser 가 *MAT_…_TITLE 제목을 버리고 있었다. title 칸을 더해 material_name 으로 싣는다.

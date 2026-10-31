@@ -107,14 +107,14 @@ def test_envelope_safety_factor_and_severity(tmp_path):
     parts = _objs(doc, "cae_part")
     p1, p2 = parts["part/1"], parts["part/2"]
     assert p1["worst_von_mises"] == 250.0 and p1["worst_von_mises_run"] == "run/Run_B"
-    assert p1["min_safety_factor"] == pytest.approx(0.8) and p1["severity"] == "critical"
+    assert p1["min_safety_factor"] == pytest.approx(0.8) and p1["severity"] == "CRITICAL"
     assert p1["safety_factor_complete"] is True and p1["yield_criterion"] == "von_mises"
     assert p1["von_mises_cov"] == pytest.approx(statistics.pstdev([100, 250, 160]) / statistics.fmean([100, 250, 160]))
     assert p1["n_runs_measured"] == 3
     # 파트 2: 한계는 σ1 인데 σ1 을 잰 런이 없다 → 안전율을 못 낸다. 가속도 70,000 G → warning
-    assert "min_safety_factor" not in p2 and p2["severity"] == "warning" and p2["worst_g_run"] == "run/Run_B"
+    assert "min_safety_factor" not in p2 and p2["severity"] == "WARNING" and p2["worst_g_run"] == "run/Run_B"
     # 바닥(23)은 응답이 없다 — 판정 unknown, 잰 런 0
-    assert parts["part/23"]["severity"] == "unknown" and parts["part/23"]["n_runs_measured"] == 0
+    assert parts["part/23"]["severity"] == "UNKNOWN" and parts["part/23"]["n_runs_measured"] == 0
     camp = _objs(doc, "cae_campaign")["campaign"]
     assert camp["yield_source"] == "dropset_part_yield" and camp["unit_system"] == "ton_mm_s"
 
@@ -128,13 +128,13 @@ def test_incomplete_limits_warn_instead_of_critical(tmp_path):
         r["parts"]["1"].pop("peak_principal_stress", None)
     p1 = _objs(sphere.build(rep, test_dir=td, contact_map=_cmap()), "cae_part")["part/1"]
     assert p1["min_safety_factor"] == pytest.approx(0.8)
-    assert p1["safety_factor_complete"] is False and p1["severity"] == "warning"
+    assert p1["safety_factor_complete"] is False and p1["severity"] == "WARNING"
 
 
 def test_no_limits_never_claims_ok():
     doc = sphere.build(_report(), contact_map=_cmap())
     p1 = _objs(doc, "cae_part")["part/1"]
-    assert "min_safety_factor" not in p1 and p1["severity"] == "unknown"
+    assert "min_safety_factor" not in p1 and p1["severity"] == "UNKNOWN"
     assert _objs(doc, "cae_campaign")["campaign"]["yield_source"] == "none"
 
 
@@ -149,7 +149,8 @@ def test_responses_runs_and_energy():
     assert a1["peak_plastic_strain"] == 0.002          # 옛 이름 peak_strain 에서
     assert a1["peak_internal_energy"] == 5.0 and a1["final_internal_energy"] == 2.5
     assert "peak_kinetic_energy" not in a1             # None 은 싣지 않는다
-    assert ("cae_part_response", "resp/Run_A/1") in {s for s, _, _ in _rels(doc, "response_in")}
+    assert a1["run"] == "run/Run_A" and a1["part"] == "part/1"     # 다대일은 참조 속성으로만
+    assert _rels(doc, "response_in") == []
 
 
 def test_transfers_and_load_paths():
@@ -180,7 +181,7 @@ def test_transfers_and_load_paths():
 def test_findings_point_at_parts():
     doc = sphere.build(_report(), contact_map=_cmap())
     f = _objs(doc, "cae_finding")
-    assert f["finding/1"]["severity"] == "critical" and "detail" not in f["finding/2"]
+    assert f["finding/1"]["severity"] == "CRITICAL" and "detail" not in f["finding/2"]
     assert _rels(doc, "finding_about") == [(("cae_finding", "finding/1"), ("cae_part", "part/1"), {})]
 
 
@@ -222,3 +223,49 @@ def test_old_report_without_units_keeps_raw_values():
     camp = _objs(doc, "cae_campaign")["campaign"]
     assert camp["unit_system"] == "unknown" and camp["values_normalized"] is False
     assert "옛 산출물" in camp["unit_note"]
+
+
+def test_run_key_follows_dynaforge_case_key_order():
+    # DynaForge parser: folder → 방향 이름 → run_<len(cases)>
+    rep = _report()
+    rep["results_summary"][1]["run_folder"] = ""
+    rep["results_summary"][2]["run_folder"] = ""
+    rep["results_summary"][2]["angle"]["name"] = ""
+    rep["energy_flows"] = {}
+    runs = _objs(sphere.build(rep, contact_map=_cmap()), "cae_run")
+    assert set(runs) == {"run/Run_A", "run/E1_x", "run/run_2"}
+    assert runs["run/E1_x"]["case_key"] == "E1_x" and "run_folder" not in runs["run/E1_x"]
+
+
+_DECK = """*KEYWORD
+*MAT_ELASTIC_TITLE
+Aluminium
+        25  2.70E-09   70000.0      0.33
+*PART
+Front\\Metal
+         1         1        25
+*INITIAL_VELOCITY
+         1         0         0         0         0
+-3.278e+03 2.423e+03 3.579e+03
+*END
+"""
+
+
+def test_drop_height_needs_speed_check_and_materials(tmp_path):
+    td = _test_dir(tmp_path, {})
+    ds = td / "output" / "Run_A" / "DropSet.json"
+    doc = json.loads(ds.read_text())
+    doc["initial_conditions"] = {"drop_height": 1500.0}
+    ds.write_text(json.dumps(doc))
+    (td / "output" / "Run_A" / "DropSet.k").write_text(_DECK)
+    out = sphere.build(_report(), test_dir=td, contact_map=_cmap())
+    camp = _objs(out, "cae_campaign")["campaign"]
+    assert camp["impact_speed"] == pytest.approx(5424.5234, rel=1e-6)   # 덱 *INITIAL_VELOCITY
+    assert camp["drop_height"] == 1500.0                                # √(2·9806.65·1500)=5424.0 → 0.01%
+    p1 = _objs(out, "cae_part")["part/1"]
+    assert (p1["material_id"], p1["material_type"], p1["material_name"]) == (25, "ELASTIC", "Aluminium")
+    # 높이가 속도와 안 맞으면(예: m 로 적힌 1.5) 싣지 않고 사유를 남긴다
+    doc["initial_conditions"] = {"drop_height": 1.5}
+    ds.write_text(json.dumps(doc))
+    camp = _objs(sphere.build(_report(), test_dir=td, contact_map=_cmap()), "cae_campaign")["campaign"]
+    assert "drop_height" not in camp and "3% 넘게" in camp["unit_note"]

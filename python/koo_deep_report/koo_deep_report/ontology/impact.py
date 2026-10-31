@@ -23,7 +23,7 @@ from .sphere import _sha256, find_kfile
 
 #: 1 G 를 덱 가속도 단위로 — 표준중력 9.80665 m/s².
 _G0 = {"SI": 9.80665, "ton-mm-s": 9806.65, "g-mm-ms": 9.80665e-3, "ton-mm-ms": 9.80665e-3}
-_SQ = {"PASS": "pass", "WARN": "warn", "FAIL": "fail", "UNKNOWN": "unknown"}
+_SQ = ("PASS", "WARN", "FAIL", "UNKNOWN")
 
 
 def _edge(e: dict) -> dict:
@@ -118,7 +118,7 @@ def build(report: dict, *, report_path: Path | None = None, payload: dict | None
                 "yaw_deg": C.num(fc.get("yaw")),
                 "num_states": C.num(sp.get("n_states")),
                 "success": pid_s in have_rows,
-                "solver_quality": _SQ.get(str(q)) if q else None,
+                "solver_quality": str(q).upper() if str(q).upper() in _SQ else None,
                 "first_contact_time": C.num((traj.get(pid_s) or {}).get("t_first_contact")),
             })
 
@@ -150,13 +150,25 @@ def build(report: dict, *, report_path: Path | None = None, payload: dict | None
             rows.setdefault(pid, []).append((run_keys[pos_id], resp))
             names.setdefault(pid, (f"Part {pid}", ""))
 
+    # 덱(첫 위치의 런) — 재질·접촉. 위치마다 충격 위치만 다르고 모델은 같다.
+    kfile, keyword = None, None
+    for rd in run_dirs[:1]:
+        kfile = find_kfile(rd)
+    if kfile is not None:
+        try:
+            from koo_deep_report.core.keyword_parser import parse_keyword_file
+            keyword = parse_keyword_file(kfile)
+        except Exception:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다
+            keyword = None
+
     part_keys = {pid: f"part/{pid}" for pid in names}
     for pid in sorted(names):
         nm, grp = names[pid]
         lims = [mk_limit(yields[pid])] if pid in yields else []
         env = C.envelope(rows.get(pid, []), lims, evaluate, g_rule=False)
         pkg.add("cae_part", part_keys[pid], nm, {
-            "campaign": "campaign", "part_id": pid, "name": nm, "part_group": grp or None, **env})
+            "campaign": "campaign", "part_id": pid, "name": nm, "part_group": grp or None,
+            **C.material_props(keyword, pid), **env})
     for pid in sorted(rows):
         lims = [mk_limit(yields[pid])] if pid in yields else []
         for rk, resp in rows[pid]:
@@ -168,12 +180,9 @@ def build(report: dict, *, report_path: Path | None = None, payload: dict | None
     flows = {pos: {"edges": [_edge(e) for e in (g.get("edges") or [])],
                    "depth_map": g.get("depth_map") or {}}
              for pos, g in (payload.get("energy_flows") or {}).items() if isinstance(g, dict)}
-    if contact_map is None and flows:
-        for rd in run_dirs[:1]:
-            kf = find_kfile(rd)
-            if kf is not None:
-                from koo_deep_report.core.contact_map import parse_contact_map
-                contact_map = parse_contact_map(kf, {pid: v[0] for pid, v in names.items()})
+    if contact_map is None and flows and kfile is not None:
+        from koo_deep_report.core.contact_map import parse_contact_map
+        contact_map = parse_contact_map(kfile, {pid: v[0] for pid, v in names.items()})
     contact_keys = F.add_contacts(pkg, contact_map, part_keys)
     F.add_transfers(pkg, flows, run_keys, part_keys, contact_keys)
 

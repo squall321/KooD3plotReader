@@ -5,6 +5,9 @@
 값은 **이력(global_max·time_of_max)에서 직접** 꺼낸다. `PartSummary` 의 일부 칸(주응력·변형률·가속도)은
 없을 때 0.0 으로 채워져 있어, 그것을 그대로 실으면 '잰 0' 으로 읽힌다.
 
+런 키는 `single` 이다 — DynaForge 가 deep 리포트를 반입할 때 `impact_cases.case_key` 를 그렇게 쓴다
+(parser.normalize_deep). 실제 런 폴더는 `run_folder` 에 있다.
+
 단위계는 deep 이 판정하지 않으므로 여기서 sphere 와 같은 규칙으로 정한다 — 덱 *MAT 밀도 중앙값을
 impact 검출기에 넣고, ton-mm-s 인데 해석 끝 시각이 0.5 이상이면(초 단위 낙하·충격 창은 수 ms)
 시간 단위가 ms 일 수 있어 단정하지 않는다.
@@ -79,9 +82,10 @@ def build(result, *, flow=None, keyword=None) -> dict:
                   source_kind="koo_deep_report/SingleResult", source_file=str(si.d3plot or ""))
 
     folder = run_folder_of(Path(si.path))
-    rk = f"run/{folder}"
+    case = "single"
+    rk = f"run/{case}"
     pkg.add("cae_run", rk, result.label or folder, {
-        "campaign": "campaign", "case_key": folder, "run_folder": folder,
+        "campaign": "campaign", "case_key": case, "run_folder": folder or None,
         "num_states": C.num(meta.get("num_states")), "end_time": end_time,
         "success": si.normal_termination if isinstance(si.normal_termination, bool) else None,
         "analyzer_commit": meta.get("tool_commit") or None,
@@ -137,25 +141,27 @@ def build(result, *, flow=None, keyword=None) -> dict:
         rows = [(rk, resp)] if resp else []
         env = C.envelope(rows, lims, evaluate, g_rule=False)
         pkg.add("cae_part", part_keys[pid], ps.part_name or f"Part {pid}", {
-            "campaign": "campaign", "part_id": pid, "name": ps.part_name or None, **env})
+            "campaign": "campaign", "part_id": pid, "name": ps.part_name or None,
+            **C.material_props(keyword, pid), **env})
         if resp:
-            pkg.add("cae_part_response", f"resp/{folder}/{pid}", f"{ps.part_name or pid} @ {folder}",
+            pkg.add("cae_part_response", f"resp/{case}/{pid}", f"{ps.part_name or pid} @ {folder}",
                     {"run": rk, "part": part_keys[pid], **resp,
                      "safety_factor": C.run_safety_factor(resp, lims, evaluate)})
 
     names = {pid: (p.part_name or f"Part {pid}", "") for pid, p in result.parts.items()}
     for item in (d3.hotspot_clusters if d3 else None) or []:
-        _add_hotspots(pkg, item, folder, rk, part_keys, names)
+        _add_hotspots(pkg, item, case, rk, part_keys, names)
 
     contact_keys = F.add_contacts(pkg, contact_map, part_keys)
-    F.add_transfers(pkg, {folder: graph} if graph else {}, {folder: rk}, part_keys, contact_keys)
+    F.add_transfers(pkg, {case: graph} if graph else {}, {case: rk}, part_keys, contact_keys)
+    speed, _, _ = C.drop_condition(keyword, None, None, g0)
 
     pkg.add("cae_campaign", "campaign", result.label or folder, {
         "scenario_kind": "single_run", "n_runs": 1,
         "n_runs_ok": 0 if si.normal_termination is False else 1,
         "n_runs_failed": 1 if si.normal_termination is False else 0,
         "unit_system": units.system, "values_normalized": units.normalized,
-        "unit_note": units.note or None, "g_factor": g0,
+        "unit_note": units.note or None, "g_factor": g0, "impact_speed": speed,
         "yield_source": sorted(sources)[0] if len(sources) == 1 else ("mat_card" if sources else "none"),
         "producer": "koo_deep_report",
         "produced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

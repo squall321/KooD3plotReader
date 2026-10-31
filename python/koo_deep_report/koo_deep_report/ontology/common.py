@@ -3,18 +3,20 @@
 리포트 소견과 온톨로지 판정이 갈리면 어느 쪽을 믿을지 모르게 된다.
 
 - 안전율 = min(한계 ÷ 그 기준의 최대 응력). 한계의 응력을 못 쟀으면 「불완전」 — 실제보다
-  클 수 있어 critical 로 단정하지 않고 warning 으로 둔다.
-- 안전율 < 1 critical, < 1.5 warning. 가속도 > 200,000 G critical, > 50,000 G warning — 가속도 기준은
+  클 수 있어 CRITICAL 로 단정하지 않고 WARNING 으로 둔다.
+- 안전율 < 1 CRITICAL, < 1.5 WARNING. 가속도 > 200,000 G CRITICAL, > 50,000 G WARNING — 가속도 기준은
   전각도 낙하 분석기의 것이라 그 어댑터만 켠다(부분충격 분석기는 가속도 절대 기준을 일부러 두지 않는다).
-- 한계가 없으면 응력 판정을 하지 않는다. 그때 가속도도 걸리지 않으면 ok 가 아니라 unknown —
+- 한계가 없으면 응력 판정을 하지 않는다. 그때 가속도도 걸리지 않으면 OK 가 아니라 UNKNOWN —
   응력을 보지 않고 괜찮다고 말하지 않는다.
+- 철자는 DynaForge 소견 심각도(대문자)와 같다 — 같은 개념이 두 철자면 질의가 두 벌이 된다.
 """
 from __future__ import annotations
 
+import math
 import re
 import statistics
 
-_RANK = {"ok": 0, "warning": 1, "critical": 2}
+_RANK = {"OK": 0, "WARNING": 1, "CRITICAL": 2}
 _PART_TITLE = re.compile(r"^Part (\d+) \(")
 
 
@@ -33,9 +35,9 @@ def add_findings(pkg, findings: list, part_keys: dict[int, str]) -> None:
     for i, f in enumerate(findings or [], start=1):
         if not isinstance(f, dict):
             continue
-        sev = str(f.get("severity") or "").lower()
+        sev = str(f.get("severity") or "").upper()
         title = str(f.get("title") or "").strip()
-        if sev not in ("critical", "warning", "info") or not title:
+        if sev not in ("CRITICAL", "WARNING", "INFO") or not title:
             continue
         key = f"finding/{i}"
         pkg.add("cae_finding", key, title, {
@@ -84,20 +86,20 @@ def envelope(rows: list[tuple[str, dict]], limits: list, evaluate, *, g_rule: bo
             out["yield_limit"] = v.binding.value
             out["yield_criterion"] = v.binding.criterion
             if not v.complete:
-                stress_sev = "warning"
+                stress_sev = "WARNING"
             elif v.sf < 1.0:
-                stress_sev = "critical"
+                stress_sev = "CRITICAL"
             elif v.sf < 1.5:
-                stress_sev = "warning"
+                stress_sev = "WARNING"
             else:
-                stress_sev = "ok"
+                stress_sev = "OK"
     g_sev = None
     if g is not None and g_rule:
-        g_sev = "critical" if g > 200000 else "warning" if g > 50000 else "ok"
+        g_sev = "CRITICAL" if g > 200000 else "WARNING" if g > 50000 else "OK"
     if stress_sev is None:
-        out["severity"] = g_sev if g_sev in ("warning", "critical") else "unknown"
+        out["severity"] = g_sev if g_sev in ("WARNING", "CRITICAL") else "UNKNOWN"
     else:
-        out["severity"] = max((stress_sev, g_sev or "ok"), key=_RANK.get)
+        out["severity"] = max((stress_sev, g_sev or "OK"), key=_RANK.get)
     return out
 
 
@@ -109,3 +111,37 @@ def run_safety_factor(resp: dict, limits: list, evaluate):
     if vm is None or not vm > 0:
         return None
     return evaluate(limits, {"von_mises": vm, "max_principal": resp.get("peak_max_principal")}).sf
+
+
+def material_props(keyword, pid: int) -> dict:
+    """덱 *PART → *MAT 로 파트의 재질 번호·모델·이름. 못 찾으면 빈 dict(지어내지 않는다)."""
+    pm = (getattr(keyword, "parts", None) or {}).get(pid)
+    if pm is None or not getattr(pm, "mid", 0):
+        return {}
+    mat = (getattr(keyword, "materials", None) or {}).get(pm.mid)
+    return {"material_id": pm.mid,
+            "material_type": (mat.mat_type or None) if mat else None,
+            "material_name": (mat.title or None) if mat else None}
+
+
+def drop_condition(keyword, s1_speed: float | None, drop_height: float | None,
+                   g0: float | None) -> tuple[float | None, float | None, str]:
+    """(충돌 속도, 낙하 높이, 단서) — 값은 덱 단위.
+
+    속도는 덱 *INITIAL_VELOCITY 의 크기, 없으면 S1 이 d3plot 에서 잰 초기 속도. 높이는 DropSet 의 값을
+    √(2·g·h) 가 그 속도와 3% 안에서 맞을 때만 쓴다 — DropSet 높이의 단위를 따로 적어 두지 않아서,
+    물리로 덱 단위임을 확인한 뒤에만 싣는다.
+    """
+    v = getattr(keyword, "initial_velocity", None) if keyword is not None else None
+    speed = math.sqrt(sum(c * c for c in v)) if v else None
+    if not speed:
+        speed = s1_speed or None
+    if drop_height is None or not drop_height > 0:
+        return speed, None, ""
+    if not speed or not g0:
+        return speed, None, "낙하 높이를 충돌 속도로 확인하지 못해 싣지 않았다"
+    expect = math.sqrt(2.0 * g0 * drop_height)
+    if abs(expect - speed) > 0.03 * speed:
+        return speed, None, (f"낙하 높이 {drop_height:g} 로 셈한 속도 {expect:.6g} 가 덱 속도 {speed:.6g} 와 3% 넘게 "
+                             f"달라 높이를 싣지 않았다(단위가 덱과 다를 수 있다)")
+    return speed, drop_height, ""

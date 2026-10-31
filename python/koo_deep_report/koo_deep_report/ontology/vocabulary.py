@@ -30,8 +30,8 @@ UNIT_KINDS = {
 #: 만드는 쪽이 채우지 않는 속성 — DynaForge 가 적재할 때 채운다(리포트 키를 모른다).
 FILLED_AT_INGEST = {("cae_campaign", "report")}
 
-#: 참조 속성이 곧 관계인 것 — DynaForge 자체 어휘(dev_revision.task + revision_of)처럼 둘 다 싣는다.
-#: 꾸러미 작성기가 속성을 채우면 이 관계 줄을 함께 긋는다(손으로 두 번 쓰다 어긋나지 않게).
+#: 참조 속성이 곧 관계인 것(다대일). 꾸러미는 이 관계를 **줄로 싣지 않고** 속성으로만 싣는다 —
+#: 대응표는 꾸러미 머리 `ref_relations` 에 실린다. 받는 쪽이 줄이 필요하면 거기서 긋는다.
 REF_RELATIONS = {
     ("cae_run", "campaign"): "run_of",
     ("cae_part", "campaign"): "part_in_campaign",
@@ -41,8 +41,6 @@ REF_RELATIONS = {
     ("cae_load_transfer", "contact"): "transfer_via",
     ("cae_load_transfer", "from_part"): "transfer_from",
     ("cae_load_transfer", "to_part"): "transfer_to",
-    ("cae_load_path", "part_a"): "path_between",
-    ("cae_load_path", "part_b"): "path_between",
     ("cae_hotspot", "response"): "hotspot_of",
 }
 
@@ -133,7 +131,11 @@ _TYPES = [
                 help="1 G 를 덱 가속도 단위로 나타낸 값(ton-mm-s 이면 9806.65). G 값은 이것으로 나눈 결과다."),
            _num("impactor_part_id", "충격체 파트", help="부분충격 DOE 의 충격체 PID. 낙하에는 없다."),
            _num("impact_speed", "충격 속도", "mm/s",
-                help="충격 직전 속력. 낙하는 S1 /posture 의 초기 속도 크기, 부분충격은 충격체 초기 속도 크기."),
+                help="충격 직전 속력. 낙하·단일 런은 덱 *INITIAL_VELOCITY 의 크기(없으면 S1 /posture 초기 속도), "
+                     "부분충격은 충격체 초기 속도 크기."),
+           _num("drop_height", "낙하 높이", "mm",
+                help="DropSet.json initial_conditions.drop_height. 충격 속도와 √(2gh) 가 3% 안에서 맞을 때만 싣는다"
+                     "(높이의 단위를 그것으로 확인한다)."),
            _enum("yield_source", "항복값 출처",
                  ["dropset_part_yield", "yield_map", "cli_yield_stress", "mat_card", "none"],
                  help="안전율에 쓴 항복 한계의 출처. none 이면 안전율을 셈하지 않았다."),
@@ -144,8 +146,8 @@ _TYPES = [
           "LS-DYNA 해석 한 번 — 전각도 낙하의 한 방향, 부분충격의 한 위치. 키 `<캠페인>/run/<런 폴더>`.",
           [_ref("campaign", "캠페인", "cae_campaign", "런", required=True),
            _txt("case_key", "런 키", required=True,
-                help="리포트가 런을 부르는 이름 — 전각도 낙하·deep 은 런 폴더(Run_…), 부분충격은 위치 이름(pos_id). "
-                     "캠페인 안에서 유일하다."),
+                help="리포트가 런을 부르는 이름 — DynaForge impact_cases.case_key 와 같다. 전각도 낙하는 런 폴더(Run_…, "
+                     "없으면 방향 이름, 그것도 없으면 run_<순번>), 부분충격은 위치 이름(pos_id), 단일 런(deep)은 single."),
            _txt("angle_name", "방향 이름",
                 help="DOE 표의 이름(F_TOP, E_…, C_…, P0123 등). 못 맞추면 R{roll}_P{pitch}_Y{yaw}."),
            _num("roll_deg", "롤", "deg"), _num("pitch_deg", "피치", "deg"),
@@ -157,11 +159,11 @@ _TYPES = [
            _num("impact_dir_z", "충격 방향 z",
                 help="기기 좌표계에서 본 낙하 방향 단위벡터 d = Rᵀ(0,0,−1), R = Rx(roll)·Ry(pitch)·Rz(yaw) "
                      "(리포트 지도와 같은 식)."),
-           _txt("run_folder", "런 폴더", help="해석 산출물 폴더 이름(Run_…). 부분충격은 case_key 가 위치 이름이라 따로 둔다."),
+           _txt("run_folder", "런 폴더", help="해석 산출물 폴더 이름(Run_…). case_key 가 폴더가 아닐 때(부분충격·단일 런)도 여기 있다."),
            _txt("impact_face", "충격 면", help="부분충격 DOE 의 면 코드(F1…F6)."),
            _num("impact_x", "충격 위치 x", "mm", help="면 좌표계의 충격 위치(step_config LocationX)."),
            _num("impact_y", "충격 위치 y", "mm"),
-           _enum("solver_quality", "해석 품질", ["pass", "warn", "fail", "unknown"],
+           _enum("solver_quality", "해석 품질", ["PASS", "WARN", "FAIL", "UNKNOWN"],
                  help="glstat 에너지 수지 게이트(총에너지 표류·hourglass·sliding) 판정. 부분충격 리포트가 낸다."),
            _num("num_states", "상태 수"), _num("end_time", "끝 시각", "s"),
            _bool("success", "해석 성공", help="분석 결과를 읽었으면 참. 거짓이면 이 런의 응답 객체가 없다."),
@@ -177,6 +179,9 @@ _TYPES = [
            _num("part_id", "파트 번호", required=True, help="LS-DYNA PID."),
            _txt("name", "파트 이름", help="덱 *PART 제목."),
            _txt("part_group", "파트 묶음", help="이름에서 `\\` 또는 `/` 앞부분. 없으면 Other."),
+           _num("material_id", "재질 번호", help="덱 *PART 의 MID."),
+           _txt("material_type", "재질 모델", help="*MAT 카드 종류(ELASTIC, PIECEWISE_LINEAR_PLASTICITY 등)."),
+           _txt("material_name", "재질 이름", help="*MAT_…_TITLE 의 제목. 제목 없는 카드면 비운다."),
            _num("yield_limit", "항복 한계", "MPa", help="최소 안전율을 정한 한계(binding)."),
            _txt("yield_criterion", "항복 기준", help="그 한계가 무엇에 대한 것인가(von_mises, max_principal)."),
            _num("worst_von_mises", "최대 등가응력(전 방향)", "MPa",
@@ -193,10 +198,11 @@ _TYPES = [
            _bool("safety_factor_complete", "안전율 완전",
                  help="거짓이면 한계 일부의 응력을 재지 못해 안전율이 실제보다 클 수 있다(리포트는 이때 critical 로 "
                       "단정하지 않는다)."),
-           _enum("severity", "판정", ["ok", "warning", "critical", "unknown"],
-                 help="어휘 공통: 안전율 < 1 critical, < 1.5 warning(불완전하면 warning). 전각도 낙하만 가속도 "
-                      "> 200,000 G critical, > 50,000 G warning 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 "
-                      "가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 unknown."),
+           _enum("severity", "판정", ["OK", "WARNING", "CRITICAL", "UNKNOWN"],
+                 help="어휘 공통: 안전율 < 1 CRITICAL, < 1.5 WARNING(불완전하면 WARNING). 전각도 낙하만 가속도 "
+                      "> 200,000 G CRITICAL, > 50,000 G WARNING 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 "
+                      "가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 UNKNOWN. 철자는 "
+                      "DynaForge 소견 심각도와 같다."),
            _num("von_mises_cov", "방향 의존도",
                 help="런별 최대 등가응력의 변동계수(표준편차 ÷ 평균, 모집단). 0.5 이상이면 방향에 강하게 의존."),
            _num("n_runs_measured", "잰 런 수", help="이 파트의 등가응력이 있는 런 수(포락·변동계수의 분모).")]),
@@ -288,7 +294,8 @@ _TYPES = [
     _type("cae_finding", "판정 소견", "AlertTriangle",
           "후처리가 낸 판정 문장(항복 초과, 과대 가속도, 단위 불일치 등). 키 `<캠페인>/finding/<순번>`.",
           [_ref("campaign", "캠페인", "cae_campaign", "판정 소견", required=True),
-           _enum("severity", "심각도", ["critical", "warning", "info"], required=True),
+           _enum("severity", "심각도", ["CRITICAL", "WARNING", "INFO"], required=True,
+                 help="리포트 소견 철자 그대로 — DynaForge 의 소견 심각도와 같다."),
            _txt("title", "제목", required=True),
            _txt("detail", "내용", long=True),
            _txt("recommendation", "권고", long=True)]),

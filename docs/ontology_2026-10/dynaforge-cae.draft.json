@@ -120,7 +120,14 @@
           "label": "충격 속도",
           "data_type": "number",
           "unit": "mm/s",
-          "help": "충격 직전 속력. 낙하는 S1 /posture 의 초기 속도 크기, 부분충격은 충격체 초기 속도 크기."
+          "help": "충격 직전 속력. 낙하·단일 런은 덱 *INITIAL_VELOCITY 의 크기(없으면 S1 /posture 초기 속도), 부분충격은 충격체 초기 속도 크기."
+        },
+        {
+          "key": "drop_height",
+          "label": "낙하 높이",
+          "data_type": "number",
+          "unit": "mm",
+          "help": "DropSet.json initial_conditions.drop_height. 충격 속도와 √(2gh) 가 3% 안에서 맞을 때만 싣는다(높이의 단위를 그것으로 확인한다)."
         },
         {
           "key": "yield_source",
@@ -172,7 +179,7 @@
           "key": "case_key",
           "label": "런 키",
           "data_type": "text",
-          "help": "리포트가 런을 부르는 이름 — 전각도 낙하·deep 은 런 폴더(Run_…), 부분충격은 위치 이름(pos_id). 캠페인 안에서 유일하다.",
+          "help": "리포트가 런을 부르는 이름 — DynaForge impact_cases.case_key 와 같다. 전각도 낙하는 런 폴더(Run_…, 없으면 방향 이름, 그것도 없으면 run_<순번>), 부분충격은 위치 이름(pos_id), 단일 런(deep)은 single.",
           "required": true
         },
         {
@@ -233,7 +240,7 @@
           "key": "run_folder",
           "label": "런 폴더",
           "data_type": "text",
-          "help": "해석 산출물 폴더 이름(Run_…). 부분충격은 case_key 가 위치 이름이라 따로 둔다."
+          "help": "해석 산출물 폴더 이름(Run_…). case_key 가 폴더가 아닐 때(부분충격·단일 런)도 여기 있다."
         },
         {
           "key": "impact_face",
@@ -259,10 +266,10 @@
           "label": "해석 품질",
           "data_type": "enum",
           "enum_options": [
-            "pass",
-            "warn",
-            "fail",
-            "unknown"
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN"
           ],
           "help": "glstat 에너지 수지 게이트(총에너지 표류·hourglass·sliding) 판정. 부분충격 리포트가 낸다."
         },
@@ -338,6 +345,24 @@
           "label": "파트 묶음",
           "data_type": "text",
           "help": "이름에서 `\\` 또는 `/` 앞부분. 없으면 Other."
+        },
+        {
+          "key": "material_id",
+          "label": "재질 번호",
+          "data_type": "number",
+          "help": "덱 *PART 의 MID."
+        },
+        {
+          "key": "material_type",
+          "label": "재질 모델",
+          "data_type": "text",
+          "help": "*MAT 카드 종류(ELASTIC, PIECEWISE_LINEAR_PLASTICITY 등)."
+        },
+        {
+          "key": "material_name",
+          "label": "재질 이름",
+          "data_type": "text",
+          "help": "*MAT_…_TITLE 의 제목. 제목 없는 카드면 비운다."
         },
         {
           "key": "yield_limit",
@@ -417,12 +442,12 @@
           "label": "판정",
           "data_type": "enum",
           "enum_options": [
-            "ok",
-            "warning",
-            "critical",
-            "unknown"
+            "OK",
+            "WARNING",
+            "CRITICAL",
+            "UNKNOWN"
           ],
-          "help": "어휘 공통: 안전율 < 1 critical, < 1.5 warning(불완전하면 warning). 전각도 낙하만 가속도 > 200,000 G critical, > 50,000 G warning 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 unknown."
+          "help": "어휘 공통: 안전율 < 1 CRITICAL, < 1.5 WARNING(불완전하면 WARNING). 전각도 낙하만 가속도 > 200,000 G CRITICAL, > 50,000 G WARNING 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 UNKNOWN. 철자는 DynaForge 소견 심각도와 같다."
         },
         {
           "key": "von_mises_cov",
@@ -924,10 +949,11 @@
           "label": "심각도",
           "data_type": "enum",
           "enum_options": [
-            "critical",
-            "warning",
-            "info"
+            "CRITICAL",
+            "WARNING",
+            "INFO"
           ],
+          "help": "리포트 소견 철자 그대로 — DynaForge 의 소견 심각도와 같다.",
           "required": true
         },
         {

@@ -69,7 +69,7 @@ def test_impact_runs_are_positions():
     runs = _objs(doc, "cae_run")
     r2 = runs["run/F5_DOE_002"]
     assert r2["case_key"] == "F5_DOE_002" and r2["run_folder"] == "Run_2" and r2["impact_face"] == "F5"
-    assert r2["solver_quality"] == "fail" and r2["first_contact_time"] == 1e-5 and r2["roll_deg"] == 90.0
+    assert r2["solver_quality"] == "FAIL" and r2["first_contact_time"] == 1e-5 and r2["roll_deg"] == 90.0
     camp = _objs(doc, "cae_campaign")["campaign"]
     assert camp["impactor_part_id"] == 24 and camp["impact_speed"] == 4905.0 and camp["g_factor"] == 9806.65
     x = _objs(doc, "cae_load_transfer")["xfer/F5_DOE_002/92"]
@@ -79,13 +79,13 @@ def test_impact_runs_are_positions():
 def test_impact_has_no_absolute_g_rule():
     # 부분충격 분석기는 가속도 절대 기준을 두지 않는다 — 20 G 든 20만 G 든 한계 없으면 unknown
     doc = impact.build(_impact_report(), payload=_payload())
-    assert _objs(doc, "cae_part")["part/1"]["severity"] == "unknown"
+    assert _objs(doc, "cae_part")["part/1"]["severity"] == "UNKNOWN"
 
 
 def test_impact_part_yield_gives_safety_factor():
     doc = impact.build(_impact_report({"1": 100.0}), payload=_payload())
     p1 = _objs(doc, "cae_part")["part/1"]
-    assert p1["min_safety_factor"] == pytest.approx(100 / 120) and p1["severity"] == "critical"
+    assert p1["min_safety_factor"] == pytest.approx(100 / 120) and p1["severity"] == "CRITICAL"
     assert _objs(doc, "cae_campaign")["campaign"]["yield_source"] == "mat_card"
 
 
@@ -131,14 +131,16 @@ def _kw(rho):
 def test_single_run_reads_histories_not_zero_defaults():
     doc = deep.build(_single(), flow=None, keyword=_kw(7.85e-9))
     r = _objs(doc, "cae_part_response")
-    assert r["resp/Run_9/1"]["peak_von_mises"] == 250.0 and r["resp/Run_9/1"]["peak_g"] == pytest.approx(10.0)
+    # 런 키는 DynaForge 가 deep 에 쓰는 single — 실제 폴더는 run_folder
+    assert r["resp/single/1"]["peak_von_mises"] == 250.0 and r["resp/single/1"]["peak_g"] == pytest.approx(10.0)
     # 파트 2: 주응력·변형률·가속도 이력이 없다 — PartSummary 의 0.0 을 싣지 않는다
-    assert set(r["resp/Run_9/2"]) == {"run", "part", "peak_von_mises", "peak_von_mises_time"}
-    run = _objs(doc, "cae_run")["run/Run_9"]
-    assert run["case_key"] == "Run_9" and run["analyzer_commit"] == "abc1234" and run["success"] is True
+    assert set(r["resp/single/2"]) == {"run", "part", "peak_von_mises", "peak_von_mises_time"}
+    run = _objs(doc, "cae_run")["run/single"]
+    assert run["case_key"] == "single" and run["run_folder"] == "Run_9"
+    assert run["analyzer_commit"] == "abc1234" and run["success"] is True
     p1 = _objs(doc, "cae_part")["part/1"]
-    assert p1["min_safety_factor"] == pytest.approx(0.8) and p1["severity"] == "critical"
-    assert "hs/Run_9/1/von_mises/solid/1" in _objs(doc, "cae_hotspot")
+    assert p1["min_safety_factor"] == pytest.approx(0.8) and p1["severity"] == "CRITICAL"
+    assert "hs/single/1/von_mises/solid/1" in _objs(doc, "cae_hotspot")
     assert doc["units"]["system"] == "ton_mm_s"
 
 
@@ -146,6 +148,6 @@ def test_single_run_units_need_time_cross_check():
     # 밀도는 ton-mm-s 인데 끝 시각 3.0 → ms 덱일 수 있다 — 단정하지 않는다
     doc = deep.build(_single(end_time=3.0), flow=None, keyword=_kw(7.85e-9))
     assert doc["units"]["system"] == "unknown" and "ms" in doc["units"]["note"]
-    assert "peak_g" not in _objs(doc, "cae_part_response")["resp/Run_9/1"]
+    assert "peak_g" not in _objs(doc, "cae_part_response")["resp/single/1"]
     doc = deep.build(_single(), flow=None, keyword=None)
     assert doc["units"]["system"] == "unknown"

@@ -88,16 +88,20 @@ def test_unknown_units_keep_raw_values():
     assert pkg.units.convert("MPa", 2.5e8) == 2.5e8
 
 
-def test_ref_properties_draw_their_relations_and_none_is_dropped():
+def test_many_to_one_lives_in_properties_not_rows_and_none_is_dropped():
+    # 다대일은 참조 속성이 곧 관계다 — 줄로 싣지 않고, 어느 속성이 어느 관계인지는 머리에 적는다
     pkg = _pkg()
     _campaign(pkg)
     pkg.add("cae_run", "run/r1", "r1", {"campaign": "campaign", "case_key": "r1", "end_time": None})
+    pkg.relate("run_of", ("cae_run", "run/r1"), ("cae_campaign", "campaign"))
+    assert any("줄로 싣지 않는다" in f for f in pkg.faults)
+    pkg.faults.clear()
     doc = pkg.finish()
     run = next(o for o in doc["objects"] if o["type"] == "cae_run")
-    assert "end_time" not in run["properties"]
-    assert doc["relations"] == [{"relation": "run_of", "src": ["cae_run", "run/r1"],
-                                 "dst": ["cae_campaign", "campaign"], "properties": {}}]
-    assert doc["counts"] == {"objects": {"cae_campaign": 1, "cae_run": 1}, "relations": {"run_of": 1}}
+    assert run["properties"]["campaign"] == "campaign" and "end_time" not in run["properties"]
+    assert doc["relations"] == []
+    assert {"type": "cae_run", "property": "campaign", "relation": "run_of"} in doc["ref_relations"]
+    assert doc["counts"] == {"objects": {"cae_campaign": 1, "cae_run": 1}, "relations": {}}
 
 
 def test_faults_are_collected_not_first_only():

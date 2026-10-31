@@ -123,7 +123,8 @@ def add_transfers(pkg, flows: dict, run_keys: dict[str, str], part_keys: dict[in
         imps = sorted(r[1] for r in runs)
         top = max(runs, key=lambda r: r[1])
         works = [r[3] for r in runs if r[3] is not None]
-        pkg.add("cae_load_path", f"path/{a}-{b}", f"{a} ↔ {b}", {
+        key = f"path/{a}-{b}"
+        pkg.add("cae_load_path", key, f"{a} ↔ {b}", {
             "campaign": "campaign", "part_a": part_keys[a], "part_b": part_keys[b],
             "n_runs_engaged": len(runs),
             "engage_ratio": len(runs) / n_flow_runs if n_flow_runs else None,
@@ -134,3 +135,6 @@ def add_transfers(pkg, flows: dict, run_keys: dict[str, str], part_keys: dict[in
             "peak_force_max": max(r[2] for r in runs),
             "work_max": max(works) if works else None,
         })
+        # 다대다 — 참조 속성(part_a·part_b)과 별개로 두 끝을 줄로 긋는다(DynaForge 가 그래프로 따라간다)
+        for end in (a, b):
+            pkg.relate("path_between", ("cae_load_path", key), ("cae_part", part_keys[end]))
