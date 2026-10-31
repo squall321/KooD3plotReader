@@ -15,6 +15,10 @@ class Finding:
     title: str
     detail: str
     recommendation: str
+    #: 이 소견이 가리키는 파트. **정해질 때만** 채운다 — 캠페인 전체를 두고
+    #: 하는 말(단위 미검출, 맵 자릿수 등)에는 파트가 없다. 0 이나 -1 로
+    #: 채우면 읽는 쪽이 '파트 0' 으로 읽으므로 None 으로 둔다.
+    part_id: int | None = None
 
 
 @dataclass

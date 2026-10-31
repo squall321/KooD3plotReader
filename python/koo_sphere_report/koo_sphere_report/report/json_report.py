@@ -60,7 +60,10 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
         "angular_spacing_deg": report.angular_spacing_deg,
         "sphere_coverage": report.sphere_coverage,
         "simulation_params": dataclasses.asdict(report.simulation_params),
-        "findings": [dataclasses.asdict(f) for f in report.findings],
+        # part_id 는 정해진 소견에만 실린다 — None 이면 키 자체를 뺀다.
+        "findings": [{k: v for k, v in dataclasses.asdict(f).items()
+                      if not (k == "part_id" and v is None)}
+                     for f in report.findings],
         "parts": {},
         "results_summary": [],
         # 검출된 단위계. federate 사이드카가 이것을 보고 리비전 간 단위 불일치를
@@ -112,6 +115,13 @@ def save_json(report: Report, path: str, include_timeseries: bool = True) -> Non
             "num_states": sr.num_states,
             "parts": {},
         }
+        # 해석 끝시각과 분석 빌드 — 없으면 키를 만들지 않는다(0·빈 글자 금지).
+        # 이 둘이 없으면 소비자가 런당 93 MB 짜리 analysis_result.json 을
+        # 열어야 한다 (DynaForge 온톨로지 꾸러미 요청, 2026-10-31).
+        if sr.end_time is not None:
+            run_summary["end_time"] = sr.end_time
+        if getattr(sr, "tool_commit", ""):
+            run_summary["tool_commit"] = sr.tool_commit
         # 핫스팟 군집 — 없는 런에는 키를 만들지 않는다 (빈 배열도 '있다' 로 읽힌다)
         if sr.hotspot_clusters:
             run_summary["hotspot_clusters"] = sr.hotspot_clusters

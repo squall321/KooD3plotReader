@@ -177,6 +177,7 @@ def _generate_findings(report: Report) -> list[Finding]:
                         detail=detail + " — " + "; ".join(v.skipped),
                         recommendation="그 기준을 내도록 해석 작업을 걸어 다시 "
                                        "돌리면 완전한 판정이 나옵니다.",
+                        part_id=pid,
                     ))
                 elif v.sf < 1.0:
                     findings.append(Finding(
@@ -185,6 +186,7 @@ def _generate_findings(report: Report) -> list[Finding]:
                         detail=detail,
                         recommendation=f"Review part design or material for "
                                        f"{worst_angle} direction.",
+                        part_id=pid,
                     ))
                 elif v.sf < 1.5:
                     findings.append(Finding(
@@ -192,6 +194,7 @@ def _generate_findings(report: Report) -> list[Finding]:
                         title=f"Part {pid} ({pi.part_name}): low safety factor {v.sf:.2f}",
                         detail=detail,
                         recommendation="Consider reinforcement or design change.",
+                        part_id=pid,
                     ))
                 if used_default:
                     n_default += 1
@@ -204,6 +207,7 @@ def _generate_findings(report: Report) -> list[Finding]:
                 title=f"Part {pid} ({pi.part_name}): peak {worst_g/1e6:.2f} MG",
                 detail=f"Extreme impact acceleration at {worst_g_angle}",
                 recommendation="Verify component shock tolerance specification.",
+                part_id=pid,
             ))
 
     # ── 항복 판정의 바탕을 사실대로 적는다 ───────────────────────────
@@ -242,6 +246,7 @@ def _generate_findings(report: Report) -> list[Finding]:
 
 def analyze(test_dir: str | Path, yield_stress: float = 0.0,
             yield_map_path: str = "",
+            parallel_runs: int = 1,
             hotspot_part_ids: set[int] | None = None) -> Report:
     """Main analysis entry point. Load data and produce Report.
 
@@ -250,7 +255,8 @@ def analyze(test_dir: str | Path, yield_stress: float = 0.0,
     test_dir = Path(test_dir)
     (project_name, doe_strategy, sim_params, part_info, results,
      doe_angles, energy_flows, tool_builds, drop_reasons) = load_all(
-         test_dir, hotspot_part_ids=hotspot_part_ids)
+         test_dir, hotspot_part_ids=hotspot_part_ids,
+         parallel_runs=parallel_runs)
 
     # Count output run folders to determine total expected
     output_dir = test_dir / "output"
