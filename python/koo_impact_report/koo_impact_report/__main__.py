@@ -279,6 +279,7 @@ def main() -> None:
 
     # ── Output ────────────────────────────────────────────────────
     formats = set(args.format)
+    html_out = None   # 온톨로지 꾸러미가 짝지을 HTML (html 을 안 쓰면 None)
 
     if "terminal" in formats and print_report is not None:
         try:
@@ -308,6 +309,7 @@ def main() -> None:
         except OSError:
             size_kb = 0
         print(f"[main] HTML saved in {time.time() - t0:.1f}s ({size_kb:.0f} KB)")
+        html_out = html_path
 
     if "json" in formats and save_json is not None:
         json_path = args.json or (
@@ -315,6 +317,14 @@ def main() -> None:
         )
         save_json(report, json_path)
         print(f"[main] JSON saved: {json_path}")
+        # 온톨로지 꾸러미 — HTML 곁에 <줄기>.ontology.json. post_analyze 를 거치지 않는 길(7-1)도
+        # 같은 파일을 낸다. 실패해도 리포트는 그대로다(emit.beside 가 예외를 올리지 않는다).
+        try:
+            from koo_deep_report.ontology.emit import beside
+        except ImportError:
+            print("[main] 온톨로지 꾸러미 모듈(koo_deep_report.ontology)이 없어 건너뜀", file=sys.stderr)
+        else:
+            beside("impact", json_path, html_out)
 
     print("[main] Done.")
 

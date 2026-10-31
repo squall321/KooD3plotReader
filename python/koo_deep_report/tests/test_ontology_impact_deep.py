@@ -160,3 +160,35 @@ def test_deep_writes_report_ontology_next_to_html(tmp_path):
     import json
     doc = json.loads(out.read_text())
     assert doc["source"]["html"]["file"] == "report.html" and doc["scope"]["scenario_kind"] == "single_run"
+
+
+# ── 리포트 도구가 끝에 부르는 출력(emit.beside) ─────────────────────────────
+def test_tool_emit_writes_beside_html_and_never_raises(tmp_path, capsys):
+    import json
+    from koo_deep_report.ontology import emit
+    j = tmp_path / "impact_report.json"
+    j.write_text(json.dumps(_impact_report()))
+    (tmp_path / "impact_report.html").write_text("<html/>")
+    (tmp_path / "impact_payload.json").write_text(json.dumps({"schema_version": 1, "payload": _payload()}))
+    out = emit.beside("impact", j, tmp_path / "impact_report.html")
+    assert out == tmp_path / "impact_report.ontology.json"
+    doc = json.loads(out.read_text())
+    assert doc["source"]["html"]["file"] == "impact_report.html"
+    assert any(o["type"] == "cae_load_transfer" for o in doc["objects"])     # payload 를 HTML 곁에서 읽었다
+    # 망가진 JSON · 모르는 종류 — 이유를 말하고 None, 예외는 올리지 않는다(리포트가 정본)
+    bad = tmp_path / "broken.json"
+    bad.write_text("{")
+    assert emit.beside("impact", bad, None) is None
+    assert emit.beside("nope", j, None) is None
+    err = capsys.readouterr().err
+    assert "리포트는 그대로" in err and "모르는 리포트 종류" in err
+
+
+def test_tool_emit_without_html_uses_json_stem(tmp_path):
+    import json
+    from koo_deep_report.ontology import emit
+    j = tmp_path / "sphere_report.json"
+    j.write_text(json.dumps(_impact_report()))
+    out = emit.beside("impact", j, tmp_path / "missing.html")      # 없는 HTML 은 없는 것으로 친다
+    assert out == tmp_path / "sphere_report.ontology.json"
+    assert "html" not in json.loads(out.read_text())["source"]
