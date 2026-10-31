@@ -24,3 +24,30 @@
 - sphere 에너지 흐름이 `impactor_pid=None` 으로 빌더를 불러 맞닿음 판정이 `peak_force > 0` 으로 떨어진다 — 솔버 잔류 접촉력이 엣지가 될 수 있다.
 - 각도 이름 → 방향이 두 갈래(Python to_spherical 은 lat=roll · lon=pitch, JS 는 Rᵀ(0,0,−1)). 꾸러미는 JS 와 같은 물리 방향을 쓴다.
 - contact_map 이 접촉 카드 종류(TIED 등)를 버린다 · *INCLUDE 를 안 따른다.
+
+## 구현하며 정한 것 (10-31)
+- **결정 4건은 권장안으로 진행** — 대화가 이어지는 중에 질문으로 멈추지 않으려고. 모두 되돌리기 쉽다(단위 배수는 머리에
+  남고, 기본 산출은 꾸러미 단계만 빼면 된다). 사용자 확인 대기.
+- **단위를 바꿔 싣는 까닭** — 이 저장소의 원칙은 「응력을 환산하지 않는다」(yield_map docstring)지만, 그건 리포트 · 사이드카
+  안에서 라벨과 함께 다니는 값 이야기다. DynaForge 속성은 단위 글자가 하나로 고정이라 SI 덱 값을 그대로 넣으면
+  MPa 칸에 Pa 가 앉는다(1e6 배, 조용히 틀린다). 그래서 바꾸되 배수 · 덱 라벨을 머리에 남기고, 모르면 바꾸지 않는다.
+  안전율은 덱 단위끼리 셈해서 단위와 무관하다.
+- **참조 속성 + 관계 둘 다** — DynaForge 자체 어휘(dev_revision.task + revision_of)가 그렇다. 손으로 두 번 쓰다 어긋나지
+  않게 작성기가 속성에서 관계 줄을 긋는다(REF_RELATIONS).
+- **판정 규칙** — 응력 안전율 규칙은 공통(<1 critical, <1.5 warning, 불완전 warning). 가속도 기준(5만 · 20만 G)은
+  전각도 낙하 분석기의 것이라 거기만. 부분충격 분석기는 「절대 임계값 발명 금지」로 가속도 기준을 일부러 두지 않았고,
+  deep 은 응력비 0.8 경고를 쓴다 — 리포트마다 경고 문턱이 다를 수 있음을 어휘 설명에 적었다.
+- **sphere 는 사후, deep 은 그 자리에서** — sphere 는 a9 가 고치는 패키지라 report.json 을 사후에 읽는다(post_analyze 마지막
+  단계, S1 정보까지 담으려고 S1 뒤). deep 은 analysis_result.json 이 런당 93 MB 라 다시 읽지 않고 리포트가 메모리에 든
+  결과에서 바로 쓴다.
+- **0 위장 금지** — deep 의 PartSummary · MotionData 는 없을 때 0.0 을 준다(peak_strain, peak_max_principal, peak_acc_mag 등).
+  꾸러미는 이력의 global_max · 열을 직접 본다.
+- **흐름 그래프 단일 출처** — energy_flow_csv.build_flow 를 꺼내 CSV 와 꾸러미가 같은 그래프를 쓰게 했다.
+
+## 실데이터에서 나온 결함 (10-31)
+- **sphere 흐름 캐시가 수정 전 결과를 계속 냈다** — 63bad07(9-17)이 빌더 출력(충격량 자릿수, first_engage_t)을 바꿨는데
+  `_FLOW_CACHE_SCHEMA` 는 3 그대로. 지문이 stat 뿐이라 옛 캐시가 맞다고 판정됐다. v14 CID 92: 캐시 0.4151 · 시각 없음 vs
+  새로 셈 0.415073 · 1.9998e-05. a9 가 4 로 올림(2eeb7c0).
+- **sphere 화면 안전율이 파트별 항복값 · 단위를 무시** — JS 5곳. a9 가 파이썬에서 한 번 환산해 싣는 식으로 고침(2eeb7c0).
+- impact 의 ton-mm-ms 라벨 프리셋(MPa · kN · kJ)은 일관 단위계가 아니다(ton·mm/ms² = MN). 꾸러미는 이 단위계를 환산하지
+  않는다. impact 담당에 알릴 것.
