@@ -101,3 +101,12 @@
   (--test-dir 실분석은 캐시가 안 맞으면 해석을 다시 돌릴 수 있어 피했다).
 - 상류에는 e6cce7f 빌드를 멈추고 최종 커밋(e9d841d · 752c7e6 · c2595eb · c0ac6cf · a9 sphere 연결)으로 하자고 했다. -j 배선은 v44.
 - 0.4(cae_run.flow_scalars_only) 칸 정의를 DynaForge 에 보냈다. 생산 쪽은 이번 판 0.3 유지, 0.4 는 다음 판.
+
+## 0.4 와 배포 묶음 (10-31 밤)
+- DynaForge 가 0.4 정본을 커밋했다(bd03428, cae_run.flow_scalars_only). 0.3 은 history/ 로 — 판 목록으로 받는다.
+  사본을 bd03428 바이트로 옮기고(59b4e70b…), sphere 변환기가 report.json 흐름의 scalars_only 가 참일 때만 그 칸을 참으로 싣는다.
+- 상류 배포 세션(pykoocae-53)이 12시간 넘게 사용자 응답 대기(waiting)라 빌드가 시작되지 않았다(이 머신 SIF 는 여전히 v42 5abbc76).
+  빌드 전이니 판을 둘로 나눌 까닭이 없어 0.4(3ca2537)와 a9 의 from_json 수정(77ba4e9)까지 push 하고 최종 커밋을 77ba4e9 로
+  갱신해 알렸다. 커밋본 그대로 deep 147(+1 은 C++ 빌드 없는 작업 사본이라 건너뜀) · impact 148 · sphere 184 · post_analyze 통과,
+  sphere CLI 에 parallel 0건.
+- 배포 세션은 그쪽 사용자가 응답해야 움직인다 — 이 세션이 대신 승인하거나 다른 배포 경로를 쓰지 않는다(배포는 상류 표준 경로로만).
