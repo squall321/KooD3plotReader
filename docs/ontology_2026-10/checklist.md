@@ -16,7 +16,9 @@
 - [x] impact · deep 어댑터, deep 리포트가 ontology.json 을 함께 쓴다
 - [x] 시험 — 합성 27건 · post_analyze [12] 8건 · 실데이터 대조(v14 · Test_Impact_A · 핫스팟 런)
 - [x] post_analyze 마지막 단계 · koo_ontology 래퍼 · SIF %test
-- [ ] SIF 재빌드 · 배포 (상류 표준 경로)
+- [x] push (e6cce7f) · 상류에 SIF 배포 요청
+- [ ] 배포 판 확인 → SIF 안 koo_ontology 실캠페인 점검 → DynaForge 에 판 전달
+- [ ] c2595eb push (배포 빌드 뒤)
 - [ ] sphere report.json 에 런 끝 시각 · 분석기 커밋 · 소견 파트 번호 (a9 가 하기로)
 
 ## DynaForge (담당 결정 뒤)

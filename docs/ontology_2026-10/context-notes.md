@@ -77,3 +77,15 @@
   정본을 고치고 사본을 바이트 그대로 옮긴다. 판 번호는 파일 안 `_version`(검증기는 밑줄 칸을 보지 않는다). 정본 위치를
   적은 _note 를 넣느라 바이트가 바뀌어 0.3 으로 올렸다(내용은 0.2 와 같다). docs 의 초안 JSON 은 지웠다.
 - push 와 SIF 배포를 상류 표준 경로로 청한다.
+
+## 배포 요청 뒤 (10-31)
+- push fdb1ad1..e6cce7f, 상류(pykoocae-53)에 e6cce7f 로 SIF 배포를 청했다(v43 f7aea4f 대신 — 이 머신은 아직 v42 5abbc76).
+- a9 의 2eeb7c0 에 sphere 2패스 흐름 적재가 메시지와 달리 섞여 나갔다(origin/main 에서 확인: _slim_flow · _flow_pass1,
+  analyzer · __main__ 에 parallel 없음). 기능은 같고 메모리만 준다. 상류 sphere_report.sh 는 `--help` 의 `--parallel-runs`
+  유무로 메모리 공식을 고르므로 이 판에선 옛 공식으로 과다 할당 — 상류에 보충으로 알렸다. -j 배선은 실측 뒤 v44.
+- a9 e9d841d(로컬): 축약 흐름에 scalars_only · dropped, report.json energy_flows_reduced, 내부 키 제거. 변환기는 영향 없음.
+  cae_run 에 flow_scalars_only 같은 표식을 둘지는 정본(DynaForge)이 정한다 — 0.4 후보로 알렸다.
+- c2595eb(로컬): report.json 의 런 end_time · tool_commit, 소견 part_id 를 있으면 읽는다. **배포 빌드가 끝나기 전에는
+  push 하지 않는다** — SIF def 가 GitHub main 최신을 clone 하므로 지금 올리면 상류에 말한 판과 다른 것이 빌드된다.
+- DynaForge 에: 정본은 0.3 바이트로 먼저 들일 것, 판 전환 때 받아들인 판들의 지문 목록으로 받을 것(아니면 배포된 생산 쪽
+  꾸러미가 막힌다).
