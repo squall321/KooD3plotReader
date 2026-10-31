@@ -83,6 +83,11 @@ def main():
         help="Material yield stress (MPa) for safety factor calculation",
     )
     parser.add_argument(
+        "-j", "--parallel-runs", type=int, default=1, metavar="N",
+        help="에너지 흐름 적재를 N개 프로세스로 (기본 1 = 현행, "
+             "0 = SLURM_CPUS_PER_TASK 또는 코어 수)",
+    )
+    parser.add_argument(
         "--yield-map", default="", metavar="FILE",
         help="파트별 항복 한계 JSON (값은 **덱 단위**, MPa 아님). 생략하면 "
              "첫 DropSet.json 의 model.part_yield 를 쓴다",
@@ -159,6 +164,7 @@ def main():
         t0 = time.time()
         report = analyze(test_dir, yield_stress=args.yield_stress,
                          yield_map_path=args.yield_map,
+                         parallel_runs=args.parallel_runs,
                          hotspot_part_ids=hotspot_part_ids)
         base_dir = str(test_dir.resolve())
         # 🔴 이 줄이 **먼저** 나가야 한다 — 상류 자동화 셸이 이 줄을 보고,
