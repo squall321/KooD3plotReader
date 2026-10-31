@@ -130,6 +130,7 @@
             "dropset_part_yield",
             "yield_map",
             "cli_yield_stress",
+            "mat_card",
             "none"
           ],
           "help": "안전율에 쓴 항복 한계의 출처. none 이면 안전율을 셈하지 않았다."
@@ -171,7 +172,7 @@
           "key": "case_key",
           "label": "런 키",
           "data_type": "text",
-          "help": "런 폴더 이름(Run_…). 캠페인 안에서 유일하다.",
+          "help": "리포트가 런을 부르는 이름 — 전각도 낙하·deep 은 런 폴더(Run_…), 부분충격은 위치 이름(pos_id). 캠페인 안에서 유일하다.",
           "required": true
         },
         {
@@ -229,10 +230,10 @@
           "help": "기기 좌표계에서 본 낙하 방향 단위벡터 d = Rᵀ(0,0,−1), R = Rx(roll)·Ry(pitch)·Rz(yaw) (리포트 지도와 같은 식)."
         },
         {
-          "key": "impact_location",
-          "label": "충격 위치",
+          "key": "run_folder",
+          "label": "런 폴더",
           "data_type": "text",
-          "help": "부분충격 DOE 의 위치 이름(pos_id). 낙하에는 없다."
+          "help": "해석 산출물 폴더 이름(Run_…). 부분충격은 case_key 가 위치 이름이라 따로 둔다."
         },
         {
           "key": "impact_face",
@@ -421,7 +422,7 @@
             "critical",
             "unknown"
           ],
-          "help": "안전율 < 1 critical, < 1.5 warning(불완전하면 warning), 가속도 > 200,000 G critical, > 50,000 G warning — 리포트 규칙과 같다. 한계도 가속도도 없으면 unknown."
+          "help": "어휘 공통: 안전율 < 1 critical, < 1.5 warning(불완전하면 warning). 전각도 낙하만 가속도 > 200,000 G critical, > 50,000 G warning 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 unknown."
         },
         {
           "key": "von_mises_cov",

@@ -12,11 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def write_energy_flow_csv(output_dir: Path, binout_data, keyword_path: Path | None,
-                          d3plot_path: Path | None = None) -> Path | None:
-    """energy_flow_edges.csv 를 output_dir 에 쓰고 경로 반환. 불가 시 None.
+def build_flow(binout_data, keyword_path: Path | None, d3plot_path: Path | None = None):
+    """binout + 덱 → (흐름 그래프 dict, contact_map). 못 지으면 None.
 
-    binout_data = parse_binout 결과(BinoutData) 또는 None. matsum 없으면 skip.
+    CSV 와 온톨로지 꾸러미(ontology.deep)가 **같은 그래프**를 쓰게 하는 단일 출처.
     """
     if binout_data is None or getattr(binout_data, "matsum", None) is None:
         return None
@@ -55,8 +54,21 @@ def write_energy_flow_csv(output_dir: Path, binout_data, keyword_path: Path | No
                              impactor_pid=None, max_pts=200)
     except Exception:
         return None
-    if not g or not g.get("edges"):
+    if not g:
         return None
+    return g, contact_map
+
+
+def write_energy_flow_csv(output_dir: Path, binout_data, keyword_path: Path | None,
+                          d3plot_path: Path | None = None) -> Path | None:
+    """energy_flow_edges.csv 를 output_dir 에 쓰고 경로 반환. 불가 시 None.
+
+    binout_data = parse_binout 결과(BinoutData) 또는 None. matsum 없으면 skip.
+    """
+    built = build_flow(binout_data, keyword_path, d3plot_path)
+    if built is None or not built[0].get("edges"):
+        return None
+    g = built[0]
 
     node_name = {n["node_id"]: n.get("name", n["node_id"]) for n in g.get("nodes", [])}
     csv_path = Path(output_dir) / "energy_flow_edges.csv"

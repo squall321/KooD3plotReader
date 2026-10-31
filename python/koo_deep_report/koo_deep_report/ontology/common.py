@@ -4,7 +4,8 @@
 
 - 안전율 = min(한계 ÷ 그 기준의 최대 응력). 한계의 응력을 못 쟀으면 「불완전」 — 실제보다
   클 수 있어 critical 로 단정하지 않고 warning 으로 둔다.
-- 안전율 < 1 critical, < 1.5 warning. 가속도 > 200,000 G critical, > 50,000 G warning.
+- 안전율 < 1 critical, < 1.5 warning. 가속도 > 200,000 G critical, > 50,000 G warning — 가속도 기준은
+  전각도 낙하 분석기의 것이라 그 어댑터만 켠다(부분충격 분석기는 가속도 절대 기준을 일부러 두지 않는다).
 - 한계가 없으면 응력 판정을 하지 않는다. 그때 가속도도 걸리지 않으면 ok 가 아니라 unknown —
   응력을 보지 않고 괜찮다고 말하지 않는다.
 """
@@ -55,7 +56,7 @@ def _worst(rows, metric, pick=max):
     return v[0], v[1]
 
 
-def envelope(rows: list[tuple[str, dict]], limits: list, evaluate) -> dict:
+def envelope(rows: list[tuple[str, dict]], limits: list, evaluate, *, g_rule: bool = True) -> dict:
     """한 파트의 런별 응답 [(런 키, {어휘 속성: 덱 단위 값})] → cae_part 포락 속성.
 
     `limits`·`evaluate` 는 koo_sphere_report.yield_map 의 YieldLimit 목록과 evaluate
@@ -91,7 +92,7 @@ def envelope(rows: list[tuple[str, dict]], limits: list, evaluate) -> dict:
             else:
                 stress_sev = "ok"
     g_sev = None
-    if g is not None:
+    if g is not None and g_rule:
         g_sev = "critical" if g > 200000 else "warning" if g > 50000 else "ok"
     if stress_sev is None:
         out["severity"] = g_sev if g_sev in ("warning", "critical") else "unknown"

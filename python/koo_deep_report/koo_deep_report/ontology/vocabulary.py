@@ -134,7 +134,8 @@ _TYPES = [
            _num("impactor_part_id", "충격체 파트", help="부분충격 DOE 의 충격체 PID. 낙하에는 없다."),
            _num("impact_speed", "충격 속도", "mm/s",
                 help="충격 직전 속력. 낙하는 S1 /posture 의 초기 속도 크기, 부분충격은 충격체 초기 속도 크기."),
-           _enum("yield_source", "항복값 출처", ["dropset_part_yield", "yield_map", "cli_yield_stress", "none"],
+           _enum("yield_source", "항복값 출처",
+                 ["dropset_part_yield", "yield_map", "cli_yield_stress", "mat_card", "none"],
                  help="안전율에 쓴 항복 한계의 출처. none 이면 안전율을 셈하지 않았다."),
            _txt("producer", "만든 도구"), _txt("producer_version", "만든 도구 판"),
            {"key": "produced_at", "label": "만든 시각", "data_type": "datetime"}]),
@@ -142,7 +143,9 @@ _TYPES = [
     _type("cae_run", "해석 런", "PlayCircle",
           "LS-DYNA 해석 한 번 — 전각도 낙하의 한 방향, 부분충격의 한 위치. 키 `<캠페인>/run/<런 폴더>`.",
           [_ref("campaign", "캠페인", "cae_campaign", "런", required=True),
-           _txt("case_key", "런 키", required=True, help="런 폴더 이름(Run_…). 캠페인 안에서 유일하다."),
+           _txt("case_key", "런 키", required=True,
+                help="리포트가 런을 부르는 이름 — 전각도 낙하·deep 은 런 폴더(Run_…), 부분충격은 위치 이름(pos_id). "
+                     "캠페인 안에서 유일하다."),
            _txt("angle_name", "방향 이름",
                 help="DOE 표의 이름(F_TOP, E_…, C_…, P0123 등). 못 맞추면 R{roll}_P{pitch}_Y{yaw}."),
            _num("roll_deg", "롤", "deg"), _num("pitch_deg", "피치", "deg"),
@@ -154,7 +157,7 @@ _TYPES = [
            _num("impact_dir_z", "충격 방향 z",
                 help="기기 좌표계에서 본 낙하 방향 단위벡터 d = Rᵀ(0,0,−1), R = Rx(roll)·Ry(pitch)·Rz(yaw) "
                      "(리포트 지도와 같은 식)."),
-           _txt("impact_location", "충격 위치", help="부분충격 DOE 의 위치 이름(pos_id). 낙하에는 없다."),
+           _txt("run_folder", "런 폴더", help="해석 산출물 폴더 이름(Run_…). 부분충격은 case_key 가 위치 이름이라 따로 둔다."),
            _txt("impact_face", "충격 면", help="부분충격 DOE 의 면 코드(F1…F6)."),
            _num("impact_x", "충격 위치 x", "mm", help="면 좌표계의 충격 위치(step_config LocationX)."),
            _num("impact_y", "충격 위치 y", "mm"),
@@ -191,8 +194,9 @@ _TYPES = [
                  help="거짓이면 한계 일부의 응력을 재지 못해 안전율이 실제보다 클 수 있다(리포트는 이때 critical 로 "
                       "단정하지 않는다)."),
            _enum("severity", "판정", ["ok", "warning", "critical", "unknown"],
-                 help="안전율 < 1 critical, < 1.5 warning(불완전하면 warning), 가속도 > 200,000 G critical, "
-                      "> 50,000 G warning — 리포트 규칙과 같다. 한계도 가속도도 없으면 unknown."),
+                 help="어휘 공통: 안전율 < 1 critical, < 1.5 warning(불완전하면 warning). 전각도 낙하만 가속도 "
+                      "> 200,000 G critical, > 50,000 G warning 을 더한다(그 리포트의 규칙 — 부분충격 리포트는 "
+                      "가속도 절대 기준을 두지 않는다). 응력 한계가 없고 가속도도 안 걸리면 unknown."),
            _num("von_mises_cov", "방향 의존도",
                 help="런별 최대 등가응력의 변동계수(표준편차 ÷ 평균, 모집단). 0.5 이상이면 방향에 강하게 의존."),
            _num("n_runs_measured", "잰 런 수", help="이 파트의 등가응력이 있는 런 수(포락·변동계수의 분모).")]),

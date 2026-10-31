@@ -205,7 +205,8 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
         if isinstance(v0, list) and len(v0) == 3 and all(C.num(c) is not None for c in v0):
             speeds.append(math.sqrt(sum(float(c) ** 2 for c in v0)))
         pkg.add("cae_run", rk, ang.get("name") or folder, {
-            "campaign": "campaign", "case_key": folder, "angle_name": ang.get("name") or None,
+            "campaign": "campaign", "case_key": folder, "run_folder": folder,
+            "angle_name": ang.get("name") or None,
             "roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw,
             "angle_category": cat if cat in _CATEGORIES else "unknown",
             "impact_dir_x": dx, "impact_dir_y": dy, "impact_dir_z": dz,

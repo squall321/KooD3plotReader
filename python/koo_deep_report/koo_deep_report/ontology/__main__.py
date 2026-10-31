@@ -3,6 +3,7 @@
 
     python3 -m koo_deep_report.ontology sphere <report.json> [-o OUT] [--test-dir DIR]
                                                [--yield-map FILE] [--yield-stress MPA]
+    python3 -m koo_deep_report.ontology impact <impact_report.json> [-o OUT]
     python3 -m koo_deep_report.ontology vocab [OUT]
 
 기본 출력은 입력 옆 `<이름>.ontology.json` (report.json → report.ontology.json).
@@ -54,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--yield-map", default="", help="리포트에 준 것과 같은 파트별 항복 맵(덱 단위)")
     s.add_argument("--yield-stress", type=float, default=0.0, help="리포트에 준 것과 같은 기본 항복응력(MPa)")
 
+    i = sub.add_parser("impact", help="전위치 부분충격 report json (옆의 impact_payload.json 도 읽는다)")
+    i.add_argument("report_json")
+    i.add_argument("-o", "--output", default="")
+
     v = sub.add_parser("vocab", help="어휘 JSON 을 쓴다(인자 없으면 표준출력)")
     v.add_argument("out", nargs="?", default="")
 
@@ -74,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
             doc = sphere.build(_load_json(src), report_path=src,
                                test_dir=Path(a.test_dir) if a.test_dir else None,
                                yield_map_path=a.yield_map, yield_stress=a.yield_stress)
+        elif a.cmd == "impact":
+            from . import impact
+            doc = impact.build(_load_json(src), report_path=src)
     except P.PackageError as e:
         print(f"Error: {e}", file=sys.stderr)
         for f in e.faults[:40]:
