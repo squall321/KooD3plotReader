@@ -30,8 +30,8 @@ def num(v):
 
 
 def add_findings(pkg, findings: list, part_keys: dict[int, str]) -> None:
-    """리포트 소견 → cae_finding. 제목이 'Part <PID> (' 로 시작하면 그 파트를 가리킨다
-    (분석기의 제목 꼴 — 소견에 파트 번호 칸이 따로 없어서다)."""
+    """리포트 소견 → cae_finding. 소견에 `part_id` 가 있으면 그 파트를, 없으면 제목이
+    'Part <PID> (' 로 시작할 때 그 파트를 가리킨다(분석기의 제목 꼴 — 옛 리포트에는 파트 번호 칸이 없다)."""
     for i, f in enumerate(findings or [], start=1):
         if not isinstance(f, dict):
             continue
@@ -45,9 +45,12 @@ def add_findings(pkg, findings: list, part_keys: dict[int, str]) -> None:
             "detail": str(f.get("detail") or "").strip() or None,
             "recommendation": str(f.get("recommendation") or "").strip() or None,
         })
-        m = _PART_TITLE.match(title)
-        if m and int(m.group(1)) in part_keys:
-            pkg.relate("finding_about", ("cae_finding", key), ("cae_part", part_keys[int(m.group(1))]))
+        pid = f.get("part_id")
+        if not (isinstance(pid, int) and not isinstance(pid, bool)):
+            m = _PART_TITLE.match(title)
+            pid = int(m.group(1)) if m else None
+        if pid in part_keys:
+            pkg.relate("finding_about", ("cae_finding", key), ("cae_part", part_keys[pid]))
 
 
 def _worst(rows, metric, pick=max):

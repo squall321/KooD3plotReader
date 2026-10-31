@@ -234,6 +234,8 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
             "angle_category": cat if cat in _CATEGORIES else "unknown",
             "impact_dir_x": dx, "impact_dir_y": dy, "impact_dir_z": dz,
             "num_states": C.num(r.get("num_states")), "success": True,
+            # 런 끝 시각 · 분석기 커밋 — report.json 이 실으면(koo_sphere_report 가 더하기로 함) 그대로
+            "end_time": C.num(r.get("end_time")), "analyzer_commit": r.get("tool_commit") or None,
             "first_contact_time": C.num(post.get("first_contact_s")),
             "s1_sha256": s1j.get("sha256") or None,
         })

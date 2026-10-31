@@ -283,3 +283,20 @@ def test_package_pairs_with_report_html_by_stem(tmp_path):
     (tmp_path / "report_Output2.html").unlink()
     doc = sphere.build(json.loads(rj.read_text()), report_path=rj, contact_map=_cmap())
     assert "html" not in doc["source"]                     # 짝이 없으면 지어내지 않는다
+
+
+def test_reads_run_end_time_commit_and_finding_part_id_when_present():
+    # koo_sphere_report 가 report.json 에 더하기로 한 칸 — 있으면 싣고, 없으면 지금처럼 빈다
+    rep = _report()
+    rep["results_summary"][0].update({"end_time": 0.003, "tool_commit": "2df44eb"})
+    rep["findings"].append({"severity": "WARNING", "title": "요약 소견 — 제목에 파트 꼴 없음",
+                            "detail": "x", "recommendation": "", "part_id": 2})
+    # 축약된 흐름(2패스) 표식이 붙어도 읽는 칸은 같다
+    rep["energy_flows"]["Run_B"].update({"scalars_only": True, "dropped": ["first_engage_t", "depth_map"]})
+    doc = sphere.build(rep, contact_map=_cmap())
+    runs = _objs(doc, "cae_run")
+    assert runs["run/Run_A"]["end_time"] == 0.003 and runs["run/Run_A"]["analyzer_commit"] == "2df44eb"
+    assert "end_time" not in runs["run/Run_B"]
+    about = {(s[1], d[1]) for s, d, _ in _rels(doc, "finding_about")}
+    assert ("finding/1", "part/1") in about and ("finding/3", "part/2") in about
+    assert "first_engage_time" not in _objs(doc, "cae_load_transfer")["xfer/Run_B/10"]
