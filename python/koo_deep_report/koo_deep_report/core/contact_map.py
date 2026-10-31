@@ -52,6 +52,8 @@ class ContactEndpoint:
     slave: PartRef
     master: PartRef
     confidence: float         # 1.0=direct part id, <1.0=vote share, 0.0=demoted
+    keyword: str = ""         # card keyword, e.g. "*CONTACT_TIED_SURFACE_TO_SURFACE_ID"
+                              # (tied vs. sliding contact — the force means different things)
 
 
 @dataclass
@@ -124,6 +126,7 @@ class _RawContact:
     sstyp: int
     msid: int
     mstyp: int
+    keyword: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +165,7 @@ def _parse_contact(lines: list[str], i: int, keyword: str) -> tuple[_RawContact 
     if not name:
         name = f"Contact_{cid}"
     return _RawContact(cid=cid, name=name, ssid=g(0), sstyp=g(2),
-                       msid=g(1), mstyp=g(3)), i
+                       msid=g(1), mstyp=g(3), keyword=keyword.split()[0]), i
 
 
 def _parse_set_part(lines: list[str], i: int, has_title: bool,
@@ -401,7 +404,8 @@ def parse_contact_map(kfile: Path, part_names: dict[int, str] | None = None) -> 
                                    part_names, set_part, set_part_title, seg_vote)
         conf = min(sc, mc)
         cmap.endpoints[raw.cid] = ContactEndpoint(
-            cid=raw.cid, name=raw.name, slave=slave, master=master, confidence=conf)
+            cid=raw.cid, name=raw.name, slave=slave, master=master, confidence=conf,
+            keyword=raw.keyword)
         if slave.kind == "iface" or master.kind == "iface":
             demoted += 1
             if 0.0 < conf < 0.9:

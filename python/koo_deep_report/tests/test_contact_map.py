@@ -146,6 +146,13 @@ def test_cid_92_tied_both_parts(kfile):
     assert e.confidence >= 0.9
 
 
+def test_card_keyword_kept(kfile):
+    # 묶임(TIED) 과 맞닿음을 가르려면 카드 이름이 남아야 한다 — 온톨로지 접촉 정의가 쓴다
+    cmap = parse_contact_map(kfile, {})
+    assert cmap.endpoints[92].keyword == "*CONTACT_TIED_SURFACE_TO_SURFACE_OFFSET_ID"
+    assert cmap.endpoints[172].keyword == "*CONTACT_AUTOMATIC_SURFACE_TO_SURFACE_ID"
+
+
 def test_no_demotions_in_clean_deck(kfile):
     cmap = parse_contact_map(kfile, {})
     demoted = sum(
