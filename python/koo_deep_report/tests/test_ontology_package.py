@@ -22,9 +22,12 @@ def test_vocabulary_is_the_vendored_bytes():
 
 
 @pytest.mark.skipif(not _DF_CANON.exists(), reason="DynaForge 정본이 아직 이 머신에 없다")
-def test_vendored_copy_matches_dynaforge_canonical():
-    # 정본은 DynaForge 에 있다(2026-10-31 결정) — 한 바이트라도 다르면 받는 쪽이 적재를 거절한다
-    assert _VENDORED.read_bytes() == _DF_CANON.read_bytes()
+def test_vendored_copy_is_an_accepted_dynaforge_version():
+    # 정본은 DynaForge 에 있다(2026-10-31 결정). 받는 쪽은 받아들인 판들(지금 정본 + history/ 의 옛 판)의
+    # 지문 목록으로 받는다 — 배포판은 정본보다 늦을 수 있으므로 그 목록 안이면 된다. 한 바이트라도 다르면 거절된다.
+    accepted = {hashlib.sha256(f.read_bytes()).hexdigest()
+                for f in [_DF_CANON, *sorted((_DF_CANON.parent / "history").glob("dynaforge-cae-*.json"))]}
+    assert hashlib.sha256(_VENDORED.read_bytes()).hexdigest() in accepted
 
 
 @pytest.mark.skipif(not _DF_VALIDATOR.exists(), reason="DynaForge 저장소가 이 머신에 없다")
