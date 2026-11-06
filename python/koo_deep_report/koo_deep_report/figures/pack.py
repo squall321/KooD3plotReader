@@ -37,7 +37,8 @@ _UNITS = {"ton-mm-s": ("MPa", "s", 1e3, "mJ", 9806.65), "g-mm-ms": ("MPa", "ms",
 _RENDER_LOCK = threading.Lock()
 _VERDICT = {"crit": "CRITICAL", "warn": "WARNING", "ok": "OK"}
 #: 이 꾸러미가 쓰는 파일 — 다시 만들 때 지난 실행의 그림이 섞이지 않게 이것만 지운다
-_OURS = re.compile(r"^(overview_peak|part_\d+_peak_[a-z_]+|part_\d+_history|energy|parts_peak)\.(png|svg)$"
+_OURS = re.compile(r"^(overview_(peak|worst)|part_\d+_(peak|worst)_[a-z_]+|part_\d+_history|energy|parts_(peak|worst))"
+                   r"\.(png|svg)$"
                    r"|^manifest\.json$")
 
 
@@ -208,6 +209,32 @@ def _part_info(inp: RunInputs, s, sc) -> dict[int, dict]:
     return info
 
 
+def range_text(sc, clim, U: str) -> str:
+    """제목 둘째 줄의 색 범위 — 「color 0–233 MPa (p99.5, above = magenta)」."""
+    above = ", above = magenta" if (_num(sc.peak_value) or 0) > sc.clim[1] else ""
+    return f"color {_fmt(sc.clim[0])}–{_fmt(sc.clim[1])} {U} ({clim if isinstance(clim, str) else 'fixed'}{above})"
+
+
+def draw(s, targets, hidden, view: str, out: Path, fid: str, title, info, *, unit_label: str, width: int = 1600,
+         height: int = 1100, clim: str | float = "p99.5", context_opacity: float = 0.15):
+    """한 장 — 장면을 정하고 PNG · SVG 를 쓴다. title(sc) → 제목 줄, info(sc) → 툴팁 dict.
+    (장면, manifest 항목의 공통 부분)을 돌려준다. 런 꾸러미와 캠페인 그림이 함께 쓴다."""
+    from . import png, scene, svg
+    sc = scene.build(s, targets, hidden, view=view, width=width, height=height, clim=clim,
+                     context_opacity=context_opacity)
+    lines = title(sc)
+    png.render(sc, out / f"{fid}.png", lines, legend_title=f"von Mises ({unit_label})",
+               peak_label=f"{'surface max' if sc.peak_inside else 'max'} {_fmt(sc.peak_value)}")
+    svg.write(sc, out / f"{fid}.svg", lines, info(sc), unit=unit_label)
+    cam = sc.cam
+    return sc, {"id": fid, "targets": sc.targets, "hidden": sc.hidden, "state": s.state_index, "time": _num(s.time),
+                "value": _num(sc.value_max), "surface_value": _num(sc.peak_value), "view": view,
+                "color_range": [_num(sc.clim[0]), _num(sc.clim[1])],
+                "camera": {"direction": np.round(cam.direction, 6).tolist(), "up": np.round(cam.up, 6).tolist(),
+                           "focal": np.round(cam.focal, 6).tolist(), "parallel_scale": _num(cam.scale)},
+                "files": {"png": f"{fid}.png", "svg": f"{fid}.svg"}}
+
+
 def summary(manifest: dict) -> str:
     figs = manifest.get("figures") or []
     n_snap = sum(1 for f in figs if (f.get("files") or {}).get("png"))
@@ -220,7 +247,7 @@ def build(inp: RunInputs, out_dir: str | Path, *, top: int = 5, figure_parts: li
           views: tuple[str, ...] = ("iso", "peak"), width: int = 1600, height: int = 1100,
           clim: str | float = "p99.5") -> dict:
     """그림을 만들고 manifest(dict)를 돌려준다. `out_dir/manifest.json` 도 쓴다."""
-    from . import mesh, png, scene, svg, xvfb
+    from . import mesh, xvfb
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -278,32 +305,23 @@ def build(inp: RunInputs, out_dir: str | Path, *, top: int = 5, figure_parts: li
             s = state(j.state)
             if j.t is not None and abs(s.time - j.t) > 1e-5 * abs(j.t) + 1e-12:
                 notes.append(f"{j.fid}: 읽은 상태 {s.state_index} 의 시각 {s.time:.6g} 이 이력의 최대 시각 {j.t:.6g} 과 다르다")
-            sc = scene.build(s, j.targets, hidden, view=j.view, width=width, height=height, clim=clim,
-                             context_opacity=context_opacity)
+            pp = inp.parts.get(j.pid) if j.pid is not None else None
             if j.pid is not None:
-                pp = inp.parts.get(j.pid)
                 head = f"Part {j.pid} {pp.name if pp else s.part_titles.get(j.pid, '')}".rstrip()
             else:
                 head = "All parts"
-            if j.pid is not None and pp is not None and pp.peak and j.state == pp.state:
+            sc, fig = draw(
+                s, j.targets, hidden, j.view, out, j.fid,
+                lambda sc: [f"{head} — von Mises max {_fmt(sc.value_max)} {U}",
+                            f"t = {inp.t_text(s.time)} · state {s.state_index} · {inp.run_folder} · "
+                            f"{range_text(sc, clim, U)} · view {j.view}"
+                            + (f" · hidden {', '.join(map(str, hidden))}" if hidden else "")],
+                lambda sc: _part_info(inp, s, sc), unit_label=U, width=width, height=height, clim=clim,
+                context_opacity=context_opacity)
+            if pp is not None and pp.peak and j.state == pp.state:
                 if abs(sc.value_max - pp.peak) > 1e-4 * abs(pp.peak):      # 같은 순간 · 같은 파트 — 해석기 최대와 같아야 한다
                     notes.append(f"{j.fid}: 그림의 최대 {sc.value_max:.6g} 이 해석기의 파트 최대 {pp.peak:.6g} 와 다르다")
-            above = ", above = magenta" if (_num(sc.peak_value) or 0) > sc.clim[1] else ""
-            title = [f"{head} — von Mises max {_fmt(sc.value_max)} {U}",
-                     f"t = {inp.t_text(s.time)} · state {s.state_index} · {inp.run_folder} · color "
-                     f"{_fmt(sc.clim[0])}–{_fmt(sc.clim[1])} {U} ({clim if isinstance(clim, str) else 'fixed'}{above})"
-                     f" · view {j.view}" + (f" · hidden {', '.join(map(str, hidden))}" if hidden else "")]
-            png.render(sc, out / f"{j.fid}.png", title, legend_title=f"von Mises ({U})",
-                       peak_label=f"{'surface max' if sc.peak_inside else 'max'} {_fmt(sc.peak_value)}")
-            svg.write(sc, out / f"{j.fid}.svg", title, _part_info(inp, s, sc), unit=U)
-            cam = sc.cam
-            return {"id": j.fid, "kind": j.kind, "part_id": j.pid, "targets": sc.targets, "hidden": sc.hidden,
-                    "state": s.state_index, "time": _num(s.time), "value": _num(sc.value_max),
-                    "surface_value": _num(sc.peak_value), "unit": inp.unit_stress,
-                    "view": j.view, "color_range": [_num(sc.clim[0]), _num(sc.clim[1])],
-                    "camera": {"direction": np.round(cam.direction, 6).tolist(), "up": np.round(cam.up, 6).tolist(),
-                               "focal": np.round(cam.focal, 6).tolist(), "parallel_scale": _num(cam.scale)},
-                    "files": {"png": f"{j.fid}.png", "svg": f"{j.fid}.svg"}, "caption": j.caption}
+            return {**fig, "kind": j.kind, "part_id": j.pid, "unit": inp.unit_stress, "caption": j.caption}
 
         done: dict[int, dict] = {}
         if jobs:

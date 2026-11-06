@@ -28,7 +28,7 @@ from .report.models import SingleResult, PartSummary
 from .report.html_report import generate_html
 
 
-_SUBCOMMANDS = {"batch", "compare", "gui"}
+_SUBCOMMANDS = {"batch", "compare", "gui", "figures"}
 
 
 def main() -> None:
@@ -47,6 +47,11 @@ def main() -> None:
             print("도움말: koo_deep_report --help", file=sys.stderr)
             sys.exit(1)
         return
+
+    if command == "figures":
+        # 리포트 그림(pack · snap · campaign) — 새 래퍼 없이 호스트 · SIF 에서 검증된 이 래퍼로 닿는다
+        from .figures.__main__ import main as figures_main
+        sys.exit(figures_main(argv[1:], prog="koo_deep_report figures"))
 
     if command == "batch":
         parser = argparse.ArgumentParser(

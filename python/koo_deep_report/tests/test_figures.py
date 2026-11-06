@@ -298,3 +298,67 @@ def test_existing_display_used_only_when_local_socket_lives():
     if live:
         n = live[0].name[1:]
         assert local_alive(f":{n}") and local_alive(f":{n}.0") and local_alive(f"unix:{n}")
+
+
+# ── 캠페인(sphere 최악 방향) ───────────────────────────────────────────────
+def _report():
+    return {"test_dir": "", "parts": {"1": {"part_name": "Frame"}, "2": {"part_name": "PKG"}},
+            "results_summary": [
+                {"run_folder": "Run_A", "angle": {"name": "P1", "roll": 0, "pitch": 10, "yaw": 0},
+                 "parts": {"1": {"peak_stress": 40.0}, "2": {"peak_stress": 70.0, "time_of_peak_stress": 1e-4}}},
+                {"run_folder": "Run_B", "angle": {"name": "P2", "roll": 5, "pitch": 20, "yaw": 0},
+                 "parts": {"1": {"peak_stress": 90.0}, "2": {"peak_stress": None}}},
+                {"run_folder": "", "parts": {"1": {"peak_stress": 999.0}}}],
+            "part_yield_limits": {"1": [{"value": 120.0, "criterion": "von_mises"},
+                                        {"value": 50.0, "criterion": "max_principal"}]}}
+
+
+def test_worst_runs_pick_the_largest_and_ignore_missing():
+    from koo_deep_report.figures import campaign
+    w = campaign.worst_runs(_report())
+    assert (w[1].run_folder, w[1].peak, w[1].n_runs) == ("Run_B", 90.0, 2)     # 런 폴더 없는 줄은 뺀다
+    assert (w[2].run_folder, w[2].n_runs) == ("Run_A", 1)                       # None 은 0 으로 치지 않는다
+    assert math.isclose(w[1].sf, 120 / 90) and w[1].severity == "WARNING"        # von Mises 한계만, sphere 규칙
+    assert w[2].sf is None and "P1 (roll 0° pitch 10° yaw 0°)" == w[2].angle_text
+    assert campaign.choose(w, 5, None, set()) == [1, 2]
+    assert campaign.choose(w, 5, [2, 7], set()) == [2]
+
+
+def test_peak_row_is_the_state_index(tmp_path):
+    from koo_deep_report.figures import campaign
+    f = tmp_path / "p.csv"
+    f.write_text("Time,Max_von_mises,Min_von_mises\n0.000000,0,0\n0.000001,5,0\n0.000001,9,0\n0.000002,9,0\n",
+                 encoding="utf-8")
+    assert campaign.peak_row(f) == (2, 1e-6, 9.0)                              # 첫 최대, 시각이 겹쳐도 줄 번호
+
+
+def test_campaign_end_to_end_with_synthetic_state(tmp_path, monkeypatch):
+    pytest.importorskip("pyvista")
+    import shutil
+    if not shutil.which("Xvfb"):
+        pytest.skip("Xvfb 없음")
+    from koo_deep_report.figures import campaign, mesh as M
+    rep = _report()
+    rep["test_dir"] = str(tmp_path)
+    (tmp_path / "report.json").write_text(json.dumps(rep), encoding="utf-8")
+    for run, vals in (("Run_A", {1: 40.0, 2: 70.0}), ("Run_B", {1: 90.0, 2: 1.0})):
+        st = tmp_path / "analysis_results" / run / "stress"
+        st.mkdir(parents=True)
+        for pid, v in vals.items():
+            (st / f"part_{pid}_von_mises.csv").write_text(f"Time,Max_von_mises\n0,0\n0.0001,{v}\n0.0002,1\n")
+        (tmp_path / "output" / run).mkdir(parents=True)
+        (tmp_path / "output" / run / "d3plot").write_bytes(b"x")
+
+    def fake(d3, i):
+        s = _two_parts()
+        s.part_max = {1: 90.0 if "Run_B" in str(d3) else 40.0, 2: 70.0 if "Run_A" in str(d3) else 1.0}
+        s.state_index = i
+        return s
+    monkeypatch.setattr(M, "read_state", fake)
+    m = campaign.build(tmp_path / "report.json", top=2, views=("iso",))
+    ids = [f["id"] for f in m["figures"]]
+    assert ids == ["overview_worst", "part_1_worst_iso", "part_2_worst_iso", "parts_worst"]
+    w1 = next(f for f in m["figures"] if f["id"] == "part_1_worst_iso")
+    assert w1["run_folder"] == "Run_B" and w1["state"] == 1 and w1["check"]["match"] and "⚠" not in w1["caption"]
+    assert (tmp_path / "figures" / "part_1_worst_iso.svg").stat().st_size > 500
+    assert json.loads((tmp_path / "figures" / "manifest.json").read_text(encoding="utf-8"))["scope"] == "campaign"
