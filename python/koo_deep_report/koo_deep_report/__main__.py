@@ -245,6 +245,18 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="(sliding) iso 스타일 OFF")
     p.set_defaults(section_view_sliding_iso_style=True)
 
+    # ── 리포트 그림 (figures/ — 최대 순간 스냅샷 PNG·SVG 호버 · 차트 · manifest.json) ──
+    p.add_argument("--no-figures", action="store_true",
+                   help="리포트 그림 꾸러미를 만들지 않는다 (기본은 만든다)")
+    p.add_argument("--figure-top", type=int, default=5, metavar="N",
+                   help="그릴 상위 파트 수 — 안전율 낮은 순, 안전율이 없으면 최대 응력 순 (default 5)")
+    p.add_argument("--figure-parts", nargs="+", type=int, default=None, metavar="ID",
+                   help="그릴 파트를 직접 고른다 — 주면 상위 N 대신 이것")
+    p.add_argument("--hide-parts", nargs="+", type=int, default=None, metavar="ID",
+                   help="그림에서 숨길 파트 — 바닥(환경 파트)은 자동으로 숨기고, 이것을 더한다")
+    p.add_argument("--figure-context-opacity", type=float, default=0.15, metavar="A",
+                   help="그림의 주변 파트 불투명도 0–1 (default 0.15)")
+
 
 def _load_design_overrides(path_str: str) -> dict[int, dict] | None:
     """Load per-part design overrides from JSON file."""
@@ -1120,6 +1132,9 @@ def run_single(args: argparse.Namespace) -> None:
     except Exception as _e:  # noqa: BLE001
         print(f"[koo_deep_report] contact-metrics skip: {type(_e).__name__}: {_e}")
 
+    # 5d. 리포트 그림 (figures/) — HTML 「리포트 그림」 탭이 소비하므로 HTML 앞에
+    _write_figures(result, output_dir, args)
+
     # 6. HTML 생성
     html_path = output_dir / "report.html"
     generate_html(result, html_path)
@@ -1162,6 +1177,28 @@ def _write_ua_schema(output_dir: Path) -> None:
         (output_dir / UA_SCHEMA_MARKER).write_text(f"{UA_OUTPUT_SCHEMA}\n", encoding="utf-8")
     except OSError:
         pass
+
+
+def _write_figures(result: SingleResult, output_dir: Path, args: argparse.Namespace) -> None:
+    """리포트 그림 꾸러미(figures/) — 기본으로 만든다(--no-figures 로 끈다). 실패해도 리포트는 그대로 나간다.
+
+    UA 산출물이 아니라 그 위에서 만드는 것이라 UA_OUTPUT_SCHEMA 는 올리지 않는다.
+    """
+    if getattr(args, "no_figures", False) or result.d3plot_result is None or result.sim_info.d3plot is None:
+        return
+    try:
+        from .figures import pack
+        m = pack.build(pack.inputs_from_result(result), output_dir / "figures",
+                       top=getattr(args, "figure_top", 5),
+                       figure_parts=getattr(args, "figure_parts", None),
+                       hide_parts=getattr(args, "hide_parts", None),
+                       context_opacity=getattr(args, "figure_context_opacity", 0.15))
+        result.figures = m                       # HTML 「리포트 그림」 탭이 소비
+        print(f"[koo_deep_report] 리포트 그림 ({output_dir.name}): {pack.summary(m)} → {output_dir / 'figures'}")
+        for n in m.get("notes") or []:
+            print(f"[koo_deep_report]   · {n}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[koo_deep_report] figures skip ({output_dir.name}): {type(e).__name__}: {e}")
 
 
 def _outputs_are_current(case_out: Path) -> bool:
@@ -1426,6 +1463,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
                               d3plot_path=sim_info.d3plot)
     except Exception:  # noqa: BLE001 — 배치 무회귀
         pass
+    _write_figures(result, output_dir, args)
     generate_html(result, output_dir / "report.html")
     try:
         from .ontology.deep import write_for_result

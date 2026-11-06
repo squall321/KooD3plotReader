@@ -37,8 +37,13 @@ def _build_html(result: SingleResult, report_dir: Path) -> str:
     has_tensors = dr is not None and bool(dr.peak_element_tensors)
     # 덩어리가 하나도 없어도 항목이 있으면 탭을 연다 — "선별됐지만 흩어졌다" 도 정보다.
     has_hotspot = dr is not None and bool(dr.hotspot_clusters)
+    # 그림을 하나도 못 만들었어도 알림이 있으면 연다 — 왜 비었는지가 보여야 한다
+    _fig = getattr(result, "figures", None) or {}
+    has_figures = bool(_fig.get("figures") or _fig.get("notes"))
 
     tabs = [("overview", "Overview")]
+    if has_figures:
+        tabs.append(("figures", "리포트 그림"))
     if has_stress:
         tabs.append(("stress", "응력·변형률"))
     if has_motion:
@@ -147,6 +152,11 @@ switchTab(TABS[0]);
 # JS data serialization
 # ---------------------------------------------------------------------------
 
+def _figures_for_js(m: dict) -> dict:
+    return {"units": m.get("units") or {}, "notes": list(m.get("notes") or []), "targets": m.get("targets") or [],
+            "figures": [{k: v for k, v in f.items() if k != "camera"} for f in (m.get("figures") or [])]}
+
+
 def _build_js_data(result: SingleResult) -> dict:
     dr = result.d3plot_result
     gl = result.glstat_data
@@ -155,6 +165,8 @@ def _build_js_data(result: SingleResult) -> dict:
     data: dict = {
         # rcforc 계측·검증. 없으면 빈 dict → 접촉 탭이 그 블록만 건너뛴다.
         "contact_metrics": (getattr(result, "contact_metrics", None) or {}),
+        # 리포트 그림 꾸러미 (figures/manifest.json). 카메라는 탭에서 안 쓰므로 뺀다.
+        "figures": _figures_for_js(getattr(result, "figures", None) or {}),
         "sim": {
             "name": si.path.name,
             "path": str(si.path),
@@ -584,6 +596,17 @@ a { color: var(--accent2); }
                 z-index: 9999; align-items: center; justify-content: center; flex-direction: column; }
 #render-modal.open { display: flex; }
 #render-modal video, #render-modal img { max-width: 95vw; max-height: 88vh; border-radius: 6px; }
+#render-modal object { width: 95vw; height: 88vh; background: #fff; border-radius: 6px; }
+/* 리포트 그림 */
+.fig-help { font-size: 0.85rem; color: var(--fg2); line-height: 1.5; margin: 4px 0 12px; }
+.fig-notes { font-size: 0.82rem; color: var(--fg2); margin: 0 0 12px 18px; }
+.fig-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.fig-card img { cursor: zoom-in; background: #fff; }
+.fig-cap { font-size: 0.85rem; color: var(--fg); margin: 8px 0 4px; line-height: 1.45; }
+.fig-links { font-size: 0.8rem; color: var(--fg2); }
+.fig-links a { color: var(--accent2); }
+.fig-chart { margin-top: 18px; }
+.fig-chart object { width: 100%; max-width: 960px; display: block; background: #fff; border-radius: 6px; }
 #render-modal .modal-label { color: #aaa; font-size: 0.85rem; margin-top: 10px; font-family: monospace; }
 #render-modal .modal-close { position: absolute; top: 16px; right: 20px; background: none; border: none;
                               color: #fff; font-size: 2rem; cursor: pointer; line-height: 1; }
@@ -761,6 +784,7 @@ function renderTab(tid) {
   if (!el) return;
   switch(tid) {
     case 'overview':   el.innerHTML = renderOverview(); break;
+    case 'figures':    el.innerHTML = renderFigures(); break;
     case 'stress':     el.innerHTML = renderStress(); initStressCharts(); break;
     case 'tensor':     el.innerHTML = renderTensor(); initTensorCharts(); break;
     case 'hotspot':    el.innerHTML = renderHotspot(); initHotspot(); break;
@@ -1738,6 +1762,44 @@ function updateSleoutChart() {
   ], {...PLOT_LAYOUT, title: {text: `슬라이딩 에너지 — ${ifc.name}`, font:{size:13}}}, PLOT_CONFIG);
 }
 
+// ── 리포트 그림 (figures/manifest.json) ─────────────────────────────────
+function _figEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+function renderFigures() {
+  const F = DATA.figures || {};
+  const figs = F.figures || [];
+  let h = `<div class="card"><h2>리포트 그림</h2>
+    <p class="fig-help">최대 순간 스냅샷 — 타겟 파트는 응력 색, 주변 파트는 반투명, 바닥(환경 파트)은 숨김.
+    그림을 누르면 크게 열리고, 그 위에 마우스를 올리면 파트 이름 · 이 순간 최대 · 안전율이 뜬다.
+    파일은 리포트 옆 <code>figures/</code> 폴더에 있고 <code>manifest.json</code> 이 그림마다 설명 · 순간 · 값을 담는다.</p>`;
+  if ((F.notes || []).length) {
+    h += '<ul class="fig-notes">' + F.notes.map(n => `<li>${_figEsc(n)}</li>`).join('') + '</ul>';
+  }
+  const snaps = figs.filter(f => f.files && f.files.png);
+  const charts = figs.filter(f => !(f.files && f.files.png) && f.files && f.files.svg);
+  if (snaps.length) {
+    h += '<div class="fig-grid">' + snaps.map(f => {
+      const svg = 'figures/' + f.files.svg, png = 'figures/' + f.files.png;
+      return `<div class="render-card fig-card">
+        <img src="${_figEsc(png)}" alt="${_figEsc(f.id)}" loading="lazy" data-svg="${_figEsc(svg)}"
+             data-cap="${_figEsc(f.caption)}" onclick="openModal(this.dataset.svg, this.dataset.cap)">
+        <div class="fig-cap">${_figEsc(f.caption)}</div>
+        <div class="fig-links"><a href="${_figEsc(svg)}" target="_blank">SVG (호버)</a> ·
+          <a href="${_figEsc(png)}" download>PNG</a></div></div>`;
+    }).join('') + '</div>';
+  }
+  for (const f of charts) {
+    const svg = 'figures/' + f.files.svg;
+    h += `<div class="fig-chart"><div class="fig-cap">${_figEsc(f.caption)}</div>
+      <object type="image/svg+xml" data="${_figEsc(svg)}"></object>
+      <div class="fig-links"><a href="${_figEsc(svg)}" target="_blank">SVG 새 창</a></div></div>`;
+  }
+  if (!figs.length) h += '<div class="warn-box">그림을 만들지 못했다 — 위 알림을 본다</div>';
+  return h + '</div>';
+}
+
 // ── Render Gallery ────────────────────────────────────────────────────
 function _mediaCard(relPath, label) {
   const ext = relPath.split('.').pop().toLowerCase();
@@ -2097,6 +2159,7 @@ function openModal(src, label) {
   const isVid = ext === 'mp4' || ext === 'webm';
   modal.querySelector('#modal-content').innerHTML = isVid
     ? `<video controls autoplay loop muted><source src="${src}" type="video/${ext}"></video>`
+    : ext === 'svg' ? `<object type="image/svg+xml" data="${src}"></object>`
     : `<img src="${src}" alt="${label}">`;
   modal.querySelector('.modal-label').textContent = label;
   modal.classList.add('open');

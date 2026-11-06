@@ -418,6 +418,8 @@ class SingleResult:
     #: rcforc 접촉력 계측·검증 (core.contact_metrics 계약). 계측 안 됐으면
     #: available=False 와 사유가 들어온다 — 빈 dict 가 아니다.
     contact_metrics: dict = field(default_factory=dict)
+    #: 리포트 그림 꾸러미의 manifest (figures/manifest.json 과 같다). 만들지 않았으면 빈 dict.
+    figures: dict = field(default_factory=dict)
     parts: dict[int, PartSummary] = field(default_factory=dict)
     label: str = ""
     yield_stress: float = 0.0  # legacy global override (0 = use per-part)
