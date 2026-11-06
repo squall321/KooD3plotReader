@@ -146,11 +146,9 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
         miss = [p for p in figure_parts if p not in worst]
         if miss:
             notes.append(f"report.json 에 응력 값이 없는 파트는 뺐다 — {miss}")
-    gw = max((w for w in worst.values() if w.pid not in hidden and w.peak > 0), key=lambda w: w.peak, default=None)
-
-    # 단위 — 첫 대상 런의 덱 밀도로 판정(deep 과 같은 규칙). report.json 이 단위를 실으면 그 라벨
+    # 단위 — 대상 런의 덱 밀도로 판정(deep 과 같은 규칙). report.json 이 단위를 실으면 그 라벨
     us = report.get("unit_system") if isinstance(report.get("unit_system"), dict) else {}
-    first_d3 = next((run_files(td, worst[p].run_folder)[1] for p in targets), None)
+    first_d3 = next((d for p in targets if (d := run_files(td, worst[p].run_folder)[1]) is not None), None)
     uid, label, note = pack._units([], pack._keyword(first_d3) if first_d3 else None, None)
     if us.get("id") in pack._UNITS:
         uid, label = us["id"], (report.get("unit_labels") or {}).get("stress") or pack._UNITS[us["id"]][0]
@@ -159,46 +157,60 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
     U = label if label.isascii() else "deck units"
     tinp = pack.RunInputs(Path(first_d3 or "."), "", {}, uid, label)
 
-    jobs = []                                   # (pid · None=전체, 런 폴더, 시점, 파일 id)
-    if gw is not None:
-        jobs.append((None, gw, "iso", "overview_worst"))
-    for pid in targets:
-        for view in views:
-            jobs.append((pid, worst[pid], view, f"part_{pid}_worst_{view}"))
-
     figs: list[dict] = []
+    cur: dict = {}
+    hid = sorted(set(hidden))                   # 숨길 파트 — 아래에서 환경 파트(바닥)를 더한다
+
+    def load(w: Worst):
+        """(상태, 환경 파트, (상태 번호, 시각, CSV 최대)) — 같은 런 · 같은 상태면 다시 읽지 않는다."""
+        ar, d3 = run_files(td, w.run_folder)
+        if ar is None or d3 is None:
+            raise FileNotFoundError(f"런 {w.run_folder} 의 analysis_results/stress · d3plot 을 찾지 못했다")
+        pk = peak_row(ar / "stress" / f"part_{w.pid}_von_mises.csv")
+        if pk is None:
+            raise ValueError(f"part_{w.pid}_von_mises.csv 에서 최대 줄을 찾지 못했다")
+        key = (str(d3), pk[0])
+        if cur.get("key") != key:
+            cur.clear()                                      # 큰 모델 — 상태는 하나만 들고 있는다
+            s = mesh.read_state(d3, pk[0])
+            cur.update(key=key, s=s, env=mesh.environment_parts(s) if auto_floor else [])
+        return cur["s"], cur["env"], pk
+
     with pack._RENDER_LOCK:
         try:
             with xvfb.display():
-                cur = {}
+                # 바닥(환경 파트)을 먼저 정한다 — 변형체 바닥이 응력 값을 가져 상위 N 에 끼지 않게(deep 꾸러미와 같은 순서)
+                gw, env = None, []
+                for w in sorted((w for w in worst.values() if w.pid not in hidden and w.peak > 0),
+                                key=lambda w: -w.peak)[:3]:
+                    try:
+                        _, env, _ = load(w)
+                    except Exception as e:  # noqa: BLE001
+                        notes.append(f"런 {w.run_folder} 를 읽지 못했다 — {type(e).__name__}: {e}")
+                        continue
+                    if w.pid not in env:
+                        gw = w
+                        break
+                hid = sorted(set(hidden) | set(env))
+                if env:
+                    notes.append(f"환경 파트(바닥 등)로 보고 숨겼다 — {env}")
+                targets = choose(worst, top, figure_parts, set(hid))
+                jobs = ([(None, gw, "iso", "overview_worst")] if gw is not None else []) + \
+                       [(pid, worst[pid], view, f"part_{pid}_worst_{view}") for pid in targets for view in views]
                 for pid, w, view, fid in jobs:
                     try:
-                        ar, d3 = run_files(td, w.run_folder)
-                        if ar is None or d3 is None:
-                            raise FileNotFoundError(f"런 {w.run_folder} 의 analysis_results/stress · d3plot 을 찾지 못했다")
-                        pk = peak_row(ar / "stress" / f"part_{w.pid}_von_mises.csv")
-                        if pk is None:
-                            raise ValueError(f"part_{w.pid}_von_mises.csv 에서 최대 줄을 찾지 못했다")
-                        st, t_row, v_row = pk
-                        key = (str(d3), st)
-                        if cur.get("key") != key:
-                            cur.clear()                  # 큰 모델 — 상태는 하나만 들고 있는다
-                            s = mesh.read_state(d3, st)
-                            env = mesh.environment_parts(s) if auto_floor else []
-                            cur.update(key=key, s=s, hid=sorted(set(hidden) | set(env)))
-                        s, hid = cur["s"], cur["hid"]
+                        s, _, (st, t_row, v_row) = load(w)
                         m = s.part_max.get(w.pid)
                         match = m is not None and abs(m - v_row) <= max(1e-4 * abs(v_row), 1e-6)
                         if not match:
                             notes.append(f"{fid}: 읽은 상태 {st} 의 파트 {w.pid} 최대 {pack._fmt(m)} 이 CSV 최대 "
                                          f"{v_row:.6g} 와 다르다 — 옛 분석기 산출물일 수 있다(다시 분석 권장)")
                         head = (f"Part {pid} {w.name}" if pid is not None else f"All parts @ worst of Part {w.pid} {w.name}")
-                        info_peak = {p: worst[p] for p in worst}
 
                         def info(sc, s=s):
                             d = {}
                             for q in sorted(set(s.face_part[sc.target_mask | sc.context_mask].tolist())):
-                                wq = info_peak.get(q)
+                                wq = worst.get(q)
                                 mq = s.part_max.get(q)
                                 d[q] = {"name": wq.name if wq else s.part_titles.get(q, f"Part {q}"),
                                         "value": round(mq, 4) if mq is not None and math.isfinite(mq) else None,
@@ -229,12 +241,12 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
                                      + (f", 환경 파트 {hid} 숨김." if hid else ".") + warn})
                     except Exception as e:  # noqa: BLE001
                         notes.append(f"{fid} 실패 — {type(e).__name__}: {e}")
-                cur.clear()
         except Exception as e:  # noqa: BLE001
             notes.append(f"화면 없는 렌더를 시작하지 못했다 — {type(e).__name__}: {e}")
+        cur.clear()
 
     try:
-        bars = sorted((w for w in worst.values() if w.pid not in hidden and w.peak > 0), key=lambda w: -w.peak)[:20]
+        bars = sorted((w for w in worst.values() if w.pid not in hid and w.peak > 0), key=lambda w: -w.peak)[:20]
         if bars:
             charts.bar_chart(out / "parts_worst.svg",
                              [{"label": f"{w.pid} {w.name}", "value": w.peak, "severity": w.severity,
@@ -260,7 +272,7 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
         "campaign": {"test_dir": str(td), "report": rp.name, "group": group or None,
                      "runs": len(report.get("results_summary") or report.get("results") or [])},
         "units": {"system": uid, "stress": label, "time": pack._UNITS[uid][1] if uid in pack._UNITS else pack.DECK},
-        "settings": {"top": top, "figure_parts": list(figure_parts or []), "hidden_parts": hidden,
+        "settings": {"top": top, "figure_parts": list(figure_parts or []), "hidden_parts": hid,
                      "auto_floor": auto_floor, "context_opacity": context_opacity, "color_map": "jet",
                      "color_range": clim, "views": list(views), "size": [width, height]},
         "targets": targets,
