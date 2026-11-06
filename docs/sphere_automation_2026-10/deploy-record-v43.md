@@ -48,3 +48,43 @@
 ## 실측 (별도 문서 `measurement.md`)
 워커 RSS 최대 298 MB · 2패스 축약 run 당 0.98 MB ·
 M3_P2 환산 85 GB → 5.2 GB.
+
+---
+
+## v44 (`e86fd1b`, 2026-11-06) — sphere 무회귀 확인
+
+v44 는 렌더·그림·온톨로지 쪽 판이고 **`koo_sphere_report` 변경 0건**이다
+(`binout_reader`·`contact_map`·`energy_flow_builder` 도 0건). 흐름 캐시 스키마는
+4 그대로라 **v44 에서 캐시 재생성은 일어나지 않는다.**
+
+회귀 확인: 실덱 `Test_005_Fibonacci_100` 100런의 **정규화 사이드카가 v43 과
+바이트 동일(차이 0)**. 배포 지점 `a1ca45cc` 세 곳 일치, v43 백업 `94b98c46`.
+
+### 🔴 검증 전제가 틀렸던 것 — 호스트 `~/.local` 가림
+v44 굽기가 `%test` 에서 pyvista 없음으로 실패하면서 드러났다.
+SIF 안에서 `lasso`·`numpy`·`rich`·`yaml`·`pyvista`·`PIL`·`matplotlib` 이
+**전부 `/home/koopark/.local/`** 에서 잡히고 있었다. 호스트 홈이 바인드돼
+SIF 안 패키지를 **가린다.**
+
+즉 v43 의 16/16 검증도 **호스트 패키지로 돈 것**이었다 — "이 호스트에서 되더라"
+를 본 것이지 "노드에서 도는 판" 을 본 게 아니다.
+
+`PYTHONNOUSERSITE=1` 로 걷으면
+| | |
+|---|---|
+| `lasso`·`numpy`·`rich`·`yaml` | **SIF 안에 있다** — 가려졌을 뿐 |
+| `pyvista`·`PIL`·`matplotlib` | **없었다** (v44 def 에서 고정 설치로 추가) |
+
+**sphere 는 안전하다** — SIF 자체 패키지로 돌려도 결과가 완전히 동일하다.
+그래도 앞으로 **배포 판정은 `--no-home` / `PYTHONNOUSERSITE=1` 로** 한다.
+상류도 판정기를 그렇게 바꿨다.
+
+빌드 시점 `%test` 는 호스트 홈을 안 본다(근거: 검사가 import 이고 v44 가 거기서
+실패했다. `%test` 에 `set -e` 도 있어 실패가 빌드를 막는다). v43 이 통과한 것은
+홈 때문이 아니라 **그림 의존성 검사가 v44 에서 새로 들어갔기** 때문이다.
+
+### 도구
+`.work/deploy_v44/sphere_regress.sh <sif> <꼬리표>` — 같은 덱을 돌려 사이드카를
+정규화 비교한다(`test_dir`·`generated_at`·`tool_builds` 제외, 부동소수 9자리).
+**같은 SIF 두 번 돌려 차이 0 인 것을 먼저 확인**하고 쓴다 — 정규화가 비결정적이면
+헛경보를 낸다.
