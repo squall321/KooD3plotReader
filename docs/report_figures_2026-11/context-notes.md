@@ -115,3 +115,12 @@
   `-M T2004`(두꺼운 셸)처럼 형식 접두어를 붙인다. 배치 실측(Test_006 솔리드 바닥): 맨 숫자 `-M 23`, 접두어 `-M H23`, 둘 다 —
   셋 모두 같은 화면. 맨 숫자가 셸에도 먹는지는 셸 d3plot 이 없어 못 봤다 → 형식을 알면 두 꼴을 함께 쓴다(셸 바닥 대비).
   실렌더는 종전 숨김 영상과 픽셀까지 같다. 141317c 배포가 끝난 뒤 push 한다(빌드가 main HEAD 를 clone).
+
+## v44 굽기 실패 → def 보강 (11-06)
+- v44(141317c) 빌드 %test 에서 `import pyvista` 가 ModuleNotFoundError(배포 세션 보고, 배포된 것 없음). **SIF 에는 pyvista · vtk ·
+  PIL · matplotlib 이 없었다** — 내가 「SIF 안에서 돈다」 고 본 것은 `apptainer exec` 가 호스트 홈을 묶어 ~/.local 의 pip 패키지가
+  보였기 때문이다(글꼴 목록 착각과 같은 함정). `--no-home` 으로 v43 을 열면 넷 다 없다(numpy 1.26.4 · lasso · yaml 은 있다).
+- def 에 `pip install pyvista==0.46.4 vtk==9.3.1 Pillow==11.3.0 matplotlib==3.10.7`(호스트 검증 판). 굽지 않고 확인 — v43 SIF 안
+  `--system-site-packages` venv(.work/sif_venv)에 같은 판을 SIF 의 pip 로 설치(numpy 는 시스템 1.26.4 그대로), `--no-home` 으로 v14
+  꾸러미를 그렸다: 스냅샷 11 · 차트 7, 최대값 동일, 알림은 바닥 숨김뿐. 읽기 전용 홈이면 matplotlib · Mesa 가 캐시 경고를 낸다(무해).
+- 내가 넣은 %test(`python3 -c "import pyvista, lasso.dyna, PIL, matplotlib"`)가 이 빈틈을 바르게 잡았다.

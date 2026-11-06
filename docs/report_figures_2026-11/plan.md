@@ -31,7 +31,9 @@
 이름 패턴 타겟 무시(ID 만).
 
 **새 길이 열려 있다 — 실측(11-06)**
-- 운영 SIF(v43)에 VTK 9.3.1 · pyvista 0.46.4 · lasso · numpy · h5py · matplotlib · PIL · Xvfb 가 있다(rsvg·inkscape 는 없다).
+- ~~운영 SIF(v43)에 VTK 9.3.1 · pyvista 0.46.4 · lasso · numpy · h5py · matplotlib · PIL · Xvfb 가 있다~~ — **틀렸다(11-06 정정)**.
+  SIF 자체에는 lasso · numpy · Xvfb 만 있고, pyvista · vtk · PIL · matplotlib 은 `apptainer exec` 가 묶은 호스트 홈(~/.local)의
+  것이었다. v44 빌드 %test(홈 없음)가 잡았고, def 에 판을 고정해 설치한다. SIF 의존성은 `--no-home` 으로 확인한다.
 - 시안: v14 런(4,952 상태, d3plot 250 파일 · HDD)에서 **최대 응력 상태 하나만** lasso 로 1.6 s 에 읽고, 파트별 바깥 면
   34,122 개를 0.2 s 에 뽑아, pyvista(Xvfb) 로 1 s 안에 그렸다. 타겟은 응력 색, 주변은 반투명, 바닥 숨김, 평행 투영으로
   타겟에 꽉 맞춤, 색 범위 0–p99.5(넘는 값 자홍) + 최대점 표시. 최대값 4024.92 MPa 가 S1 게이트 값과 같다.
