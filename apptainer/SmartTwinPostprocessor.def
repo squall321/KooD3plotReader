@@ -152,6 +152,12 @@ From: ubuntu:22.04
     # 에너지 파이프라인 전체가 무음으로 빈 값이 됐던 원인 (2026-07 진단 확정,
     # docs/impact-sota-context-notes.md). 이제 1급 의존성으로 하드 설치.
     pip install --no-cache-dir rich pyyaml lasso-python
+    # 리포트 그림(koo_deep_report.figures — deep 기본 산출 · post_analyze 캠페인 단계) — pyvista(VTK) · Pillow · matplotlib.
+    # 판은 호스트에서 검증한 것으로 고정한다. v43 까지 SIF 에는 없었고, `apptainer exec` 가 묶어 준 호스트 홈
+    # (~/.local/lib/python3.10/site-packages)의 패키지로 우연히 돌았다 — 홈이 없는 빌드 %test(v44, 2026-11-06)가 잡았다.
+    # 시스템 numpy(lasso 와 함께 들어온 1.26.x)를 그대로 쓴다(matplotlib · pyvista 요구를 만족). VTK 는 위 apt 의
+    # libgl1 · libx* 로 Xvfb 위에서 그린다(홈 없는 SIF 에서 실측).
+    pip install --no-cache-dir pyvista==0.46.4 vtk==9.3.1 Pillow==11.3.0 matplotlib==3.10.7
 
     # --- KooDynaDiag (koo_dyna_diag) 통합 ---
     # LS-DYNA 결과 진단/리포트 도구 (원 리포지토리: KooDynaErrorAnalyzer,
