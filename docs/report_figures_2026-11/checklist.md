@@ -25,9 +25,9 @@
 - [x] post_analyze · 7-1 길 — 둘 다 deep 단일 모드라 기본으로 나온다(옛 산출물은 「최신이면 건너뜀」 — `koo_deep_report figures pack` 으로 채움)
 
 ## 3단계 — LS-PrePost 영상 보완
-- [ ] `--hide-parts` / `--hide-floor`
+- [x] `--hide-parts` / `--hide-floor` — LS-PrePost(`-M`) · 소프트웨어 모두, 실렌더 확인
 - [ ] `--view-fit target` / `--view-margin`
-- [ ] 타겟 지정만으로 파트별 단면
+- [x] 타겟 지정만으로 파트별 단면(분석 대상 안 좁힘) · 무시 옵션 `[설정]` 경고 · 3-상태 결함
 
 ## 4단계 — sphere 최악 방향 그림
 - [x] 파트별 최악 런 고르기 · 그림 · manifest(scope=campaign) — `koo_deep_report figures campaign`
