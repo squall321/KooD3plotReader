@@ -66,13 +66,22 @@ STUBEOF
 
 cat > "$BIN/koo_deep_report" << 'STUBEOF'
 #!/usr/bin/env bash
-# 시험용 대역 — --output 디렉토리에 result.json 을 쓰고 호출을 기록한다
+# 시험용 대역 — --output 디렉토리에 result.json 을 쓰고 호출을 기록한다.
+# `figures …` 는 인자를 기록한다(STUB_NO_FIGS=1 이면 옛 SIF 흉내, 경로에 FAIL_FIGS 가 들면 실패 흉내).
 set -uo pipefail
+if [ "${1:-}" = "figures" ]; then
+    [ -n "${STUB_NO_FIGS:-}" ] && exit 2
+    [ "${2:-}" = "--help" ] && exit 0
+    echo "figs ${*:2}" >> "${STUB_LOG}"
+    case "$*" in *FAIL_FIGS*) echo "Error: 대역 실패" >&2; exit 1 ;; esac
+    exit 0
+fi
 d3=""; out=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --output) out="${2:-}"; shift 2 ;;
         --config|--yield-stress) shift 2 ;;
+        --no-figures) echo "deepflag --no-figures" >> "${STUB_LOG}"; shift ;;
         --*) shift ;;
         *) if [ -z "$d3" ]; then d3="$1"; fi; shift ;;
     esac
@@ -383,7 +392,7 @@ run_pa "$T12" --sphere-only --s1 --yield-stress 300 --sphere-opts "--yield-map /
 chk "그룹 리포트까지 둘, 꾸러미 파일은 다시 먹지 않는다" 2 "$(n_calls onto)"
 chk "리포트와 같은 항복값·캠페인 폴더를 넘긴다" 1 \
     "$(grep -c "^onto sphere $T12/report.json --test-dir $T12 --yield-stress 300 --yield-map /m/yield.json\$" "$W/calls.log")"
-chk "S1 다음에 돈다" "s1" "$(grep -v '^ua \|^sphere \|^deep ' "$W/calls.log" | head -1 | cut -d' ' -f1)"
+chk "S1 다음에 돈다" "s1" "$(grep -v '^ua \|^sphere \|^deep \|^figs ' "$W/calls.log" | head -1 | cut -d' ' -f1)"
 printf '{}\n' > "$T12/impact_report.json"
 run_pa "$T12" --sphere-only
 chk "impact_report.json 도 impact 로" 1 "$(grep -c "^onto impact $T12/impact_report.json\$" "$W/calls.log")"
@@ -407,6 +416,46 @@ if grep -q "koo_ontology 가 PATH 에 없음" "$W/last_run.log"; then
     echo "  OK  옛 SIF(koo_ontology 없음)면 건너뛴다고 말한다"
 else
     echo "  NG  koo_ontology 없을 때 사유가 없다"
+    fails=$((fails + 1))
+fi
+
+# ============================================================
+# [13] 캠페인 그림 단계 — sphere 바로 다음(deep 앞), 리포트 JSON 마다, --no-figures 면 deep 그림까지
+#      함께 끄고, 실패해도 끝까지 간다. 옛 SIF(figures 명령 없음)면 사유를 말하고 건너뛴다.
+# ============================================================
+echo "[13] 캠페인 그림"
+T13="$W/t13"
+mk_tree "$T13" Run_a/Output/d3plot Run_b/Output/d3plot
+mk_config "$T13"
+printf '{}\n' > "$T13/report.json"
+printf '{}\n' > "$T13/report_G2.json"
+printf '{}\n' > "$T13/report.ontology.json"
+run_pa "$T13" --no-render
+chk "리포트 JSON 마다(꾸러미 파일 제외) 둘" 2 "$(n_calls figs)"
+chk "캠페인 폴더를 넘긴다" 1 "$(grep -c "^figs campaign $T13/report.json --test-dir $T13\$" "$W/calls.log")"
+chk "sphere 다음 · deep 앞에 돈다" "sphere figs deep" \
+    "$(grep -E '^(sphere|figs|deep) ' "$W/calls.log" | cut -d' ' -f1 | uniq | tr '\n' ' ' | sed 's/ $//')"
+run_pa "$T13" --no-render --no-figures --force
+chk "--no-figures 면 캠페인 그림을 부르지 않는다" 0 "$(n_calls figs)"
+chk "--no-figures 를 deep 에도 넘긴다(런 둘)" 2 "$(n_calls deepflag)"
+run_pa "$T13" --deep-only --no-render
+chk "--deep-only 면 부르지 않는다" 0 "$(n_calls figs)"
+T13F="$W/t13_FAIL_FIGS"
+mk_tree "$T13F" Run_a/Output/d3plot
+mk_config "$T13F"
+printf '{}\n' > "$T13F/report.json"
+run_pa "$T13F" --sphere-only
+if grep -q "WARN: 캠페인 그림 실패 — report.json" "$W/last_run.log" && grep -q "결과 위치" "$W/last_run.log"; then
+    echo "  OK  그림이 실패해도 경고만 하고 끝까지 간다"
+else
+    echo "  NG  그림 실패가 파이프라인을 멈췄거나 경고가 없다"
+    fails=$((fails + 1))
+fi
+STUB_NO_FIGS=1 run_pa "$T13" --sphere-only
+if grep -q "figures 명령이 없음" "$W/last_run.log" && [ "$(n_calls figs)" = 0 ]; then
+    echo "  OK  옛 SIF(figures 명령 없음)면 건너뛴다고 말한다"
+else
+    echo "  NG  옛 SIF 에서 사유 없이 부르거나 멈췄다"
     fails=$((fails + 1))
 fi
 

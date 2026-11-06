@@ -67,6 +67,8 @@ S1=false
 S1_EXTRA=()
 FORCE=false
 SCHEMA_CHECK=true    # false 면 산출물 존재만 보고 스킵(옛 동작)
+# 리포트 그림 — deep 의 figures/ 와 캠페인 최악 방향 그림(<test_dir>/figures). 기본 켬, --no-figures 로 둘 다 끈다
+FIGURES=true
 THREADS=4
 YIELD_STRESS=""
 
@@ -124,6 +126,11 @@ usage() {
     --design-overrides JSON
     --material-overrides JSON
 
+[리포트 그림]
+    --no-figures            리포트 그림(최대 순간 스냅샷 PNG · 호버 SVG · 차트)을 만들지 않는다 —
+                            런마다 deep 의 figures/ 와 캠페인의 파트별 최악 방향 그림
+                            (<test_dir>/figures, 그룹이면 figures_<그룹>) 둘 다
+
 [섹션뷰 (deep_report 전달)]
     --section-view
     --section-view-backend {lsprepost|software}
@@ -177,6 +184,7 @@ while [[ $# -gt 0 ]]; do
         --threads)                 THREADS="$2"; shift 2 ;;
         --yield-stress)            YIELD_STRESS="$2"; shift 2 ;;
         --no-render)               DEEP_EXTRA+=(--no-render); shift ;;
+        --no-figures)              FIGURES=false; DEEP_EXTRA+=(--no-figures); shift ;;
         --per-part-render)         DEEP_EXTRA+=(--per-part-render); shift ;;
         --element-quality)         DEEP_EXTRA+=(--element-quality); shift ;;
         --render-threads)          DEEP_EXTRA+=(--render-threads "$2"); shift 2 ;;
@@ -1008,6 +1016,30 @@ run_step_impact() {
 }
 
 # ============================================================
+# Step F: 캠페인 그림 — sphere 리포트 JSON 마다 파트별 최악 방향 런의 최대 순간 스냅샷(PNG · 호버 SVG)
+#  - koo_deep_report figures campaign → <test_dir>/figures (report_<그룹>.json 이면 figures_<그룹>)
+#  - sphere 바로 다음에 돈다 — 느린 deep 보다 먼저 결과가 나온다. --no-figures 면 건너뛴다
+#  - 실패해도 파이프라인은 계속 — 리포트가 정본이고 그림은 덧붙이는 산출물이다
+# ============================================================
+run_step_figures() {
+    echo ""
+    echo "=== [Step F] 캠페인 그림 (파트별 최악 방향 런의 최대 순간) ==="
+    if ! koo_deep_report figures --help >/dev/null 2>&1; then
+        echo "  WARN: koo_deep_report 에 figures 명령이 없음 (옛 SIF?) — SKIP"
+        return 0
+    fi
+    local _j _n=0
+    for _j in "${TEST_DIR}/report.json" "${TEST_DIR}"/report_*.json; do
+        [ -f "${_j}" ] || continue
+        case "${_j}" in *.ontology.json) continue ;; esac
+        _n=$(( _n + 1 ))
+        koo_deep_report figures campaign "${_j}" --test-dir "${TEST_DIR}" \
+            || echo "  WARN: 캠페인 그림 실패 — $(basename "${_j}") (리포트는 그대로)"
+    done
+    [ "${_n}" -gt 0 ] || echo "  리포트 JSON 이 없음 — SKIP"
+}
+
+# ============================================================
 # 마지막 단계: 온톨로지 꾸러미 (DynaForge 해석 어휘 cae_*)
 #  - sphere/impact 리포트 JSON 마다 옆에 <이름>.ontology.json (같은 줄기의 HTML 지문을 머리에 싣는다)
 #  - S1 다음에 돈다 — 꾸러미가 런마다 첫 접촉 시각·S1 해시를 싣는다. sphere/impact 도구가 이미
@@ -1070,6 +1102,7 @@ if ${DEEP_ONLY}; then
 elif ${SPHERE_ONLY}; then
     run_step_unified
     run_step_sphere
+    ${FIGURES} && run_step_figures
     ${SCATTER} && run_step_scatter
 elif ${IMPACT_ONLY}; then
     if should_skip_unified_for_impact; then
@@ -1094,6 +1127,7 @@ else
     else
         run_step_unified
         run_step_sphere
+        ${FIGURES} && run_step_figures
     fi
     run_step_deep
     ${SCATTER} && run_step_scatter
