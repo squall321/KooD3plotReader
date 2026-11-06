@@ -59,6 +59,10 @@ From: ubuntu:22.04
         libgl1 libglu1-mesa libxrandr2 libxi6 libxcursor1 \
         libxinerama1 libxkbcommon0 \
         libgtk-3-0 libnotify4 libsecret-1-0
+    # 한글 글꼴 — 리포트 그림(koo_deep_report.figures) PNG 제목의 한글 파트 이름. 없어도 빌드는 계속되고
+    # 그림 제목이 「Part <PID>」 로 대체된다(SVG 는 브라우저 글꼴이라 영향 없음).
+    apt-get install -y --no-install-recommends fonts-nanum \
+        || echo "WARN: fonts-nanum 설치 실패 — 그림 제목의 한글 파트 이름이 번호로 대체됩니다"
     # libpython3.10: PyInstaller onefile 빌드 시 필요 (koo_dyna_diag)
     # libgtk-3-0 libnotify4 libsecret-1-0: LSPrePost 가 링크하는 libgtk-3/gdk-3/atk-1.0/
     #   notify/secret 은 lsprepost 번들(lib, mesa_lib)에 **없다**. 빠지면 렌더가
