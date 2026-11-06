@@ -103,3 +103,11 @@
   빠지고 카메라가 기기에 맞춰 2~3배. 외피 삼각형 50,032 → 45,952(바닥 4,080 제외).
 - **메모리** — v14(4,952 상태) 소프트웨어 단면은 분석기가 상태를 통째로 들어 가용 6% 까지 떨어져 earlyoom 이 python 을 죽였다.
   검증은 Test_006(992 상태)으로 했다.
+
+## 사용자 결정 (11-06, 마감) — 배포 · 바닥 숨김 기본 · koo_ontology
+- **push + SIF 배포 요청**(상류 표준 경로).
+- **`--hide-floor` 기본 켬** — 끄려면 `--no-hide-floor`(post_analyze 도 같은 이름으로 deep 에 넘긴다). 손으로 지은 Namespace(GUI 등)도
+  기본(켬)을 따른다. 기존 영상 모양이 바뀐다(바닥이 빠지고 카메라 · 단면 위치가 기기에 맞는다).
+- **호스트 koo_ontology 래퍼 수정** — deploy_from_sif.sh 가 `python -m` 래퍼(MODWRAPS: koo_ontology)를 SIF 에서 복사하지 않고
+  `koo_*_report` 와 같은 lib/ 형식으로 짓는다. verify_deploy.sh 가 그것도 환경변수 없이 실행해 본다. 시뮬레이션(.work/deploy_sim2,
+  호스트 lib/ 를 가리킴): 새 래퍼는 `koo_ontology vocab` 이 돌고, 지금 배포된 래퍼는 `No module named koo_deep_report`.
