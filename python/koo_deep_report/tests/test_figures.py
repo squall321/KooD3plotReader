@@ -288,3 +288,13 @@ def test_strip_cjk_keeps_punctuation_dejavu_can_draw():
     from koo_deep_report.figures.png import strip_cjk
     assert strip_cjk("Part 2 Wall — max 103 MPa · color 0–103") == "Part 2 Wall — max 103 MPa · color 0–103"
     assert strip_cjk("Part 7 브라켓(좌) — max 5") == "Part 7 — max 5"
+
+
+def test_existing_display_used_only_when_local_socket_lives():
+    from koo_deep_report.figures.xvfb import local_alive
+    assert not local_alive(None) and not local_alive("") and not local_alive("localhost:10.0")
+    assert not local_alive(":98765")
+    live = sorted(Path("/tmp/.X11-unix").glob("X*")) if Path("/tmp/.X11-unix").is_dir() else []
+    if live:
+        n = live[0].name[1:]
+        assert local_alive(f":{n}") and local_alive(f":{n}.0") and local_alive(f"unix:{n}")
