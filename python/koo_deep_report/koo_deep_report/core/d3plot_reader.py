@@ -115,12 +115,15 @@ def run_analysis(
     import copy
     from ..render.job_builder import RenderConfig as RC, SectionViewRenderConfig as SVC
 
-    # Determine if we need a 2nd pass for per-part rendering
+    # Determine if we need a 2nd pass for per-part rendering.
+    # 단면 타겟 id 를 주면 파트별 영상은 그 파트들로 만든다 — 분석 대상을 좁히지 않고, 분석 결과에서 파트를
+    # 다시 뽑는 2차 패스도 필요 없다(_build_yaml 이 target_part_ids 를 파트별 목록으로 쓴다).
     sv_needs_second_pass = (
         section_view_config is not None
         and section_view_config.enabled
         and section_view_config.per_part_render
         and part_ids is None
+        and not section_view_config.target_part_ids
     )
     lsp_needs_second_pass = (
         not (section_view_config and section_view_config.enabled)
@@ -144,7 +147,7 @@ def run_analysis(
 
     yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first, hotspot=hotspot)
     # 렌더 실패는 분석 실패가 아니다 — 보고서에 남겨 갤러리 공백이 조용히 지나가지 않게 한다
-    render_warnings: list[str] = []
+    render_warnings: list[str] = _ignored_option_warnings(render_config, section_view_config)
     w = _run_ua(ua, yaml_content, verbose)
     if w:
         render_warnings.append(w)
@@ -234,6 +237,35 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> str | None:
         return None
     finally:
         yaml_path.unlink(missing_ok=True)
+
+
+def _ignored_option_warnings(render_config, section_view_config) -> list[str]:
+    """쓰이지 않는 렌더 옵션을 말없이 버리지 않는다 — '[설정]' 으로 시작하는 경고(보고서 갤러리에도 실린다)."""
+    from ..render.job_builder import RenderConfig as RC
+    out: list[str] = []
+    sv = section_view_config
+    if not (sv is not None and sv.enabled):
+        return out
+    if isinstance(render_config, RC):
+        if render_config.per_part_render:
+            out.append("[설정] --per-part-render 는 --section-view 와 함께면 쓰이지 않는다 — 파트별 단면은 "
+                       "--section-view-per-part(기본 켬)나 --section-view-target-ids 로 나온다")
+        if render_config.part_pattern:
+            out.append("[설정] --part-pattern 은 --section-view 와 함께면 쓰이지 않는다 — "
+                       "--section-view-target-patterns 를 쓴다")
+    if getattr(sv, "backend", "lsprepost") == "software" and getattr(sv, "state_step", 1) > 1:
+        out.append(f"[설정] --section-view-state-step {sv.state_step} 은 소프트웨어 단면에 쓰이지 않는다 — 전 상태를 그린다 "
+                   "(LS-PrePost 백엔드만 프레임 보폭을 쓴다)")
+    if sv.target_patterns and not sv.target_part_ids:
+        if getattr(sv, "backend", "lsprepost") == "software":
+            out.append("[설정] 소프트웨어 단면은 파트 이름 패턴을 맞추지 못한다(렌더러가 파트 이름을 모른다) — "
+                       f"{sv.target_patterns} 대신 --section-view-target-ids 를 쓴다")
+        elif len(sv.target_patterns) > 1:
+            out.append(f"[설정] LS-PrePost 단면은 대상 패턴의 첫 번째({sv.target_patterns[0]!r})만 쓴다 — "
+                       f"나머지 {sv.target_patterns[1:]} 는 쓰이지 않는다")
+    for w in out:
+        print(f"[koo_deep_report] {w}", file=sys.stderr)
+    return out
 
 
 def _extract_part_ids(result: "D3plotResult") -> list[int]:
@@ -342,6 +374,8 @@ def _build_yaml(
     #   "software": generates section_views for built-in software rasterizer
     sv_active = section_view_config and section_view_config.enabled
     sv_backend = getattr(section_view_config, 'backend', 'lsprepost') if sv_active else None
+    # 파트별 단면 목록 — 단면 타겟 id 가 있으면 그것(분석 대상은 parts_list 그대로), 없으면 분석 대상
+    sv_pp_ids = (list(section_view_config.target_part_ids) or part_ids) if sv_active else part_ids
 
     # render_jobs (LSPrePost) — either from RenderConfig or SectionViewRenderConfig
     if sv_active and sv_backend == "lsprepost":
@@ -367,7 +401,7 @@ def _build_yaml(
         # Per-part section renders (genselect + iso_clip via C++ renderAllPartSections).
         if section_view_config.per_part_render:
             psr_entries = build_part_section_render_yaml_entries(
-                str(output_dir), section_view_config, part_ids
+                str(output_dir), section_view_config, sv_pp_ids
             )
             if psr_entries:
                 lines.append("part_section_renders:")
@@ -394,7 +428,7 @@ def _build_yaml(
     # section_views (software-rasterized, VTK-free)
     if sv_active and sv_backend == "software":
         from ..render.job_builder import build_section_view_yaml_entries
-        sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config, part_ids)
+        sv_entries = build_section_view_yaml_entries(str(output_dir), section_view_config, sv_pp_ids)
         if sv_entries:
             lines.append("section_views:")
             for name, yaml_block in sv_entries:

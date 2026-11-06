@@ -25,6 +25,8 @@ class SectionViewRenderConfig:
     scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
     target_part_ids: list[int] = field(default_factory=list)     # [] = all parts as target
     target_patterns: list[str] = field(default_factory=list)     # e.g. ["*PKG*", "*CELL*"]
+    #: 영상에서 숨길 파트(바닥 등) — 단면 · 외피 · 카메라 맞춤 · 파트별 목록에서 모두 뺀다. 비면 숨기지 않는다
+    hide_part_ids: list[int] = field(default_factory=list)
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
     # 자를 자리를 어디로 볼지 (software 백엔드 전용).
     #   "aabb" = 형상 가운데(기본, 종전 동작) | "peak" = 응력 피크가 지나는 자리
@@ -68,6 +70,15 @@ class SectionViewRenderConfig:
         if self.scalar_field:
             return [self.scalar_field]
         return self.scalar_fields
+
+
+def _visible(part_ids: list[int] | None, hide: list[int]) -> list[int]:
+    """파트별 영상 목록에서 숨길 파트를 뺀다(순서 유지)."""
+    return [p for p in (part_ids or []) if p not in set(hide)]
+
+
+def _ids_yaml(ids: list[int]) -> str:
+    return "[" + ", ".join(str(i) for i in ids) + "]"
 
 
 def _parse_signed_axis(s: str) -> tuple[str, int]:
@@ -138,7 +149,8 @@ def _sv_yaml_block(
         f"{target_block}\n"
         f"background_parts:\n"
         f'  patterns: {background_patterns}\n'
-        f"field: {actual_field}\n"
+        + (f"hidden_parts:\n  ids: {_ids_yaml(config.hide_part_ids)}\n" if config.hide_part_ids else "")
+        + f"field: {actual_field}\n"
         f"colormap: rainbow\n"
         f"global_range: {'true' if config.global_range else 'false'}\n"
         f"scale_factor: 3.0\n"
@@ -184,10 +196,12 @@ def build_section_view_yaml_entries(
             axis_dir = str(Path(renders_dir) / name)
             entries.append((name, _sv_yaml_block(axis, axis_dir, config, field_name=fld)))
 
-    # Per-part entries
+    # Per-part entries (숨길 파트는 빼고)
     if config.per_part_render and part_ids:
         for fld in fields:
-            for pid in part_ids:
+            for pid in _visible(part_ids, config.hide_part_ids):
+                if config.target_part_ids == [pid]:
+                    continue   # 개관이 이미 이 파트 하나를 타겟으로(카메라도 타겟에) 그린다 — 같은 영상을 두 번 만들지 않는다
                 for axis in config.axes:
                     if len(fields) == 1:
                         name = f"section_view_part_{pid}_{axis}"
@@ -240,13 +254,14 @@ def build_part_section_render_yaml_entries(
         axes_list = "[" + ", ".join(config.axes) + "]"
         ids_list = "[]"
         if part_ids:
-            ids_list = "[" + ", ".join(str(i) for i in part_ids) + "]"
+            ids_list = _ids_yaml(_visible(part_ids, config.hide_part_ids))
 
         body = (
             f"fringe_type: {fringe}\n"
             f"axes: {axes_list}\n"
             f"part_ids: {ids_list}\n"
-            f"section_view: true\n"
+            + (f"hide_part_ids: {_ids_yaml(config.hide_part_ids)}\n" if config.hide_part_ids else "")
+            + f"section_view: true\n"
             f"iso_clip_view: {'true' if config.iso_clip_view else 'false'}\n"
             f"section_position: {config.section_position}\n"
             f"section_margin: {config.section_margin}\n"
@@ -320,13 +335,15 @@ def build_lsprepost_section_jobs(
                 job["parts"] = config.target_part_ids
             elif config.target_patterns:
                 job["part_pattern"] = config.target_patterns[0]
+            if config.hide_part_ids:
+                job["hide_part_ids"] = list(config.hide_part_ids)
             jobs.append(job)
 
-    # Per-part: each part × field × axis
+    # Per-part: each part × field × axis (숨길 파트는 빼고)
     if config.per_part_render and part_ids:
         for fld in fields:
             fringe = _FRINGE_MAP.get(fld, fld)
-            for pid in part_ids:
+            for pid in _visible(part_ids, config.hide_part_ids):
                 for axis in config.axes:
                     if len(fields) == 1:
                         name = f"section_view_part_{pid}_{axis}"
@@ -350,6 +367,8 @@ def build_lsprepost_section_jobs(
                     }
                     if config.state_step > 1:
                         job["state_step"] = config.state_step
+                    if config.hide_part_ids:
+                        job["hide_part_ids"] = list(config.hide_part_ids)
                     jobs.append(job)
 
     return jobs
@@ -366,6 +385,7 @@ class RenderConfig:
     fps: int = 30
     resolution: list[int] = field(default_factory=lambda: [2560, 1440])
     part_pattern: str = ""          # 빈 문자열 = 전체
+    hide_part_ids: list[int] = field(default_factory=list)   # 영상에서 숨길 파트(바닥 등)
 
 
 def build_render_jobs(
@@ -407,13 +427,15 @@ def build_render_jobs(
         }
         if config.part_pattern:
             job["part_pattern"] = config.part_pattern
+        if config.hide_part_ids:
+            job["hide_part_ids"] = list(config.hide_part_ids)
         jobs.append(job)
 
     # 부품별 X/Y/Z 단면 (해당 부품 bbox 중심 통과)
     # splane allcut: 모든 축에서 drawcut 동작 (keep_allcut은 메모리 crash 유발)
     # genselect: 선택 파트=fringe 컬러, 나머지=mesh 뷰
     if config.per_part_render and part_ids:
-        for pid in part_ids:
+        for pid in _visible(part_ids, config.hide_part_ids):
             part_dir = str(Path(output_dir) / "renders" / f"part_{pid}")
             for axis in config.section_axes:
                 jobs.append({
@@ -430,6 +452,7 @@ def build_render_jobs(
                         "directory": part_dir,
                         "filename": f"part_{pid}_{axis}",
                     },
+                    **({"hide_part_ids": list(config.hide_part_ids)} if config.hide_part_ids else {}),
                 })
 
     return jobs

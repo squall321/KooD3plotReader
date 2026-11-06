@@ -135,7 +135,8 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70%% 투명)")
     p.add_argument("--section-view-per-part", dest="section_view_per_part",
                    action="store_true",
-                   help="파트별 단면뷰 렌더링 강제 ON (기본은 target ID/pattern 미지정 시 자동 ON)")
+                   help="파트별 단면뷰 렌더링 강제 ON (기본: 켬 — --section-view-target-ids 를 주면 그 파트들만, "
+                        "--section-view-target-patterns 만 주면 끔)")
     p.add_argument("--no-section-view-per-part", dest="section_view_per_part",
                    action="store_false",
                    help="파트별 단면뷰 렌더링 강제 OFF")
@@ -148,7 +149,8 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    metavar="FIELD",
                    help="단면뷰 스칼라 필드 (기본: von_mises strain). strain=변위기반 총변형률, eps=소성변형률")
     p.add_argument("--section-view-target-ids", nargs="+", type=int, default=None, metavar="ID",
-                   help="단면뷰 타겟 파트 ID 목록 (미지정=전체)")
+                   help="단면뷰 타겟 파트 ID 목록 (미지정=전체). 주면 개관에서 강조하고 그 파트들의 파트별 단면도 만든다 "
+                        "— 분석 대상은 좁히지 않는다(--parts 와 다르다)")
     p.add_argument("--section-view-target-patterns", nargs="+", default=None, metavar="PAT",
                    help="단면뷰 타겟 파트 패턴 (예: \"*PKG*\")")
     p.add_argument("--section-view-fade", type=float, default=0.0, metavar="DIST",
@@ -258,7 +260,11 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--figure-parts", nargs="+", type=int, default=None, metavar="ID",
                    help="그릴 파트를 직접 고른다 — 주면 상위 N 대신 이것")
     p.add_argument("--hide-parts", nargs="+", type=int, default=None, metavar="ID",
-                   help="그림에서 숨길 파트 — 바닥(환경 파트)은 자동으로 숨기고, 이것을 더한다")
+                   help="그림 · 영상에서 숨길 파트 — 그림은 바닥(환경 파트)을 늘 자동으로 숨기고 이것을 더한다. "
+                        "영상(단면 · 개관)은 이 파트들을 빼고 카메라 · 단면 위치도 그것을 빼고 정한다")
+    p.add_argument("--hide-floor", action="store_true",
+                   help="영상에서도 바닥(환경 파트 — 다른 파트를 다 합친 상자보다 두 축 이상에서 1.5배 넘게 큰 파트)을 "
+                        "숨긴다. 바닥 요소가 커서 타겟이 작게 보일 때")
     p.add_argument("--figure-context-opacity", type=float, default=0.15, metavar="A",
                    help="그림의 주변 파트 불투명도 0–1 (default 0.15)")
 
@@ -768,7 +774,7 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         if (getattr(args, "section_view_background_alpha", 0.3) == 0.3
                 and "section_view_background_alpha" in sv_cfg):
             args.section_view_background_alpha = sv_cfg["section_view_background_alpha"]
-        if (not getattr(args, "section_view_per_part", False)
+        if (getattr(args, "section_view_per_part", None) is None
                 and "section_view_per_part" in sv_cfg):
             args.section_view_per_part = bool(sv_cfg["section_view_per_part"])
         if (getattr(args, "section_view_axes", None) == ["x", "y", "z"]
@@ -1028,7 +1034,8 @@ def run_single(args: argparse.Namespace) -> None:
         _pats = getattr(args, "section_view_target_patterns", None) or []
         _user_pp = getattr(args, "section_view_per_part", None)  # tri-state (None=auto)
         if _user_pp is None:
-            sv_per_part = (not _ids) and (not _pats)
+            # 타겟 id 를 주면 그 파트들의 파트별 단면(분석 대상은 안 좁힘), 패턴만 주면 끔
+            sv_per_part = bool(_ids) or not _pats
         else:
             sv_per_part = bool(_user_pp)
         sv_cfg = SectionViewRenderConfig(
@@ -1065,6 +1072,7 @@ def run_single(args: argparse.Namespace) -> None:
     print(f"[koo_deep_report] unified_analyzer 실행 중... (렌더{'ON' if render_cfg.enabled else 'OFF'}"
           f"{' | 단면뷰ON' if sv_cfg else ''})")
     try:
+        _apply_video_hide(args, sim_info.d3plot, render_cfg, sv_cfg)
         d3plot_result = run_analysis(
             d3plot_path=sim_info.d3plot,
             output_dir=output_dir,
@@ -1182,6 +1190,28 @@ def _write_ua_schema(output_dir: Path) -> None:
         (output_dir / UA_SCHEMA_MARKER).write_text(f"{UA_OUTPUT_SCHEMA}\n", encoding="utf-8")
     except OSError:
         pass
+
+
+def _apply_video_hide(args: argparse.Namespace, d3plot, render_cfg, sv_cfg) -> list[int]:
+    """영상에서 숨길 파트 — --hide-parts 에, --hide-floor 면 d3plot 형상에서 감지한 바닥(환경 파트)을 더해
+    렌더 설정 둘 다에 싣는다. 감지가 실패해도 분석 · 렌더는 그대로 간다(숨김만 빠진다)."""
+    hide = set(getattr(args, "hide_parts", None) or [])
+    if getattr(args, "hide_floor", False) and d3plot is not None:
+        try:
+            from .figures.mesh import environment_parts_d3plot
+            env = environment_parts_d3plot(d3plot)
+            print(f"[koo_deep_report] 바닥(환경 파트) 감지: {env or '없음'}")
+            hide |= set(env)
+        except Exception as e:  # noqa: BLE001
+            print(f"[koo_deep_report] 바닥 감지 실패 — 영상에서 숨기지 못한다: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+    ids = sorted(hide)
+    for cfg in (render_cfg, sv_cfg):
+        if cfg is not None:
+            cfg.hide_part_ids = ids
+    if ids:
+        print(f"[koo_deep_report] 영상에서 숨길 파트: {ids}")
+    return ids
 
 
 def _write_figures(result: SingleResult, output_dir: Path, args: argparse.Namespace) -> None:
@@ -1402,7 +1432,8 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
         _pats = getattr(args, "section_view_target_patterns", None) or []
         _user_pp = getattr(args, "section_view_per_part", None)
         if _user_pp is None:
-            sv_per_part = (not _ids) and (not _pats)
+            # 타겟 id 를 주면 그 파트들의 파트별 단면(분석 대상은 안 좁힘), 패턴만 주면 끔
+            sv_per_part = bool(_ids) or not _pats
         else:
             sv_per_part = bool(_user_pp)
         sv_cfg = SectionViewRenderConfig(
@@ -1435,6 +1466,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
             sliding_freeze_time=getattr(args, "section_view_sliding_freeze_time", False),
             sliding_peak_time=getattr(args, "section_view_sliding_peak_time", -1.0),
         )
+    _apply_video_hide(args, sim_info.d3plot, render_cfg, sv_cfg)
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,
         output_dir=output_dir,

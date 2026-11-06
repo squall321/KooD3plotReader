@@ -2008,7 +2008,10 @@ function renderGallery() {
   // 렌더 일부 실패 — unified_analyzer 가 rc 3 으로 알렸다
   for (const w of (DATA.render_warnings || [])) {
     const t = String(w).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
-    galleryHtml += `<div class="warn-box">렌더 일부 실패 — 아래 영상이 빠졌거나 불완전할 수 있다<pre style="white-space:pre-wrap;margin:6px 0 0">${t}</pre></div>`;
+    // '[설정]' 경고는 렌더 실패가 아니라 쓰이지 않은 옵션이다 — 제목을 따로
+    const head = String(w).startsWith('[설정]') ? '렌더 설정 — 쓰이지 않은 옵션이 있다'
+                                              : '렌더 일부 실패 — 아래 영상이 빠졌거나 불완전할 수 있다';
+    galleryHtml += `<div class="warn-box">${head}<pre style="white-space:pre-wrap;margin:6px 0 0">${t}</pre></div>`;
   }
 
   if (!DATA.renders || !DATA.renders.length) {

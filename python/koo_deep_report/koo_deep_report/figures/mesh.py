@@ -221,14 +221,46 @@ def environment_parts(surf: StateSurface, factor: float = 1.5, min_axes: int = 2
 
     make_stl 의 기기/환경 가르기와 같은 규칙이다. 파트가 하나뿐이면 없다.
     """
-    pids = surf.parts()
+    boxes = {}
+    for p in surf.parts():
+        xyz = surf.coords[surf.nodes_of(surf.face_part == p)]
+        boxes[p] = (xyz.min(axis=0), xyz.max(axis=0))
+    return _env_from_boxes(boxes, factor, min_axes)
+
+
+def environment_parts_d3plot(d3plot: str | Path, factor: float = 1.5, min_axes: int = 2) -> list[int]:
+    """d3plot 의 초기 형상만으로 환경 파트(바닥) — 영상 숨김(`--hide-floor`)용. 상태 값은 읽지 않는다(lasso)."""
+    from lasso.dyna import ArrayType as A, D3plot
+
+    d = D3plot(str(d3plot), state_filter={0}, buffered_reading=True, state_array_filter=[A.global_timesteps])
+    arr = d.arrays
+    xyz = np.asarray(arr[A.node_coordinates], dtype=np.float64)
+    pids = np.asarray(arr.get(A.part_ids, arr.get(A.part_titles_ids)))
+    boxes: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for conn_key, part_key in ((A.element_solid_node_indexes, A.element_solid_part_indexes),
+                               (A.element_tshell_node_indexes, A.element_tshell_part_indexes),
+                               (A.element_shell_node_indexes, A.element_shell_part_indexes)):
+        if conn_key not in arr:
+            continue
+        conn = np.asarray(arr[conn_key], dtype=np.int64)
+        part = pids[np.asarray(arr[part_key], dtype=np.int64)]
+        order = np.argsort(part, kind="stable")
+        ps, starts = np.unique(part[order], return_index=True)
+        ends = list(starts[1:]) + [len(order)]
+        for p, a, b in zip(ps.tolist(), starts.tolist(), ends):
+            nodes = np.unique(conn[order[a:b]])
+            lo, hi = xyz[nodes].min(axis=0), xyz[nodes].max(axis=0)
+            if p in boxes:
+                lo, hi = np.minimum(lo, boxes[p][0]), np.maximum(hi, boxes[p][1])
+            boxes[int(p)] = (lo, hi)
+    return _env_from_boxes(boxes, factor, min_axes)
+
+
+def _env_from_boxes(boxes: dict, factor: float, min_axes: int) -> list[int]:
+    """{파트: (최소, 최대)} → 환경 파트. 파트가 하나뿐이면 없다."""
+    pids = sorted(boxes)
     if len(pids) < 2:
         return []
-    boxes = {}
-    for p in pids:
-        nodes = surf.nodes_of(surf.face_part == p)
-        xyz = surf.coords[nodes]
-        boxes[p] = (xyz.min(axis=0), xyz.max(axis=0))
     out = []
     for p in pids:
         others = [boxes[q] for q in pids if q != p]
