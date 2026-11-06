@@ -242,6 +242,11 @@ From: ubuntu:22.04
     /opt/kood3plot/bin/koo_dyna_diag --help >/dev/null
     # 온톨로지 꾸러미 — post_analyze 마지막 단계가 부른다. 어휘가 뽑혀야 모듈이 산 것이다.
     /opt/kood3plot/bin/koo_ontology vocab >/dev/null
+    # 리포트 그림 — deep 기본 산출 · post_analyze 캠페인 단계. 그림 의존성(pyvista · lasso · PIL · Xvfb)이
+    # 빠지면 리포트는 나가도 그림만 조용히 빠진다(notes 에만 남는다) — 여기서 막는다.
+    /opt/kood3plot/bin/koo_deep_report figures --help >/dev/null
+    python3 -c "import pyvista, lasso.dyna, PIL, matplotlib" || exit 1
+    command -v Xvfb >/dev/null || { echo "ERROR: Xvfb 없음 — 리포트 그림을 그릴 수 없다"; exit 1; }
     # make_stl 이 빠지면 실형상 미리보기가 개략도로 폴백한다 (과거 실제 사고)
     test -x /opt/kood3plot/bin/make_stl
     # %environment 의 PYTHONPATH 가 6개 패키지를 다 담는지 — python3 -m 직접 호출 경로.
