@@ -647,10 +647,10 @@ bool UnifiedAnalyzer::processRenderJobs(
                 task.options.highlight_parts = std::vector<int>(target_parts.begin(), target_parts.end());
                 task.options.context_parts = context_parts;
 
-                // Store bbox info for ffmpeg post-crop
+                // Store bbox info for ffmpeg post-crop (단면 영상 잡은 zoom_crop: false 로 끈다)
                 task.model_bbox = model_bbox;
                 task.part_bbox = bbox;
-                task.need_crop = true;
+                task.need_crop = job.zoom_crop;
 
                 if (task.options.auto_fringe_range) {
                     size_t total_states = reader.get_num_states();
@@ -762,9 +762,12 @@ bool UnifiedAnalyzer::processRenderJobs(
             if (!fs::exists(src_file)) goto skip_crop;
 
             {
-                // Output file: add "_zoom" suffix
+                // Output file: add "_zoom" suffix — 점은 파일 이름 안에서만 찾는다. 전체 경로에서 찾으면 폴더 이름의 점
+                // (`.work/`, `v1.2/` 등)에 끼워 `/src/_zoom.work/...` 같은 없는 경로가 되어 ffmpeg 가 조용히 실패했다(11-06 실측).
                 std::string zoomed_file = task.output_file;
                 auto dot = zoomed_file.rfind('.');
+                auto slash = zoomed_file.find_last_of("/\\");
+                if (dot != std::string::npos && slash != std::string::npos && dot < slash) dot = std::string::npos;
                 if (dot == std::string::npos) {
                     zoomed_file += "_zoom";
                     auto sdot = src_file.rfind('.');

@@ -337,6 +337,9 @@ def build_lsprepost_section_jobs(
                 job["part_pattern"] = config.target_patterns[0]
             if config.hide_part_ids:
                 job["hide_part_ids"] = list(config.hide_part_ids)
+            # 단면 영상은 _zoom 확대본을 만들지 않는다 — 타겟은 파트별 단면이 따로 맞춰 나오고, 자르기는 응력 색을 못
+            # 찾으면 최소 크기로 엉뚱한 곳을 잘라 거의 한 색 영상이 갤러리에 실린다(v44 확인, 11-06)
+            job["zoom_crop"] = False
             jobs.append(job)
 
     # Per-part: each part × field × axis (숨길 파트는 빼고)
@@ -369,6 +372,7 @@ def build_lsprepost_section_jobs(
                         job["state_step"] = config.state_step
                     if config.hide_part_ids:
                         job["hide_part_ids"] = list(config.hide_part_ids)
+                    job["zoom_crop"] = False
                     jobs.append(job)
 
     return jobs

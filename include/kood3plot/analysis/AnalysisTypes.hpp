@@ -732,6 +732,9 @@ struct RenderJob {
     std::string part_pattern;    ///< Part name pattern filter (e.g., "CELL*", "*BATTERY*")
     /// 영상에서 숨길 파트(바닥 등). 단면 위치 · 카메라 맞춤 상자에서도 뺀다. 비면 숨기지 않는다.
     std::vector<int32_t> hide_part_ids;
+    /// 타겟 강조 영상에서 응력 색 화소를 찾아 잘라 `_zoom` 확대본을 만든다. 단면 영상(--section-view)은 끈다 —
+    /// 파트별 단면이 따로 타겟에 맞춰 나오고, 응력 색을 못 찾으면 최소 크기(가로/5)로 엉뚱한 곳을 잘라 거의 한 색이 된다.
+    bool zoom_crop = true;
 
     // State selection
     std::vector<int> states;  ///< Empty = all, -1 = last state

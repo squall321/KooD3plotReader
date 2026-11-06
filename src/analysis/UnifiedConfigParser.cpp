@@ -911,6 +911,8 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     current_render_job.part_pattern = value;
                 } else if (key == "hide_part_ids") {
                     current_render_job.hide_part_ids = parseIntArray(value);
+                } else if (key == "zoom_crop") {
+                    current_render_job.zoom_crop = parseBool(value);
                 } else if (key == "state_step") {
                     try { current_render_job.state_step = std::max(1, std::stoi(value)); } catch (...) {}
                 } else if (key == "states") {

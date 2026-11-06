@@ -24,6 +24,15 @@ def test_software_block_carries_hidden_parts_only_when_set():
     assert "hidden_parts" not in _sv_yaml_block("z", "/o", _svc())          # 비면 키를 쓰지 않는다(종전 출력 그대로)
 
 
+def test_section_view_jobs_turn_zoom_crop_off_but_legacy_keeps_it():
+    jobs = build_lsprepost_section_jobs("/o", _svc(backend="lsprepost", target_part_ids=[17]), None)
+    assert jobs and all(j["zoom_crop"] is False for j in jobs)          # 단면 영상 — 확대본 없음
+    y = R._dict_to_yaml(jobs[0], indent=2)
+    assert "zoom_crop: false" in y
+    legacy = build_render_jobs("/d3", "/o", RenderConfig(per_part_render=True, section_axes=["z"]), [5])
+    assert all("zoom_crop" not in j for j in legacy)                     # 예전 파트별 렌더는 종전대로(확대본 유지)
+
+
 def test_single_software_target_is_not_rendered_twice():
     names = [n for n, _ in build_section_view_yaml_entries("/o", _svc(per_part_render=True, target_part_ids=[17]), [17])]
     assert names == ["section_view_z"]                       # 개관 = 그 파트 하나(카메라도 타겟) — 파트별은 같은 영상

@@ -107,6 +107,10 @@ int main() {
             "    type: section_view\n"
             "    fringe: von_mises\n"
             "    hide_part_ids: [23, 24]\n"
+            "    zoom_crop: false\n"
+            "  - name: overview_x\n"
+            "    type: section_view\n"
+            "    fringe: von_mises\n"
             "part_section_renders:\n"
             "  - name: \"Per-Part Sections (von_mises)\"\n"
             "    fringe_type: von_mises\n"
@@ -114,9 +118,11 @@ int main() {
             "    hide_part_ids: [23]\n";
         UnifiedConfig config;
         UnifiedConfigParser::loadFromYAMLString(yaml, config);
-        chk("render_jobs 숨김 [23, 24]", config.render_jobs.size() == 1 &&
+        chk("render_jobs 숨김 [23, 24]", config.render_jobs.size() == 2 &&
             config.render_jobs[0].hide_part_ids == std::vector<int32_t>{23, 24},
             std::to_string(config.render_jobs.size()) + " jobs");
+        chk("zoom_crop: false 를 읽고, 없으면 켬(종전 그대로)", config.render_jobs.size() == 2 &&
+            !config.render_jobs[0].zoom_crop && config.render_jobs[1].zoom_crop, "");
         chk("part_section_renders 숨김 [23] · 파트 [5, 7] 는 그대로",
             config.part_section_renders.size() == 1 &&
             config.part_section_renders[0].hide_part_ids == std::vector<int32_t>{23} &&
