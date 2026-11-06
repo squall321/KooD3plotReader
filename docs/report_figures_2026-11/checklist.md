@@ -26,7 +26,7 @@
 
 ## 3단계 — LS-PrePost 영상 보완
 - [x] `--hide-parts` / `--hide-floor` — LS-PrePost(`-M`) · 소프트웨어 모두, 실렌더 확인
-- [ ] `--view-fit target` / `--view-margin`
+- [ ] ~~`--view-fit target` / `--view-margin`~~ 보류 — 실측상 이미 타겟에 맞는다(소프트웨어 단면 · LS-PrePost 파트별 단면 · 바닥 숨긴 iso-clip). 남는 LS-PrePost 개관(타겟 강조)은 `_zoom.mp4` 가 있다. 필요하면 다음에
 - [x] 타겟 지정만으로 파트별 단면(분석 대상 안 좁힘) · 무시 옵션 `[설정]` 경고 · 3-상태 결함
 
 ## 4단계 — sphere 최악 방향 그림
