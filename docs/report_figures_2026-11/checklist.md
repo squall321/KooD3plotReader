@@ -21,8 +21,8 @@
 - [x] overview · 상위 N 파트 · 에너지 · 파트 요약 · 이력(응력 + 가속도 G) 그림
 - [x] manifest.json(kood3plot.figures v1)
 - [x] deep 연결(기본 켬, 단일 · 배치) · HTML 「리포트 그림」 탭 · CLI `python -m koo_deep_report.figures pack|snap`
-- [ ] SIF 안에서 돌기(pyvista · Xvfb · 글꼴)
-- [ ] post_analyze · 7-1 길에서 나오는지
+- [x] SIF 안에서 돌기 — v43 SIF 에 개발 소스를 묶어 꾸러미 · deep 경로 모두 통과(DejaVu 만 — 제목 문장부호 보존 수정)
+- [x] post_analyze · 7-1 길 — 둘 다 deep 단일 모드라 기본으로 나온다(옛 산출물은 「최신이면 건너뜀」 — `koo_deep_report figures pack` 으로 채움)
 
 ## 3단계 — LS-PrePost 영상 보완
 - [ ] `--hide-parts` / `--hide-floor`
@@ -30,7 +30,9 @@
 - [ ] 타겟 지정만으로 파트별 단면
 
 ## 4단계 — sphere 최악 방향 그림
-- [ ] 파트별 최악 런 고르기 · 그림 · manifest
+- [x] 파트별 최악 런 고르기 · 그림 · manifest(scope=campaign) — `koo_deep_report figures campaign`
+- [x] post_analyze 단계(sphere 다음, deep 앞) · `--no-figures` · 셸 시험 [13]
+- [x] 실데이터 Test_006(1144 런) — 11.4 s, 옛 CSV 값 불일치를 잡음(현 분석기와 대조)
 
 ## 5단계 — 배포
 - [ ] 시험 전부 · SIF 배포 요청 · 배포판에서 확인

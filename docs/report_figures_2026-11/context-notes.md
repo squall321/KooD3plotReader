@@ -59,3 +59,19 @@
 - **셸 파트** — 응력 이력이 솔리드 전용이라 자동 선택에는 안 든다. `--figure-parts` 로 주면 전역 최대 순간에 그린다(셸 값은 층 최대).
 - **UA_OUTPUT_SCHEMA 는 안 올렸다** — UA 산출물이 아니라 그 위의 산출이다. `--skip-existing` 로 건너뛴 옛 case 는 다시 돌려야 그림이 생긴다.
 - **실측(v14, 호스트)** — 꾸러미 7.6 s(스냅샷 11 · 차트 7), 최대 RSS 667 MB, 폴더 약 20 MB.
+
+## 자동화 길 · 캠페인 (11-06)
+- **새 래퍼를 만들지 않았다** — 호스트 배포본(/data/SmartTwinPostprocessor)은 `koo_*_report` 래퍼만 lib/ 형식으로 새로
+  짓고 나머지 bin 은 SIF 에서 그대로 복사한다. 그래서 `koo_ontology` 는 호스트에서 SIF 식 `python/` 경로를 가리켜
+  env.sh 없이 돌리면 `No module named koo_deep_report` 로 죽는다(실측 — 기존 결함, 검증기도 `koo_*_report` 만 본다).
+  그림은 `koo_deep_report figures pack|snap|campaign` 하위 명령으로 붙여 이 함정을 피했다. koo_ontology 결함은 따로 보고.
+- **캠페인 상태 번호는 CSV 줄 번호** — `stress/part_<PID>_von_mises.csv` 는 상태마다 한 줄. 시각은 소수 6자리라 상태 간격
+  1 µs 와 겹쳐 시각으로 찾으면 틀린다. 런마다 수십 MB 인 analysis_result.json 은 열지 않는다.
+- **Test_006(2026-02 산출물)의 CSV · report.json 값은 틀렸다** — 줄 번호 = 상태 번호는 맞는데(시각 일치) 값이 다르다
+  (파트 17 상태 216: CSV 561.3, 그림 엔진 10.158). 현 분석기(SIF eccde7f)로 그 런을 다시 재니 상태 216 = 10.15794394 로
+  그림 엔진과 끝자리까지 같고, 파트 17 의 실제 최대는 상태 801 의 71.07. 2026-09 무결성 수정 이전 분석기 값이다.
+  → 캠페인 그림은 이런 불일치를 notes · caption(⚠) · manifest `check` 로 드러낸다. 최악 런 고르기 자체가 옛 값에
+  기대므로, 옛 캠페인은 다시 분석해야 그림의 대상 · 순간이 옳다.
+- **post_analyze 단계 자리** — sphere 바로 다음(deep 앞). 캠페인 그림은 수십 초라 수 시간짜리 deep 보다 먼저 나온다.
+  `--no-figures` 하나로 캠페인 그림과 deep 그림을 함께 끈다.
+- **실측** — Test_006 캠페인 그림 11.4 s(스냅샷 11 · 차트 1, 런 다섯 개 d3plot 을 하나씩), 최대 RSS 672 MB.
