@@ -319,6 +319,34 @@ static std::optional<PixelBBox> detectFringePixelBBox(const std::string& video_p
     return PixelBBox{x1, y1, x2, y2};
 }
 
+// 숨길 파트를 뺀 나머지 파트의 상자 — 숨길 것이 없으면 전체 모델 상자. 전체 상자는 바닥이 크면 단면
+// 위치(가운데)가 바닥 한가운데를 잡고, LS-PrePost 의 ac 가 맞추는 범위와도 어긋난다(_zoom 자르기 대응).
+// 메시의 모든 파트 ID(중복 없이, 오름차순). Mesh::*_parts 는 요소마다의 파트 배열이다.
+std::vector<int> meshPartIds(const data::Mesh& mesh) {
+    std::set<int> ids;
+    for (const auto* lst : {&mesh.solid_parts, &mesh.shell_parts, &mesh.thick_shell_parts, &mesh.beam_parts})
+        ids.insert(lst->begin(), lst->end());
+    return {ids.begin(), ids.end()};
+}
+
+render::BoundingBox visibleModelBounds(D3plotReader& reader, const std::vector<int32_t>& hidden) {
+    if (hidden.empty()) return render::GeometryAnalyzer::calculateModelBounds(reader, 0);
+    render::BoundingBox box{};
+    bool any = false;
+    for (int pid : meshPartIds(reader.read_mesh())) {
+        if (std::find(hidden.begin(), hidden.end(), pid) != hidden.end()) continue;
+        auto pb = render::GeometryAnalyzer::calculatePartBounds(reader, pid, 0);
+        for (int a = 0; a < 3; ++a) {
+            box.min[a] = any ? std::min(box.min[a], pb.min[a]) : pb.min[a];
+            box.max[a] = any ? std::max(box.max[a], pb.max[a]) : pb.max[a];
+        }
+        any = true;
+    }
+    if (!any) return render::GeometryAnalyzer::calculateModelBounds(reader, 0);
+    for (int a = 0; a < 3; ++a) box.center[a] = (box.min[a] + box.max[a]) / 2.0;
+    return box;
+}
+
 } // anonymous namespace
 #endif
 
@@ -431,7 +459,7 @@ bool UnifiedAnalyzer::processRenderJobs(
         }
 
         // Calculate bounding boxes
-        render::BoundingBox model_bbox = render::GeometryAnalyzer::calculateModelBounds(reader, 0);
+        render::BoundingBox model_bbox = visibleModelBounds(reader, job.hide_part_ids);
         render::BoundingBox bbox;
 
         if (target_parts.empty()) {
@@ -486,6 +514,7 @@ bool UnifiedAnalyzer::processRenderJobs(
             RenderTask task;
             task.name = job.name;
             task.is_animation = (job.output.format == RenderOutputFormat::MP4);
+            task.options.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
 
             if (task.is_animation) {
                 task.options.create_animation = true;
@@ -540,6 +569,7 @@ bool UnifiedAnalyzer::processRenderJobs(
             task.plane.visible = true;
 
             task.options.section_planes.push_back(task.plane);
+            task.options.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
 
             if (job.output.format == RenderOutputFormat::MP4) {
                 task.options.create_animation = true;
@@ -912,6 +942,10 @@ bool UnifiedAnalyzer::processPartSectionRenders(
             for (auto pid : mesh.shell_parts)        part_ids.push_back(pid);
             for (auto pid : mesh.thick_shell_parts)  part_ids.push_back(pid);
         }
+        // 숨길 파트(바닥 등)는 파트별 영상도 만들지 않는다
+        part_ids.erase(std::remove_if(part_ids.begin(), part_ids.end(), [&](int pid) {
+            return std::find(job.hide_part_ids.begin(), job.hide_part_ids.end(), pid) != job.hide_part_ids.end();
+        }), part_ids.end());
         if (part_ids.empty()) {
             if (callback) callback("  [" + job.name + "] No parts to render — skipped");
             continue;
@@ -944,6 +978,7 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         ropts.state_step = job.state_step;
         ropts.create_animation = true;
         ropts.video_format = render::VideoFormat::MP4;
+        ropts.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
 
         render::PartSectionOptions psopts;
         psopts.section_view     = job.section_view;

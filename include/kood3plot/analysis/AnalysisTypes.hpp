@@ -730,6 +730,8 @@ struct RenderJob {
     // Part selection
     std::vector<int32_t> parts;  ///< Empty = all parts
     std::string part_pattern;    ///< Part name pattern filter (e.g., "CELL*", "*BATTERY*")
+    /// 영상에서 숨길 파트(바닥 등). 단면 위치 · 카메라 맞춤 상자에서도 뺀다. 비면 숨기지 않는다.
+    std::vector<int32_t> hide_part_ids;
 
     // State selection
     std::vector<int> states;  ///< Empty = all, -1 = last state
@@ -1119,6 +1121,7 @@ struct PartSectionRenderJob {
     std::string name = "Part Section Renders";
     bool enabled = true;
     std::vector<int32_t> part_ids;          ///< empty = auto (all parts from analysis)
+    std::vector<int32_t> hide_part_ids;     ///< 영상에서 숨길 파트(바닥 등) — 파트별 목록에서도 뺀다
     /// Each entry is "x","y","z" or signed "+x","-x","+y","-y","+z","-z".
     /// Signed forms flip the cut normal — useful to control which side stays
     /// visible after the slice and which direction sliding sweeps in.

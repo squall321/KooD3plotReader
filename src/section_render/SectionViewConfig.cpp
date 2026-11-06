@@ -188,6 +188,7 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
         if (key == "plane")            { section = "plane";            cur_matcher = nullptr; continue; }
         if (key == "target_parts")     { section = "target_parts";     cur_matcher = &target_parts; continue; }
         if (key == "background_parts") { section = "background_parts"; cur_matcher = &background_parts; continue; }
+        if (key == "hidden_parts")     { section = "hidden_parts";     cur_matcher = &hidden_parts; continue; }
         if (key == "output")           { section = "output";           cur_matcher = nullptr; continue; }
 
         // Top-level scalar keys
@@ -255,7 +256,8 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
         }
 
         // Part matcher sub-keys
-        if (cur_matcher && (section == "target_parts" || section == "background_parts")) {
+        if (cur_matcher && (section == "target_parts" || section == "background_parts" ||
+                            section == "hidden_parts")) {
             if (key == "ids") {
                 for (int32_t id : parseIntList(value))
                     cur_matcher->addById(id);

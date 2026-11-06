@@ -177,6 +177,9 @@ struct RenderOptions {
     // Empty = show all parts (no blanking). Non-empty = blank all, unblank only these.
     std::vector<int> highlight_parts;   ///< Part IDs to show with fringe (camera zooms to these)
     std::vector<int> context_parts;     ///< Part IDs for genselect removal (Z: also shown as mesh)
+    /// 영상에서 숨길 파트(바닥 등) — `-M <id>`. fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로
+    /// 그 뒤마다 다시 숨긴다(writeHideParts).
+    std::vector<int> hidden_parts;
 
     // Section settings
     std::vector<SectionPlane> section_planes;

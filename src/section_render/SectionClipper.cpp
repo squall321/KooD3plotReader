@@ -119,6 +119,8 @@ void SectionClipper::clip(const data::StateData& state,
         state.deleted_shells.begin(), state.deleted_shells.end());
 
     auto classify = [&](int32_t pid, bool& is_tgt, bool& is_bg) {
+        // 숨길 파트가 먼저 — 'background 가 비면 타겟 아닌 전부' 규칙보다 앞서 거른다
+        if (hidden_ && hidden_->matches(pid)) { is_tgt = false; is_bg = false; return; }
         // Target takes priority over background
         is_tgt = target.empty() || target.matches(pid, "");
         if (is_tgt) {

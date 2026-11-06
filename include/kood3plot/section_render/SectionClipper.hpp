@@ -61,7 +61,11 @@ public:
               double fade_distance = 0.0,
               std::vector<float>* target_alphas = nullptr);
 
+    /// 숨길 파트 — 잘림면을 만들지 않는다(타겟도 배경도 아니다). nullptr 이면 없음.
+    void setHidden(const PartMatcher* hidden) { hidden_ = hidden; }
+
 private:
+    const PartMatcher*       hidden_ = nullptr;
     const data::Mesh&        mesh_;
     const data::ControlData& control_;
     const SectionPlane&      plane_;

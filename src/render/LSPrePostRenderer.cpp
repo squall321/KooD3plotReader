@@ -313,6 +313,16 @@ int LSPrePostRenderer::renderMultipleSections(
 // Script Generation
 // ============================================================
 
+// 숨길 파트를 숨긴다 — `-M <id>`(표시에서 뺀다). 실측(2026-11-06, Test_006, LS-PrePost 4.12 mesa 배치):
+//   `selectpart part N off` · `selectpart part N on` 은 켜고 끄기가 아니라 「N 만 보이기」 라 여러 줄이면 마지막 하나만
+//   남거나(on) 바닥만 남았다(off). `-M 23` 만 바닥 하나를 정확히 빼고 ac 가 나머지에 맞췄다.
+// fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로 그 뒤마다 부른다. 빈 목록이면 아무것도 쓰지 않는다.
+static void writeHideParts(std::ostream& s, const std::vector<int>& hidden) {
+    if (hidden.empty()) return;
+    s << "$# Hide parts (floor etc.)\n";
+    for (int id : hidden) s << "-M " << id << "\n";
+}
+
 std::string LSPrePostRenderer::generateScript(
     const std::string& d3plot_path,
     const std::string& output_path,
@@ -364,6 +374,9 @@ std::string LSPrePostRenderer::generateScript(
         }
         script << "\n";
     }
+
+    // 숨길 파트 — fringe 뒤에, 첫 ac 앞에(카메라가 숨긴 파트를 빼고 맞춘다)
+    writeHideParts(script, options.hidden_parts);
 
     // Set view orientation (view commands reset camera position)
     script << "$# Set view orientation\n";
@@ -698,7 +711,9 @@ int LSPrePostRenderer::renderAllPartSections(
             s << "genselect target part\n";
             s << "selectpart select 1\n";
             s << "selectpart all on\n";
-            s << "selectpart select 0\n\n";
+            s << "selectpart select 0\n";
+            writeHideParts(s, options.hidden_parts);
+            s << "\n";
         };
 
         auto writeTargetOnly = [&](std::ostringstream& s) {
@@ -801,6 +816,7 @@ int LSPrePostRenderer::renderAllPartSections(
                        << "selectpart part " << pid << " on\n"
                        << "vauto\n"
                        << "selectpart all on\n";
+                writeHideParts(script, options.hidden_parts);
 
                 // Iso view orientation
                 script << iv.base_view << "\n"
@@ -941,7 +957,9 @@ int LSPrePostRenderer::renderSlidingSection(
         s << "genselect target part\n";
         s << "selectpart select 1\n";
         s << "selectpart all on\n";
-        s << "selectpart select 0\n\n";
+        s << "selectpart select 0\n";
+        writeHideParts(s, options.hidden_parts);
+        s << "\n";
     };
 
     // Compute N step positions (camera-near → far if requested).
@@ -1015,6 +1033,7 @@ int LSPrePostRenderer::renderSlidingSection(
                    << "selectpart part " << part_id << " on\n"
                    << "vauto\n"
                    << "selectpart all on\n";
+            writeHideParts(script, options.hidden_parts);
             script << iv.base_view << "\n"
                    << "rotang " << iv.ry << "\nry\n"
                    << "rotang " << iv.rx << "\nrx\n";

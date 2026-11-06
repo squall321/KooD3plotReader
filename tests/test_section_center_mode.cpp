@@ -70,6 +70,15 @@ int main() {
             name(c.center_mode));
     }
 
+    std::printf("[E] 숨길 파트(바닥 등) — target/background 와 따로 읽힌다. 섞이면 바닥이 타겟으로 칠해진다\n");
+    {
+        SectionViewConfig c = parse("target_parts:\n  ids: [5]\nhidden_parts:\n  ids: [23, 24]\n"
+                                    "background_parts:\n  patterns: [\"*\"]\n");
+        chk("hidden_parts ids [23, 24] 를 읽는다", c.hidden_parts.matches(23) && c.hidden_parts.matches(24), "");
+        chk("hidden 이 target 으로 새지 않는다", !c.target_parts.matches(23) && c.target_parts.matches(5), "");
+        chk("hidden 이 없으면 비어 있다", parse("").hidden_parts.empty(), "");
+    }
+
     std::printf("%s (%d 실패)\n", g_failed ? "FAILED" : "PASSED", g_failed);
     return g_failed ? 1 : 0;
 }

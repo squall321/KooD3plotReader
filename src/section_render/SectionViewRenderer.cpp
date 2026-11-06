@@ -51,6 +51,33 @@ namespace section_render {
 
 namespace {
 
+// 숨길 파트를 뺀 요소들의 절점을 한 번씩 돈다 — 숨길 것이 없으면 전체 절점. 자동 중심 · 상자가 바닥 한가운데를
+// 잡지 않게 한다. 요소 절점 번호는 1 부터인 내부 순번이다(아래 resolveIdx 와 같은 규칙).
+template <class F>
+void forVisibleNodes(const data::Mesh& mesh, const PartMatcher& hidden, F&& fn) {
+    if (hidden.empty()) {
+        for (const auto& nd : mesh.nodes) fn(nd);
+        return;
+    }
+    std::vector<char> seen(mesh.nodes.size(), 0);
+    auto visit = [&](const auto& elems, const auto& parts) {
+        for (size_t ei = 0; ei < elems.size(); ++ei) {
+            int32_t pid = (ei < parts.size()) ? parts[ei] : 0;
+            if (hidden.matches(pid)) continue;
+            for (int32_t nid : elems[ei].node_ids) {
+                int32_t idx = nid - 1;
+                if (idx >= 0 && idx < static_cast<int32_t>(seen.size()) && !seen[idx]) {
+                    seen[idx] = 1;
+                    fn(mesh.nodes[idx]);
+                }
+            }
+        }
+    };
+    visit(mesh.solids, mesh.solid_parts);
+    visit(mesh.thick_shells, mesh.thick_shell_parts);
+    visit(mesh.shells, mesh.shell_parts);
+}
+
 /**
  * @brief config.field 의 절점평균 최대가 나온 절점 위치를 찾는다.
  *
@@ -256,11 +283,11 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
         }
 
         if (!use_target_bbox) {
-            for (const auto& nd : mesh.nodes) {
+            forVisibleNodes(mesh, config.hidden_parts, [&](const auto& nd) {
                 xmin = std::min(xmin, nd.x); xmax = std::max(xmax, nd.x);
                 ymin = std::min(ymin, nd.y); ymax = std::max(ymax, nd.y);
                 zmin = std::min(zmin, nd.z); zmax = std::max(zmax, nd.z);
-            }
+            });
         }
 
         double cx = (xmin + xmax) * 0.5;
@@ -357,6 +384,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     // ---- 4. Build pipeline objects ----
     NodalAverager     averager(mesh, ctrl);
     SectionClipper    clipper(mesh, ctrl, plane, effective_slab);
+    clipper.setHidden(&config.hidden_parts);
     SoftwareRasterizer rasterizer(config.width, config.height, config.supersampling);
     SectionCamera     camera;
     ColorMap          cmap(config.colormap);
@@ -401,12 +429,14 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
             };
             for (size_t ei = 0; ei < mesh.solids.size(); ++ei) {
                 int32_t pid = (ei < mesh.solid_parts.size()) ? mesh.solid_parts[ei] : 0;
+                if (config.hidden_parts.matches(pid)) continue;
                 if (!config.target_parts.empty() && !config.target_parts.matches(pid))
                     continue;
                 for (int32_t nid : mesh.solids[ei].node_ids) expand(nid);
             }
             for (size_t ei = 0; ei < mesh.shells.size(); ++ei) {
                 int32_t pid = (ei < mesh.shell_parts.size()) ? mesh.shell_parts[ei] : 0;
+                if (config.hidden_parts.matches(pid)) continue;
                 if (!config.target_parts.empty() && !config.target_parts.matches(pid))
                     continue;
                 for (int32_t nid : mesh.shells[ei].node_ids) expand(nid);
@@ -580,6 +610,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
             SectionPlane sp_iter = SectionPlane::fromAxis(config.axis, new_point);
             sliding_clipper = std::make_unique<SectionClipper>(
                 mesh, ctrl, sp_iter, effective_slab);
+            sliding_clipper->setHidden(&config.hidden_parts);
             eff_clipper = sliding_clipper.get();
             // Re-aim camera at the new plane so frame-to-frame view stays
             // consistent (no flicker from camera orientation drift).
@@ -897,11 +928,11 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
         double xmin = 1e300, xmax = -1e300;
         double ymin = 1e300, ymax = -1e300;
         double zmin = 1e300, zmax = -1e300;
-        for (const auto& nd : mesh.nodes) {
+        forVisibleNodes(mesh, config.hidden_parts, [&](const auto& nd) {
             xmin = std::min(xmin, nd.x); xmax = std::max(xmax, nd.x);
             ymin = std::min(ymin, nd.y); ymax = std::max(ymax, nd.y);
             zmin = std::min(zmin, nd.z); zmax = std::max(zmax, nd.z);
-        }
+        });
         double cx = (xmin + xmax) * 0.5;
         double cy = (ymin + ymax) * 0.5;
         double cz = (zmin + zmax) * 0.5;
@@ -1051,6 +1082,7 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
     bool all_are_target = config.target_parts.empty();
 
     for (const auto& q : all_quads) {
+        if (config.hidden_parts.matches(q.part_id)) continue;   // 숨길 파트 — 외피 · 카메라에서 뺀다
         bool is_target = all_are_target || config.target_parts.matches(q.part_id);
 
         if (q.ni[3] >= 0) {
@@ -1116,6 +1148,7 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
     // ---- 6. Build pipeline objects ----
     NodalAverager     averager(mesh, ctrl);
     SectionClipper    clipper(mesh, ctrl, plane, effective_slab);
+    clipper.setHidden(&config.hidden_parts);
     SoftwareRasterizer rasterizer(config.width, config.height, config.supersampling);
     SectionCamera     camera;
     ColorMap          cmap(config.colormap);
@@ -1777,6 +1810,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
     for (const auto& t : pending_tris) {
         auto it = tri_count.find(sortedTri(t.a, t.b, t.c));
         if (it != tri_count.end() && it->second == 1) {
+            if (config.hidden_parts.matches(t.part_id)) continue;   // 숨길 파트
             bool is_tgt = all_are_target || config.target_parts.matches(t.part_id);
             if (top_view && !is_tgt) continue;   // 세트 뷰: 타깃 파트만 표시
             ExtFace f{{t.a, t.b, t.c}, t.part_id, is_tgt, initialEdge2(t.a, t.b, t.c)};
@@ -1786,6 +1820,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
     for (const auto& q : pending_quads) {
         auto it = quad_count.find(sortedQuad(q.a, q.b, q.c, q.d));
         if (it == quad_count.end() || it->second != 1) continue;
+        if (config.hidden_parts.matches(q.part_id)) continue;      // 숨길 파트
         bool is_tgt = all_are_target || config.target_parts.matches(q.part_id);
         if (top_view && !is_tgt) continue;       // 세트 뷰: 타깃 파트만 표시
         ExtFace f1{{q.a, q.b, q.c}, q.part_id, is_tgt, initialEdge2(q.a, q.b, q.c)};

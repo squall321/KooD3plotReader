@@ -96,6 +96,34 @@ int main() {
         }
     }
 
+    std::printf("[D] 영상에서 숨길 파트 — render_jobs · part_section_renders 가 hide_part_ids 를 읽는다\n");
+    {
+        // 키가 무시되면 바닥이 그대로 영상을 덮는다(조용한 실패)
+        const std::string yaml =
+            "input:\n"
+            "  d3plot: /tmp/none/d3plot\n"
+            "render_jobs:\n"
+            "  - name: section_view_z\n"
+            "    type: section_view\n"
+            "    fringe: von_mises\n"
+            "    hide_part_ids: [23, 24]\n"
+            "part_section_renders:\n"
+            "  - name: \"Per-Part Sections (von_mises)\"\n"
+            "    fringe_type: von_mises\n"
+            "    part_ids: [5, 7]\n"
+            "    hide_part_ids: [23]\n";
+        UnifiedConfig config;
+        UnifiedConfigParser::loadFromYAMLString(yaml, config);
+        chk("render_jobs 숨김 [23, 24]", config.render_jobs.size() == 1 &&
+            config.render_jobs[0].hide_part_ids == std::vector<int32_t>{23, 24},
+            std::to_string(config.render_jobs.size()) + " jobs");
+        chk("part_section_renders 숨김 [23] · 파트 [5, 7] 는 그대로",
+            config.part_section_renders.size() == 1 &&
+            config.part_section_renders[0].hide_part_ids == std::vector<int32_t>{23} &&
+            config.part_section_renders[0].part_ids == std::vector<int32_t>{5, 7},
+            std::to_string(config.part_section_renders.size()) + " jobs");
+    }
+
     std::printf("\n%s  실패 %d 건\n", g_failed ? "[FAIL]" : "[PASS]", g_failed);
     return g_failed ? 1 : 0;
 }

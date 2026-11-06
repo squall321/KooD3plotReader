@@ -82,6 +82,8 @@ struct SectionViewConfig {
     // Part selection
     PartMatcher target_parts;
     PartMatcher background_parts;
+    /// 영상에서 숨길 파트(id 만, 바닥 등) — 잘림면 · 외피 · 자동 중심 · 카메라 맞춤에서 모두 뺀다
+    PartMatcher hidden_parts;
 
     // Rendering settings
     FieldSelector field       = FieldSelector::VonMises;

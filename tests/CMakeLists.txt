@@ -83,6 +83,13 @@ add_executable(test_section_center_mode test_section_center_mode.cpp)
 target_link_libraries(test_section_center_mode PRIVATE kood3plot_section_render)
 target_include_directories(test_section_center_mode PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# LS-PrePost 명령 스크립트에서 숨길 파트가 fringe 뒤 · 첫 ac 앞에 꺼지는지(리포트 그림 3단계)
+if(TARGET kood3plot_render)
+    add_executable(test_lspp_hide_parts test_lspp_hide_parts.cpp)
+    target_link_libraries(test_lspp_hide_parts PRIVATE kood3plot_render)
+    target_include_directories(test_lspp_hide_parts PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)
