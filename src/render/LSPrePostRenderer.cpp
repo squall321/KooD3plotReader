@@ -316,11 +316,16 @@ int LSPrePostRenderer::renderMultipleSections(
 // 숨길 파트를 숨긴다 — `-M <id>`(표시에서 뺀다). 실측(2026-11-06, Test_006, LS-PrePost 4.12 mesa 배치):
 //   `selectpart part N off` · `selectpart part N on` 은 켜고 끄기가 아니라 「N 만 보이기」 라 여러 줄이면 마지막 하나만
 //   남거나(on) 바닥만 남았다(off). `-M 23` 만 바닥 하나를 정확히 빼고 ac 가 나머지에 맞췄다.
+// GUI 세션 기록(lspost.cfile)은 형식 접두어를 붙인다(`-M H31` 솔리드 · `-M S21` 셸 · `-M T2004` 두꺼운 셸). 맨 숫자와
+// 접두어 꼴은 솔리드에서 둘 다 · 함께 써도 같은 화면이었다 — 형식을 알면 둘 다 써서 셸 바닥에도 닿게 한다.
 // fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로 그 뒤마다 부른다. 빈 목록이면 아무것도 쓰지 않는다.
-static void writeHideParts(std::ostream& s, const std::vector<int>& hidden) {
+static void writeHideParts(std::ostream& s, const std::vector<int>& hidden, const std::vector<char>& kinds) {
     if (hidden.empty()) return;
     s << "$# Hide parts (floor etc.)\n";
-    for (int id : hidden) s << "-M " << id << "\n";
+    for (size_t i = 0; i < hidden.size(); ++i) {
+        s << "-M " << hidden[i] << "\n";
+        if (i < kinds.size() && kinds[i]) s << "-M " << kinds[i] << hidden[i] << "\n";
+    }
 }
 
 std::string LSPrePostRenderer::generateScript(
@@ -376,7 +381,7 @@ std::string LSPrePostRenderer::generateScript(
     }
 
     // 숨길 파트 — fringe 뒤에, 첫 ac 앞에(카메라가 숨긴 파트를 빼고 맞춘다)
-    writeHideParts(script, options.hidden_parts);
+    writeHideParts(script, options.hidden_parts, options.hidden_kinds);
 
     // Set view orientation (view commands reset camera position)
     script << "$# Set view orientation\n";
@@ -712,7 +717,7 @@ int LSPrePostRenderer::renderAllPartSections(
             s << "selectpart select 1\n";
             s << "selectpart all on\n";
             s << "selectpart select 0\n";
-            writeHideParts(s, options.hidden_parts);
+            writeHideParts(s, options.hidden_parts, options.hidden_kinds);
             s << "\n";
         };
 
@@ -816,7 +821,7 @@ int LSPrePostRenderer::renderAllPartSections(
                        << "selectpart part " << pid << " on\n"
                        << "vauto\n"
                        << "selectpart all on\n";
-                writeHideParts(script, options.hidden_parts);
+                writeHideParts(script, options.hidden_parts, options.hidden_kinds);
 
                 // Iso view orientation
                 script << iv.base_view << "\n"
@@ -958,7 +963,7 @@ int LSPrePostRenderer::renderSlidingSection(
         s << "selectpart select 1\n";
         s << "selectpart all on\n";
         s << "selectpart select 0\n";
-        writeHideParts(s, options.hidden_parts);
+        writeHideParts(s, options.hidden_parts, options.hidden_kinds);
         s << "\n";
     };
 
@@ -1033,7 +1038,7 @@ int LSPrePostRenderer::renderSlidingSection(
                    << "selectpart part " << part_id << " on\n"
                    << "vauto\n"
                    << "selectpart all on\n";
-            writeHideParts(script, options.hidden_parts);
+            writeHideParts(script, options.hidden_parts, options.hidden_kinds);
             script << iv.base_view << "\n"
                    << "rotang " << iv.ry << "\nry\n"
                    << "rotang " << iv.rx << "\nrx\n";

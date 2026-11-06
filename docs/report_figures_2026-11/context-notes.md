@@ -111,3 +111,7 @@
 - **호스트 koo_ontology 래퍼 수정** — deploy_from_sif.sh 가 `python -m` 래퍼(MODWRAPS: koo_ontology)를 SIF 에서 복사하지 않고
   `koo_*_report` 와 같은 lib/ 형식으로 짓는다. verify_deploy.sh 가 그것도 환경변수 없이 실행해 본다. 시뮬레이션(.work/deploy_sim2,
   호스트 lib/ 를 가리킴): 새 래퍼는 `koo_ontology vocab` 이 돌고, 지금 배포된 래퍼는 `No module named koo_deep_report`.
+- **`-M` 접두어 꼴(배포 요청 뒤 보강, 로컬 커밋)** — /data 의 GUI 세션 기록(lspost.cfile)은 `-M H31`(솔리드) · `-M S21`(셸) ·
+  `-M T2004`(두꺼운 셸)처럼 형식 접두어를 붙인다. 배치 실측(Test_006 솔리드 바닥): 맨 숫자 `-M 23`, 접두어 `-M H23`, 둘 다 —
+  셋 모두 같은 화면. 맨 숫자가 셸에도 먹는지는 셸 d3plot 이 없어 못 봤다 → 형식을 알면 두 꼴을 함께 쓴다(셸 바닥 대비).
+  실렌더는 종전 숨김 영상과 픽셀까지 같다. 141317c 배포가 끝난 뒤 push 한다(빌드가 main HEAD 를 clone).

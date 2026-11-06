@@ -329,11 +329,27 @@ std::vector<int> meshPartIds(const data::Mesh& mesh) {
     return {ids.begin(), ids.end()};
 }
 
-render::BoundingBox visibleModelBounds(D3plotReader& reader, const std::vector<int32_t>& hidden) {
+// 숨길 파트마다 요소 형식 — 'H' 솔리드 · 'S' 셸 · 'T' 두꺼운 셸, 0 = 모름(LS-PrePost `-M S21` 꼴에 쓴다)
+std::vector<char> partKinds(const data::Mesh& mesh, const std::vector<int32_t>& hidden) {
+    auto has = [](const std::vector<int32_t>& per_elem, int32_t pid) {
+        return std::find(per_elem.begin(), per_elem.end(), pid) != per_elem.end();
+    };
+    std::vector<char> out;
+    for (int32_t pid : hidden) {
+        out.push_back(has(mesh.solid_parts, pid) ? 'H' : has(mesh.shell_parts, pid) ? 'S'
+                      : has(mesh.thick_shell_parts, pid) ? 'T' : 0);
+    }
+    return out;
+}
+
+render::BoundingBox visibleModelBounds(D3plotReader& reader, const std::vector<int32_t>& hidden,
+                                       std::vector<char>* kinds = nullptr) {
     if (hidden.empty()) return render::GeometryAnalyzer::calculateModelBounds(reader, 0);
+    const auto mesh = reader.read_mesh();
+    if (kinds) *kinds = partKinds(mesh, hidden);
     render::BoundingBox box{};
     bool any = false;
-    for (int pid : meshPartIds(reader.read_mesh())) {
+    for (int pid : meshPartIds(mesh)) {
         if (std::find(hidden.begin(), hidden.end(), pid) != hidden.end()) continue;
         auto pb = render::GeometryAnalyzer::calculatePartBounds(reader, pid, 0);
         for (int a = 0; a < 3; ++a) {
@@ -459,7 +475,8 @@ bool UnifiedAnalyzer::processRenderJobs(
         }
 
         // Calculate bounding boxes
-        render::BoundingBox model_bbox = visibleModelBounds(reader, job.hide_part_ids);
+        std::vector<char> hide_kinds;
+        render::BoundingBox model_bbox = visibleModelBounds(reader, job.hide_part_ids, &hide_kinds);
         render::BoundingBox bbox;
 
         if (target_parts.empty()) {
@@ -515,6 +532,7 @@ bool UnifiedAnalyzer::processRenderJobs(
             task.name = job.name;
             task.is_animation = (job.output.format == RenderOutputFormat::MP4);
             task.options.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
+            task.options.hidden_kinds = hide_kinds;
 
             if (task.is_animation) {
                 task.options.create_animation = true;
@@ -570,6 +588,7 @@ bool UnifiedAnalyzer::processRenderJobs(
 
             task.options.section_planes.push_back(task.plane);
             task.options.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
+            task.options.hidden_kinds = hide_kinds;
 
             if (job.output.format == RenderOutputFormat::MP4) {
                 task.options.create_animation = true;
@@ -979,6 +998,7 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         ropts.create_animation = true;
         ropts.video_format = render::VideoFormat::MP4;
         ropts.hidden_parts.assign(job.hide_part_ids.begin(), job.hide_part_ids.end());
+        ropts.hidden_kinds = partKinds(mesh, job.hide_part_ids);
 
         render::PartSectionOptions psopts;
         psopts.section_view     = job.section_view;

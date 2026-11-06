@@ -50,6 +50,16 @@ int main() {
         chk("숨긴 뒤 'all on' 으로 되살리지 않는다", find_after(sc, "selectpart all on", m23) == std::string::npos);
     }
     {
+        // 형식을 알면 GUI 기록 꼴(`-M S23`)도 — 셸 바닥 대비. 모르면 맨 숫자만
+        RenderOptions o;
+        o.hidden_parts = {23, 24};
+        o.hidden_kinds = {'S', 0};
+        const std::string sc = r.generateScript("/x/d3plot", "/x/out.png", o);
+        chk("형식을 알면 접두어 꼴도 쓴다(-M S23)", sc.find("\n-M 23\n-M S23\n") != std::string::npos);
+        chk("모르면 맨 숫자만(-M 24, 접두어 없음)", sc.find("\n-M 24\n") != std::string::npos &&
+            sc.find("-M S24") == std::string::npos && sc.find("-M H24") == std::string::npos);
+    }
+    {
         RenderOptions o;
         chk("숨길 것이 없으면 아무것도 쓰지 않는다",
             r.generateScript("/x/d3plot", "/x/out.png", o).find("-M ") == std::string::npos);

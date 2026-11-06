@@ -180,6 +180,9 @@ struct RenderOptions {
     /// 영상에서 숨길 파트(바닥 등) — `-M <id>`. fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로
     /// 그 뒤마다 다시 숨긴다(writeHideParts).
     std::vector<int> hidden_parts;
+    /// hidden_parts 와 같은 순서의 요소 형식 — 'H' 솔리드 · 'S' 셸 · 'T' 두꺼운 셸, 0 = 모름. 알면 GUI 가 기록하는
+    /// 꼴(`-M S21`)도 함께 쓴다(맨 숫자 `-M 21` 은 솔리드에서만 실측했다).
+    std::vector<char> hidden_kinds;
 
     // Section settings
     std::vector<SectionPlane> section_planes;
