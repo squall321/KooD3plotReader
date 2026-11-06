@@ -124,3 +124,16 @@
   `--system-site-packages` venv(.work/sif_venv)에 같은 판을 SIF 의 pip 로 설치(numpy 는 시스템 1.26.4 그대로), `--no-home` 으로 v14
   꾸러미를 그렸다: 스냅샷 11 · 차트 7, 최대값 동일, 알림은 바닥 숨김뿐. 읽기 전용 홈이면 matplotlib · Mesa 가 캐시 경고를 낸다(무해).
 - 내가 넣은 %test(`python3 -c "import pyvista, lasso.dyna, PIL, matplotlib"`)가 이 빈틈을 바르게 잡았다.
+
+## v44 배포 (11-06, 마감)
+- **v44 = e86fd1b**(141317c + 1c9a093 · 591ba55 · e86fd1b) — 헤드리스 a1ca45cc(1,156,435,968 B) · GUI 15cf8e0f 가 빌드 원본 · /data ·
+  compute-node-images · 헤드 /opt 네 곳에서 같다. v43 은 헤드 /opt 에 하드 링크 백업(…_backup_20261106_214703.sif). tar v44 도 나갔다.
+- 배포 세션 확인(모두 `--no-home`): a VERSION e86fd1b · 래퍼 7개 환경변수 없이 실행, b 호스트 koo_ontology vocab 정상(v43 은 No module),
+  c-1 rc 0(41.6 s, RSS 6.84 GB) 스냅샷 11 · 차트 7 · 바닥 [23] 숨김 · 「리포트 그림」 탭, c-2 rc 0(72 s) 영상 셋에 형상 · 바닥 없음.
+  이쪽 재확인: 헤드 /opt 로 --no-home 에서 의존성 import · v14 꾸러미(최대 4024.9189, manifest 판 e86fd1b).
+- GUI SIF 에는 그림 의존성이 없다 — 뷰어는 deep 을 실행하지 않고 명령줄(`<d3plot_path>` 자리표시)만 보여 준다. GUI def 는 원래 numpy ·
+  lasso 도 없어 GUI 안 deep 은 전부터 반쪽이었다. 그대로 둔다.
+- c-2 의 `section_view_zoom.mp4`(256×144, 거의 한 색)는 기존 기능(타겟 강조 개관의 응력 색 화소 자르기). 40 상태 간격이라 프레임 25장 →
+  50번째 프레임이 없어 t=0(전부 파랑)으로 넘어가 최소 크기로 잘렸다. 단면(projectview)과 맞지 않는 것은 미해결 목록에 이미 있다 —
+  고칠지는 사용자 결정.
+- 남은 것: 노드(node001 · 002) 로컬 SIF(노드 down).
