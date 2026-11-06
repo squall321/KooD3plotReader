@@ -119,16 +119,22 @@ done
 #    구조를 가리키는데 호스트는 `lib/` 구조다. 2026-09-13 배포에서 그대로 덮어써
 #    env.sh 없이는 전부 `No module named …` 로 죽는 상태가 사흘 남았다.
 #    호스트 래퍼는 아래에서 v32 원본과 같은 형식으로 생성한다.
+# 🔴 `python -m <모듈>` 래퍼(koo_ontology 등)도 같다 — 2026-11-06 실측: 호스트 koo_ontology 가 SIF 식 `python/` 경로를
+#    가리켜 env.sh 없이 `No module named koo_deep_report` 로 죽었다(post_analyze 꾸러미 단계가 조용히 빠진다).
+#    build_module.sh 가 이런 래퍼를 더하면 아래 MODWRAPS 에도 더한다(<이름>:<모듈>).
+MODWRAPS=("koo_ontology:koo_deep_report.ontology")
 for f in "$STAGE"/bin/*; do
     n="$(basename "$f")"
     case "$n" in koo_*_report) continue ;; esac
+    case " ${MODWRAPS[*]} " in *" ${n}:"*) continue ;; esac
     $SUDO cp -af "$f" "${DEST}/bin/" || die "bin 복사 실패: $n"
 done
 
 # 호스트 래퍼 생성 — v32 호스트 배포본의 래퍼와 같은 형식 (모듈명만 다르다)
 HOSTBIN="$STAGE/hostbin"
 mkdir -p "$HOSTBIN"
-for n in "${PKGS[@]}"; do
+host_wrapper() {             # host_wrapper <이름> <python -m 모듈>
+    local n="$1" mod="$2"
     {
         printf '%s\n' '#!/bin/bash'
         printf '%s\n' 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
@@ -137,12 +143,14 @@ for n in "${PKGS[@]}"; do
         printf '%s\n' 'export PATH="${SMARTTWIN_POST_HOME}/bin:${PATH}"'
         printf '%s\n' 'export LSPREPOST_PATH="${SMARTTWIN_POST_HOME}/lib/lsprepost"'
         printf '%s\n' 'export KOOD3PLOT_HOME="${SMARTTWIN_POST_HOME}"'
-        printf 'exec python3 -m %s "$@"\n' "$n"
+        printf 'exec python3 -m %s "$@"\n' "$mod"
     } > "$HOSTBIN/$n"
     chmod 755 "$HOSTBIN/$n"
     $SUDO cp -f "$HOSTBIN/$n" "${DEST}/bin/$n" || die "래퍼 설치 실패: $n"
-done
-echo "  래퍼 ${#PKGS[@]}개 생성 (lib/ 형식): ${PKGS[*]}"
+}
+for n in "${PKGS[@]}"; do host_wrapper "$n" "$n"; done
+for spec in "${MODWRAPS[@]}"; do host_wrapper "${spec%%:*}" "${spec#*:}"; done
+echo "  래퍼 $(( ${#PKGS[@]} + ${#MODWRAPS[@]} ))개 생성 (lib/ 형식): ${PKGS[*]} ${MODWRAPS[*]%%:*}"
 # lib: SIF 의 python/* 이 대응한다. lsprepost 등 호스트 고유 디렉토리는 남긴다
 for p in "$STAGE"/python/*; do
     n="$(basename "$p")"

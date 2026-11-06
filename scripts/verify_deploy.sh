@@ -109,7 +109,8 @@ check_pair() {                 # check_pair <라벨> <VERSION 값> <바이너리
 #    드러나지 않았고, 이 검증기는 VERSION 만 봐서 못 잡았다. 실행해 봐야 안다.
 check_wrappers() {             # check_wrappers <배포 디렉토리>
     local dir="$1" w n rc out bad=0 total=0
-    for w in "$dir"/bin/koo_*_report; do
+    # python -m 래퍼(koo_ontology)도 본다 — 2026-11-06 호스트 koo_ontology 가 SIF 식 경로라 죽어 있었다
+    for w in "$dir"/bin/koo_*_report "$dir"/bin/koo_ontology; do
         [ -f "$w" ] || continue
         total=$((total + 1))
         n="$(basename "$w")"
