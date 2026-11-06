@@ -282,3 +282,9 @@ def test_pack_on_v14_matches_analyzer(tmp_path):
         for name in f["files"].values():
             assert (tmp_path / name).stat().st_size > 1000
     assert json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))["format"] == pack.FORMAT
+
+
+def test_strip_cjk_keeps_punctuation_dejavu_can_draw():
+    from koo_deep_report.figures.png import strip_cjk
+    assert strip_cjk("Part 2 Wall — max 103 MPa · color 0–103") == "Part 2 Wall — max 103 MPa · color 0–103"
+    assert strip_cjk("Part 7 브라켓(좌) — max 5") == "Part 7 — max 5"

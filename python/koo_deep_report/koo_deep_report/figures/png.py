@@ -37,17 +37,17 @@ def _font(kind: str, size: int):
     return ImageFont.load_default(), False
 
 
-def ascii_fallback(text: str) -> str:
-    """한글 글꼴이 없을 때 — ASCII 아닌 글자를 지운다(빈 괄호 · 겹친 공백도 정리)."""
+def strip_cjk(text: str) -> str:
+    """한글 글꼴이 없을 때 — 한글 · CJK 글자만 지운다(DejaVu 가 그리는 「—」·「·」·「–」 는 둔다). 빈 괄호 · 겹친 공백도 정리."""
     import re
-    t = "".join(ch if ord(ch) < 128 else " " for ch in text)
+    t = re.sub(r"[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]", " ", text)
     t = re.sub(r"\(\s*\)", "", t)
     return re.sub(r"\s{2,}", " ", t).strip()
 
 
 def _text(dr, xy, text: str, kind: str, size: int, fill, anchor: str = "la") -> None:
     f, cjk = _font(kind, size)
-    dr.text(xy, text if cjk else ascii_fallback(text), font=f, fill=fill, anchor=anchor)
+    dr.text(xy, text if cjk else strip_cjk(text), font=f, fill=fill, anchor=anchor)
 
 
 def _fmt(v: float) -> str:
@@ -154,7 +154,10 @@ def render(scene: Scene, out: str | Path, title_lines: list[str], legend_title: 
     top = Image.fromarray(_layer(scene, context=False)).convert("RGBA")
     base = (Image.fromarray(_layer(scene, context=True)).convert("RGBA") if scene.context_mask.any()
             else Image.new("RGBA", (W, H), (255, 255, 255, 255)))
-    im = Image.alpha_composite(base, top).convert("RGB")
+    im = Image.alpha_composite(base, top)
+    # 제목 띠 — 뒤로 비치는 주변 파트를 흐리게(글자가 회색 위에 얹히지 않게)
+    im.alpha_composite(Image.new("RGBA", (W, 14 + 30 * len(title_lines)), (255, 255, 255, 215)), (0, 0))
+    im = im.convert("RGB")
     dr = ImageDraw.Draw(im)
     _draw_legend(dr, scene, legend_title)
     _draw_peak(dr, scene, peak_label or "")

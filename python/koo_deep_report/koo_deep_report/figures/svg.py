@@ -107,8 +107,10 @@ def write(scene: Scene, out: str | Path, title_lines: list[str], part_info: dict
                   f'fill="#fff" fill-opacity="0.9" stroke="#333"/>'
                   f'<text x="{_f(x0 + 7)}" y="{_f(y0 + 18)}" class="pk">{html.escape(lab)}</text></g>')
 
-    title = "".join(f'<text x="14" y="{24 + 22 * k}" class="{"t1" if k == 0 else "t2"}">{html.escape(t)}</text>'
-                    for k, t in enumerate(title_lines))
+    # 제목 띠 — 뒤로 비치는 주변 파트를 흐리게(PNG 와 같다)
+    title = (f'<rect width="{W}" height="{14 + 30 * len(title_lines)}" fill="#fff" fill-opacity="0.84"/>'
+             + "".join(f'<text x="14" y="{24 + 22 * k}" class="{"t1" if k == 0 else "t2"}">{html.escape(t)}</text>'
+                       for k, t in enumerate(title_lines)))
     info = {str(p): {"name": names[p], **{k: v for k, v in (part_info.get(p) or {}).items() if k != "name"}}
             for p in names}
     css = (".c{fill-opacity:%.3f}path[data-p]{cursor:pointer}"
