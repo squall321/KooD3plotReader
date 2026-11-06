@@ -110,3 +110,12 @@
   갱신해 알렸다. 커밋본 그대로 deep 147(+1 은 C++ 빌드 없는 작업 사본이라 건너뜀) · impact 148 · sphere 184 · post_analyze 통과,
   sphere CLI 에 parallel 0건.
 - 배포 세션은 그쪽 사용자가 응답해야 움직인다 — 이 세션이 대신 승인하거나 다른 배포 경로를 쓰지 않는다(배포는 상류 표준 경로로만).
+
+## v43 배포 확인 (11-06)
+- 상류가 사용자 결정으로 보류를 풀고 eccde7f 한 판(-j 포함)으로 배포했다. 헤드리스 94b98c46…, GUI a6b95a76…, 네 곳 같은 판.
+  GUI SIF 에 s1_extract 가 없는 것은 의도(S1 은 헤드리스 파이프라인 전용).
+- 헤드 /opt SIF 안에서: VERSION eccde7f, koo_ontology sphere(v14) 객체 1014 · 관계 114, impact(Test_Impact_A) 945 · 94, 어휘 0.4
+  (59b4e70b…) · producer.version eccde7f. sphere 도구(--from-json)가 report.html 곁에 꾸러미를 스스로 썼고 from_json 수정으로
+  덱 정보(접촉 27 · 충돌 속도 5424.5 · 낙하 높이 1500)도 남았다.
+- **DynaForge 검사기(app/reports/onto_package.check)에 SIF 산출을 그대로 넣어 둘 다 통과** — sphere 행 94 · 선 115 · 런 20/20,
+  impact 행 88 · 선 95 · 런 25/25, 경고 0. 생산 → 받는 쪽 끝까지 이어짐을 확인했다. 7-1 길은 stcx 설치 · icn401 KooSlurm 반영이 남았다.

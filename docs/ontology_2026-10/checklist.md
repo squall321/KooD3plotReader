@@ -17,7 +17,7 @@
 - [x] 시험 — 합성 27건 · post_analyze [12] 8건 · 실데이터 대조(v14 · Test_Impact_A · 핫스팟 런)
 - [x] post_analyze 마지막 단계 · koo_ontology 래퍼 · SIF %test
 - [x] push (e6cce7f) · 상류에 SIF 배포 요청
-- [ ] 배포 판 확인 → SIF 안 koo_ontology 실캠페인 점검 → DynaForge 에 판 전달 (배포 세션이 사용자 응답 대기 중)
+- [x] v43 배포(eccde7f, 헤드리스 94b98c46…) → SIF 안 koo_ontology · 도구 자체 꾸러미 점검 → DynaForge 검사기 통과 → 판 전달
 - [x] push 77ba4e9 (0.4 · from_json 수정까지 한 판으로)
 - [ ] sphere report.json 에 런 끝 시각 · 분석기 커밋 · 소견 파트 번호 (a9 가 하기로)
 
