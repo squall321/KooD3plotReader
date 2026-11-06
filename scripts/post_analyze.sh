@@ -130,6 +130,8 @@ usage() {
     --no-figures            리포트 그림(최대 순간 스냅샷 PNG · 호버 SVG · 차트)을 만들지 않는다 —
                             런마다 deep 의 figures/ 와 캠페인의 파트별 최악 방향 그림
                             (<test_dir>/figures, 그룹이면 figures_<그룹>) 둘 다
+    --no-hide-floor         deep 영상에 바닥(환경 파트)을 그대로 둔다 (기본은 숨김 — 카메라 ·
+                            단면 위치도 바닥을 빼고 정한다)
 
 [섹션뷰 (deep_report 전달)]
     --section-view
@@ -185,6 +187,7 @@ while [[ $# -gt 0 ]]; do
         --yield-stress)            YIELD_STRESS="$2"; shift 2 ;;
         --no-render)               DEEP_EXTRA+=(--no-render); shift ;;
         --no-figures)              FIGURES=false; DEEP_EXTRA+=(--no-figures); shift ;;
+        --no-hide-floor)           DEEP_EXTRA+=(--no-hide-floor); shift ;;
         --per-part-render)         DEEP_EXTRA+=(--per-part-render); shift ;;
         --element-quality)         DEEP_EXTRA+=(--element-quality); shift ;;
         --render-threads)          DEEP_EXTRA+=(--render-threads "$2"); shift 2 ;;

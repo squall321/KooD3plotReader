@@ -101,7 +101,7 @@ def test_apply_video_hide_sets_both_configs():
     rc, sv = RenderConfig(), _svc()
     ids = _apply_video_hide(argparse.Namespace(hide_parts=[9, 3], hide_floor=False), None, rc, sv)
     assert ids == [3, 9] and rc.hide_part_ids == [3, 9] and sv.hide_part_ids == [3, 9]
-    assert _apply_video_hide(argparse.Namespace(), None, RenderConfig(), None) == []
+    assert _apply_video_hide(argparse.Namespace(), None, RenderConfig(), None) == []    # d3plot 없으면 감지 못 함
 
 
 V14 = Path("/data/koopark/Test_Postprocess_v14/output/Run_20260522_103123_7ad7d9/Output/d3plot")
@@ -115,9 +115,19 @@ def test_hide_floor_detects_v14_floor():
     assert _apply_video_hide(argparse.Namespace(hide_parts=None, hide_floor=True), V14, rc, None) == [23]
 
 
-def test_cli_exposes_hide_floor():
+def test_cli_hide_floor_is_on_by_default():
     from koo_deep_report.__main__ import _add_single_args
     p = argparse.ArgumentParser()
     _add_single_args(p)
+    assert p.parse_args(["x"]).hide_floor is True                     # 기본 켬(사용자 결정 11-06)
+    assert p.parse_args(["x", "--no-hide-floor"]).hide_floor is False
     a = p.parse_args(["x", "--hide-floor", "--hide-parts", "4"])
     assert a.hide_floor and a.hide_parts == [4]
+
+
+@pytest.mark.skipif(not V14.exists(), reason="v14 실데이터 없음")
+def test_namespace_without_flag_still_hides_floor():
+    """GUI 처럼 Namespace 를 손으로 지어 hide_floor 가 없으면 기본(켬)을 따른다."""
+    pytest.importorskip("lasso")
+    from koo_deep_report.__main__ import _apply_video_hide
+    assert _apply_video_hide(argparse.Namespace(), V14, RenderConfig(), None) == [23]

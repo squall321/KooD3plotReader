@@ -262,9 +262,13 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--hide-parts", nargs="+", type=int, default=None, metavar="ID",
                    help="그림 · 영상에서 숨길 파트 — 그림은 바닥(환경 파트)을 늘 자동으로 숨기고 이것을 더한다. "
                         "영상(단면 · 개관)은 이 파트들을 빼고 카메라 · 단면 위치도 그것을 빼고 정한다")
-    p.add_argument("--hide-floor", action="store_true",
-                   help="영상에서도 바닥(환경 파트 — 다른 파트를 다 합친 상자보다 두 축 이상에서 1.5배 넘게 큰 파트)을 "
-                        "숨긴다. 바닥 요소가 커서 타겟이 작게 보일 때")
+    # 영상 바닥 숨김 — 기본 켬(사용자 결정 11-06: 바닥 요소가 커서 타겟이 작게 보이던 문제, 자동화 셸을 안 고쳐도 닿게)
+    p.add_argument("--hide-floor", dest="hide_floor", action="store_true",
+                   help="영상에서 바닥(환경 파트 — 다른 파트를 다 합친 상자보다 두 축 이상에서 1.5배 넘게 큰 파트)을 숨긴다. "
+                        "카메라 · 단면 위치도 바닥을 빼고 정한다 (기본 켬)")
+    p.add_argument("--no-hide-floor", dest="hide_floor", action="store_false",
+                   help="영상에 바닥을 그대로 둔다(예전 모양)")
+    p.set_defaults(hide_floor=True)
     p.add_argument("--figure-context-opacity", type=float, default=0.15, metavar="A",
                    help="그림의 주변 파트 불투명도 0–1 (default 0.15)")
 
@@ -1193,10 +1197,10 @@ def _write_ua_schema(output_dir: Path) -> None:
 
 
 def _apply_video_hide(args: argparse.Namespace, d3plot, render_cfg, sv_cfg) -> list[int]:
-    """영상에서 숨길 파트 — --hide-parts 에, --hide-floor 면 d3plot 형상에서 감지한 바닥(환경 파트)을 더해
+    """영상에서 숨길 파트 — --hide-parts 에, --hide-floor(기본 켬)면 d3plot 형상에서 감지한 바닥(환경 파트)을 더해
     렌더 설정 둘 다에 싣는다. 감지가 실패해도 분석 · 렌더는 그대로 간다(숨김만 빠진다)."""
     hide = set(getattr(args, "hide_parts", None) or [])
-    if getattr(args, "hide_floor", False) and d3plot is not None:
+    if getattr(args, "hide_floor", True) and d3plot is not None:
         try:
             from .figures.mesh import environment_parts_d3plot
             env = environment_parts_d3plot(d3plot)

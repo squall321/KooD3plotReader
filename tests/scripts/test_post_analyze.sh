@@ -81,7 +81,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --output) out="${2:-}"; shift 2 ;;
         --config|--yield-stress) shift 2 ;;
-        --no-figures) echo "deepflag --no-figures" >> "${STUB_LOG}"; shift ;;
+        --no-figures|--no-hide-floor) echo "deepflag $1" >> "${STUB_LOG}"; shift ;;
         --*) shift ;;
         *) if [ -z "$d3" ]; then d3="$1"; fi; shift ;;
     esac
@@ -438,6 +438,8 @@ chk "sphere 다음 · deep 앞에 돈다" "sphere figs deep" \
 run_pa "$T13" --no-render --no-figures --force
 chk "--no-figures 면 캠페인 그림을 부르지 않는다" 0 "$(n_calls figs)"
 chk "--no-figures 를 deep 에도 넘긴다(런 둘)" 2 "$(n_calls deepflag)"
+run_pa "$T13" --no-render --no-hide-floor --force
+chk "--no-hide-floor 를 deep 에 넘긴다(런 둘)" 2 "$(grep -c '^deepflag --no-hide-floor$' "$W/calls.log")"
 run_pa "$T13" --deep-only --no-render
 chk "--deep-only 면 부르지 않는다" 0 "$(n_calls figs)"
 T13F="$W/t13_FAIL_FIGS"
