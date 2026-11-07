@@ -1620,11 +1620,12 @@ def _aggregate(
         ps = PartSummary(
             part_id=pid,
             part_name=part_name,
-            # 응력 이력(stress_history)은 솔리드 전용이다. 없는 파트를 0 으로
-            # 채우면 '측정된 0 MPa' 로 읽혀 셸이 가장 안전한 파트로 보인다.
+            # 응력 이력(stress_history)은 솔리드 · 셸 · 두꺼운 셸(셸 계열은 층 최대)이다 — 빔 · 이산 요소와
+            # 옛 해석기 판의 셸은 없다. 없는 파트를 0 으로 채우면 '측정된 0 MPa' 로 읽혀 가장 안전해 보인다.
             peak_stress=st.global_max if st else None,
             time_of_peak_stress=st.time_of_max if st else None,
-            peak_stress_reason=("" if st else "응력 이력 없음 — 솔리드 전용 집계 (셸·두꺼운셸·빔은 미산출)"),
+            peak_stress_reason=("" if st else "응력 이력 없음 — 빔 · 이산 요소이거나, 셸을 집계하지 않던 옛 해석기 판"),
+            stress_element_type=(getattr(st, "element_type", "") if st else ""),
             peak_element_id=st.peak_element_id if st else None,
             peak_element_reason=(st.peak_element_reason if st else ""),
             peak_strain=sr.global_max if sr else 0.0,
@@ -1706,7 +1707,7 @@ def _print_summary(result: SingleResult) -> None:
         print(f"  피크 응력    : {result.peak_stress_global:.4g} {_su} ({peak_label})")
     n_nostress = sum(1 for p in result.parts.values() if p.peak_stress is None)
     if n_nostress:
-        print(f"               ({n_nostress}개 파트는 응력 미산출 — 솔리드 전용 집계)")
+        print(f"               ({n_nostress}개 파트는 응력 미산출 — 빔 · 이산 요소, 또는 옛 해석기 판의 셸)")
     if result.peak_strain_global is None:
         print("  피크 변형률  : 미산출 (집계된 파트 없음)")
     else:

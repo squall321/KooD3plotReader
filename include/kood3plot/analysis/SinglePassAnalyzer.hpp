@@ -432,6 +432,19 @@ private:
     //    정상 음수값과 구분이 안 된다.
     std::map<ExtremesKey, ElementExtremes> elem_extremes_;
 
+    /// 셸 계열 상태 데이터의 배치 — 규격 공식으로 자기 검증한 결과. 핫스팟 층별 극값과
+    /// 파트 이력이 **같은** 해석을 쓴다(따로 추측하다 오프셋을 틀려 50배 값이 나온 적이 있다).
+    struct LayeredLayout {
+        bool ok = false;
+        std::string why;          ///< ok 가 아니면 사유 (요소가 없으면 빈 문자열)
+        int nv = 0;               ///< 요소당 워드 (NV2D / NV3DT)
+        int P = 0;                ///< 층당 워드 = 6·IOSHL(1) + IOSHL(2) + NEIPS
+        int strain_off = -1;      ///< 안쪽 면 6 + 바깥쪽 면 6 (ISTRN), 없으면 -1
+        int thick_off = -1;       ///< 셸 두께 워드 (IOSHL(4)), 없으면 -1
+        int ep_off = 0;           ///< 층 블록 안 ε_p 자리 (= 6·IOSHL(1)) — IOSHL(2) 가 0 이면 없다
+        bool mio = false;         ///< MAXINT≥3 · NUMDS≥0 → 층 0 중립 · 1 안쪽 · 2 바깥쪽
+    };
+
     // ── 셸·두꺼운 셸 (핫스팟 군집용 제어값, ls-dyna_database.txt 1918–2075) ──
     size_t  num_shell_elements_ = 0;     ///< NEL4
     size_t  num_tshell_elements_ = 0;    ///< NELT
@@ -449,6 +462,12 @@ private:
     // Part information
     std::vector<int32_t> part_ids_;  // Unique part IDs
     std::unordered_map<int32_t, size_t> part_id_to_result_index_;
+
+    // 셸 · 두꺼운 셸 파트 이력 — 배치가 규격과 맞을 때만 그 종류의 파트가 part_ids_ 에 든다
+    // (맞지 않으면 종전처럼 이력에 없다 — 전 상태 NaN 줄로 하류 CSV 를 어지럽히지 않는다).
+    LayeredLayout shell_layout_, tshell_layout_;
+    std::vector<int32_t> shell_elem_to_part_, tshell_elem_to_part_;   ///< 순번 → 파트 ID
+    std::unordered_map<int32_t, HotspotElementKind> part_kind_;      ///< 파트 ID → 요소 종류
 
     // Surface data (for surface stress analysis)
     std::vector<std::vector<Face>> surface_faces_;  // Per surface spec
@@ -529,6 +548,16 @@ private:
      */
     void analyzeSurfaceStatsSequential(size_t state_idx,
                                        const data::StateData& state);
+
+    /// 셸 계열 배치 해석(위 LayeredLayout) — initialize 에서 종류마다 한 번.
+    LayeredLayout layeredLayout(HotspotElementKind kind) const;
+
+    /// 셸 · 두꺼운 셸의 파트별 상태 통계를 솔리드와 같은 part_stats 에 더한다.
+    /// 요소 값은 적분점 층 극값 — σ_vm · σ1 · ε_p 는 층 최대, σ3 는 층 최소(그림 엔진 · 핫스팟과 같은 규칙).
+    /// 변형률 텐서(ISTRN)는 안쪽 · 바깥쪽 면 중 극값. 배치가 규격과 안 맞으면 아무것도 하지 않는다.
+    void accumulateLayeredPartStats(HotspotElementKind kind, const data::StateData& state,
+                                    std::vector<PartStateStats>& part_stats,
+                                    bool analyze_stress, bool analyze_strain) const;
 
     /// 이 상태에 살아 있는 요소가 하나도 없는 파트(전량 침식)의 시점을 NaN 으로 표시한다.
     /// 0 이나 ±DBL_MAX 로 위장하지 않는다 — JSON 에는 null 로 나간다.

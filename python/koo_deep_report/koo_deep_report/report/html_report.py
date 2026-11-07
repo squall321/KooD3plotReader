@@ -197,6 +197,7 @@ def _build_js_data(result: SingleResult) -> dict:
                 "peak_stress": p.peak_stress,
                 "time_of_peak_stress": p.time_of_peak_stress,
                 "peak_stress_reason": p.peak_stress_reason,
+                "stress_element_type": p.stress_element_type,
                 "peak_element_id": p.peak_element_id,
                 "peak_element_reason": p.peak_element_reason,
                 "peak_strain": p.peak_strain,
@@ -803,19 +804,24 @@ function partLabel(pid, p) {
   return p && p.name ? 'Part ' + pid + ' (' + p.name + ')' : 'Part ' + pid;
 }
 
-// 응력 이력이 없는 파트(셸·두꺼운셸·빔)는 미산출이다. 0 으로 취급해 순위에
+// 응력 이력이 없는 파트(빔 · 이산 요소, 옛 해석기 판의 셸)는 미산출이다. 0 으로 취급해 순위에
 // 올리면 '측정된 0 MPa' 로 읽힌다 — 정렬에서는 맨 뒤로, 표시에서는 뺀다.
 function hasStress(p) { return p && p.peak_stress !== null && p.peak_stress !== undefined; }
 function byStressDesc(a, b) {
   return (hasStress(b[1]) ? b[1].peak_stress : -Infinity)
        - (hasStress(a[1]) ? a[1].peak_stress : -Infinity);
 }
+// 셸 계열 파트의 응력은 적분점 층 최대다 — 솔리드 값과 나란히 볼 때 구분해 둔다.
+function layerTag(p) {
+  const et = p && p.stress_element_type;
+  return et ? ` <span class="hs-dim">(${et === 'thick_shell' ? '두꺼운 셸' : '셸'} · 층 최대)</span>` : '';
+}
 function noStressCount() {
   return Object.values(DATA.parts || {}).filter(p => !hasStress(p)).length;
 }
 function noStressNote() {
   const n = noStressCount();
-  return n ? `<div class="hs-dim" style="margin-top:6px">${n}개 파트는 응력 이력 없음 — 응력 집계는 솔리드 요소만 본다 (셸·두꺼운셸·빔 미산출).</div>` : '';
+  return n ? `<div class="hs-dim" style="margin-top:6px">${n}개 파트는 응력 이력 없음 — 응력 집계는 솔리드 · 셸 · 두꺼운 셸을 본다(셸 계열은 적분점 층 최대). 빔 · 이산 요소와, 셸을 집계하지 않던 옛 해석기 판의 셸은 미산출.</div>` : '';
 }
 
 // ── Overview ──────────────────────────────────────────────────────────
@@ -827,15 +833,12 @@ function renderOverview() {
   // 에너지 생성(>1.1)만 오류. 소산(<1.0)은 물리적으로 정상 (고무·소성·감쇠 해석).
   const erClass = er === null ? '' : er > 1.1 ? 'kpi-err' : er > 1.05 ? 'kpi-warn' : 'kpi-ok';
 
-  // 🔴 응력 시간이력 집계(stress_history)는 솔리드 전용이다. 셸·두꺼운 셸이 있는 덱에서
-  //    '피크 응력' 을 모델 전체 최대로 읽으면 틀린다 → 있으면 명시한다.
-  // 핫스팟 군집은 기본으로 꺼져 있다 — 그것에 의존하면 셸이 있어도 단서가 안 붙는다.
-  // 응력 이력이 없는 파트가 하나라도 있으면 이 집계는 솔리드 전용이다.
-  const solidOnly = noStressCount() > 0
-    || (DATA.hotspot || []).some(p => (p.element_type || 'solid') !== 'solid');
+  // 🔴 응력 이력이 없는 파트가 하나라도 있으면 '피크 응력' 은 모델 전체 최대가 아니다 → 명시한다.
+  //    셸 · 두꺼운 셸은 2026-11-07 해석기부터 이력에 든다 — 셸 핫스팟이 있다고 솔리드 전용 집계가 아니다.
+  const partialStress = noStressCount() > 0;
   let kpis = `
   <div class="kpi-card">
-    <div class="kpi-label">피크 Von Mises 응력${solidOnly ? ' (솔리드만)' : ''}</div>
+    <div class="kpi-label">피크 Von Mises 응력${partialStress ? ' (일부 파트 미산출)' : ''}</div>
     <div class="kpi-value">${fmt(s.peak_stress)}</div>
     <div class="kpi-unit">${s.peak_stress === null || s.peak_stress === undefined ? '미산출 — 응력 이력이 있는 파트 없음' : U_S + (s.peak_stress_part_id ? ' — Part ' + s.peak_stress_part_id + (DATA.parts[s.peak_stress_part_id]?.name ? ' (' + DATA.parts[s.peak_stress_part_id].name + ')' : '') : '')}</div>
   </div>
@@ -910,7 +913,7 @@ function renderOverview() {
 
   return `
 <div class="kpi-grid">${kpis}</div>
-<div class="sec-title">응력 상위 부품${solidOnly ? ' (솔리드만)' : ''}</div>
+<div class="sec-title">응력 상위 부품${partialStress ? ' (일부 파트 미산출)' : ''}</div>
 <div class="chart-box">${topBars || '<div style="color:var(--fg2);padding:8px">응력 데이터 없음</div>'}
 ${noStressNote()}</div>
 ${hsCard}`;
@@ -930,7 +933,7 @@ function renderStress() {
     return `<div class="bar-row">
       <div class="bar-label" title="${p.name}">${partLabel(pid, p)}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <div class="bar-val">${fmt(p.peak_stress)} ${U_S}${sfHtml}</div>
+      <div class="bar-val">${fmt(p.peak_stress)} ${U_S}${layerTag(p)}${sfHtml}</div>
     </div>`;
   }).join('') + noStressNote();
 
@@ -1004,7 +1007,7 @@ function renderStress() {
     .map(([pid, p]) => `<option value="${pid}">${partLabel(pid, p)}</option>`).join('');
 
   return `
-<div class="sec-title">Von Mises 응력 순위${noStressCount() ? ' (솔리드만)' : ''}</div>
+<div class="sec-title">Von Mises 응력 순위${noStressCount() ? ' (일부 파트 미산출)' : ''}</div>
 <div class="chart-box">${stressBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
 <div class="sec-title">Max Principal Stress (σ₁) 순위</div>
 <div class="chart-box">${maxPrincipalBars||'<div style="color:var(--fg2)">데이터 없음</div>'}</div>
@@ -1469,7 +1472,7 @@ function updateDeepDive() {
   const sf = p?.safety_factor;
   const sfClass = sf === null || sf === undefined ? '' : sf >= 1.0 ? 'kpi-ok' : sf >= 0.85 ? 'kpi-warn' : 'kpi-err';
   let kpiHtml = `
-  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">${hasStress(p) ? U_S + ' (t=' + fmt(p?.time_of_peak_stress,4) + ')' : (p?.peak_stress_reason || '미산출')}</div></div>
+  <div class="kpi-card"><div class="kpi-label">피크 응력</div><div class="kpi-value">${fmt(p?.peak_stress)}</div><div class="kpi-unit">${hasStress(p) ? U_S + ' (t=' + fmt(p?.time_of_peak_stress,4) + ')' + layerTag(p) : (p?.peak_stress_reason || '미산출')}</div></div>
   <div class="kpi-card"><div class="kpi-label">피크 변형률</div><div class="kpi-value">${fmt(p?.peak_strain,4)}</div><div class="kpi-unit">—</div></div>
   <div class="kpi-card"><div class="kpi-label">Max Principal (σ₁)</div><div class="kpi-value">${fmt(p?.peak_max_principal)}</div><div class="kpi-unit">${U_S}</div></div>
   <div class="kpi-card"><div class="kpi-label">Min Principal (σ₃)</div><div class="kpi-value">${fmt(p?.peak_min_principal)}</div><div class="kpi-unit">${U_S}</div></div>

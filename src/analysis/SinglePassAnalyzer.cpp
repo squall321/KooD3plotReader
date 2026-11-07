@@ -399,6 +399,14 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
     ndim_ = control_data.NDIM;
     numds_ = control_data.NUMDS;
     for (int i = 0; i < 4; ++i) ioshl_[i] = control_data.IOSHL[i];
+    shell_layout_ = layeredLayout(HotspotElementKind::Shell);
+    tshell_layout_ = layeredLayout(HotspotElementKind::ThickShell);
+    // 셸 계열 파트 이력을 못 만드는 덱 — 조용히 빼지 않고 사유를 남긴다(그 파트는 종전처럼 이력에 없다)
+    for (const auto* lay : {&shell_layout_, &tshell_layout_}) {
+        if (!lay->ok && !lay->why.empty())
+            std::cerr << "  [parts] " << (lay == &shell_layout_ ? "셸" : "두꺼운 셸") << ": " << lay->why
+                      << " — 이 종류의 파트 응력 · 변형률 이력을 만들지 않습니다.\n";
+    }
 
     // Read mesh
     mesh_ = reader_.read_mesh();
@@ -430,6 +438,22 @@ void SinglePassAnalyzer::buildElementMapping() {
         elem_to_part_[i] = mesh_.solid_parts[i];
         unique_parts.insert(mesh_.solid_parts[i]);
     }
+    part_kind_.clear();
+    for (int32_t pid : unique_parts) part_kind_[pid] = HotspotElementKind::Solid;
+
+    // 셸 · 두꺼운 셸 — 배치가 규격과 맞을 때만 이력에 넣는다. Mesh 의 *_parts 는 요소별(중복) 배열이다.
+    auto add_layered = [&](HotspotElementKind kind, const LayeredLayout& lay, size_t ne,
+                           const std::vector<int32_t>& parts, std::vector<int32_t>& e2p) {
+        e2p.clear();
+        if (!lay.ok || ne == 0) return;
+        e2p.assign(parts.begin(), parts.begin() + static_cast<std::ptrdiff_t>(std::min(ne, parts.size())));
+        for (int32_t pid : e2p) {
+            if (unique_parts.insert(pid).second) part_kind_[pid] = kind;
+        }
+    };
+    add_layered(HotspotElementKind::Shell, shell_layout_, num_shell_elements_, mesh_.shell_parts, shell_elem_to_part_);
+    add_layered(HotspotElementKind::ThickShell, tshell_layout_, num_tshell_elements_, mesh_.thick_shell_parts,
+                tshell_elem_to_part_);
 
     // Store unique part IDs and create mapping
     part_ids_.assign(unique_parts.begin(), unique_parts.end());
@@ -442,6 +466,137 @@ void SinglePassAnalyzer::buildElementMapping() {
 /// 단위계 미상" 을 뜻하는 표식을 쓴다. 실제 단위를 알아내려면 키워드 파일의
 /// *CONTROL_UNITS 나 사용자 설정이 필요하다 — 없으면 추측하지 않는다.
 static const char* const kUnknownStressUnit = "deck_units";
+
+SinglePassAnalyzer::LayeredLayout SinglePassAnalyzer::layeredLayout(HotspotElementKind kind) const {
+    LayeredLayout L;
+    const bool is_shell = (kind == HotspotElementKind::Shell);
+    const size_t ne = is_shell ? num_shell_elements_ : num_tshell_elements_;
+    L.nv = is_shell ? nv2d_ : nv3dt_;
+    if (ne == 0 || L.nv <= 0) return L;                      // 그 종류 요소가 없다 — 사유 없음
+
+    if (is_shell && (ndim_ == 5 || ndim_ == 7)) {
+        // DCOMP=2: 강체 셸 데이터가 빠진 채 압축돼 요소 인덱스가 어긋난다.
+        L.why = "강체 셸 압축 덱(NDIM=" + std::to_string(ndim_) + ", DCOMP=2) — 요소 인덱스를 신뢰할 수 없다";
+        return L;
+    }
+    if (ioshl_[0] == 0 || maxint_ <= 0) {
+        L.why = "응력이 기록되지 않은 덱(IOSHL(1)=" + std::to_string(ioshl_[0]) +
+                ", MAXINT=" + std::to_string(maxint_) + ")";
+        return L;
+    }
+    L.P = 6 * ioshl_[0] + ioshl_[1] + neips_;
+    const int lw = maxint_ * L.P;                            // 층 데이터 워드 수
+    if (is_shell) {
+        const int fixed = lw + 8 * ioshl_[2] + 4 * ioshl_[3];
+        const int rem = L.nv - fixed;
+        if (rem == 12) {
+            // 두께·요소변수 2개 뒤, 내부에너지 앞 (규격 30–44 번)
+            L.strain_off = lw + 8 * ioshl_[2] + 3 * ioshl_[3];
+        } else if (rem != 0) {
+            L.why = "NV2D=" + std::to_string(L.nv) + " 이 규격 공식(" + std::to_string(fixed) + " 또는 " +
+                    std::to_string(fixed + 12) + ")과 맞지 않는다";
+            return L;
+        }
+        if (ioshl_[3]) L.thick_off = lw + 8 * ioshl_[2];
+    } else {
+        const int rem = L.nv - lw;                           // 12·ISTRN + (TSHENG ? 1 : 0)
+        if (rem == 12 || rem == 13) {
+            L.strain_off = lw;
+        } else if (rem != 0 && rem != 1) {
+            L.why = "NV3DT=" + std::to_string(L.nv) + " 이 규격 공식(" + std::to_string(lw) +
+                    "+{0,1,12,13})과 맞지 않는다";
+            return L;
+        }
+    }
+    L.ep_off = 6 * ioshl_[0];
+    L.mio = (maxint_ >= 3 && numds_ >= 0);                   // 0 중립·1 안쪽·2 바깥쪽
+    L.ok = true;
+    return L;
+}
+
+void SinglePassAnalyzer::accumulateLayeredPartStats(HotspotElementKind kind, const data::StateData& state,
+                                                    std::vector<PartStateStats>& part_stats,
+                                                    bool analyze_stress, bool analyze_strain) const {
+    const bool is_shell = (kind == HotspotElementKind::Shell);
+    const LayeredLayout& lay = is_shell ? shell_layout_ : tshell_layout_;
+    const auto& e2p = is_shell ? shell_elem_to_part_ : tshell_elem_to_part_;
+    const auto& sd = is_shell ? state.shell_data : state.thick_shell_data;
+    if (!lay.ok || e2p.empty() || sd.empty()) return;
+
+    const auto& ids = is_shell ? mesh_.real_shell_ids : mesh_.real_thick_shell_ids;
+    const size_t ne = e2p.size();
+    const size_t nv = static_cast<size_t>(lay.nv), P = static_cast<size_t>(lay.P);
+    // 침식된 요소는 워드가 0 으로 실린다 — 통계에서 뺀다(솔리드와 같은 규칙).
+    const std::vector<bool> dead = deletedMask(is_shell ? state.deleted_shells : state.deleted_thick_shells, ne);
+    const bool eps_ok = (ioshl_[1] != 0);
+    const bool strain_ok = (lay.strain_off >= 0);
+
+    for (size_t e = 0; e < ne; ++e) {
+        if (!dead.empty() && dead[e]) continue;
+        const auto it = part_id_to_result_index_.find(e2p[e]);
+        if (it == part_id_to_result_index_.end() || it->second >= part_stats.size()) continue;
+        const size_t base = e * nv;
+        if (base + nv > sd.size()) break;                    // 이 상태에 이 요소부터는 없다
+        auto& stats = part_stats[it->second];
+        const int32_t eid = (e < ids.size()) ? ids[e] : static_cast<int32_t>(e + 1);
+
+        if (analyze_stress) {
+            // 층 극값 — 굽힘 최대는 표면 층이라 중립면만 보면 놓친다(그림 엔진 · 핫스팟과 같은 규칙)
+            double vm = -std::numeric_limits<double>::max();
+            double s1 = -std::numeric_limits<double>::max(), s3 = std::numeric_limits<double>::max();
+            for (int L = 0; L < maxint_; ++L) {
+                const double* s6 = &sd[base + static_cast<size_t>(L) * P];
+                vm = std::max(vm, equivalentStress(s6[0], s6[1], s6[2], s6[3], s6[4], s6[5]));
+                const auto pr = StressTensor{s6[0], s6[1], s6[2], s6[3], s6[4], s6[5]}.principalStresses();
+                s1 = std::max(s1, pr[0]);
+                s3 = std::min(s3, pr[2]);
+            }
+            if (vm > stats.stress_max) { stats.stress_max = vm; stats.stress_max_elem = eid; }
+            if (vm < stats.stress_min) { stats.stress_min = vm; stats.stress_min_elem = eid; }
+            stats.stress_sum += vm;
+            stats.stress_count++;
+            if (s1 > stats.max_principal_max) { stats.max_principal_max = s1; stats.max_principal_max_elem = eid; }
+            if (s1 < stats.max_principal_min) { stats.max_principal_min = s1; stats.max_principal_min_elem = eid; }
+            stats.max_principal_sum += s1;
+            if (s3 < stats.min_principal_min) { stats.min_principal_min = s3; stats.min_principal_min_elem = eid; }
+            if (s3 > stats.min_principal_max) { stats.min_principal_max = s3; stats.min_principal_max_elem = eid; }
+            stats.min_principal_sum += s3;
+            stats.principal_count++;
+        }
+
+        if (analyze_strain) {
+            if (eps_ok) {
+                double ep = -std::numeric_limits<double>::max();
+                for (int L = 0; L < maxint_; ++L)
+                    ep = std::max(ep, sd[base + static_cast<size_t>(L) * P + static_cast<size_t>(lay.ep_off)]);
+                if (ep > stats.strain_max) { stats.strain_max = ep; stats.strain_max_elem = eid; }
+                if (ep < stats.strain_min) { stats.strain_min = ep; stats.strain_min_elem = eid; }
+                stats.strain_sum += ep;
+                stats.strain_count++;
+            }
+            if (strain_ok) {
+                // 안쪽 · 바깥쪽 면 텐서 — 성분이 텐서 성분이라 고유값이 곧 주변형률이다(솔리드와 같은 규약)
+                const double* ein = &sd[base + static_cast<size_t>(lay.strain_off)];
+                const double* eout = ein + 6;
+                const StressTensor ti{ein[0], ein[1], ein[2], ein[3], ein[4], ein[5]};
+                const StressTensor to{eout[0], eout[1], eout[2], eout[3], eout[4], eout[5]};
+                const auto pi = ti.principalStresses(), po = to.principalStresses();
+                const double e1 = std::max(pi[0], po[0]), e3 = std::min(pi[2], po[2]);
+                const double evm = std::max(vonMisesStrainOf(ti), vonMisesStrainOf(to));
+                if (e1 > stats.max_principal_strain_max) { stats.max_principal_strain_max = e1; stats.max_principal_strain_max_elem = eid; }
+                if (e1 < stats.max_principal_strain_min) { stats.max_principal_strain_min = e1; stats.max_principal_strain_min_elem = eid; }
+                stats.max_principal_strain_sum += e1;
+                if (e3 < stats.min_principal_strain_min) { stats.min_principal_strain_min = e3; stats.min_principal_strain_min_elem = eid; }
+                if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = eid; }
+                stats.min_principal_strain_sum += e3;
+                if (evm > stats.vm_strain_max) { stats.vm_strain_max = evm; stats.vm_strain_max_elem = eid; }
+                if (evm < stats.vm_strain_min) { stats.vm_strain_min = evm; stats.vm_strain_min_elem = eid; }
+                stats.vm_strain_sum += evm;
+                stats.principal_strain_count++;
+            }
+        }
+    }
+}
 
 void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConfig& config) {
     size_t num_parts = part_ids_.size();
@@ -480,7 +635,11 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
     }
 
     // Initialize principal strain results (conditional on strain tensor availability)
-    if (config.analyze_strain && has_strain_tensor_) {
+    // 셸 계열 텐서(ISTRN)만 있는 덱도 있다 — 그때 솔리드 파트는 미계측(NaN)으로 남는다.
+    const bool layered_strain =
+        (shell_layout_.ok && shell_layout_.strain_off >= 0 && !shell_elem_to_part_.empty()) ||
+        (tshell_layout_.ok && tshell_layout_.strain_off >= 0 && !tshell_elem_to_part_.empty());
+    if (config.analyze_strain && (has_strain_tensor_ || layered_strain)) {
         vm_strain_results_.resize(num_parts);
         max_principal_strain_results_.resize(num_parts);
         min_principal_strain_results_.resize(num_parts);
@@ -510,6 +669,16 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
             strain_results_[i].quantity = "eff_plastic_strain";
             strain_results_[i].unit = "";
             strain_results_[i].data.resize(num_states);
+        }
+    }
+
+    // 셸 계열 파트 표식 — 값이 적분점 층 극값이라는 뜻. JSON 에는 비어 있지 않을 때만 쓴다.
+    for (auto* arr : {&stress_results_, &max_principal_results_, &min_principal_results_, &strain_results_,
+                      &vm_strain_results_, &max_principal_strain_results_, &min_principal_strain_results_}) {
+        for (auto& r : *arr) {
+            const auto it = part_kind_.find(r.part_id);
+            r.element_type = (it == part_kind_.end() || it->second == HotspotElementKind::Solid)
+                                 ? std::string() : std::string(hotspotElementKindName(it->second));
         }
     }
 
@@ -578,7 +747,9 @@ void SinglePassAnalyzer::analyzePartStats(
     bool analyze_strain
 ) {
     const auto& solid_data = state.solid_data;
-    if (solid_data.empty()) return;
+    // 셸만 있는 덱(솔리드 0)도 있다 — 셋 다 비었을 때만 돌아간다
+    if (solid_data.empty() && state.shell_data.empty() && state.thick_shell_data.empty()) return;
+    const size_t n_solid = solid_data.empty() ? 0 : num_solid_elements_;
 
     size_t num_parts = part_ids_.size();
 
@@ -608,7 +779,7 @@ void SinglePassAnalyzer::analyzePartStats(
         auto& local_stats = thread_stats[tid];
 
         #pragma omp for nowait
-        for (int64_t elem_idx = 0; elem_idx < static_cast<int64_t>(num_solid_elements_); ++elem_idx) {
+        for (int64_t elem_idx = 0; elem_idx < static_cast<int64_t>(n_solid); ++elem_idx) {
             if (elem_idx >= elem_to_part_.size()) continue;
             if (!dead.empty() && dead[static_cast<size_t>(elem_idx)]) continue;
 
@@ -713,7 +884,7 @@ void SinglePassAnalyzer::analyzePartStats(
 
 #else
     // Sequential processing
-    for (size_t elem_idx = 0; elem_idx < num_solid_elements_; ++elem_idx) {
+    for (size_t elem_idx = 0; elem_idx < n_solid; ++elem_idx) {
         if (elem_idx >= elem_to_part_.size()) continue;
         if (!dead.empty() && dead[elem_idx]) continue;
 
@@ -807,6 +978,10 @@ void SinglePassAnalyzer::analyzePartStats(
         }
     }
 #endif
+
+    // 셸 · 두꺼운 셸 — 같은 part_stats 에 더한다(배치가 규격과 맞을 때만 그 파트가 있다)
+    accumulateLayeredPartStats(HotspotElementKind::Shell, state, part_stats, analyze_stress, analyze_strain);
+    accumulateLayeredPartStats(HotspotElementKind::ThickShell, state, part_stats, analyze_stress, analyze_strain);
 
     // Store results
     for (size_t i = 0; i < num_parts; ++i) {
@@ -914,7 +1089,9 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
     bool analyze_strain
 ) {
     const auto& solid_data = state.solid_data;
-    if (solid_data.empty()) return;
+    // 셸만 있는 덱(솔리드 0)도 있다 — 셋 다 비었을 때만 돌아간다
+    if (solid_data.empty() && state.shell_data.empty() && state.thick_shell_data.empty()) return;
+    const size_t n_solid = solid_data.empty() ? 0 : num_solid_elements_;
 
     size_t num_parts = part_ids_.size();
 
@@ -928,7 +1105,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
     }
 
     // Sequential processing (no OpenMP - this runs inside parallel state loop)
-    for (size_t elem_idx = 0; elem_idx < num_solid_elements_; ++elem_idx) {
+    for (size_t elem_idx = 0; elem_idx < n_solid; ++elem_idx) {
         if (elem_idx >= elem_to_part_.size()) continue;
         if (!dead.empty() && dead[elem_idx]) continue;
 
@@ -1021,6 +1198,10 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             }
         }
     }
+
+    // 셸 · 두꺼운 셸 — 같은 part_stats 에 더한다(배치가 규격과 맞을 때만 그 파트가 있다)
+    accumulateLayeredPartStats(HotspotElementKind::Shell, state, part_stats, analyze_stress, analyze_strain);
+    accumulateLayeredPartStats(HotspotElementKind::ThickShell, state, part_stats, analyze_stress, analyze_strain);
 
     // Store results (each thread writes to its own state_idx - no race condition)
     for (size_t i = 0; i < num_parts; ++i) {
@@ -1740,46 +1921,16 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     const char* kname = is_shell ? "셸" : "두꺼운 셸";
     if (ne == 0 || nv <= 0) return;
 
-    if (is_shell && (ndim_ == 5 || ndim_ == 7)) {
-        // DCOMP=2: 강체 셸 데이터가 빠진 채 압축돼 요소 인덱스가 어긋난다.
-        std::cerr << "  [hotspot] " << kname << ": 강체 셸 압축 덱(NDIM=" << ndim_
-                  << ", DCOMP=2) — 요소 인덱스를 신뢰할 수 없어 건너뜁니다.\n";
+    // ── 배치 자기 검증 — 파트 이력과 같은 해석(layeredLayout, initialize 에서 한 번) ──
+    const LayeredLayout& lay = is_shell ? shell_layout_ : tshell_layout_;
+    if (!lay.ok) {
+        std::cerr << "  [hotspot] " << kname << ": " << lay.why << " — 건너뜁니다.\n";
         return;
     }
-    if (ioshl_[0] == 0 || maxint_ <= 0) {
-        std::cerr << "  [hotspot] " << kname << ": 응력이 기록되지 않은 덱(IOSHL(1)=" << ioshl_[0]
-                  << ", MAXINT=" << maxint_ << ") — 건너뜁니다.\n";
-        return;
-    }
-
-    // ── 배치 자기 검증 ──
-    const int P = 6 * ioshl_[0] + ioshl_[1] + neips_;
-    const int lw = maxint_ * P;                    // 층 데이터 워드 수
-    int strain_off = -1;                           // 요소 시작 기준, 안쪽 면 6 + 바깥쪽 면 6
-    int thick_off = -1;
-    if (is_shell) {
-        const int fixed = lw + 8 * ioshl_[2] + 4 * ioshl_[3];
-        const int rem = nv - fixed;
-        if (rem == 12) {
-            // 두께·요소변수 2개 뒤, 내부에너지 앞 (규격 30–44 번)
-            strain_off = lw + 8 * ioshl_[2] + 3 * ioshl_[3];
-        } else if (rem != 0) {
-            std::cerr << "  [hotspot] " << kname << ": NV2D=" << nv << " 이 규격 공식("
-                      << fixed << " 또는 " << fixed + 12 << ")과 맞지 않아 건너뜁니다.\n";
-            return;
-        }
-        if (ioshl_[3]) thick_off = lw + 8 * ioshl_[2];
-    } else {
-        const int rem = nv - lw;                   // 12·ISTRN + (TSHENG ? 1 : 0)
-        if (rem == 12 || rem == 13) {
-            strain_off = lw;
-        } else if (rem != 0 && rem != 1) {
-            std::cerr << "  [hotspot] " << kname << ": NV3DT=" << nv << " 이 규격 공식("
-                      << lw << "+{0,1,12,13})과 맞지 않아 건너뜁니다.\n";
-            return;
-        }
-    }
-    const bool mio = (maxint_ >= 3 && numds_ >= 0);   // 0 중립·1 안쪽·2 바깥쪽
+    const int P = lay.P;
+    const int strain_off = lay.strain_off;
+    const int thick_off = lay.thick_off;
+    const bool mio = lay.mio;
     layer_scheme_ = mio ? "mid_inner_outer" : "index";
     const bool strain_ok = (strain_off >= 0);
 
@@ -2007,6 +2158,9 @@ void SinglePassAnalyzer::extractPeakElementTensors(
 
     // Find peak von Mises element per part
     for (const auto& part_stats : result.stress_history) {
+        // 셸 계열 이력의 max_element_id 는 셸 순번표의 ID 다 — 아래 조회는 솔리드 ID 표(elem_id_to_index_)와
+        // solid_data 를 쓰므로 섞으면 엉뚱한 솔리드 텐서를 읽는다(ID 가 겹칠 수도 있다). 피크 텐서는 솔리드 전용.
+        if (!part_stats.element_type.empty()) continue;
         double best_val = -std::numeric_limits<double>::infinity();
         int32_t best_elem = 0;
         double best_time = 0.0;
@@ -2024,6 +2178,9 @@ void SinglePassAnalyzer::extractPeakElementTensors(
 
     // Find peak max principal (σ1) element per part
     for (const auto& part_stats : result.max_principal_history) {
+        // 셸 계열 이력의 max_element_id 는 셸 순번표의 ID 다 — 아래 조회는 솔리드 ID 표(elem_id_to_index_)와
+        // solid_data 를 쓰므로 섞으면 엉뚱한 솔리드 텐서를 읽는다(ID 가 겹칠 수도 있다). 피크 텐서는 솔리드 전용.
+        if (!part_stats.element_type.empty()) continue;
         double best_val = -std::numeric_limits<double>::infinity();
         int32_t best_elem = 0;
         double best_time = 0.0;
@@ -2051,6 +2208,9 @@ void SinglePassAnalyzer::extractPeakElementTensors(
 
     // Find peak min principal (σ3) element per part (most compressive)
     for (const auto& part_stats : result.min_principal_history) {
+        // 셸 계열 이력의 max_element_id 는 셸 순번표의 ID 다 — 아래 조회는 솔리드 ID 표(elem_id_to_index_)와
+        // solid_data 를 쓰므로 섞으면 엉뚱한 솔리드 텐서를 읽는다(ID 가 겹칠 수도 있다). 피크 텐서는 솔리드 전용.
+        if (!part_stats.element_type.empty()) continue;
         double best_val = std::numeric_limits<double>::infinity();
         int32_t best_elem = 0;
         double best_time = 0.0;

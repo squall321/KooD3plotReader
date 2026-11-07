@@ -60,6 +60,9 @@ struct PartTimeSeriesStats {
     std::string part_name;           ///< Part name (if available)
     std::string quantity;            ///< Quantity name (e.g., "von_mises", "eff_plastic_strain")
     std::string unit;                ///< Unit (e.g., "MPa", "mm/s^2")
+    /// 요소 종류 — 비면 솔리드. "shell" / "thick_shell" 이면 값은 적분점 층 극값이다.
+    /// JSON 에는 비어 있지 않을 때만 쓴다(솔리드만 있는 덱의 출력은 종전과 바이트 단위로 같다).
+    std::string element_type;
     std::vector<TimePointStats> data; ///< Time series data
 
     /**
@@ -551,6 +554,8 @@ protected:
         oss << ind2 << "\"part_name\": \"" << escapeJSON(stats.part_name) << "\"," << nl;
         oss << ind2 << "\"quantity\": \"" << stats.quantity << "\"," << nl;
         oss << ind2 << "\"unit\": \"" << stats.unit << "\"," << nl;
+        if (!stats.element_type.empty())
+            oss << ind2 << "\"element_type\": \"" << escapeJSON(stats.element_type) << "\"," << nl;
         oss << ind2 << "\"num_points\": " << stats.data.size() << "," << nl;
 
         // 전 상태가 미계측(markUnmeasuredParts 가 넣은 NaN)이면 globalMax()/

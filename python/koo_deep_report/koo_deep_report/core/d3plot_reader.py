@@ -645,6 +645,7 @@ def _parse_series(raw: dict) -> PartTimeSeries:
         time_of_max=raw.get("time_of_max", 0.0),
         data=data,
         num_points=num_points,
+        element_type=str(raw.get("element_type") or ""),
     )
 
 
