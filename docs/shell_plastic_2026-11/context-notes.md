@@ -74,3 +74,13 @@
   report.json · 캠페인 그림), impact(순위 · 위치별 최대, 단 mtime 으로 옛 결과를 재사용하면 재분석 전까지는 안 보임),
   federate(옛 판과 견주면 셸이 '새로 생김'), custom(셸이 든 세트의 지표 값), 온톨로지(셸 파트 응답), batch 전체 피크.
 - 남은 것: 빔 · 이산 요소는 여전히 이력이 없다. 셸 이력 실덱 회귀 시험(덱이 있어야 도는 (나) 시험)은 만들지 않았다.
+
+## 어휘 0.5 반영 (11-07, DynaForge 회신)
+- kooremapper-4a 가 정본 0.5 를 올렸다(KooRemapper 32cc364, sha256 c42d02b3…f277b, 40,870 바이트). 사용자 결정(그쪽)은 「기준별 값 칸을
+  따로 둔다」 — `plastic_strain_mean/max`(무차원) · `plastic_work_mean/max`(mJ/mm³), 응력 기준만 `stress_*`, 기준마다 한 쌍만.
+- 사본은 커밋 32cc364 의 바이트를 `git show` 로 그대로 옮겼다(다시 직렬화하지 않음). 0.4 는 그쪽 history/ 로 — 받아들인 판 0.5 · 0.4 · 0.3.
+- 작성기(`ontology/sphere.py _add_hotspots`, deep 도 같이 씀): 소성 기준이면 군집의 stress_mean/max 를 그 기준 칸으로 옮긴다.
+  어휘 밖 기준만 싣지 않고 warnings. 단위표에 `"mJ/mm³": "stress"` — 에너지 밀도는 응력과 같은 차원(MPa ≡ mJ/mm³)이라 응력 계수로
+  맞춘다(표에 없으면 `convert` 가 환산 없이 통과시켜 SI 덱 값이 그대로 실린다).
+- 확인: airbag 덱 deep `--hotspot-clusters` 꾸러미(어휘 0.5) — 핫스팟 79(von_mises 56 · plastic_strain 23, 셸 소성 ε_p 최대 0.158),
+  셸 파트 응답 60, warnings 없음 → DynaForge 검사기 `onto_package.check` 통과(행 144). 사용자 결정으로 v47 에 같이 넣는다.

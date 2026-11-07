@@ -16,6 +16,7 @@
 |---|---|---|---|
 | 0.3 | `72ff9b49…4d64` | 첫 정본(0.2 와 내용 같음, 정본 위치 · `_version` 칸) | f60d1d5 배포판 |
 | 0.4 | `59b4e70b…24fa` | `cae_run.flow_scalars_only`(bool) — 2패스가 시계열을 뺀 런(DynaForge bd03428) | 그다음 판 |
+| 0.5 | `c42d02b3…f277b` | `cae_hotspot.criterion` 에 plastic_strain · plastic_work, 기준별 값 칸 `plastic_strain_mean/max`(무차원) · `plastic_work_mean/max`(mJ/mm³) — 기준마다 한 쌍만 채운다, 응력 기준만 `stress_*`(KooRemapper 32cc364) | v47 (2026-11-07) |
 
 ## 1. 어디에 생기나
 

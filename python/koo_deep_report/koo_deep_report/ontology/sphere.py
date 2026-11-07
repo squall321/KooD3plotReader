@@ -358,11 +358,12 @@ def _add_hotspots(pkg, item: dict, folder: str, run_key: str, part_keys: dict[in
         return
     crit = str(item.get("criterion") or "")
     if crit and crit not in _vocab_hotspot_criteria():
-        # 어휘(정본 DynaForge)가 모르는 기준(예: plastic_strain) — 실으면 '열거값 밖' 결함이 되고,
-        # stress_max 에 담긴 ε_p · w_p 에 응력 단위 환산이 걸린다. 싣지 않고 머리에 사유를 남긴다.
+        # 어휘(정본 DynaForge)가 모르는 기준 — 실으면 '열거값 밖' 결함이 된다. 싣지 않고 머리에 사유를 남긴다.
         if item.get("clusters"):
             pkg.warn(f"핫스팟 기준 '{crit}' 은 어휘(cae_hotspot.criterion)에 없어 싣지 않았다 — DynaForge 어휘 갱신 필요")
         return
+    # 기준마다 값 칸 한 쌍만 채운다(어휘 0.5) — 소성 기준의 stress_* 에는 응력이 아니라 ε_p · w_p 가 담겨 있다
+    vkey = crit if crit in ("plastic_strain", "plastic_work") else "stress"
     et = str(item.get("element_type") or "solid")
     resp_key = f"resp/{folder}/{pid}"
     if not pkg.has("cae_part_response", resp_key):
@@ -382,7 +383,7 @@ def _add_hotspots(pkg, item: dict, folder: str, run_key: str, part_keys: dict[in
                     "center_y": C.num(ctr[1]) if len(ctr) > 1 else None,
                     "center_z": C.num(ctr[2]) if len(ctr) > 2 else None,
                     "radius_enclosing": C.num(c.get("radius_enclosing")),
-                    "stress_mean": C.num(c.get("stress_mean")), "stress_max": C.num(c.get("stress_max")),
+                    f"{vkey}_mean": C.num(c.get("stress_mean")), f"{vkey}_max": C.num(c.get("stress_max")),
                     "peak_element_id": C.num(c.get("peak_element_id")),
                     "peak_time": C.num(c.get("peak_time")),
                 })

@@ -30,6 +30,8 @@ GROUP = VOCABULARY["groups"][0]["slug"]
 UNIT_KINDS = {
     "MPa": "stress", "mm": "length", "s": "time", "mJ": "energy",
     "N": "force", "N·s": "impulse", "mm/s": "velocity",
+    # 에너지 밀도(소성일 w_p, 어휘 0.5) — 응력과 같은 차원이라(MPa ≡ mJ/mm³) 응력 계수로 맞춘다
+    "mJ/mm³": "stress",
 }
 
 #: 만드는 쪽이 채우지 않는 속성 — DynaForge 가 적재할 때 채운다(리포트 키를 모른다).

@@ -28,5 +28,7 @@
 
 ## 마감
 - [x] 전체 시험(C++ 핫스팟 8 · CTest 10 · build_fig 4, 파이썬 6개 패키지 765, post_analyze 셸 시험)
-- [ ] 사용자 보고 → push · 배포는 승인 뒤
-- [ ] DynaForge 어휘에 plastic_strain · plastic_work 열거값 · 단위 추가 요청(정본은 DynaForge)
+- [x] 사용자 보고 → push 2a2ca51..cba5cf1 · v47 배포 요청(사용자 승인 11-07) — 확인 설정 `/data/koopark/Post_v47/`
+- [x] DynaForge 어휘에 plastic_strain · plastic_work 열거값 · 단위 추가 요청(kooremapper-4a, 11-07)
+- [x] DynaForge 정본 0.5 바이트 사본 · 작성기(기준별 값 칸) — DynaForge 검사기 통과, v47 에 포함(사용자 결정)
+- [ ] v47 배포판 재확인

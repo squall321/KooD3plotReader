@@ -199,21 +199,37 @@ def test_hotspots_hang_on_responses():
     assert _objs(doc, "cae_part_response")["resp/Run_C/2"] == {"run": "run/Run_C", "part": "part/2"}
 
 
-def test_hotspot_criteria_outside_vocabulary_are_skipped_with_warning():
-    """소성 기준(2026-11-07)은 아직 어휘(정본 DynaForge)에 없다 — 실으면 '열거값 밖' 결함이 되고
-    stress_max 의 ε_p 에 응력 환산이 걸린다. 싣지 않고 머리 warnings 에 사유를 남긴다."""
+def test_plastic_hotspots_fill_their_own_value_columns():
+    """어휘 0.5(정본 DynaForge, 2026-11-07) — 기준마다 값 칸 한 쌍만 채운다. 소성 기준 군집의 stress_* 에는
+    응력이 아니라 ε_p · w_p 가 담겨 있으므로 plastic_strain_* · plastic_work_* 로 옮기고 stress_* 는 비운다."""
     rep = _report()
     cl = [{"rank": 1, "element_count": 9, "center": [0.0, 0.0, 0.0], "radius_enclosing": 1.0,
            "stress_mean": 0.002, "stress_max": 0.004, "peak_element_id": 7, "peak_time": 1e-4}]
     rep["results_summary"][2]["hotspot_clusters"] = [
         {"part_id": 2, "criterion": "plastic_strain", "element_type": "solid", "clusters": cl},
+        {"part_id": 2, "criterion": "plastic_work", "element_type": "solid",
+         "clusters": [dict(cl[0], stress_mean=1.5, stress_max=3.0)]},
         {"part_id": 2, "criterion": "von_mises", "element_type": "solid",
          "clusters": [dict(cl[0], stress_mean=90.0, stress_max=120.0)]}]
     doc = sphere.build(rep, contact_map=_cmap())
     hs = _objs(doc, "cae_hotspot")
-    assert list(hs) == ["hs/Run_C/2/von_mises/solid/1"]
-    assert any("plastic_strain" in w and "어휘" in w for w in doc.get("warnings") or [])
-    assert not any("plastic_strain" in f for f in (doc.get("faults") or []))
+    ep, wp, vm = (hs[f"hs/Run_C/2/{c}/solid/1"] for c in ("plastic_strain", "plastic_work", "von_mises"))
+    assert ep["plastic_strain_max"] == 0.004 and ep["plastic_strain_mean"] == 0.002 and "stress_max" not in ep
+    assert wp["plastic_work_max"] == 3.0 and "stress_max" not in wp and "plastic_strain_max" not in wp
+    assert vm["stress_max"] == 120.0 and "plastic_strain_max" not in vm
+    assert not any("어휘" in w for w in doc.get("warnings") or [])
+
+
+def test_hotspot_criteria_outside_vocabulary_are_skipped_with_warning():
+    """어휘가 모르는 기준은 싣지 않고(열거값 밖 결함 방지) 머리 warnings 에 사유를 남긴다."""
+    rep = _report()
+    rep["results_summary"][2]["hotspot_clusters"] = [
+        {"part_id": 2, "criterion": "hydrostatic", "element_type": "solid", "clusters": [
+            {"rank": 1, "element_count": 9, "center": [0.0, 0.0, 0.0], "radius_enclosing": 1.0,
+             "stress_mean": 1.0, "stress_max": 2.0, "peak_element_id": 7, "peak_time": 1e-4}]}]
+    doc = sphere.build(rep, contact_map=_cmap())
+    assert not _objs(doc, "cae_hotspot")
+    assert any("hydrostatic" in w and "어휘" in w for w in doc.get("warnings") or [])
 
 
 def test_si_deck_is_normalized_but_g_and_ratio_are_not(tmp_path):

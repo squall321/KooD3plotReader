@@ -77,7 +77,8 @@ max_shear 의 짝 변형률은 (ε1−ε3)/2, x/y/z_tension 은 εxx/εyy/εzz �
   소성 요소가 그보다 적으면 그 전부다.
 - 시각(`peak_time`)은 ε_p 최댓값이 처음 난 시각, plastic_work 는 누적량이라 끝 시각이다.
 - 동시각 평균(`mean_timemax`)은 plastic_strain 만 낸다 — 상태별 누적 소성일은 따로 두지 않는다.
-- 온톨로지 꾸러미는 어휘(정본 DynaForge)의 `cae_hotspot.criterion` 에 없는 기준을 싣지 않고 머리 `warnings` 에 적는다.
+- 온톨로지 꾸러미(어휘 0.5 부터)는 소성 기준 값을 `plastic_strain_mean/max` · `plastic_work_mean/max` 칸에 싣고 `stress_*` 는 비운다.
+  어휘에 없는 기준은 싣지 않고 머리 `warnings` 에 적는다.
 
 ### 시간 집계
 
