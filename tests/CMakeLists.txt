@@ -79,9 +79,12 @@ target_link_libraries(test_config_inline_mapping PRIVATE kood3plot)
 target_include_directories(test_config_inline_mapping PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 # 단면 자를 자리(center_mode) 파싱 — 오타가 조용히 기본값으로 떨어지지 않는지
-add_executable(test_section_center_mode test_section_center_mode.cpp)
-target_link_libraries(test_section_center_mode PRIVATE kood3plot_section_render)
-target_include_directories(test_section_center_mode PRIVATE ${CMAKE_SOURCE_DIR}/include)
+# 단면 렌더러를 끈 빌드(KOOD3PLOT_BUILD_SECTION_RENDER=OFF)에는 그 라이브러리가 없다 — 조건 없이 링크하면 전체 빌드가 멈췄다
+if(TARGET kood3plot_section_render)
+    add_executable(test_section_center_mode test_section_center_mode.cpp)
+    target_link_libraries(test_section_center_mode PRIVATE kood3plot_section_render)
+    target_include_directories(test_section_center_mode PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
 
 # LS-PrePost 명령 스크립트에서 숨길 파트가 fringe 뒤 · 첫 ac 앞에 꺼지는지(리포트 그림 3단계)
 if(TARGET kood3plot_render)
