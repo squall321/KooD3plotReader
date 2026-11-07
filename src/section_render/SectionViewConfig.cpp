@@ -239,6 +239,7 @@ bool SectionViewConfig::loadFromString(const std::string& yaml_block)
             if (key == "background_alpha")    { try { background_alpha = std::stod(value); } catch(...) {} section = ""; continue; }
             if (key == "snapshot_state")      { try { snapshot_state = std::stoi(value); } catch(...) {} section = ""; continue; }
             if (key == "max_frames")          { try { max_frames = std::stoi(value); } catch(...) {} section = ""; continue; }
+            if (key == "state_step")          { try { state_step = std::max(1, std::stoi(value)); } catch(...) {} section = ""; continue; }
         }
 
         // Plane sub-keys

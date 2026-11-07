@@ -253,9 +253,6 @@ def _ignored_option_warnings(render_config, section_view_config) -> list[str]:
         if render_config.part_pattern:
             out.append("[설정] --part-pattern 은 --section-view 와 함께면 쓰이지 않는다 — "
                        "--section-view-target-patterns 를 쓴다")
-    if getattr(sv, "backend", "lsprepost") == "software" and getattr(sv, "state_step", 1) > 1:
-        out.append(f"[설정] --section-view-state-step {sv.state_step} 은 소프트웨어 단면에 쓰이지 않는다 — 전 상태를 그린다 "
-                   "(LS-PrePost 백엔드만 프레임 보폭을 쓴다)")
     if sv.target_patterns and not sv.target_part_ids:
         if getattr(sv, "backend", "lsprepost") == "software":
             out.append("[설정] 소프트웨어 단면은 파트 이름 패턴을 맞추지 못한다(렌더러가 파트 이름을 모른다) — "

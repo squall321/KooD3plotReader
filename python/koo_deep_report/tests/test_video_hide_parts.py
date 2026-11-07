@@ -97,9 +97,11 @@ def test_ignored_render_options_are_reported():
     assert len(w) == 1 and "target-ids" in w[0]
     w = R._ignored_option_warnings(RenderConfig(), _svc(backend="lsprepost", target_patterns=["*A*", "*B*"]))
     assert len(w) == 1 and "'*A*'" in w[0]
-    w = R._ignored_option_warnings(RenderConfig(), _svc(backend="software", state_step=20))
-    assert len(w) == 1 and "state-step" in w[0]                    # 소프트웨어는 프레임 보폭을 안 쓴다(전 상태)
+    # 상태 간격은 이제 두 백엔드 모두 쓴다 — 경고 없음(소프트웨어는 YAML state_step 으로 간다)
+    assert R._ignored_option_warnings(RenderConfig(), _svc(backend="software", state_step=20)) == []
     assert R._ignored_option_warnings(RenderConfig(), _svc(backend="lsprepost", state_step=20)) == []
+    assert "state_step: 20\n" in _sv_yaml_block("z", "/o", _svc(state_step=20))
+    assert "state_step" not in _sv_yaml_block("z", "/o", _svc())                 # 1 이면 키를 쓰지 않는다
     assert R._ignored_option_warnings(RenderConfig(per_part_render=True), None) == []      # 단면이 꺼져 있으면 없음
     assert R._ignored_option_warnings(RenderConfig(per_part_render=True), _svc(enabled=False)) == []
 

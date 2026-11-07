@@ -155,7 +155,8 @@ def _sv_yaml_block(
         f"global_range: {'true' if config.global_range else 'false'}\n"
         f"scale_factor: 3.0\n"
         f"supersampling: {config.supersampling}\n"
-        f"fade_distance: {config.fade_distance}\n"
+        + (f"state_step: {config.state_step}\n" if config.state_step > 1 else "")
+        + f"fade_distance: {config.fade_distance}\n"
         f"{bg_alpha_line}"
         f"{sliding_block}"
         f"output:\n"

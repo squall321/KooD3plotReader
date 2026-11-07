@@ -93,6 +93,8 @@ struct SectionViewConfig {
     // ---- PartTopView (Custom Report 세트 뷰) 전용 ----
     int32_t       snapshot_state = -1;   ///< >=0 이면 그 상태를 snapshot.png 로 저장 (피크 시각)
     int32_t       max_frames = 0;        ///< 0 = 전 상태, N = 균등 다운샘플 (스냅샷 상태는 항상 포함)
+    /// 프레임 보폭 — 상태 0, N, 2N … 만 그린다(LS-PrePost `anim incr N` 과 같은 뜻). 색 범위도 그 상태들로. 1 = 전 상태
+    int32_t       state_step = 1;
 
     /// 컨투어 위 세그먼트 영역 하이라이트 (Custom Report 연동 — YAML 아님,
     /// processSetViews 가 프로그램으로 채운다). 세그먼트 절점은 **실 절점 ID**.

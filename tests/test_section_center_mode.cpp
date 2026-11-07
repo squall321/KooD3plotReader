@@ -79,6 +79,13 @@ int main() {
         chk("hidden 이 없으면 비어 있다", parse("").hidden_parts.empty(), "");
     }
 
+    std::printf("[F] 프레임 보폭(state_step) — 소프트웨어 단면도 LS-PrePost 처럼 0, N, 2N … 만 그린다\n");
+    {
+        chk("state_step: 20 을 읽는다", parse("state_step: 20\n").state_step == 20, "");
+        chk("없으면 1(전 상태)", parse("").state_step == 1, "");
+        chk("0 · 음수는 1 로", parse("state_step: 0\n").state_step == 1, "");
+    }
+
     std::printf("%s (%d 실패)\n", g_failed ? "FAILED" : "PASSED", g_failed);
     return g_failed ? 1 : 0;
 }

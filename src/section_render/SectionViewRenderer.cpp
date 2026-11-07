@@ -51,6 +51,14 @@ namespace section_render {
 
 namespace {
 
+// 그릴 상태 목록 — 보폭 N 이면 0, N, 2N …(LS-PrePost `anim incr N` 과 같다). 1 이하면 전 상태.
+std::vector<size_t> steppedStates(size_t num_states, int32_t step) {
+    std::vector<size_t> out;
+    const size_t st = step > 1 ? static_cast<size_t>(step) : 1;
+    for (size_t s = 0; s < num_states; s += st) out.push_back(s);
+    return out;
+}
+
 // 숨길 파트를 뺀 요소들의 절점을 한 번씩 돈다 — 숨길 것이 없으면 전체 절점. 자동 중심 · 상자가 바닥 한가운데를
 // 잡지 않게 한다. 요소 절점 번호는 1 부터인 내부 순번이다(아래 resolveIdx 와 같은 규칙).
 template <class F>
@@ -198,6 +206,8 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
 
     size_t num_states = all_states.size();
     if (num_states == 0) return "No states in d3plot file";
+    // 그릴 상태(보폭) — 프레임 파일은 순번으로 짓고 상태는 이 목록에서 꺼낸다(ffmpeg 순번이 끊기지 않게)
+    const std::vector<size_t> frames = steppedStates(num_states, config.state_step);
 
     // ---- 1. Build plane (auto_center: move cut point to target/mesh centroid axis) ----
     Vec3 plane_point = config.point;
@@ -486,7 +496,7 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
     // ---- 6. Global range scan ----
     if (config.global_range) {
         double gmin = 1e300, gmax = -1e300;
-        for (size_t si = 0; si < num_states; ++si) {
+        for (size_t si : frames) {
             averager.compute(all_states[si], config.field, config.target_parts);
             double lo = averager.globalMin(), hi = averager.globalMax();
             if (lo < gmin) gmin = lo;
@@ -590,10 +600,10 @@ std::string SectionViewRenderer::render(const data::Mesh& mesh,
             a_min, a_max, sliding_state_idx, num_states);
     }
 
-    size_t loop_count = sliding ? static_cast<size_t>(N_steps) : num_states;
+    size_t loop_count = sliding ? static_cast<size_t>(N_steps) : frames.size();
 
-    for (size_t si = 0; si < loop_count; ++si) {
-        const auto& state = sliding ? all_states[sliding_state_idx] : all_states[si];
+    for (size_t si = 0; si < loop_count; ++si) {   // si = 프레임 순번(파일 이름) — 상태는 frames[si]
+        const auto& state = sliding ? all_states[sliding_state_idx] : all_states[frames[si]];
 
         // For sliding: build a fresh clipper at the next plane position.
         std::unique_ptr<SectionClipper> sliding_clipper;
@@ -896,6 +906,8 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
 {
     size_t num_states = all_states.size();
     if (num_states == 0) return "No states in d3plot file";
+    // 그릴 상태(보폭) — 프레임 파일은 순번으로 짓고 상태는 이 목록에서 꺼낸다(ffmpeg 순번이 끊기지 않게)
+    const std::vector<size_t> frames = steppedStates(num_states, config.state_step);
 
     // ---- 1. Build plane (same auto_center logic as 2D) ----
     Vec3 plane_point = config.point;
@@ -1190,7 +1202,7 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
     // ---- 8. Global range scan ----
     if (config.global_range) {
         double gmin = 1e300, gmax = -1e300;
-        for (size_t si = 0; si < num_states; ++si) {
+        for (size_t si : frames) {
             averager.compute(all_states[si], config.field, config.target_parts);
             double lo = averager.globalMin(), hi = averager.globalMax();
             if (lo < gmin) gmin = lo;
@@ -1208,8 +1220,8 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
     // ---- 9. Per-state render loop ----
     std::string frame_pattern = out_dir + "/frame_%04d.png";
 
-    for (size_t si = 0; si < num_states; ++si) {
-        const auto& state = all_states[si];
+    for (size_t si = 0; si < frames.size(); ++si) {   // si = 프레임 순번 — 상태는 frames[si]
+        const auto& state = all_states[frames[si]];
 
         // Compute nodal stress values for this state
         averager.compute(state, config.field, config.target_parts);
@@ -1435,8 +1447,8 @@ std::string SectionViewRenderer::render3D(const data::Mesh& mesh,
         std::string err = rasterizer.savePng(frame_path);
         if (!err.empty()) return "Frame " + std::to_string(si) + ": " + err;
 
-        if (si % 20 == 0 || si == num_states - 1) {
-            std::fprintf(stderr, "[section_3d] Rendered frame %zu / %zu\n", si + 1, num_states);
+        if (si % 20 == 0 || si == frames.size() - 1) {
+            std::fprintf(stderr, "[section_3d] Rendered frame %zu / %zu\n", si + 1, frames.size());
         }
     }
 
@@ -1473,6 +1485,8 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
 {
     size_t num_states = all_states.size();
     if (num_states == 0) return "No states in d3plot file";
+    // 그릴 상태(보폭) — 프레임 파일은 순번으로 짓고 상태는 이 목록에서 꺼낸다(ffmpeg 순번이 끊기지 않게)
+    const std::vector<size_t> frames = steppedStates(num_states, config.state_step);
 
     // Custom Report 세트 뷰: 타깃 파트만, 클리핑 없음, 축 정렬 탑뷰.
     // IsoSurface 파이프라인(외곽면 추출·컨투어·MP4)을 그대로 쓰되 세 가지만
@@ -1912,7 +1926,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
     // Global range scan
     if (config.global_range) {
         double gmin = 1e300, gmax = -1e300;
-        for (size_t si = 0; si < num_states; ++si) {
+        for (size_t si : frames) {
             averager.compute(all_states[si], config.field, config.target_parts);
             double lo = averager.globalMin(), hi = averager.globalMax();
             if (lo < gmin) gmin = lo;
@@ -1952,7 +1966,7 @@ std::string SectionViewRenderer::renderIsoSurface(const data::Mesh& mesh,
             std::sort(frame_states.begin(), frame_states.end());
         }
     } else {
-        for (size_t si2 = 0; si2 < num_states; ++si2) frame_states.push_back(si2);
+        frame_states = frames;   // 보폭(state_step) — 1 이면 전 상태
     }
     const size_t num_frames = frame_states.size();
 
