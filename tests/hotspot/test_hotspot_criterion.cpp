@@ -203,6 +203,26 @@ int main(){
         chk ("소성 20개 중 floor(180×5%) = 9개", res.size()==1 ? res[0].element_count_selected : -1, 9, 0);
     }
 
+    printf("\n[8] 소성역 요약(n_yield)도 같은 잡음 바닥 — 0 초과만 세면 3e-12 가 항복으로 잡힌다\n");
+    {
+        Grid g(10,2,2);                                        // 40 요소, 단위 정육면체
+        const size_t n = g.mesh.solids.size();
+        ElementExtremes ex; ex.value.assign(n, 100.0); ex.time.assign(n, 0.0);
+        std::vector<double> eps(n, 0.0);
+        for (size_t e = 0; e < 10; ++e) eps[e] = 0.05;         // 진짜 소성 10개
+        for (size_t e = 10; e < 30; ++e) eps[e] = 3e-12;       // 잡음 20개
+        HotspotClusterConfig cfg; cfg.enabled=true; cfg.criterion=HotspotCriterion::VonMises;
+        cfg.top_percent=10.0; cfg.min_cluster_elements=3;
+        auto res = computeHotspotClusters(g.mesh, HotspotElementKind::Solid, ex, {}, "", {}, cfg, {}, eps);
+        const bool one = res.size()==1;
+        chk ("n_yield = 진짜 소성 10개 (잡음 20개는 빼고)", one ? res[0].n_yield : -1, 10, 0);
+        chk ("vol_yield = 그 10개의 부피", one ? res[0].vol_yield : -1, 10.0, 1e-9);
+        chk ("보고 임계 = 실제로 쓴 1e-6", one ? res[0].yield_eps_threshold : -1, kHotspotPlasticEpsFloor, 0);
+        cfg.yield_eps_threshold = 0.01;                        // 더 큰 임계면 그쪽
+        res = computeHotspotClusters(g.mesh, HotspotElementKind::Solid, ex, {}, "", {}, cfg, {}, eps);
+        chk ("임계 0.01 이면 그대로 0.01", res.size()==1 ? res[0].yield_eps_threshold : -1, 0.01, 0);
+    }
+
     printf("\n%s 실패 %d 건\n", fails?"[FAIL]":"[PASS]", fails);
     return fails ? 1 : 0;
 }

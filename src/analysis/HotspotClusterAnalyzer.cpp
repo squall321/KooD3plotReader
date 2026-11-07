@@ -766,7 +766,10 @@ std::vector<PartHotspotResult> computeHotspotClusters(
             const bool have_w   = !elem_energy.empty();
             res.plastic_zone_available = have_eps;
             res.plastic_work_available = have_w;
-            res.yield_eps_threshold = cfg.yield_eps_threshold;
+            // 선별과 같은 '수치 0' 바닥 — 0 초과만 세면 ε_p 3e-12 같은 잡음이 항복으로 잡힌다(Test_006 바닥 파트
+            // 1800 중 966). 보고하는 임계도 실제로 쓴 값이다.
+            const double yield_thr = std::max(cfg.yield_eps_threshold, kHotspotPlasticEpsFloor);
+            res.yield_eps_threshold = yield_thr;
             double vsum = 0.0, vy = 0.0, sev = 0.0, wv = 0.0, emax = 0.0;
             int ny = 0;
             bool any_eps = false, any_w = false;
@@ -780,7 +783,7 @@ std::vector<PartHotspotResult> computeHotspotClusters(
                     if (std::isfinite(e)) {
                         any_eps = true;
                         if (e > emax) emax = e;
-                        if (e > cfg.yield_eps_threshold) { ++ny; vy += v; }
+                        if (e > yield_thr) { ++ny; vy += v; }
                         sev += e * v;
                     }
                 }

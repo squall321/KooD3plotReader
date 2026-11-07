@@ -155,9 +155,9 @@ struct HotspotClusterConfig {
     /// 이 개수 미만의 덩어리는 노이즈로 버린다
     int min_cluster_elements = 5;
 
-    /// 소성역으로 셀 ε_p 임계. 기본 0 은 "0 보다 크면 소성" 이라는 뜻이다.
-    /// d3plot 의 ε_p 는 이미 소성분만 담으므로 0 초과가 곧 항복 이후다.
-    /// 수치 잡음을 걸러내려면 1e-6 같은 값을 준다.
+    /// 소성역으로 셀 ε_p 임계. 실제로 쓰는 값은 max(이 값, kHotspotPlasticEpsFloor=1e-6) 이다 —
+    /// d3plot 의 ε_p 는 소성분만 담지만 0 초과만 보면 3e-12 같은 수치 잡음이 항복으로 잡힌다(2026-11-07).
+    /// 결과의 yield_eps_threshold 에는 실제로 쓴 값이 실린다.
     double yield_eps_threshold = 0.0;
 
     /// 선별 기준량 (한 번 호출에 하나). 여러 기준은 호출부가 돌린다.

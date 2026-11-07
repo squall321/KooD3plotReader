@@ -72,6 +72,7 @@ max_shear 의 짝 변형률은 (ε1−ε3)/2, x/y/z_tension 은 εxx/εyy/εzz �
 
 소성 기준(`plastic_strain` · `plastic_work`, 2026-11-07)은 응력이 아니라 변형 측도라 짝 변형률이 없다(`strain_measure: none`).
 - 값은 파트 소성역 요약(`max_eps` · `n_yield`)과 같은 배열이다 — 셸 계열의 ε_p 는 층 평균.
+- 파트 소성역 요약(`n_yield` · `vol_yield`)도 같은 바닥을 쓴다 — 결과의 `yield_eps_threshold` 는 실제로 쓴 값(기본 1e-6)이다(2026-11-07, 그전에는 0 초과면 셌다).
 - **소성이 난 요소만 순위에 든다** — ε_p 가 `max(1e-6, yield_eps_threshold)` 이하면 빠진다(plastic_work 도 같은 요소의 ε_p 로 본다).
   0 초과만 보면 수치 잡음이 덩어리가 된다(Test_006 바닥 파트 ε_p 3e-12 실측). 고르는 수는 응력 기준처럼 파트 유효 요소 수의 p% 이고,
   소성 요소가 그보다 적으면 그 전부다.
