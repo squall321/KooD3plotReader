@@ -18,4 +18,6 @@
 - [x] figures/index.html(pack · campaign) · sphere HTML 링크(멱등) · 크로미움 확인
 
 ## 마감
-- [ ] 시험 전부 · 커밋 · v45 끝난 뒤 push · 배포 요청(사용자 승인)
+- [x] 시험 전부 · 커밋 · v45 끝난 뒤 push · 배포 요청(사용자 승인) — 229806e push, v46 요청
+- [x] v46 배포판(헤드 /opt, --no-home)으로 a · s · m · w · f 직접 확인 — 전부 통과(context-notes 「v46 배포 · 확인」)
+- [ ] 노드 node001 · 002 로컬 SIF(노드 down — 배포 세션)

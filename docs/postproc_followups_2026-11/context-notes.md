@@ -43,11 +43,11 @@
 ## 2. 메모리 안전장치 (11-07, 사용자 결정 「안전장치만」)
 - UnifiedAnalyzer::analyze 가 전 상태를 읽기 직전에 어림한다 — 상태 하나 = 헤더 워드 수(1 + NGLBV + NND + ENN + DELNN, StateDataParser
   와 같은 셈) × 8 바이트, × 상태 수 × 1.1. 가용 = /proc/meminfo MemAvailable 과 자기 cgroup 한도(v2 memory.max − current, v1 limit −
-  usage, /proc/self/cgroup 경로) 중 작은 것. 넘으면 숫자와 함께 실패(rc 1, 「Analysis failed: 메모리 부족 예상으로 멈춘다 — …」),
+  usage, /proc/self/cgroup 경로) 중 작은 것. 넘으면 숫자와 함께 실패(분석기 rc 1 · 그것을 부른 deep 은 rc 3, 「Analysis failed: 메모리 부족 예상으로 멈춘다 — …」),
   70% 넘으면 경고. `KOOD3PLOT_MEMORY_CHECK=warn` 경고만 · `off` 안 봄.
 - **함정**: 처음엔 상태 0 을 `reader.read_state(0)` 로 읽어 크기를 쟀는데, read_state 는 첫 호출에서 **전 상태를 리더 캐시에 올린다** —
   뒤의 전 상태 읽기와 합쳐 두 벌(Test_006: 6.7 → 13.6 GB, 27 → 212 s). 헤더 셈으로 바꿔 원래 수준(6.84 GB)으로 돌아왔다.
-- 실측: 상한 4 GB scope(systemd-run MemoryMax=4G)에서 「상태 992개 × 7.0 MB ≈ 7.5 GB 필요, 가용 4.0 GB」 로 바로 멈춘다(rc 1).
+- 실측: 상한 4 GB scope(systemd-run MemoryMax=4G)에서 「상태 992개 × 7.0 MB ≈ 7.5 GB 필요, 가용 4.0 GB」 로 바로 멈춘다(분석기 직접 실행, rc 1).
   어림 7.0 MB/상태 ≈ 실측 6.7 MB/상태. 평소 조건은 경고 없이 통과.
 
 ## 4 마감 — post_analyze 자동 채우기 (11-07, v45 배포 뒤)
@@ -56,3 +56,19 @@
 - 셸 시험 [14] 6개. [13] 의 「--deep-only 면 부르지 않는다」 는 `figs` 줄 전부를 세던 것을 `figs campaign` 만 세게 좁혔다
   (뜻은 캠페인 그림 단계 여부 — 새 채우기 호출이 섞였다).
 - v45(5e589fb) 배포 완료(11-07, 배포 세션) — 단면 _zoom 이 더는 안 생기고 나머지 영상은 v44 와 md5 같음.
+
+## v46 배포 · 확인 (11-07)
+- 배포 세션(pykoocae-53)이 229806e 를 굽고 네 곳에 깔았다 — 헤드리스 bbd1d1dc · GUI 96659d89, 빌드 원본 · /data · compute-node-images ·
+  헤드 /opt 동일, tar v46. 헤드 /opt 의 v45 는 `*_backup_20261107_062425.sif`. 노드(node001 · 002)는 down 이라 아직 옛 판.
+- 이쪽에서 헤드 /opt SIF 를 `--no-home`(노드처럼 호스트 홈 없이)으로 다시 돌렸다(`.work/followups/v46_check.sh`).
+  - a: sha256 bbd1d1dc · VERSION 229806e.
+  - w: Test_006 report.json 사본 + 빈 test_dir → 객체 20632, warnings 두 줄(덱 못 찾음 · DropSet 못 읽음).
+  - m: 사용자 scope MemoryMax=4G(sudo 없이 `systemd-run --user --scope`, user@ 에 memory 위임됨)에서 deep rc 3 ·
+    「상태 992개 × 7.0 MB ≈ 7.5 GB 필요, 가용 3.9 GB」 · Killed/oom 0. 가용이 4.0 보다 작은 것은 memory.max − current(deep 파이썬 몫).
+    **deep 의 rc 3 은 분석기 실패 일반**(__main__.py 의 `except RuntimeError → sys.exit(3)`) — 분석기 자체는 rc 1. v45 는 같은 조건에서
+    커널 cgroup OOM 이 분석기를 4.1 GB 에서 죽여 deep 로그에 사유 없이 rc 3 이었다(배포 세션 대조).
+  - s: 상태 간격 20 → 50 프레임 · 2.084 s · [설정] 경고 0 · 최대 RSS 6.85 GB(경과 46 s, 분석 포함). v45 는 992 프레임 · 41.3 s · 경고 2.
+  - f: v14 옛 deep 산출물 사본에 `figures pack --link-html` 두 번 — 둘 다 rc 0 · 표지 1 · index.html 1, 「스냅샷 11장 · 차트 7개 ·
+    대상 파트 [21, 1, 20, 2, 12] · 알림 1건」, manifest 18 · 판 229806e · 바닥 [23] 숨김 알림.
+  - c-1(배포 세션): deep --no-render 그림 18 · index.html 1 · 꾸러미 warnings 키 없음 · 최대 RSS 6,840,652 kB(v45 6,840,720 — 캐시 함정 없음).
+    a9 sphere 회귀도 통과(사이드카 바이트 동일, 덱 없는 캠페인에서 warnings 1건).
