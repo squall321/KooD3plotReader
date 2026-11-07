@@ -1,4 +1,4 @@
-# 핫스팟 기준 7종·시간 집계가 CLI·YAML 에서 엔진까지 배선되는지 검증하는 시험
+# 핫스팟 기준 9종·시간 집계가 CLI·YAML 에서 엔진까지 배선되는지 검증하는 시험
 """koo_deep_report → unified_analyzer 핫스팟 배선 시험.
 
 엔진에 기준(max_shear, x/y/z_tension)과 time_aggregate 를 더한 커밋이 파이썬
@@ -20,8 +20,8 @@ from koo_deep_report.core import d3plot_reader as R
 
 REPO = Path(__file__).resolve().parents[3]
 CPP = REPO / "src" / "analysis" / "HotspotClusterAnalyzer.cpp"
-SEVEN = ("von_mises", "max_principal", "min_principal", "max_shear",
-         "x_tension", "y_tension", "z_tension")
+NINE = ("von_mises", "max_principal", "min_principal", "max_shear",
+        "x_tension", "y_tension", "z_tension", "plastic_strain", "plastic_work")
 AGGS = ("elemmax_then_mean", "mean_then_timemax", "both")
 
 
@@ -53,10 +53,10 @@ def _args(argv):
 
 # ── 기준 이름 ────────────────────────────────────────────────
 
-def test_seven_criteria_accepted(monkeypatch):
+def test_all_criteria_accepted(monkeypatch):
     _no_engine(monkeypatch)
     allowed, _ = M._engine_hotspot_caps(None)
-    for name in SEVEN:
+    for name in NINE:
         assert M._normalize_criteria(name, allowed) == name
     assert M._normalize_criteria("max_shear, x_tension", allowed) == "max_shear,x_tension"
 
@@ -88,9 +88,9 @@ def test_aliases_match_engine_parser(monkeypatch):
     """C++ 파서가 받는 별칭은 파이썬도 같은 기준으로 받고, 그 반대도 같다."""
     _no_engine(monkeypatch)
     eng = _engine_aliases()
-    assert set(eng.values()) == set(SEVEN), eng
+    assert set(eng.values()) == set(NINE), eng
     for alias, canon in eng.items():
-        assert M._normalize_criteria(alias, SEVEN) == canon, alias
+        assert M._normalize_criteria(alias, NINE) == canon, alias
     py_only = set(M._HOTSPOT_CRITERION_ALIASES) - set(eng)
     assert not py_only, f"엔진이 모르는 파이썬 별칭: {sorted(py_only)}"
 
@@ -108,7 +108,7 @@ def test_allowed_list_comes_from_engine(monkeypatch, tmp_path):
 def test_fallback_when_engine_missing(monkeypatch, capsys):
     _no_engine(monkeypatch)
     allowed, aggs = M._engine_hotspot_caps(None)
-    assert allowed == SEVEN and aggs == AGGS
+    assert allowed == NINE and aggs == AGGS
     assert "--capabilities" in capsys.readouterr().err
 
 
@@ -118,7 +118,7 @@ def test_builtin_lists_match_built_engine():
     if exe is None:
         pytest.skip("unified_analyzer 빌드 없음")
     allowed, aggs = M._engine_hotspot_caps(None)
-    assert allowed == M._HOTSPOT_CRITERIA == SEVEN
+    assert allowed == M._HOTSPOT_CRITERIA == NINE
     assert aggs == M._HOTSPOT_TIME_AGGREGATES == AGGS
 
 
@@ -132,6 +132,31 @@ def test_time_aggregate_cli(monkeypatch):
     assert hs["criterion"] == "max_shear,x_tension" and hs["time_aggregate"] == "both"
     assert M._build_hotspot_config(_args(["x", "--hotspot-clusters"]), None)["time_aggregate"] \
         == "elemmax_then_mean"
+
+
+def test_default_criteria_add_plastic_strain(monkeypatch, tmp_path):
+    """기준을 안 주면 von_mises + plastic_strain(사용자 결정 2026-11-07) — 엔진이 알 때만."""
+    _no_engine(monkeypatch)
+    assert M._build_hotspot_config(_args(["x", "--hotspot-clusters"]), None)["criterion"] \
+        == "von_mises,plastic_strain"
+    M._engine_hotspot_caps.cache_clear()
+    _fake_engine(monkeypatch, tmp_path, NINE[:7], AGGS)            # 소성 기준을 모르는 옛 엔진
+    assert M._build_hotspot_config(_args(["x", "--hotspot-clusters"]), None)["criterion"] == "von_mises"
+    with pytest.raises(SystemExit):                                # 직접 준 이름은 종전대로 엄격하게
+        M._build_hotspot_config(_args(["x", "--hotspot-clusters", "--hotspot-criterion", "eps_p"]), None)
+
+
+def test_yaml_criterion_fills_unset_cli(monkeypatch, tmp_path):
+    """CLI 기본값이 None 이 된 뒤에도 YAML 의 기준이 먹고, CLI 로 준 값이 YAML 을 이긴다."""
+    _no_engine(monkeypatch)
+    cfg = tmp_path / "a.yaml"
+    cfg.write_text("hotspot_clusters:\n  enabled: true\n  criterion: w_p\n")
+    a = _args(["x", "--config", str(cfg)])
+    M._apply_config_to_args(a)
+    assert M._build_hotspot_config(a, None)["criterion"] == "plastic_work"
+    a = _args(["x", "--config", str(cfg), "--hotspot-criterion", "vm"])
+    M._apply_config_to_args(a)
+    assert M._build_hotspot_config(a, None)["criterion"] == "von_mises"
 
 
 def test_time_aggregate_unknown_rejected(monkeypatch):
@@ -213,6 +238,6 @@ def test_help_lists_all_names():
     p = argparse.ArgumentParser()
     M._add_single_args(p)
     h = " ".join(p.format_help().split())
-    for name in SEVEN + AGGS:
+    for name in NINE + AGGS:
         assert name in h, name
     assert "--hotspot-time-aggregate" in h

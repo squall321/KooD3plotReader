@@ -1284,9 +1284,10 @@ std::vector<HotspotCriterion> SinglePassAnalyzer::resolveHotspotCriteria(
         if (crits.empty()) crits.push_back(HotspotCriterion::VonMises);
         return crits;
     }
+    std::string known;
+    for (HotspotCriterion c : allHotspotCriteria()) known += std::string(known.empty() ? "" : " | ") + hotspotCriterionName(c);
     for (const std::string& u : unknown) {
-        std::cerr << "  [hotspot] 알 수 없는 기준량 무시 — '" << u
-                  << "' (von_mises | max_principal | min_principal)\n";
+        std::cerr << "  [hotspot] 알 수 없는 기준량 무시 — '" << u << "' (" << known << ")\n";
     }
     if (crits.empty()) {
         // 전부 모르는 이름이거나 비었으면 기존 동작으로. 조용히 아무것도 안 내는 것보다 낫다.
@@ -1316,6 +1317,8 @@ void SinglePassAnalyzer::clusterTimeAggregate(
     out_value.assign(nc, std::numeric_limits<double>::quiet_NaN());
     out_time.assign(nc, 0.0);
     if (nc == 0 || all_states.empty()) return;
+    // 소성일은 상태별 누적값을 따로 두지 않는다 — 2패스를 하지 않는다(NaN = 미제공).
+    if (crit == HotspotCriterion::PlasticWork) return;
 
     const bool is_min = hotspotCriterionIsMin(crit);
     const bool is_shell_like = (kind != HotspotElementKind::Solid);
@@ -1375,7 +1378,10 @@ void SinglePassAnalyzer::clusterTimeAggregate(
             double val = 0.0;
             bool ok = false;
             if (!is_shell_like) {
-                if (base + 6 <= sd.size()) {
+                if (crit == HotspotCriterion::PlasticStrain) {
+                    // ε_p 는 word 6 — 1패스(plasticStrainMax)와 같은 자리
+                    if (nv3d_ >= 7 && base + 7 <= sd.size()) { val = sd[base + 6]; ok = true; }
+                } else if (base + 6 <= sd.size()) {
                     const double sxx = sd[base+0], syy = sd[base+1], szz = sd[base+2];
                     const double sxy = sd[base+3], syz = sd[base+4], szx = sd[base+5];
                     if (crit == HotspotCriterion::VonMises) {
@@ -1399,6 +1405,14 @@ void SinglePassAnalyzer::clusterTimeAggregate(
                 int n = 0;
                 for (int L = 0; L < maxint_; ++L) {
                     const size_t off = base + static_cast<size_t>(L) * static_cast<size_t>(P);
+                    if (crit == HotspotCriterion::PlasticStrain) {
+                        // 층 블록 안에서 응력 6워드 다음 — 1패스(층 평균 ε_p)와 같은 자리
+                        const size_t eo = off + 6 * static_cast<size_t>(ioshl_[0]);
+                        if (ioshl_[1] == 0 || eo + 1 > sd.size()) break;
+                        acc += sd[eo];
+                        ++n;
+                        continue;
+                    }
                     if (off + 6 > sd.size()) break;
                     const double sxx = sd[off+0], syy = sd[off+1], szz = sd[off+2];
                     const double sxy = sd[off+3], syz = sd[off+4], szx = sd[off+5];
@@ -1471,8 +1485,9 @@ void SinglePassAnalyzer::accumulateElementExtremes(
 
     // 🔴 NaN 으로 초기화한다. 0 이면 '응력 0' 과, −DBL_MAX 면 σ1·σ3 의 정상 음수와
     //    구분이 안 된다. 변형률은 0 으로 두고 아래 전량-0 판정을 그대로 쓴다.
+    // 응력 기준만 — 소성 기준(7·8)은 루프 뒤 fillPlasticExtremes 가 채운다.
     ElementExtremes* slot[kHotspotCritSlots] = {};
-    for (int k = 0; k < kHotspotCritSlots; ++k) {
+    for (int k = 0; k < kHotspotStressCritSlots; ++k) {
         if (!want[k]) continue;
         ElementExtremes& ex = elem_extremes_[ExtremesKey{HotspotElementKind::Solid,
                                                           static_cast<HotspotCriterion>(k)}];
@@ -1497,6 +1512,10 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     const bool eps_ok = (nv3d_ >= 7);
     if (eps_ok) epmax.assign(ne, hotspotUnrecorded()); else epmax.clear();
     int64_t nonmono_total = 0;
+    // plastic_strain 기준의 시각 — ε_p 이력 최댓값이 처음 난 상태
+    const bool want_ep_t = eps_ok && want[static_cast<int>(HotspotCriterion::PlasticStrain)];
+    std::vector<double> ep_time;
+    if (want_ep_t) ep_time.assign(ne, 0.0);
 
     // 🔴 병렬화 축이 **요소**다. 기본 경로는 상태 루프에 omp 를 걸지만,
     //    요소별 극값은 모든 상태가 같은 elem_idx 를 갱신하므로 그 축으로
@@ -1523,7 +1542,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
         bool   w_any = false;
         int    nonmono = 0;
         // ε_p 이력 최댓값은 상태 1개짜리 덱에서도 기록한다 (work 와 조건이 다르다)
-        double ep_run_max_all = 0.0;
+        double ep_run_max_all = 0.0, ep_t = 0.0;
         bool   seen_ep = false;
 
         for (size_t si = 0; si < ns; ++si) {
@@ -1540,7 +1559,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             // ── 소성일 누적 — 극값 갱신 여부와 무관하게 **모든 상태**에서 해야 한다 ──
             if (eps_ok && base + 7 <= sd.size()) {
                 const double ep_here = sd[base + 6];
-                if (ep_here > ep_run_max_all) ep_run_max_all = ep_here;
+                if (ep_here > ep_run_max_all) { ep_run_max_all = ep_here; ep_t = all_states[si].time; }
                 seen_ep = true;
             }
             if (work_ok && base + 7 <= sd.size()) {
@@ -1582,7 +1601,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             if (want[1] && cur[1] > best[1]) upd[1] = true;
             if (want[2] && cur[2] < best[2]) upd[2] = true;
             if (want[3] && cur[3] > best[3]) upd[3] = true;
-            for (int k = 4; k < kHotspotCritSlots; ++k)
+            for (int k = 4; k < kHotspotStressCritSlots; ++k)
                 if (want[k] && cur[k] > best[k]) upd[k] = true;
             bool any_upd = false;
             for (int k = 0; k < kHotspotCritSlots; ++k) any_upd |= upd[k];
@@ -1621,7 +1640,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             if (upd[2]) { best[2] = cur[2]; best_t[2] = t; if (have_e) best_e[2] = e3; }
             if (upd[3]) { best[3] = cur[3]; best_t[3] = t;
                           if (have_e) best_e[3] = 0.5 * (e1 - e3); }
-            for (int k = 4; k < kHotspotCritSlots; ++k) {
+            for (int k = 4; k < kHotspotStressCritSlots; ++k) {
                 if (!upd[k]) continue;
                 best[k] = cur[k]; best_t[k] = t;
                 if (have_axis_e) best_e[k] = axis_e[k - 4];
@@ -1641,6 +1660,7 @@ void SinglePassAnalyzer::accumulateElementExtremes(
         // 소성 증분이 실제로 0 이었던 요소(탄성만)는 w_any 로 구분해 0 을 기록한다.
         if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
         if (eps_ok && seen_ep) epmax[ei] = ep_run_max_all;
+        if (want_ep_t && seen_ep) ep_time[ei] = ep_t;
         nonmono_total += nonmono;
     }
 
@@ -1678,6 +1698,33 @@ void SinglePassAnalyzer::accumulateElementExtremes(
                 warned = true;
             }
             slot[k]->strain.clear();
+        }
+    }
+
+    fillPlasticExtremes(HotspotElementKind::Solid, want, std::move(ep_time), all_states.back().time);
+}
+
+void SinglePassAnalyzer::fillPlasticExtremes(HotspotElementKind kind, const bool* want,
+                                             std::vector<double>&& ep_time, double t_end) {
+    // 짝 변형률 · 층은 비운다 — 값 자체가 변형 측도이고, 셸 ε_p 는 층 평균이라 한 층이 아니다.
+    if (want[static_cast<int>(HotspotCriterion::PlasticStrain)]) {
+        const auto& ep = plasticStrainMax(kind);
+        if (!ep.empty() && ep_time.size() == ep.size()) {
+            ElementExtremes& ex = elem_extremes_[ExtremesKey{kind, HotspotCriterion::PlasticStrain}];
+            ex.value = ep;
+            ex.time = std::move(ep_time);
+            ex.strain.clear();
+            ex.layer.clear();
+        }
+    }
+    if (want[static_cast<int>(HotspotCriterion::PlasticWork)]) {
+        const auto& w = plasticWorkDensity(kind);
+        if (!w.empty()) {
+            ElementExtremes& ex = elem_extremes_[ExtremesKey{kind, HotspotCriterion::PlasticWork}];
+            ex.value = w;
+            ex.time.assign(w.size(), t_end);      // 누적량이라 끝 시각
+            ex.strain.clear();
+            ex.layer.clear();
         }
     }
 }
@@ -1741,8 +1788,9 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     const bool need_vm = want[0];
     const bool need_pr = want[1] || want[2] || want[3];
 
+    // 응력 기준만 — 소성 기준(7·8)은 루프 뒤 fillPlasticExtremes 가 채운다.
     ElementExtremes* slot[kHotspotCritSlots] = {};
-    for (int k = 0; k < kHotspotCritSlots; ++k) {
+    for (int k = 0; k < kHotspotStressCritSlots; ++k) {
         if (!want[k]) continue;
         ElementExtremes& ex = elem_extremes_[ExtremesKey{kind, static_cast<HotspotCriterion>(k)}];
         ex.value.assign(ne, hotspotUnrecorded());
@@ -1798,6 +1846,10 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
     std::vector<double>& epmax = elem_eps_max_[kind];
     if (eps_ok) epmax.assign(ne, hotspotUnrecorded()); else epmax.clear();
     int64_t nonmono_total = 0;
+    // plastic_strain 기준의 시각 — ε_p(층 평균) 이력 최댓값이 처음 난 상태
+    const bool want_ep_t = eps_ok && want[static_cast<int>(HotspotCriterion::PlasticStrain)];
+    std::vector<double> ep_time;
+    if (want_ep_t) ep_time.assign(ne, 0.0);
 
 #ifdef _OPENMP
     #pragma omp parallel for schedule(static) reduction(+:nonmono_total)
@@ -1818,7 +1870,7 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
         double w_acc = 0.0;
         bool   w_any = false;
         int    nonmono = 0;
-        double ep_run_max_all = 0.0;
+        double ep_run_max_all = 0.0, ep_t = 0.0;
         bool   seen_ep = false;
 
         for (size_t si = 0; si < ns; ++si) {
@@ -1866,7 +1918,7 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
                 for (int L = 0; L < maxint_; ++L)
                     ep_only += sd[base + static_cast<size_t>(L) * P + ep_off];
                 ep_only /= static_cast<double>(maxint_);
-                if (ep_only > ep_run_max_all) ep_run_max_all = ep_only;
+                if (ep_only > ep_run_max_all) { ep_run_max_all = ep_only; ep_t = all_states[si].time; }
                 seen_ep = true;
             }
 
@@ -1895,7 +1947,7 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
             if (want[1] && cur[1] > best[1]) upd[1] = true;
             if (want[2] && cur[2] < best[2]) upd[2] = true;
             if (want[3] && cur[3] > best[3]) upd[3] = true;
-            for (int k = 4; k < kHotspotCritSlots; ++k)
+            for (int k = 4; k < kHotspotStressCritSlots; ++k)
                 if (want[k] && cur[k] > best[k]) upd[k] = true;
             bool any_upd = false;
             for (int k = 0; k < kHotspotCritSlots; ++k) any_upd |= upd[k];
@@ -1920,6 +1972,7 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
         }
         if (work_ok && seen && have_prev) work[ei] = w_any ? w_acc : 0.0;
         if (eps_ok && seen_ep) epmax[ei] = ep_run_max_all;
+        if (want_ep_t && seen_ep) ep_time[ei] = ep_t;
         nonmono_total += nonmono;
     }
 
@@ -1930,6 +1983,8 @@ void SinglePassAnalyzer::accumulateLayeredExtremes(
         for (double v : slot[k]->strain) { if (v != 0.0) { all_zero = false; break; } }
         if (all_zero) slot[k]->strain.clear();
     }
+
+    fillPlasticExtremes(kind, want, std::move(ep_time), all_states.back().time);
 }
 
 void SinglePassAnalyzer::extractPeakElementTensors(

@@ -65,12 +65,17 @@ int main() {
     chkb("max_shear 지원 (전단 — 볼 전단)", has("max_shear"));
     chkb("x_tension 지원 (축별 인장 — 보드 굽힘)", has("x_tension"));
     chkb("y_tension / z_tension 지원", has("y_tension") && has("z_tension"));
+    chkb("plastic_strain / plastic_work 지원 (응력 밖 소성 영역 — 2026-11-07)",
+         has("plastic_strain") && has("plastic_work"));
+    chkb("슬롯 수 == 지원 기준 수 (enum 을 늘리고 슬롯을 안 늘리면 여기서 잡힌다)",
+         static_cast<int>(all.size()) == kHotspotCritSlots);
 
     // ⑤ 별칭도 정규 이름으로 매핑된다 (사용자가 s1/sigma3 로 써도 통한다)
     struct { const char* alias; const char* canon; } aliases[] = {
         {"vm", "von_mises"}, {"VonMises", "von_mises"}, {"von-mises", "von_mises"},
         {"s1", "max_principal"}, {"sigma1", "max_principal"}, {"P1", "max_principal"},
         {"s3", "min_principal"}, {"sigma3", "min_principal"}, {"min-principal", "min_principal"},
+        {"eps_p", "plastic_strain"}, {"Effective-Plastic-Strain", "plastic_strain"}, {"w_p", "plastic_work"},
     };
     bool alias_ok = true;
     for (const auto& a : aliases) {

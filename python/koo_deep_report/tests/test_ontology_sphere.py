@@ -199,6 +199,23 @@ def test_hotspots_hang_on_responses():
     assert _objs(doc, "cae_part_response")["resp/Run_C/2"] == {"run": "run/Run_C", "part": "part/2"}
 
 
+def test_hotspot_criteria_outside_vocabulary_are_skipped_with_warning():
+    """소성 기준(2026-11-07)은 아직 어휘(정본 DynaForge)에 없다 — 실으면 '열거값 밖' 결함이 되고
+    stress_max 의 ε_p 에 응력 환산이 걸린다. 싣지 않고 머리 warnings 에 사유를 남긴다."""
+    rep = _report()
+    cl = [{"rank": 1, "element_count": 9, "center": [0.0, 0.0, 0.0], "radius_enclosing": 1.0,
+           "stress_mean": 0.002, "stress_max": 0.004, "peak_element_id": 7, "peak_time": 1e-4}]
+    rep["results_summary"][2]["hotspot_clusters"] = [
+        {"part_id": 2, "criterion": "plastic_strain", "element_type": "solid", "clusters": cl},
+        {"part_id": 2, "criterion": "von_mises", "element_type": "solid",
+         "clusters": [dict(cl[0], stress_mean=90.0, stress_max=120.0)]}]
+    doc = sphere.build(rep, contact_map=_cmap())
+    hs = _objs(doc, "cae_hotspot")
+    assert list(hs) == ["hs/Run_C/2/von_mises/solid/1"]
+    assert any("plastic_strain" in w and "어휘" in w for w in doc.get("warnings") or [])
+    assert not any("plastic_strain" in f for f in (doc.get("faults") or []))
+
+
 def test_si_deck_is_normalized_but_g_and_ratio_are_not(tmp_path):
     rep = _report("SI")
     for r in rep["results_summary"]:

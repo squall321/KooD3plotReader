@@ -172,14 +172,18 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="이 개수 미만 덩어리는 노이즈로 버림 (default 5)")
     p.add_argument("--hotspot-max-clusters", type=int, default=20, metavar="N",
                    help="파트당 보고 최대 덩어리 수, 0=무제한 (default 20)")
-    p.add_argument("--hotspot-criterion", dest="hotspot_criterion", default="von_mises", metavar="C[,C]",
-                   help="군집 선별 기준량, 쉼표로 여러 개 (default von_mises). "
+    p.add_argument("--hotspot-criterion", dest="hotspot_criterion", default=None, metavar="C[,C]",
+                   help="군집 선별 기준량, 쉼표로 여러 개 (default von_mises,plastic_strain — 엔진이 모르는 "
+                        "기준은 빼고 쓴다). "
                         "von_mises | max_principal | min_principal | max_shear | "
-                        "x_tension | y_tension | z_tension. "
-                        "별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴). "
+                        "x_tension | y_tension | z_tension | plastic_strain | plastic_work. "
+                        "별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴), "
+                        "eps_p, w_p. "
                         "여러 개면 파트x기준 항목이 각각 나온다. "
                         "min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다. "
                         "max_shear = (σ1−σ3)/2. x/y/z_tension = 전역 좌표 수직응력 σxx/σyy/σzz 의 최댓값. "
+                        "plastic_strain = 유효소성변형률 이력 최댓값, plastic_work = 누적 소성일 밀도 — 응력 상위 밖의 "
+                        "소성 영역용이고 소성이 없는(ε_p ≤ 1e-6) 요소는 뽑지 않는다(이때 stress_max 는 그 값이다). "
                         "허용 목록은 실행할 unified_analyzer --capabilities 를 따른다")
     p.add_argument("--hotspot-time-aggregate", dest="hotspot_time_aggregate",
                    default="elemmax_then_mean", metavar="A",
@@ -751,7 +755,7 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
             args.hotspot_min_elements = hs_cfg["min_elements"]
         if getattr(args, "hotspot_max_clusters", 20) == 20 and "max_clusters" in hs_cfg:
             args.hotspot_max_clusters = hs_cfg["max_clusters"]
-        if getattr(args, "hotspot_criterion", "von_mises") == "von_mises" and "criterion" in hs_cfg:
+        if not getattr(args, "hotspot_criterion", None) and "criterion" in hs_cfg:
             args.hotspot_criterion = hs_cfg["criterion"]
         if (getattr(args, "hotspot_time_aggregate", "elemmax_then_mean") == "elemmax_then_mean"
                 and "time_aggregate" in hs_cfg):
@@ -873,7 +877,10 @@ def _resolve_install_dir(explicit: str) -> Path | None:
 # 실제 허용 목록은 _engine_hotspot_caps 가 실행할 엔진에 묻는다 — 이 튜플만 믿다가
 # 엔진에 기준을 더한 커밋(f686483·81304f8)이 여기를 몰라 7종 중 4종을 거절했다.
 _HOTSPOT_CRITERIA = ("von_mises", "max_principal", "min_principal", "max_shear",
-                     "x_tension", "y_tension", "z_tension")
+                     "x_tension", "y_tension", "z_tension", "plastic_strain", "plastic_work")
+# 기준을 주지 않았을 때 — 응력 상위 밖의 소성 영역도 군집한다(사용자 결정 2026-11-07).
+# 엔진이 모르는 이름(옛 판)은 조용히 빼서, 고르지도 않은 기본값 때문에 멈추지 않게 한다.
+_HOTSPOT_DEFAULT_CRITERIA = ("von_mises", "plastic_strain")
 _HOTSPOT_TIME_AGGREGATES = ("elemmax_then_mean", "mean_then_timemax", "both")
 # 엔진 parseHotspotCriterion(HotspotClusterAnalyzer.cpp) 과 같은 별칭.
 # capabilities 는 별칭을 내지 않으므로 표를 두고, tests/test_hotspot_wiring.py 가 C++ 소스와 대조한다.
@@ -887,6 +894,8 @@ _HOTSPOT_CRITERION_ALIASES = {
     "xtension": "x_tension", "sigma_xx": "x_tension", "sxx": "x_tension",
     "ytension": "y_tension", "sigma_yy": "y_tension", "syy": "y_tension",
     "ztension": "z_tension", "sigma_zz": "z_tension", "szz": "z_tension",
+    "plasticstrain": "plastic_strain", "eps_p": "plastic_strain", "effective_plastic_strain": "plastic_strain",
+    "plasticwork": "plastic_work", "w_p": "plastic_work", "plastic_work_density": "plastic_work",
 }
 
 
@@ -955,13 +964,18 @@ def _build_hotspot_config(args: argparse.Namespace, install_dir: Path | None) ->
     if agg not in aggs:
         raise SystemExit(f"[koo_deep_report] --hotspot-time-aggregate: 알 수 없는 방식 '{agg}' "
                          f"(허용: {', '.join(aggs)})")
+    raw = getattr(args, "hotspot_criterion", None)
+    if raw:
+        criterion = _normalize_criteria(raw, crits)          # 사용자가 준 이름은 엄격하게
+    else:
+        criterion = ",".join(c for c in _HOTSPOT_DEFAULT_CRITERIA if c in crits) or "von_mises"
     return {
         "enabled": True,
         "top_percent": getattr(args, "hotspot_top_percent", 5.0),
         "distance_factor": getattr(args, "hotspot_distance_factor", 1.5),
         "min_elements": getattr(args, "hotspot_min_elements", 5),
         "max_clusters": getattr(args, "hotspot_max_clusters", 20),
-        "criterion": _normalize_criteria(getattr(args, "hotspot_criterion", "von_mises"), crits),
+        "criterion": criterion,
         "time_aggregate": agg,
     }
 

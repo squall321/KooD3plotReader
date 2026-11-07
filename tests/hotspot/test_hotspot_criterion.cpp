@@ -155,6 +155,54 @@ int main(){
         chk ("1위 중심 x 2.5", p.clusters.empty()?0:p.clusters[0].center[0], 2.5, 1e-12);
     }
 
+    printf("\n[7] 소성 기준 — 응력 상위 밖의 소성 영역이 덩어리가 되고, 탄성 요소는 순위에 들지 않는다\n");
+    {
+        HotspotCriterion c;
+        chkb("plastic_strain 파싱 · 별칭", parseHotspotCriterion("plastic_strain", c) && c==HotspotCriterion::PlasticStrain
+                                        && parseHotspotCriterion("eps_p", c) && c==HotspotCriterion::PlasticStrain);
+        chkb("plastic_work 파싱 · 별칭",   parseHotspotCriterion("plastic-work", c) && c==HotspotCriterion::PlasticWork
+                                        && parseHotspotCriterion("w_p", c) && c==HotspotCriterion::PlasticWork);
+        chkb("소성 기준 판정 · max 방향",  hotspotCriterionIsPlastic(HotspotCriterion::PlasticStrain)
+                                        && hotspotCriterionIsPlastic(HotspotCriterion::PlasticWork)
+                                        && !hotspotCriterionIsPlastic(HotspotCriterion::ZTension)
+                                        && !hotspotCriterionIsMin(HotspotCriterion::PlasticStrain));
+        chkb("짝 변형률 없음",             std::string(hotspotStrainMeasureName(HotspotCriterion::PlasticStrain))=="none");
+
+        Grid g(20,3,3);                                        // 180 요소 → 상위 5% = 9개
+        std::vector<double> ep(g.mesh.solids.size(), 0.0);     // 배경: 탄성(ε_p = 0)
+        for (int i=10;i<=12;++i) { ep[g.idx(i,1,1)] = 0.08; ep[g.idx(i,1,0)] = 0.05; }   // 소성 6개
+        HotspotClusterConfig cfg; cfg.enabled=true; cfg.criterion=HotspotCriterion::PlasticStrain;
+        cfg.top_percent=5.0; cfg.distance_factor=1.5; cfg.min_cluster_elements=3;
+        auto res = computeHotspotClusters(g.mesh, ep, {}, {}, {}, cfg);
+        const bool one = res.size()==1;
+        chkb("criterion 이름 plastic_strain", one && res[0].criterion=="plastic_strain");
+        chk ("선별 = 소성 요소 6개 (9개 몫이지만 0 은 빠진다)", one ? res[0].element_count_selected : -1, 6, 0);
+        chk ("덩어리 1개", one ? (double)res[0].clusters.size() : -1, 1, 0);
+        if (one && !res[0].clusters.empty()) chk("극값 0.08", res[0].clusters[0].stress_max, 0.08, 0);
+
+        cfg.yield_eps_threshold = 0.06;                        // 임계를 넘는 3개만
+        res = computeHotspotClusters(g.mesh, ep, {}, {}, {}, cfg);
+        chk ("임계 0.06 → 선별 3개", res.size()==1 ? res[0].element_count_selected : -1, 3, 0);
+
+        std::vector<double> elastic(g.mesh.solids.size(), 0.0);
+        cfg.yield_eps_threshold = 0.0;
+        res = computeHotspotClusters(g.mesh, elastic, {}, {}, {}, cfg);
+        chkb("탄성 파트 — 덩어리 없음(0 의 상위 5% 를 만들지 않는다)", res.size()==1 && res[0].clusters.empty()
+                                                                  && res[0].element_count_selected==0);
+
+        // 수치 잡음 — 0 은 아니지만 바닥(1e-6) 이하면 소성이 아니다 (Test_006 바닥 파트 3e-12 실측)
+        std::vector<double> noise(g.mesh.solids.size(), 3e-12);
+        res = computeHotspotClusters(g.mesh, noise, {}, {}, {}, cfg);
+        chkb("ε_p 3e-12 잡음 — 덩어리 없음", res.size()==1 && res[0].clusters.empty()
+                                           && res[0].element_count_selected==0);
+
+        // 많은 소성 요소 — 고르는 수는 응력 기준처럼 파트 유효 요소 수의 p% 다
+        std::vector<double> wide(g.mesh.solids.size(), 0.0);
+        for (int i=0;i<20;++i) wide[g.idx(i,1,1)] = 0.01 * (i + 1);   // 소성 20개
+        res = computeHotspotClusters(g.mesh, wide, {}, {}, {}, cfg);
+        chk ("소성 20개 중 floor(180×5%) = 9개", res.size()==1 ? res[0].element_count_selected : -1, 9, 0);
+    }
+
     printf("\n%s 실패 %d 건\n", fails?"[FAIL]":"[PASS]", fails);
     return fails ? 1 : 0;
 }

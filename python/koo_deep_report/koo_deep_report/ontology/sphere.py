@@ -338,6 +338,13 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     return pkg.finish()
 
 
+def _vocab_hotspot_criteria() -> set[str]:
+    """어휘가 허용하는 핫스팟 기준(cae_hotspot.criterion 의 열거값)."""
+    from . import vocabulary as V
+    props = V.types_by_slug().get("cae_hotspot", {}).get("properties") or []
+    return {o for p in props if p.get("key") == "criterion" for o in (p.get("enum_options") or [])}
+
+
 def _add_hotspots(pkg, item: dict, folder: str, run_key: str, part_keys: dict[int, str],
                   names: dict[int, tuple[str, str]]) -> None:
     """hotspot_clusters 한 항목(파트 × 기준 × 요소 종류) → 군집마다 cae_hotspot."""
@@ -350,6 +357,12 @@ def _add_hotspots(pkg, item: dict, folder: str, run_key: str, part_keys: dict[in
     if pid not in part_keys:
         return
     crit = str(item.get("criterion") or "")
+    if crit and crit not in _vocab_hotspot_criteria():
+        # 어휘(정본 DynaForge)가 모르는 기준(예: plastic_strain) — 실으면 '열거값 밖' 결함이 되고,
+        # stress_max 에 담긴 ε_p · w_p 에 응력 단위 환산이 걸린다. 싣지 않고 머리에 사유를 남긴다.
+        if item.get("clusters"):
+            pkg.warn(f"핫스팟 기준 '{crit}' 은 어휘(cae_hotspot.criterion)에 없어 싣지 않았다 — DynaForge 어휘 갱신 필요")
+        return
     et = str(item.get("element_type") or "solid")
     resp_key = f"resp/{folder}/{pid}"
     if not pkg.has("cae_part_response", resp_key):

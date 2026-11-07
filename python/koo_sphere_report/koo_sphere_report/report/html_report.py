@@ -2739,7 +2739,7 @@ let _dmCache = null;
 // 메시와 군집은 **같은 좌표계**다 (파이썬 _load_hotspot_mesh 가 군집이 나온
 // 바로 그 d3plot 에서 메시를 뽑고, 어긋나면 아예 싣지 않는다). 그래서 중심·배율을
 // 메시에서 한 번만 구해 둘 다에 그대로 쓴다.
-const HS3D = { az: -0.6, el: 0.35, zoom: 1, drag: null, measure: null,
+const HS3D = { az: -0.6, el: 0.35, zoom: 1, drag: null, measure: null, crit: null,
                off: null, offPart: null, labels: true, geo: null, range: 'p98', mode: 'bubble',
                pick: null, pickMeasure: null };   // pick = 호버가 집을 화면좌표 구 목록
 
@@ -2755,6 +2755,29 @@ const HS3D_MEASURES = [
   { k: 'w',  label: '소성일 (mJ)' },
   { k: 'wd', label: '소성일 밀도 (mJ/mm³)' },
 ];
+
+// 핫스팟 기준 — 한 번에 하나만 그린다. 기준마다 's'(stress_max) 의 뜻과 크기가 달라
+// (응력 수백 MPa · ε_p 0.001) 한 색 척도에 섞으면 응력 군집만 보인다.
+const HS3D_CRIT_LABEL = {
+  von_mises: 'Von Mises', max_principal: 'σ₁ 최대주응력', min_principal: 'σ₃ 최소주응력',
+  max_shear: 'τ_max 최대전단', x_tension: 'σxx 인장', y_tension: 'σyy 인장', z_tension: 'σzz 인장',
+  plastic_strain: 'ε_p 유효소성변형률', plastic_work: 'w_p 소성일 밀도',
+};
+function hs3dCriteria() {
+  const seen = [];
+  for (const r of hs3dRuns())
+    for (const it of r.hotspot)
+      if (it.cr && !seen.includes(it.cr)) seen.push(it.cr);
+  return seen;
+}
+function hs3dMeasureLabel(k) {
+  if (k === 's') {
+    if (HS3D.crit === 'plastic_strain') return 'ε_p 최대 [-]';
+    if (HS3D.crit === 'plastic_work') return 'w_p 최대 (응력 단위 = 에너지/부피)';
+    return '응력 최대';
+  }
+  return (HS3D_MEASURES.find(m => m.k === k) || {}).label || k;
+}
 
 function hs3dAvailable() {
   const has = {};
@@ -2797,6 +2820,7 @@ function hs3dClusters() {
     if (!hs3dEnabled(r.folder)) continue;
     for (const it of r.hotspot) {
       if (!hs3dPartOn(it.p)) continue;
+      if (HS3D.crit && it.cr !== HS3D.crit) continue;
       for (const c of it.cl)
         out.push({ c: c, pid: it.p, cr: it.cr, angle: (r.angle && r.angle.name) || r.folder });
     }
@@ -3040,7 +3064,7 @@ function hs3dDrawCanvas() {
   // 5) 컬러바 / 균일값 안내
   const legend = document.getElementById('hs3d-legend');
   if (legend && HS3D.mode === 'contour') {
-    const mlabel = (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure;
+    const mlabel = hs3dMeasureLabel(measure);
     legend.innerHTML = `<div class="hs3d-cbtitle">누적 리스크</div>` +
       `<div class="hs3d-cbar">${Array.from({length:41},(_,i)=>
         `<span style="flex:1;background:${valueToColor(i/40)}"></span>`).join('')}</div>` +
@@ -3048,7 +3072,7 @@ function hs3dDrawCanvas() {
       `<div class="hs3d-clip">${mlabel} 로 가중해 더한 값입니다 — ` +
       `군집 값 자체가 아니라 겹친 정도입니다</div>`;
   } else if (legend) {
-    const mlabel = (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure;
+    const mlabel = hs3dMeasureLabel(measure);
     if (uniform) {
       legend.innerHTML = `<div class="hs3d-note">${mlabel}: 모든 군집이 같은 값입니다 ` +
         `— 색으로 구분할 것이 없어 중립 회색으로 칠했습니다.</div>`;
@@ -3102,7 +3126,7 @@ function hs3dShowTip(sp, cssX, cssY) {
   const t = document.getElementById('hs3d-tip');
   if (!t) return;
   const m = HS3D.pickMeasure;
-  const mlabel = (HS3D_MEASURES.find(x => x.k === m) || {}).label || m;
+  const mlabel = hs3dMeasureLabel(m);
   // 값이 없으면 0 으로 적지 않는다 — '못 쟀다' 와 '값 0' 은 다른 말이다
   const vtxt = (sp.val === undefined || sp.val === null || !isFinite(sp.val))
              ? '<span class="d">미계측</span>' : fmtHs3d(sp.val);
@@ -3334,7 +3358,7 @@ function hs3dDrawPlotly() {
     else {
       sph.intensity = C; sph.cmin = vmin; sph.cmax = vmax;
       sph.colorscale = 'Jet'; sph.showscale = true;
-      sph.colorbar = { title: { text: (HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure,
+      sph.colorbar = { title: { text: hs3dMeasureLabel(measure),
                                 side: 'top' }, len: 0.7, thickness: 14 };
     }
     traces.push(sph);
@@ -3348,7 +3372,7 @@ function hs3dDrawPlotly() {
       marker: { size: 3, color: 'rgba(255,255,255,.55)' },
       hovertext: cls.map(o =>
         `${o.angle}` + (vp.size > 1 ? ` · 파트 ${o.pid}` : '') + (vc.size > 1 ? ` · ${o.cr}` : '') +
-        ` · #${o.c.k}<br>${(HS3D_MEASURES.find(m => m.k === measure) || {}).label || measure}: ` +
+        ` · #${o.c.k}<br>${hs3dMeasureLabel(measure)}: ` +
         `${fmtHs3d(valOf(o))}<br>요소 ${o.c.n} · 포함반경 ${fmtHs3d(o.c.r)}`),
       hovertemplate: '%{hovertext}<extra></extra>', showlegend: false });
   }
@@ -3400,13 +3424,18 @@ function renderHotspot3D() {
 
   const avail = hs3dAvailable();
   if (!HS3D.measure) HS3D.measure = avail.length ? avail[0].k : 's';
+  const crits = hs3dCriteria();
+  if (!HS3D.crit || !crits.includes(HS3D.crit))
+    HS3D.crit = crits.includes('von_mises') ? 'von_mises' : (crits[0] || null);
+  const critOpts = crits.map(c =>
+    `<option value="${hs3dEsc(c)}"${c === HS3D.crit ? ' selected' : ''}>${hs3dEsc(HS3D_CRIT_LABEL[c] || c)}</option>`).join('');
   HS3D.off = HS3D.off || {};
   HS3D.offPart = HS3D.offPart || {};
 
   const isPlotly = hs3dEngine() === 'plotly';
   const presets = hs3dPresetCounts();
   const opts = avail.map(m =>
-    `<option value="${m.k}"${m.k === HS3D.measure ? ' selected' : ''}>${m.label}</option>`).join('');
+    `<option value="${m.k}"${m.k === HS3D.measure ? ' selected' : ''}>${hs3dMeasureLabel(m.k)}</option>`).join('');
   const meshSet = new Set(hs3dMeshParts());
   const partName = pid => ((DATA.parts || {})[pid] || {}).name || ('파트 ' + pid);
   const pboxes = hs3dAllParts().map(pid =>
@@ -3429,6 +3458,7 @@ function renderHotspot3D() {
       ${DATA.hotspot_mesh_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_mesh_note)}</p>` : ''}
       ${DATA.hotspot_cap_note ? `<p class="hs3d-warn">${hs3dEsc(DATA.hotspot_cap_note)}</p>` : ''}
       <div class="hs3d-bar">
+        ${crits.length > 1 ? `<label>기준 <select id="hs3d-crit">${critOpts}</select></label>` : ''}
         <label>리스크 척도 <select id="hs3d-measure">${opts}</select></label>
         ${isPlotly ? '' : `<label>보기 <select id="hs3d-mode">
           <option value="bubble" selected>개별 버블</option>
@@ -3509,6 +3539,13 @@ function renderHotspot3D() {
   }
 
   document.getElementById('hs3d-measure').onchange = e => { HS3D.measure = e.target.value; hs3dDraw(); };
+  const critSel = document.getElementById('hs3d-crit');
+  if (critSel) critSel.onchange = e => {
+    HS3D.crit = e.target.value;
+    const so = document.querySelector('#hs3d-measure option[value="s"]');
+    if (so) so.textContent = hs3dMeasureLabel('s');
+    hs3dDraw();
+  };
   const modeSel = document.getElementById('hs3d-mode');
   if (modeSel) modeSel.onchange = e => { HS3D.mode = e.target.value; hs3dDraw(); };
   document.getElementById('hs3d-range').onchange = e => { HS3D.range = e.target.value; hs3dDraw(); };

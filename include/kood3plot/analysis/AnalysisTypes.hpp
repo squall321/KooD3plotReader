@@ -1208,9 +1208,11 @@ struct UnifiedConfig {
     double hotspot_distance_factor = 1.5;
     int    hotspot_min_elements = 5;
     int    hotspot_max_clusters = 20;
-    /// 선별 기준량 이름 목록. "von_mises" | "max_principal" | "min_principal".
-    /// 여러 개면 파트×기준 항목이 각각 나온다. 기본은 von_mises 단독(기존 출력 불변).
-    std::vector<std::string> hotspot_criteria = {"von_mises"};
+    /// 선별 기준량 이름 목록(전체는 allHotspotCriteria — `--capabilities`).
+    /// 여러 개면 파트×기준 항목이 각각 나온다. 기본은 von_mises + plastic_strain —
+    /// 응력 상위 p% 밖의 소성 영역도 군집한다(사용자 결정 2026-11-07). ε_p 가 기록되지 않았거나
+    /// 소성이 없는 파트는 plastic_strain 항목에 덩어리가 없을 뿐 von_mises 항목은 종전과 같다.
+    std::vector<std::string> hotspot_criteria = {"von_mises", "plastic_strain"};
 
     /// 덩어리 평균의 시간 집계 방식.
     ///  - "elemmax_then_mean"  (기본) `mean_e(max_t)` — 요소별 시간 극값의 공간 평균.

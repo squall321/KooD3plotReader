@@ -30,7 +30,7 @@ python3 -m koo_deep_report <run_dir> -o <report_dir> \
 | `--hotspot-distance-factor` | 1.5 | 거리 임계 = 이 값 × 파트 대표 요소 크기 |
 | `--hotspot-min-elements` | 5 | 이 개수 미만 덩어리는 노이즈로 버림 |
 | `--hotspot-max-clusters` | 20 | 파트당 보고 최대 덩어리 수 (0 = 무제한) |
-| `--hotspot-criterion` | `von_mises` | 선별 기준량 7종(아래 표), 쉼표로 여러 개. 허용 목록은 실행할 `unified_analyzer --capabilities` 를 따른다 |
+| `--hotspot-criterion` | `von_mises,plastic_strain` | 선별 기준량 9종(아래 표), 쉼표로 여러 개. 허용 목록은 실행할 `unified_analyzer --capabilities` 를 따른다. 주지 않으면 엔진이 아는 것만 남긴다(옛 엔진이면 `von_mises`) |
 | `--hotspot-time-aggregate` | `elemmax_then_mean` | 덩어리 평균의 시간 집계. `elemmax_then_mean` · `mean_then_timemax` · `both` (아래 §시간 집계) |
 
 ## 2. 설정 파일로 쓰기
@@ -59,14 +59,25 @@ CLI 인자가 설정 파일보다 우선한다. 모르는 기준 이름·집계 
 | `min_principal` | σ3 집중 = **압축** (눌림·좌굴) | **작은 값** | **최솟값** (음수) |
 | `max_shear` | τ_max = (σ1−σ3)/2 집중 (전단 파괴) | 큰 값 | 최댓값 |
 | `x_tension` · `y_tension` · `z_tension` | 전역 좌표 σxx·σyy·σzz 인장 (방향이 정해진 굽힘 인장) | 큰 값 | 최댓값 (부호 있음) |
+| `plastic_strain` | 유효소성변형률 ε_p 이력 최댓값 집중 — 응력 상위 밖의 소성 영역(찍힘·재하중) | 큰 값 | ε_p 최댓값 [-] |
+| `plastic_work` | 누적 소성일 밀도 w_p = ∫σ_vm dε_p 집중 | 큰 값 | w_p 최댓값 [응력 단위 = 에너지/부피] |
 
-별칭: `vm` · `sigma1`/`s1`/`p1` · `sigma3`/`s3`/`p3` · `tau_max`/`taumax`/`tresca`/`maxshear` · `sigma_xx`/`sxx`/`xtension` (y·z 도 같은 꼴). x/y/z_tension 은 `*DATABASE_EXTENT_BINARY` CMPFLG=1 (재료 좌표계 출력) 덱에서는 뜻이 달라지는데 이 리더는 구분하지 못한다.
+별칭: `vm` · `sigma1`/`s1`/`p1` · `sigma3`/`s3`/`p3` · `tau_max`/`taumax`/`tresca`/`maxshear` · `sigma_xx`/`sxx`/`xtension` (y·z 도 같은 꼴) · `eps_p`/`effective_plastic_strain`/`plasticstrain` · `w_p`/`plastic_work_density`/`plasticwork`. x/y/z_tension 은 `*DATABASE_EXTENT_BINARY` CMPFLG=1 (재료 좌표계 출력) 덱에서는 뜻이 달라지는데 이 리더는 구분하지 못한다.
 
 여러 개를 주면 결과 배열에 **파트×기준** 항목이 각각 들어간다. 항목의 `criterion`·`direction`
 으로 구분한다. 시간축 극값은 von Mises·σ1 이 max, σ3 이 **min** 이고, 짝 변형률도 같은 시각의
 등가변형률 / ε1 / ε3 이다(`strain_measure`). 주응력은 σ1·σ3 중 하나라도 요청되면 요소·상태당
 한 번만 분해하므로 둘 다 켜도 비용은 한 번이다.
 max_shear 의 짝 변형률은 (ε1−ε3)/2, x/y/z_tension 은 εxx/εyy/εzz 다.
+
+소성 기준(`plastic_strain` · `plastic_work`, 2026-11-07)은 응력이 아니라 변형 측도라 짝 변형률이 없다(`strain_measure: none`).
+- 값은 파트 소성역 요약(`max_eps` · `n_yield`)과 같은 배열이다 — 셸 계열의 ε_p 는 층 평균.
+- **소성이 난 요소만 순위에 든다** — ε_p 가 `max(1e-6, yield_eps_threshold)` 이하면 빠진다(plastic_work 도 같은 요소의 ε_p 로 본다).
+  0 초과만 보면 수치 잡음이 덩어리가 된다(Test_006 바닥 파트 ε_p 3e-12 실측). 고르는 수는 응력 기준처럼 파트 유효 요소 수의 p% 이고,
+  소성 요소가 그보다 적으면 그 전부다.
+- 시각(`peak_time`)은 ε_p 최댓값이 처음 난 시각, plastic_work 는 누적량이라 끝 시각이다.
+- 동시각 평균(`mean_timemax`)은 plastic_strain 만 낸다 — 상태별 누적 소성일은 따로 두지 않는다.
+- 온톨로지 꾸러미는 어휘(정본 DynaForge)의 `cae_hotspot.criterion` 에 없는 기준을 싣지 않고 머리 `warnings` 에 적는다.
 
 ### 시간 집계
 

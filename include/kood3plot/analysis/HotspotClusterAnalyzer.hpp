@@ -45,12 +45,35 @@ enum class HotspotCriterion {
     XTension = 4,
     YTension = 5,
     ZTension = 6,
+    /// 유효소성변형률 ε_p 의 이력 최댓값 [무차원]. 응력 상위 p% 밖이어도 소성이
+    /// 크게 난 영역(국부 찍힘 · 재하중)을 군집한다 — 응력 기준만으로는 화면에 없다.
+    /// 값은 SinglePassAnalyzer::plasticStrainMax 그대로다(셸 계열은 층 평균, 소성역
+    /// 요약과 같은 값). 항복 임계(yield_eps_threshold) 이하 요소는 순위에 들지 않는다.
+    PlasticStrain = 7,
+    /// 누적 소성일 밀도 w_p = ∫σ_vm dε_p [응력 단위 = 에너지/부피].
+    /// 값은 SinglePassAnalyzer::plasticWorkDensity 그대로다. 상태별 누적값을 두지
+    /// 않아 2패스(max_t(mean_e))는 하지 않는다. 0 이하 요소는 순위에 들지 않는다.
+    PlasticWork = 8,
 };
 
 /// 기준량 슬롯 수. 요소별 극값 배열이 이 크기로 잡히지만, **요청된 기준만**
 /// 실제로 할당된다(slot[k] == nullptr 이면 건너뜀). 새 기준을 enum 에 추가하면
 /// 여기도 늘려야 한다 — 안 늘리면 test_capabilities 가 잡는다.
-inline constexpr int kHotspotCritSlots = 7;
+inline constexpr int kHotspotCritSlots = 9;
+
+/// 응력 성분에서 상태마다 바로 나오는 기준 수(0–6). 요소 극값 루프는 여기까지만 돈다 —
+/// 소성 기준(7 · 8)은 루프가 끝난 뒤 ε_p · w_p 배열에서 채운다.
+inline constexpr int kHotspotStressCritSlots = 7;
+
+/// 소성 기준(ε_p · w_p)인가 — 응력 루프 밖에서 채우고, 선별에서 소성이 없는 요소를 뺀다.
+inline bool hotspotCriterionIsPlastic(HotspotCriterion c) {
+    return c == HotspotCriterion::PlasticStrain || c == HotspotCriterion::PlasticWork;
+}
+
+/// 소성 기준 선별의 '수치 0' 바닥 — ε_p 가 이 값 이하인 요소는 소성으로 보지 않는다.
+/// yield_eps_threshold 가 더 크면 그쪽을 쓴다. 0 초과만 보면 잡음이 덩어리가 된다
+/// (실측 Test_006 바닥 파트: ε_p 최대 3e-12 인 요소 966개가 덩어리 2개).
+inline constexpr double kHotspotPlasticEpsFloor = 1e-6;
 
 /// 군집 대상 요소 종류. 기하(부피/면적)와 대표 크기 정의가 다르다.
 enum class HotspotElementKind {
@@ -62,7 +85,7 @@ enum class HotspotElementKind {
 /// 종류 → JSON `element_type` 이름 ("solid" / "thick_shell" / "shell")
 const char* hotspotElementKindName(HotspotElementKind k);
 
-/// 문자열 → 기준. "von_mises" / "max_principal" / "min_principal" (대소문자·'-' 무시).
+/// 문자열 → 기준. 정규 이름(hotspotCriterionName)과 별칭 — 대소문자·'-'·공백 무시.
 /// 모르는 이름이면 false 를 돌려주고 @p out 은 건드리지 않는다.
 bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out);
 

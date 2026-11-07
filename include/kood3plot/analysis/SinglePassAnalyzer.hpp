@@ -618,6 +618,12 @@ private:
                                    const std::vector<HotspotCriterion>& criteria,
                                    HotspotElementKind kind);
 
+    /// 소성 기준(plastic_strain · plastic_work)의 요소 극값 — 위 두 함수가 이미 만든 ε_p · w_p
+    /// 배열을 그대로 옮긴다(새로 계산하지 않는다). 시각은 ε_p 최댓값이 처음 난 시각 · w_p 는 끝 시각.
+    /// 재료가 없으면(ε_p 미기록, w_p 는 상태 1개) 그 기준 항목을 만들지 않는다.
+    void fillPlasticExtremes(HotspotElementKind kind, const bool* want,
+                             std::vector<double>&& ep_time, double t_end);
+
     // ========================================
     // Result finalization
     // ========================================

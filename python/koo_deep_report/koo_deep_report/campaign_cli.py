@@ -235,6 +235,9 @@ def _elout_check(test_dir, tbl) -> None:
               file=sys.stderr)
         return
     for it in (tbl.items or []):
+        # elout 이 주는 것은 von Mises 다 — 다른 기준(σ1 · σ3 · ε_p · w_p)의 stress_max 를 견주면 가짜 불일치다
+        if (it.get("criterion") or "von_mises") != "von_mises":
+            continue
         run = it.get("run")
         # binout 은 output/<run>/ 아래에 있다 (binout0000, binout* 등)
         cands = sorted((root / "output" / str(run)).glob("binout*")) \

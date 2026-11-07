@@ -2337,10 +2337,12 @@ const HS_CRIT_LABEL = {
   x_tension: 'σxx 인장 (전역 X)',
   y_tension: 'σyy 인장 (전역 Y)',
   z_tension: 'σzz 인장 (전역 Z)',
+  plastic_strain: 'ε_p 유효소성변형률 (소성 집중)',
+  plastic_work: 'w_p 소성일 밀도 ∫σ dε_p',
 };
 const HS_TYPE_LABEL = {solid: '솔리드', thick_shell: '두꺼운 셸', shell: '셸'};
 const HS_STRAIN_LABEL = {equivalent: '등가변형률', max_principal: 'ε₁', min_principal: 'ε₃',
-  max_shear: '(ε₁−ε₃)/2', xx: 'εxx', yy: 'εyy', zz: 'εzz'};
+  max_shear: '(ε₁−ε₃)/2', xx: 'εxx', yy: 'εyy', zz: 'εzz', none: '—'};
 const HS_WEIGHT_LABEL = {volume: '부피', area_x_thickness: '면적×두께', area: '면적'};
 let _hsState = {crit: null, type: 'all', key: null, metric: 'stress'};
 
@@ -2530,7 +2532,7 @@ function hsRenderDetail(p) {
     <label style="margin-left:12px">색:</label>
     <select id="hs-metric" onchange="_hsState.metric=this.value;hsDraw(_hsCurrent)">
       ${HS_METRICS.filter(m => hsMetricAvailable(p, m[0]))
-        .map(m => `<option value="${m[0]}"${_hsState.metric === m[0] ? ' selected' : ''}>${m[1]}</option>`).join('')}
+        .map(m => `<option value="${m[0]}"${_hsState.metric === m[0] ? ' selected' : ''}>${hsMetricDef(m[0])[1]}</option>`).join('')}
     </select></span></div>
   <div id="hs-view-chart" style="height:560px"></div></div>`;
   _hsCurrent = p;
@@ -2548,7 +2550,16 @@ const HS_METRICS = [
   ['energy', '소성일 ∫σ dε_p [mJ]',         'energy_total', 'energy_available'],
   ['energy_density', '소성일 밀도 [mJ/mm³]', 'energy_max',   'energy_available'],
 ];
-function hsMetricDef(code) { return HS_METRICS.find(m => m[0] === code) || HS_METRICS[0]; }
+// 'stress' 척도의 값은 그 기준의 stress_max 다 — 소성 기준이면 응력이 아니라 ε_p · w_p 다.
+function hsValueLabel(crit) {
+  if (crit === 'plastic_strain') return 'ε_p 피크 [-]';
+  if (crit === 'plastic_work') return `w_p 피크 [${U_S} = 에너지/부피]`;
+  return `응력 피크 [${U_S}]`;
+}
+function hsMetricDef(code) {
+  const d = HS_METRICS.find(m => m[0] === code) || HS_METRICS[0];
+  return d[0] === 'stress' ? [d[0], hsValueLabel(_hsState.crit), d[2], d[3]] : d;
+}
 // 그 척도가 이 파트의 군집에 실제로 있는가. 없으면 선택지에서 감춘다 —
 // 남겨 두면 고르는 순간 전부 같은 색이 되어 '값이 균일' 로 오독된다.
 function hsMetricAvailable(p, code) {

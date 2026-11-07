@@ -36,6 +36,10 @@ bool parseHotspotCriterion(const std::string& name, HotspotCriterion& out) {
                                                                        { out = HotspotCriterion::YTension;     return true; }
     if (k == "z_tension" || k == "ztension" || k == "sigma_zz" || k == "szz")
                                                                        { out = HotspotCriterion::ZTension;     return true; }
+    if (k == "plastic_strain" || k == "plasticstrain" || k == "eps_p" || k == "effective_plastic_strain")
+                                                                       { out = HotspotCriterion::PlasticStrain; return true; }
+    if (k == "plastic_work" || k == "plasticwork" || k == "w_p" || k == "plastic_work_density")
+                                                                       { out = HotspotCriterion::PlasticWork;  return true; }
     return false;
 }
 
@@ -48,6 +52,8 @@ const char* hotspotCriterionName(HotspotCriterion c) {
         case HotspotCriterion::XTension:    return "x_tension";
         case HotspotCriterion::YTension:    return "y_tension";
         case HotspotCriterion::ZTension:    return "z_tension";
+        case HotspotCriterion::PlasticStrain: return "plastic_strain";
+        case HotspotCriterion::PlasticWork:   return "plastic_work";
     }
     return "von_mises";
 }
@@ -101,6 +107,9 @@ const char* hotspotStrainMeasureName(HotspotCriterion c) {
         case HotspotCriterion::XTension:    return "xx";
         case HotspotCriterion::YTension:    return "yy";
         case HotspotCriterion::ZTension:    return "zz";
+        // 소성 기준은 값 자체가 변형 측도라 짝 변형률이 없다(strain 배열을 비운다)
+        case HotspotCriterion::PlasticStrain:
+        case HotspotCriterion::PlasticWork:   return "none";
     }
     return "equivalent";
 }
@@ -809,23 +818,38 @@ std::vector<PartHotspotResult> computeHotspotClusters(
         // 같은 입력이 항상 같은 결과를 낸다.
         const double frac = std::min(100.0, std::max(0.0, cfg.top_percent)) / 100.0;
 
+        // 소성 기준은 소성이 난 요소만 순위에 든다 — 탄성 덱에서 전부 0 인 요소, 수치 잡음(3e-12)인
+        // 요소의 상위 p% 를 덩어리로 만들면 안 된다. 소성 여부는 ε_p 로 본다(plastic_work 도 같은 요소의
+        // ε_p). 고르는 수는 응력 기준과 같이 '파트 유효 요소 수의 p%' 이고, 소성 요소가 그보다 적으면
+        // 그 전부다(응력 기준은 n_valid == rank.size() 라 종전 그대로).
+        const bool plastic = hotspotCriterionIsPlastic(cfg.criterion);
+        const double eps_floor = std::max(kHotspotPlasticEpsFloor, cfg.yield_eps_threshold);
+
         // (값, 파트내 순번 k) 쌍으로 정렬 대상 구성
         std::vector<std::pair<double, size_t>> rank;
         rank.reserve(idxs.size());
+        size_t n_valid = 0;
         for (size_t k = 0; k < idxs.size(); ++k) {
             if (!geo[k].ok) continue;
             const double v = elem_max_vm[idxs[k]];
             // 🔴 `v < 0` 로 거르면 안 된다 — σ1·σ3 은 음수가 정상값이다.
             if (hotspotIsUnrecorded(v)) continue;
+            ++n_valid;
+            if (plastic) {
+                const double e = (cfg.criterion == HotspotCriterion::PlasticStrain) ? v
+                               : (idxs[k] < elem_eps.size() ? elem_eps[idxs[k]]
+                                                            : std::numeric_limits<double>::infinity());
+                if (!(v > 0.0) || !(e > eps_floor)) continue;
+            }
             rank.emplace_back(v, k);
         }
 
         if (rank.size() < static_cast<size_t>(std::max(1, cfg.min_cluster_elements))) {
-            out.push_back(res);               // 유효 요소가 최소 덩어리 크기에도 못 미침
+            out.push_back(res);               // 유효(소성) 요소가 최소 덩어리 크기에도 못 미침
             continue;
         }
 
-        size_t want = static_cast<size_t>(std::floor(rank.size() * frac));
+        size_t want = static_cast<size_t>(std::floor(n_valid * frac));
         if (want < 1) want = 1;
         if (want > rank.size()) want = rank.size();
 
