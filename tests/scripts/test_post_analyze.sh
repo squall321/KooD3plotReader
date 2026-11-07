@@ -441,7 +441,7 @@ chk "--no-figures 를 deep 에도 넘긴다(런 둘)" 2 "$(n_calls deepflag)"
 run_pa "$T13" --no-render --no-hide-floor --force
 chk "--no-hide-floor 를 deep 에 넘긴다(런 둘)" 2 "$(grep -c '^deepflag --no-hide-floor$' "$W/calls.log")"
 run_pa "$T13" --deep-only --no-render
-chk "--deep-only 면 부르지 않는다" 0 "$(n_calls figs)"
+chk "--deep-only 면 캠페인 그림을 부르지 않는다" 0 "$(grep -c '^figs campaign ' "$W/calls.log")"
 T13F="$W/t13_FAIL_FIGS"
 mk_tree "$T13F" Run_a/Output/d3plot
 mk_config "$T13F"
@@ -460,6 +460,28 @@ else
     echo "  NG  옛 SIF 에서 사유 없이 부르거나 멈췄다"
     fails=$((fails + 1))
 fi
+
+# ============================================================
+# [14] 건너뛴(최신) deep 산출물 그림 채우기 — 분석은 다시 안 돌고 figures pack --link-html 만.
+#      그림이 이미 있거나 --no-figures 거나 옛 SIF(figures 명령 없음)면 하지 않는다.
+# ============================================================
+echo "[14] 건너뛴 deep 산출물 그림 채우기"
+T14="$W/t14"
+mk_tree "$T14" Run_a/Output/d3plot Run_b/Output/d3plot
+mk_config "$T14"
+run_pa "$T14" --deep-only --no-render
+chk "첫 실행은 deep 을 돈다(둘)" 2 "$(n_calls deep)"
+chk "새로 돈 산출물엔 채우지 않는다(deep 이 스스로 만든다)" 0 "$(grep -c '^figs pack ' "$W/calls.log")"
+run_pa "$T14" --deep-only --no-render
+chk "다시 돌리면 deep 은 건너뛴다" 0 "$(n_calls deep)"
+chk "건너뛴 둘에 그림을 채운다(--link-html)" 2 "$(grep -c '^figs pack .* --link-html$' "$W/calls.log")"
+mkdir -p "$T14/deep_reports/Run_a/figures" && printf '{}\n' > "$T14/deep_reports/Run_a/figures/manifest.json"
+run_pa "$T14" --deep-only --no-render
+chk "그림이 이미 있는 것은 채우지 않는다(하나만)" 1 "$(grep -c '^figs pack ' "$W/calls.log")"
+run_pa "$T14" --deep-only --no-render --no-figures
+chk "--no-figures 면 채우지 않는다" 0 "$(grep -c '^figs pack ' "$W/calls.log")"
+STUB_NO_FIGS=1 run_pa "$T14" --deep-only --no-render
+chk "옛 SIF(figures 명령 없음)면 채우지 않는다" 0 "$(grep -c '^figs pack ' "$W/calls.log")"
 
 echo ""
 if [ "$fails" -gt 0 ]; then

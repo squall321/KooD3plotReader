@@ -894,6 +894,11 @@ run_step_deep() {
     _deep_skip=0
     _deep_fail=0
     _deep_stale=0
+    _deep_figfill=0
+    # 건너뛴(최신) 산출물에 그림이 없으면 채운다 — 분석은 다시 안 돌고, HTML 은 다시 짓지 않고 링크만 끼운다.
+    # 옛 SIF(figures 명령 없음)면 하지 않는다.
+    _figs_ok=false
+    if ${FIGURES} && koo_deep_report figures --help >/dev/null 2>&1; then _figs_ok=true; fi
 
     while IFS= read -r d3plot_path; do
         _deep_total=$(( _deep_total + 1 ))
@@ -927,6 +932,13 @@ run_step_deep() {
         if ! ${FORCE} && outputs_are_current "${deep_out}" "${DEEP_SCHEMA_MARKER}" \
                 "${DEEP_OUTPUT_SCHEMA}" "result.json" "${d3plot_path}"; then
             _deep_skip=$(( _deep_skip + 1 ))
+            if ${_figs_ok} && [ ! -f "${deep_out}/figures/manifest.json" ]; then
+                if koo_deep_report figures pack "${deep_out}" --d3plot "${d3plot_path}" --link-html > /dev/null 2>&1; then
+                    _deep_figfill=$(( _deep_figfill + 1 ))
+                else
+                    echo "  WARN: 그림 채우기 실패 — ${run_name}/${sub_path} (리포트는 그대로)"
+                fi
+            fi
             continue
         fi
         _reason=""
@@ -977,6 +989,9 @@ run_step_deep() {
 
     echo ""
     echo "  완료: ${_deep_done} / 스킵: ${_deep_skip} / 실패: ${_deep_fail} / 전체: ${_deep_total}"
+    if [ "${_deep_figfill}" -gt 0 ]; then
+        echo "  ※ 건너뛴 것 중 ${_deep_figfill}개에 리포트 그림(figures/ · report.html 링크)을 채웠습니다."
+    fi
     if [ "${_deep_stale}" -gt 0 ]; then
         echo "  ※ 이 중 ${_deep_stale}개는 기존 리포트가 낡아 다시 만들었습니다 (사유는 위 각 줄의 [재생성: …])."
     fi

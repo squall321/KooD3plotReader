@@ -49,3 +49,10 @@
   뒤의 전 상태 읽기와 합쳐 두 벌(Test_006: 6.7 → 13.6 GB, 27 → 212 s). 헤더 셈으로 바꿔 원래 수준(6.84 GB)으로 돌아왔다.
 - 실측: 상한 4 GB scope(systemd-run MemoryMax=4G)에서 「상태 992개 × 7.0 MB ≈ 7.5 GB 필요, 가용 4.0 GB」 로 바로 멈춘다(rc 1).
   어림 7.0 MB/상태 ≈ 실측 6.7 MB/상태. 평소 조건은 경고 없이 통과.
+
+## 4 마감 — post_analyze 자동 채우기 (11-07, v45 배포 뒤)
+- run_step_deep 이 최신이라 건너뛴 산출물에 figures/manifest.json 이 없으면 `koo_deep_report figures pack <산출물> --d3plot <d3plot>
+  --link-html` 을 부른다(분석 다시 안 돎, HTML 은 링크만). `--no-figures` · 옛 SIF(figures 명령 없음)면 안 한다. 요약 줄에 채운 수.
+- 셸 시험 [14] 6개. [13] 의 「--deep-only 면 부르지 않는다」 는 `figs` 줄 전부를 세던 것을 `figs campaign` 만 세게 좁혔다
+  (뜻은 캠페인 그림 단계 여부 — 새 채우기 호출이 섞였다).
+- v45(5e589fb) 배포 완료(11-07, 배포 세션) — 단면 _zoom 이 더는 안 생기고 나머지 영상은 v44 와 md5 같음.

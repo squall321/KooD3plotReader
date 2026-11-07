@@ -14,7 +14,7 @@
 
 ## 4. 옛 산출물 그림 + sphere 연결
 - [x] figures pack --link-html(HTML 을 다시 짓지 않고 갤러리 링크 — 옵션 유실 방지)
-- [ ] post_analyze 건너뛴 산출물 그림 채우기(셸 시험)
+- [x] post_analyze 건너뛴 산출물 그림 채우기(셸 시험 [14])
 - [x] figures/index.html(pack · campaign) · sphere HTML 링크(멱등) · 크로미움 확인
 
 ## 마감
