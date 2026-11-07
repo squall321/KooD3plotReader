@@ -9,8 +9,8 @@
 - [ ] 필요한 상태만 필요할 때 읽기 · 분석 결과 무변 대조 · 실측(v14 급)
 
 ## 3. 온톨로지 머리 warnings
-- [ ] sphere · impact · deep 읽기 실패 수집 → 머리 warnings
-- [ ] 시험 · DynaForge 검사기 통과
+- [x] sphere · impact · deep 읽기 실패 수집 → 머리 warnings
+- [x] 시험 · DynaForge 검사기 통과(경고 그대로 보임)
 
 ## 4. 옛 산출물 그림 + sphere 연결
 - [ ] figures pack --update-html

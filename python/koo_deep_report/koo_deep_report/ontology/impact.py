@@ -155,12 +155,16 @@ def build(report: dict, *, report_path: Path | None = None, payload: dict | None
     kfile, keyword = None, None
     for rd in run_dirs[:1]:
         kfile = find_kfile(rd)
+    if kfile is None:
+        pkg.warn("덱(.k)을 찾지 못했다(" + (f"{run_dirs[0]}" if run_dirs else "런 폴더 없음")
+                 + ") — 재질 · 접촉 없이 지었다")
     if kfile is not None:
         try:
             from koo_deep_report.core.keyword_parser import parse_keyword_file
             keyword = parse_keyword_file(kfile)
-        except Exception:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다
+        except Exception as e:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다
             keyword = None
+            pkg.warn(f"덱 {kfile.name} 을 읽지 못했다({type(e).__name__}: {e}) — 재질 · 접촉 없이 지었다")
 
     part_keys = {pid: f"part/{pid}" for pid in names}
     for pid in sorted(names):

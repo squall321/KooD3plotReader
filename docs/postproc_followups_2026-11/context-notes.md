@@ -20,3 +20,10 @@
   (UnifiedAnalyzer.cpp:77 read_all_states_parallel — 상태당 약 6.7 MB). v14(4,952 상태)면 약 33 GB — 단면을 꺼도 deep 분석이 그만큼 쓴다.
 - 고치려면 분석기를 흘려 읽기(for_each_state 는 있다)로 개편해야 한다 — all_states 를 UnifiedAnalyzer 57곳 · SinglePassAnalyzer 51곳에서
   쓴다. 값 회귀 위험이 큰 일이라 사용자에게 범위를 다시 묻는다(큰 개편 / 읽기 전 메모리 어림 · 분명한 경고 / 보류).
+
+## 3. 온톨로지 머리 warnings (11-07)
+- `Package.warn()` → 머리 `warnings: [사유 …]`(사유가 있을 때만 — 「값이 없으면 키를 뺀다」 규약). 사유: sphere — test_dir 없음 · 못 찾음,
+  덱(.k) 못 찾음 · 못 읽음, DropSet.json 못 읽음 / impact — 덱 못 찾음 · 못 읽음 / deep — 덱 못 찾음 · 못 읽음, binout 이 있는데 흐름 실패.
+  binout 이 없어 흐름이 없는 것은 실패가 아니라 싣지 않는다.
+- **DynaForge 검사기(KooRemapper platform/backend/app/reports/onto_package.check)가 이미 머리 warnings 를 받는다**(167행, 문자열 목록을
+  자기 경고에 이어 붙임). 경고가 실린 sphere 꾸러미를 넣어 통과 · 사유가 그대로 보이는 것을 확인했다.

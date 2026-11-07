@@ -10,6 +10,7 @@
      "source":     {"kind", "file", "sha256", "html": {"file", "sha256"}},
      "scope":      {"scenario_kind", "campaign_key"},
      "units":      {"system", "normalized", "factors", "deck_labels", "note"},
+     "warnings":   [사유 …]   ← 선택. test_dir · 덱 · DropSet 을 못 읽어 일부 값이 빠졌을 때만(DynaForge 제안, 2026-11)
      "counts":     {"objects": {타입: 수}, "relations": {관계: 수}},
      "ref_relations": [{"type", "property", "relation"}],
      "objects":    [{"type", "key", "label", "properties"}],
@@ -155,6 +156,13 @@ class Package:
         self._obj_index: dict[tuple[str, str], dict] = {}
         self._rel_seen: set[tuple] = set()
         self.faults: list[str] = []
+        #: 읽기 실패로 일부 값이 빠진 사유 — 머리 warnings(없으면 키를 뺀다). 조용히 빈 값이 되지 않게
+        self.warnings: list[str] = []
+
+    def warn(self, msg: str) -> None:
+        """머리 warnings 에 사유 하나(같은 말은 한 번)."""
+        if msg and msg not in self.warnings:
+            self.warnings.append(msg)
 
     # ── 객체 ────────────────────────────────────────────────────────────
     def has(self, type_slug: str, key: str) -> bool:
@@ -284,6 +292,7 @@ class Package:
             "source": self.source,
             "scope": {"scenario_kind": self.scenario_kind, "campaign_key": "campaign"},
             "units": self.units.header(),
+            **({"warnings": list(self.warnings)} if self.warnings else {}),
             "counts": {"objects": counts_o, "relations": counts_r},
             "ref_relations": [{"type": t, "property": k, "relation": r}
                               for (t, k), r in V.REF_RELATIONS.items()],

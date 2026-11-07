@@ -60,12 +60,16 @@ def build(result, *, flow=None, keyword=None, html_path: Path | None = None) -> 
     meta = (d3.metadata if d3 else {}) or {}
     end_time = C.num(meta.get("end_time"))
 
+    pre_warns: list[str] = []
     if keyword is None:
         try:
             from koo_deep_report.core.keyword_parser import find_and_parse_keyword
             keyword = find_and_parse_keyword(si.keyword or si.d3plot)
-        except Exception:  # noqa: BLE001
+            if keyword is None:
+                pre_warns.append("덱(.k)을 찾지 못했다 — 단위계 · 재질 · 접촉 없이 지었다")
+        except Exception as e:  # noqa: BLE001
             keyword = None
+            pre_warns.append(f"덱을 읽지 못했다({type(e).__name__}: {e}) — 단위계 · 재질 · 접촉 없이 지었다")
     uid, note = detect_units(keyword, end_time)
     units = Units(uid, note=note)
     g0 = _G0.get(uid)
@@ -74,13 +78,17 @@ def build(result, *, flow=None, keyword=None, html_path: Path | None = None) -> 
         try:
             from koo_deep_report.core.energy_flow_csv import build_flow
             flow = build_flow(result.binout_data, si.keyword, d3plot_path=si.d3plot)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             flow = None
+            if result.binout_data is not None:   # binout 이 없으면 원래 흐름이 없다 — 읽기 실패가 아니다
+                pre_warns.append(f"에너지 흐름을 짓지 못했다({type(e).__name__}: {e}) — 흐름 · 접촉 없이 지었다")
     graph, contact_map = flow if flow else ({}, None)
 
     pkg = Package(scenario_kind="single_run", units=units, adapter="deep",
                   source_kind="koo_deep_report/SingleResult", source_file=str(si.d3plot or ""),
                   html_path=html_path)
+    for w in pre_warns:
+        pkg.warn(w)
 
     folder = run_folder_of(Path(si.path))
     case = "single"

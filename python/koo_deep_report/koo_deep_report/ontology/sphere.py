@@ -168,9 +168,15 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     `test_dir` 를 안 주면 report.json 의 test_dir 가 있을 때 그것을 쓴다.
     `contact_map` 을 주면 덱을 읽지 않는다(시험용).
     """
+    pre_warns: list[str] = []
     if test_dir is None and report.get("test_dir"):
         cand = Path(report["test_dir"])
         test_dir = cand if cand.is_dir() else None
+        if test_dir is None:
+            pre_warns.append(f"test_dir {report['test_dir']} 를 찾지 못했다 — 덱 · DropSet · S1 정보(재질 · 접촉 · 초기 속도 · "
+                             f"낙하 높이) 없이 지었다")
+    elif test_dir is None:
+        pre_warns.append("test_dir 이 없다 — 덱 · DropSet · S1 정보(재질 · 접촉 · 초기 속도 · 낙하 높이) 없이 지었다")
 
     us = report.get("unit_system")
     labels = report.get("unit_labels") or {}
@@ -256,14 +262,19 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     # ── 덱 (첫 런) — 재질·초기 속도·접촉 ──
     kfile, keyword = None, None
     first = next((r for r in results if r.get("run_folder")), None)
+    for w in pre_warns:
+        pkg.warn(w)
     if test_dir is not None and first is not None:
         kfile = find_kfile(test_dir / "output" / str(first["run_folder"]))
+        if kfile is None:
+            pkg.warn(f"덱(.k)을 찾지 못했다(output/{first['run_folder']}) — 재질 · 초기 속도 · 접촉 없이 지었다")
     if kfile is not None:
         try:
             from koo_deep_report.core.keyword_parser import parse_keyword_file
             keyword = parse_keyword_file(kfile)
-        except Exception:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다(재질·속도만 빈다)
+        except Exception as e:  # noqa: BLE001 — 덱을 못 읽어도 꾸러미는 나간다(재질·속도만 빈다)
             keyword = None
+            pkg.warn(f"덱 {kfile.name} 을 읽지 못했다({type(e).__name__}: {e}) — 재질 · 초기 속도 · 접촉 없이 지었다")
 
     # ── 파트 (전 방향 포락·판정) ──
     part_keys = {pid: f"part/{pid}" for pid in names}
@@ -301,7 +312,10 @@ def build(report: dict, *, report_path: Path | None = None, test_dir: Path | Non
     # ── 캠페인 ──
     from datetime import datetime, timezone
     td = report.get("test_dir") or ""
-    ds_height = C.num(((first_dropset(test_dir).get("initial_conditions") or {}).get("drop_height")))
+    ds = first_dropset(test_dir)
+    if test_dir is not None and not ds:
+        pkg.warn("output/*/DropSet.json 을 읽지 못했다 — 낙하 높이 없이 지었다")
+    ds_height = C.num(((ds.get("initial_conditions") or {}).get("drop_height")))
     speed, height, drop_note = C.drop_condition(
         keyword, statistics.median(speeds) if speeds else None, ds_height,
         g_factor if units.system != "unknown" else None)

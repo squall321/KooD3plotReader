@@ -325,3 +325,17 @@ def test_cli_yield_stress_is_mpa_converted_by_detected_unit(tmp_path):
     p1 = _objs(out, "cae_part")["part/1"]
     assert "min_safety_factor" not in p1 and p1["severity"] == "UNKNOWN"
     assert "덱 단위로 바꿀 수 없습니다" in _objs(out, "cae_campaign")["campaign"]["unit_note"]
+
+
+def test_header_warnings_say_what_could_not_be_read(tmp_path):
+    """test_dir · 덱 · DropSet 을 못 읽으면 머리 warnings 에 사유(DynaForge 제안) — 조용히 빈 값이 되지 않게."""
+    doc = sphere.build(_report(), contact_map=_cmap())
+    assert any("test_dir" in w for w in doc["warnings"])
+    td = _test_dir(tmp_path, {"1": 300.0})                 # DropSet 은 있고 덱(.k)은 없다
+    ws = sphere.build(_report(), test_dir=td, contact_map=_cmap()).get("warnings") or []
+    assert not any("test_dir" in w for w in ws) and not any("DropSet" in w for w in ws)
+    assert any("덱" in w for w in ws)
+    empty = tmp_path / "empty"
+    (empty / "output").mkdir(parents=True)
+    ws = sphere.build(_report(), test_dir=empty, contact_map=_cmap()).get("warnings") or []
+    assert any("DropSet" in w for w in ws)

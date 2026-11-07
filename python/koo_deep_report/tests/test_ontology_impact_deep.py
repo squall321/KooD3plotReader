@@ -192,3 +192,10 @@ def test_tool_emit_without_html_uses_json_stem(tmp_path):
     out = emit.beside("impact", j, tmp_path / "missing.html")      # 없는 HTML 은 없는 것으로 친다
     assert out == tmp_path / "sphere_report.ontology.json"
     assert "html" not in json.loads(out.read_text())["source"]
+
+
+def test_deep_header_warns_only_when_deck_missing():
+    doc = deep.build(_single(), flow=None, keyword=None)          # 덱을 못 찾음(가짜 경로)
+    assert any("덱" in w for w in doc["warnings"])
+    doc = deep.build(_single(), flow=None, keyword=_kw(7.85e-9))  # 덱 있음 · binout 없음 — 흐름이 없는 건 실패가 아니다
+    assert "warnings" not in doc
