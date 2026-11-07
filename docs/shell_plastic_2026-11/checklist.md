@@ -31,4 +31,6 @@
 - [x] 사용자 보고 → push 2a2ca51..cba5cf1 · v47 배포 요청(사용자 승인 11-07) — 확인 설정 `/data/koopark/Post_v47/`
 - [x] DynaForge 어휘에 plastic_strain · plastic_work 열거값 · 단위 추가 요청(kooremapper-4a, 11-07)
 - [x] DynaForge 정본 0.5 바이트 사본 · 작성기(기준별 값 칸) — DynaForge 검사기 통과, v47 에 포함(사용자 결정)
-- [ ] v47 배포판 재확인
+- [x] v47(f8f0e22) 배포 · 배포판 재확인(--no-home) — a · airbag deep · 어휘 0.5 꾸러미 · DynaForge 검사기 · sphere 3D 뷰어 실페이지
+- [ ] 노드 node001 · 002 로컬 SIF(노드 down — 배포 세션)
+- [ ] 실제 셸 · 소성 핫스팟 sphere 캠페인으로 3D 뷰어 확인(지금은 합성 사본)

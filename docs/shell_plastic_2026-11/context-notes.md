@@ -84,3 +84,17 @@
   맞춘다(표에 없으면 `convert` 가 환산 없이 통과시켜 SI 덱 값이 그대로 실린다).
 - 확인: airbag 덱 deep `--hotspot-clusters` 꾸러미(어휘 0.5) — 핫스팟 79(von_mises 56 · plastic_strain 23, 셸 소성 ε_p 최대 0.158),
   셸 파트 응답 60, warnings 없음 → DynaForge 검사기 `onto_package.check` 통과(행 144). 사용자 결정으로 v47 에 같이 넣는다.
+
+## v47 배포 · 확인 (11-07)
+- 첫 굽기(cba5cf1, 08:38)는 earlyoom(가용 5.8% · 스왑 39/39 GB, 다른 작업들이 씀)이 Drive 업로드를 SIGTERM 해 끊겼다. 배포 세션 사용자가
+  「멈추고 f8f0e22 로」를 골라 다시 구웠다 — v47 = f8f0e22(어휘 0.5 포함), 헤드리스 70715241 · GUI 1c57efb8 네 곳 동일. 헤드 /opt 의 v46 은
+  `*_backup_20261107_104537.sif`, 끊긴 cba5cf1 tar 는 `…_v47_cba5cf1_aborted.tar.gz.bak` 으로 보관.
+- 배포 세션 판정 — a VERSION f8f0e22 · 기준 9, 덱 넷 cmp 불일치 0, indep(SIF 안 lasso) t006 0 · airbag 232/0 · case_shell 4/0, deep airbag
+  그림 값 = 해석기 값 · 꾸러미 0.5 · DynaForge 144 [], a9 솔리드 회귀 통과.
+- 이쪽 재확인(--no-home, 헤드 /opt) — 같은 결과. 기준을 생략한 deep --hotspot-clusters 가 von_mises + plastic_strain 으로 돌았다.
+- **sphere 3D 뷰어(기준 선택 상자) 실페이지 확인** — mini 캠페인 report.json 사본에 소성 기준 항목 28개를 섞어 배포 SIF 의
+  `koo_sphere_report --from-json` 으로 다시 만들고 Playwright 로 열었다(`.work/shell_plastic/hs3d/check_crit.py`). von_mises 108 · 범례 응력
+  0.067~3337.8 → plastic_strain 108 · 범례 「ε_p 최대 [-]」 6.7e-7~0.033, 페이지 오류 0.
+  - `--from-json` 은 메시를 **JSON 이 있는 폴더**의 `output/Run_*/d3plot` 에서 찾는다(JSON 의 test_dir 가 아니다). 사본 폴더에 런 하나를
+    가리키는 링크를 잠깐 두고(/data 는 SIF 에 :ro), 확인 뒤 링크만 지웠다.
+  - 합성 사본이라 실제 셸 · 소성 캠페인으로는 아직 보지 않았다.
