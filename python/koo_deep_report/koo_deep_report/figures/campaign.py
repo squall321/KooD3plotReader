@@ -125,8 +125,9 @@ def peak_row(csv_path: Path) -> tuple[int, float, float] | None:
 def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_dir: str | Path | None = None,
           top: int = 5, figure_parts: list[int] | None = None, hide_parts: list[int] | None = None,
           auto_floor: bool = True, context_opacity: float = 0.15, views: tuple[str, ...] = ("iso", "peak"),
-          width: int = 1600, height: int = 1100, clim: str | float = "p99.5") -> dict:
-    """그림을 만들고 manifest(dict)를 돌려준다. 출력 폴더의 manifest.json 도 쓴다."""
+          width: int = 1600, height: int = 1100, clim: str | float = "p99.5", link_html: bool = True) -> dict:
+    """그림을 만들고 manifest(dict)를 돌려준다. 출력 폴더의 manifest.json · index.html 도 쓴다.
+    `link_html` — report.json 옆 sphere 리포트 HTML(같은 이름 줄기)에 갤러리 링크를 끼운다(표지 사이만 갈아 끼움)."""
     from . import mesh, xvfb
 
     rp = Path(report_path)
@@ -280,5 +281,12 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
                            "runs": w.n_runs, "sf": w.sf, "severity": w.severity} for p, w in sorted(worst.items())},
         "figures": figs, "notes": notes,
     }
+    pack.write_gallery(out, manifest)
+    if link_html and (out / "index.html").is_file():
+        import os
+        from .gallery import link_html as _link
+        html = rp.with_suffix(".html")
+        if _link(html, os.path.relpath(out / "index.html", html.parent), "리포트 그림 (캠페인 최악 방향)"):
+            notes.append(f"{html.name} 에 그림 링크를 달았다")
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     return manifest

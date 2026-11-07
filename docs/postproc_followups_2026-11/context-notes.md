@@ -27,3 +27,15 @@
   binout 이 없어 흐름이 없는 것은 실패가 아니라 싣지 않는다.
 - **DynaForge 검사기(KooRemapper platform/backend/app/reports/onto_package.check)가 이미 머리 warnings 를 받는다**(167행, 문자열 목록을
   자기 경고에 이어 붙임). 경고가 실린 sphere 꾸러미를 넣어 통과 · 사유가 그대로 보이는 것을 확인했다.
+
+## 4. 옛 산출물 그림 + sphere 연결 (11-07)
+- **HTML 을 다시 짓지 않는다** — 옛 deep 산출물의 report.html 을 SingleResult 로 다시 엮어 쓰면 그때 준 옵션(--yield-stress · 설계 기준
+  덮어쓰기 등)을 몰라 안전율이 바뀌거나 접촉 탭이 빠진다. 대신 그림 폴더마다 독립 갤러리 `figures/index.html`(PNG 격자 · 누르면 호버
+  SVG · 차트 · 알림, 외부 라이브러리 없음)을 쓰고, 기존 HTML 에는 표지 주석(`kood3plot.figures:begin/end`) 사이의 고정 버튼만 끼운다
+  (다시 돌려도 하나, `</body>` 앞).
+- `koo_deep_report figures pack <폴더> --link-html`(옛 산출물 채우기), `figures campaign` 은 report.json 옆 sphere HTML(같은 이름 줄기)에
+  기본으로 링크(`--no-link-html`). pack · campaign 모두 index.html 을 쓴다(_OURS 정리 대상).
+- 실데이터(사본): v14 옛 deep 산출물(2026-09, 그림 탭 없음)에 스냅샷 11 · 차트 7 + 링크, Test_006 sphere 리포트(7.3 MB) 사본에 링크 ·
+  갤러리 3장 · 차트, 크로미움에서 버튼 · 갤러리 · 모달 SVG 확인(오류 0).
+- **post_analyze 자동 채우기는 보류** — v45 굽기 중 배포 세션이 apptainer/ · scripts/ 를 작업 트리에서도 바꾸지 말아 달라고 했다
+  (def · build.sh · deploy_from_sif.sh 를 작업 트리에서 읽는다). 굽기 완료 알림 뒤에 붙인다.

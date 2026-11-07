@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None, prog: str = "python -m koo_deep_report.f
     pk.add_argument("--top", type=int, default=5, help="상위 파트 수 — 안전율 낮은 순, 없으면 최대 응력 순 (기본 5)")
     pk.add_argument("--parts", nargs="+", type=int, default=None, metavar="ID", help="그릴 파트를 직접 고른다")
     pk.add_argument("--views", default="iso,peak", help="파트 그림 시점(쉼표) — iso · peak · top · front … (기본 iso,peak)")
+    pk.add_argument("--link-html", action="store_true",
+                    help="폴더의 report.html 에 그림 갤러리(figures/index.html) 링크를 끼운다 — 그림 탭이 없는 옛 리포트용")
     _common(pk)
     cp = sub.add_parser("campaign", help="sphere report.json → 파트별 최악 방향 런의 최대 순간 그림(<test_dir>/figures)")
     cp.add_argument("report_json")
@@ -56,6 +58,8 @@ def main(argv: list[str] | None = None, prog: str = "python -m koo_deep_report.f
     cp.add_argument("--top", type=int, default=5, help="상위 파트 수 — 안전율 낮은 순, 없으면 최악 최대 응력 순 (기본 5)")
     cp.add_argument("--parts", nargs="+", type=int, default=None, metavar="ID", help="그릴 파트를 직접 고른다")
     cp.add_argument("--views", default="iso,peak", help="파트 그림 시점(쉼표) (기본 iso,peak)")
+    cp.add_argument("--no-link-html", action="store_true",
+                    help="report.json 옆 sphere 리포트 HTML 에 그림 링크를 끼우지 않는다(기본은 끼운다)")
     _common(cp)
     sn = sub.add_parser("snap", help="d3plot 한 상태 → 스냅샷 하나(PNG · SVG)")
     sn.add_argument("d3plot")
@@ -75,6 +79,12 @@ def main(argv: list[str] | None = None, prog: str = "python -m koo_deep_report.f
         m = pack.build(inp, out, top=a.top, figure_parts=a.parts, hide_parts=a.hide, auto_floor=not a.no_auto_floor,
                        context_opacity=a.context_opacity, views=tuple(v for v in a.views.split(",") if v),
                        width=W, height=H, clim=_clim(a.clim))
+        if a.link_html and (out / "index.html").is_file():
+            import os
+            from .gallery import link_html
+            html = Path(a.report_dir) / "report.html"
+            if link_html(html, os.path.relpath(out / "index.html", html.parent)):
+                print(f"  · {html} 에 그림 링크를 달았다")
         print(f"{pack.summary(m)} → {out}")
         for n in m.get("notes") or []:
             print(f"  · {n}")
@@ -84,7 +94,8 @@ def main(argv: list[str] | None = None, prog: str = "python -m koo_deep_report.f
         from . import campaign
         m = campaign.build(a.report_json, test_dir=a.test_dir, out_dir=a.out, top=a.top, figure_parts=a.parts,
                            hide_parts=a.hide, auto_floor=not a.no_auto_floor, context_opacity=a.context_opacity,
-                           views=tuple(v for v in a.views.split(",") if v), width=W, height=H, clim=_clim(a.clim))
+                           views=tuple(v for v in a.views.split(",") if v), width=W, height=H, clim=_clim(a.clim),
+                           link_html=not a.no_link_html)
         out = Path(a.out) if a.out else None
         print(f"{pack.summary(m)} → {out or m['campaign']['test_dir']}")
         for n in m.get("notes") or []:

@@ -355,6 +355,7 @@ def test_campaign_end_to_end_with_synthetic_state(tmp_path, monkeypatch):
         s.state_index = i
         return s
     monkeypatch.setattr(M, "read_state", fake)
+    (tmp_path / "report.html").write_text("<html><body><h1>sphere</h1></body></html>", encoding="utf-8")
     m = campaign.build(tmp_path / "report.json", top=2, views=("iso",))
     ids = [f["id"] for f in m["figures"]]
     assert ids == ["overview_worst", "part_1_worst_iso", "part_2_worst_iso", "parts_worst"]
@@ -362,3 +363,27 @@ def test_campaign_end_to_end_with_synthetic_state(tmp_path, monkeypatch):
     assert w1["run_folder"] == "Run_B" and w1["state"] == 1 and w1["check"]["match"] and "⚠" not in w1["caption"]
     assert (tmp_path / "figures" / "part_1_worst_iso.svg").stat().st_size > 500
     assert json.loads((tmp_path / "figures" / "manifest.json").read_text(encoding="utf-8"))["scope"] == "campaign"
+    # 독립 갤러리 · sphere 리포트 링크(다시 돌려도 하나)
+    assert (tmp_path / "figures" / "index.html").is_file()
+    from koo_deep_report.figures.gallery import BEGIN
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert html.count(BEGIN) == 1 and 'href="figures/index.html"' in html
+    campaign.build(tmp_path / "report.json", top=1, views=("iso",))
+    assert (tmp_path / "report.html").read_text(encoding="utf-8").count(BEGIN) == 1
+
+
+def test_gallery_index_and_idempotent_link(tmp_path):
+    from koo_deep_report.figures.gallery import BEGIN, END, link_html, write_index
+    m = {"run": {"run_folder": "Run_<x>"}, "units": {"stress": "MPa"}, "notes": ["바닥 [23] 숨김"],
+         "figures": [{"id": "overview_peak", "caption": "전체 <a>", "files": {"png": "overview_peak.png",
+                                                                             "svg": "overview_peak.svg"}},
+                     {"id": "energy", "caption": "에너지", "files": {"svg": "energy.svg"}}]}
+    html = write_index(tmp_path, m).read_text(encoding="utf-8")
+    assert html.count('class="card"') == 1 and html.count('<object type="image/svg+xml" data="energy.svg">') == 1
+    assert "전체 &lt;a&gt;" in html and "Run_&lt;x&gt;" in html and "바닥 [23] 숨김" in html
+    r = tmp_path / "report.html"
+    assert link_html(r, "figures/index.html") is False                      # 없으면 손대지 않는다
+    r.write_text("<html><body>본문</body></html>", encoding="utf-8")
+    assert link_html(r, "figures/index.html") and link_html(r, "figures/index.html")
+    t = r.read_text(encoding="utf-8")
+    assert t.count(BEGIN) == 1 and t.count(END) == 1 and t.index(END) < t.index("</body>") and "본문" in t

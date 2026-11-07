@@ -39,7 +39,7 @@ _VERDICT = {"crit": "CRITICAL", "warn": "WARNING", "ok": "OK"}
 #: 이 꾸러미가 쓰는 파일 — 다시 만들 때 지난 실행의 그림이 섞이지 않게 이것만 지운다
 _OURS = re.compile(r"^(overview_(peak|worst)|part_\d+_(peak|worst)_[a-z_]+|part_\d+_history|energy|parts_(peak|worst))"
                    r"\.(png|svg)$"
-                   r"|^manifest\.json$")
+                   r"|^(manifest\.json|index\.html)$")
 
 
 @dataclass
@@ -407,5 +407,15 @@ def build(inp: RunInputs, out_dir: str | Path, *, top: int = 5, figure_parts: li
                      "color_range": clim, "views": list(views), "size": [width, height]},
         "targets": targets, "figures": figs, "notes": notes,
     }
+    write_gallery(out, manifest)
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     return manifest
+
+
+def write_gallery(out: Path, manifest: dict) -> None:
+    """독립 갤러리(index.html) — 실패해도 그림은 그대로다(사유는 manifest notes)."""
+    try:
+        from .gallery import write_index
+        write_index(out, manifest)
+    except Exception as e:  # noqa: BLE001
+        manifest.setdefault("notes", []).append(f"갤러리(index.html) 실패 — {type(e).__name__}: {e}")

@@ -13,9 +13,9 @@
 - [x] 시험 · DynaForge 검사기 통과(경고 그대로 보임)
 
 ## 4. 옛 산출물 그림 + sphere 연결
-- [ ] figures pack --update-html
+- [x] figures pack --link-html(HTML 을 다시 짓지 않고 갤러리 링크 — 옵션 유실 방지)
 - [ ] post_analyze 건너뛴 산출물 그림 채우기(셸 시험)
-- [ ] 캠페인 figures/index.html · sphere HTML 링크(멱등)
+- [x] figures/index.html(pack · campaign) · sphere HTML 링크(멱등) · 크로미움 확인
 
 ## 마감
 - [ ] 시험 전부 · 커밋 · v45 끝난 뒤 push · 배포 요청(사용자 승인)
