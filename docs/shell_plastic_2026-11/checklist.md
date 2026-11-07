@@ -34,3 +34,4 @@
 - [x] v47(f8f0e22) 배포 · 배포판 재확인(--no-home) — a · airbag deep · 어휘 0.5 꾸러미 · DynaForge 검사기 · sphere 3D 뷰어 실페이지
 - [ ] 노드 node001 · 002 로컬 SIF(노드 down — 배포 세션)
 - [ ] 실제 셸 · 소성 핫스팟 sphere 캠페인으로 3D 뷰어 확인(지금은 합성 사본)
+- [ ] 다음 어휘 판(DynaForge)에 함께 — peak_von_mises · peak_max/min_principal 설명에 「셸 · 두꺼운 셸은 적분점 층 극값」(kooremapper-4a 제안 11-07, 설명만 바꿔도 지문이 바뀌어 판이 오른다)
