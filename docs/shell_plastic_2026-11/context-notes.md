@@ -109,3 +109,11 @@
   `part_ids` 는 10 · 11 · 12 · 100 …). `figures/mesh.py` 가 제목을 그 번호로 묶어 이런 덱에서 이름이 엉뚱한 파트에 붙었다 — deep 그림은
   deep 의 파트 이름을 먼저 써서 안 드러났고, 이름 없는 대체 경로(단독 `figures snap` · SVG 툴팁)에서 틀린다. `part_ids` 가 있고 수가 같으면
   그것으로 묶게 고쳤다(없는 덱 — Test_006 · case_shell — 은 제목 번호가 곧 사용자 ID 라 종전 그대로). 실데이터 시험 추가.
+
+## v48 묶음 (11-07)
+- 소성역 요약은 그동안 0 초과면 항복으로 셌다 — 선별(1e-6 바닥)과 어긋나 Test_006 바닥 파트 잡음 966개가 '항복'. 같은 바닥을 쓰고 결과
+  `yield_eps_threshold` 에 실제로 쓴 값(1e-6)을 싣는다. Test_006 대조: 핫스팟 밖 섹션 동일, 바뀐 것은 모든 파트의 보고 임계(0 → 1e-6)와
+  파트 23 의 n_yield · vol_yield(966 → 0)뿐.
+- `figures snap` 확인값: 셸 파우치 상태 4 · 파트 10 → v48 「Part 10 Pouch_Top_Shell」, v47 은 내부 순번 10 의 제목 「Part 10 Cu_CC_UC00_Shell」.
+- 시험 CMake 의 단면 시험은 `if(TARGET kood3plot_section_render)` — 그 라이브러리가 시험 폴더보다 먼저 정의된다(CMakeLists 510 · 923).
+  OFF 빌드에서 대상이 사라지고 ON 빌드에서는 그대로 빌드 · 통과. (build_tests 의 `make` 전체는 vis-app-net 추적 .so 를 덮으니 돌리지 않았다.)

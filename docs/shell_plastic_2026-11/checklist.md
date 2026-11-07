@@ -36,3 +36,9 @@
 - [x] 실제 셸 · 소성 데이터로 sphere 3D 뷰어 확인 — 셸 파우치 덱 2런 합성 캠페인(.work/shell_plastic/shellcamp), v47 배포판 끝까지
 - [x] 그림 파트 제목이 내부 순번에 붙던 결함(figures/mesh.py) — part_ids 로 묶는다, 실데이터 시험
 - [ ] 다음 어휘 판(DynaForge 계획서에 적힘, 9e4a3b3)에 함께 — 「셸 · 두꺼운 셸은 적분점 층 극값(σvm · σ1 · εp 층 최대, σ3 층 최소)」 을 cae_part_response 의 peak_von_mises · peak_max_principal · min_principal · peak_plastic_strain 과 cae_part 의 worst_* 포락 설명에 (kooremapper-4a 제안 11-07, 설명만 바꿔도 지문이 바뀌어 판이 오른다)
+
+## v48 묶음 (11-07, 사용자 선택)
+- [x] 그림 파트 제목 = 사용자 파트 ID(d0bc3fb)
+- [x] 소성역 요약(n_yield · vol_yield)에도 ε_p 잡음 바닥 1e-6, 보고 임계 = 실제로 쓴 값(9db7f98) — Test_006 파트 23 만 966 → 0
+- [x] 시험 CMake — 단면 렌더러 끈 빌드에서 test_section_center_mode 를 만들지 않음(68f1213)
+- [ ] v48 배포 · 배포판 확인 — 설정 · 비교 /data/koopark/Post_v48/{cfg,cmp_v48.py}
