@@ -39,3 +39,13 @@
   갤러리 3장 · 차트, 크로미움에서 버튼 · 갤러리 · 모달 SVG 확인(오류 0).
 - **post_analyze 자동 채우기는 보류** — v45 굽기 중 배포 세션이 apptainer/ · scripts/ 를 작업 트리에서도 바꾸지 말아 달라고 했다
   (def · build.sh · deploy_from_sif.sh 를 작업 트리에서 읽는다). 굽기 완료 알림 뒤에 붙인다.
+
+## 2. 메모리 안전장치 (11-07, 사용자 결정 「안전장치만」)
+- UnifiedAnalyzer::analyze 가 전 상태를 읽기 직전에 어림한다 — 상태 하나 = 헤더 워드 수(1 + NGLBV + NND + ENN + DELNN, StateDataParser
+  와 같은 셈) × 8 바이트, × 상태 수 × 1.1. 가용 = /proc/meminfo MemAvailable 과 자기 cgroup 한도(v2 memory.max − current, v1 limit −
+  usage, /proc/self/cgroup 경로) 중 작은 것. 넘으면 숫자와 함께 실패(rc 1, 「Analysis failed: 메모리 부족 예상으로 멈춘다 — …」),
+  70% 넘으면 경고. `KOOD3PLOT_MEMORY_CHECK=warn` 경고만 · `off` 안 봄.
+- **함정**: 처음엔 상태 0 을 `reader.read_state(0)` 로 읽어 크기를 쟀는데, read_state 는 첫 호출에서 **전 상태를 리더 캐시에 올린다** —
+  뒤의 전 상태 읽기와 합쳐 두 벌(Test_006: 6.7 → 13.6 GB, 27 → 212 s). 헤더 셈으로 바꿔 원래 수준(6.84 GB)으로 돌아왔다.
+- 실측: 상한 4 GB scope(systemd-run MemoryMax=4G)에서 「상태 992개 × 7.0 MB ≈ 7.5 GB 필요, 가용 4.0 GB」 로 바로 멈춘다(rc 1).
+  어림 7.0 MB/상태 ≈ 실측 6.7 MB/상태. 평소 조건은 경고 없이 통과.

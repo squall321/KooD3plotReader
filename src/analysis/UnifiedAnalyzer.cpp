@@ -27,6 +27,11 @@
 #include <utility>
 #include <filesystem>
 #include <set>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -34,6 +39,93 @@
 
 namespace kood3plot {
 namespace analysis {
+
+namespace {
+
+// 이 프로세스가 더 쓸 수 있는 메모리(바이트) — /proc/meminfo 의 MemAvailable 과 자기 cgroup 한도(Slurm 작업 ·
+// systemd scope: v2 memory.max − memory.current, v1 limit − usage) 중 작은 것. 모르면 0.
+uint64_t availableBytes() {
+#ifdef __linux__
+    uint64_t avail = 0;
+    {
+        std::ifstream mi("/proc/meminfo");
+        std::string k, unit;
+        uint64_t v = 0;
+        while (mi >> k >> v >> unit) {
+            if (k == "MemAvailable:") { avail = v * 1024ULL; break; }
+        }
+    }
+    auto readNum = [](const std::string& path, uint64_t& out) -> bool {
+        std::ifstream f(path);
+        std::string t;
+        if (!(f >> t) || t == "max") return false;
+        try { out = std::stoull(t); return true; } catch (...) { return false; }
+    };
+    auto cap = [&](uint64_t limit, uint64_t used) {
+        if (limit > used && limit < (1ULL << 60)) avail = avail ? std::min(avail, limit - used) : limit - used;
+    };
+    std::ifstream cg("/proc/self/cgroup");
+    std::string line;
+    while (std::getline(cg, line)) {
+        // v2: "0::/system.slice/…"   v1: "N:memory:/…"
+        auto a = line.find(':'), b = line.find(':', a == std::string::npos ? 0 : a + 1);
+        if (a == std::string::npos || b == std::string::npos) continue;
+        std::string ctrl = line.substr(a + 1, b - a - 1), path = line.substr(b + 1);
+        uint64_t lim = 0, cur = 0;
+        if (line.compare(0, 2, "0:") == 0 && ctrl.empty()) {
+            std::string base = "/sys/fs/cgroup" + path;
+            if (readNum(base + "/memory.max", lim) && readNum(base + "/memory.current", cur)) cap(lim, cur);
+        } else if (ctrl.find("memory") != std::string::npos) {
+            std::string base = "/sys/fs/cgroup/memory" + path;
+            if (readNum(base + "/memory.limit_in_bytes", lim) && readNum(base + "/memory.usage_in_bytes", cur)) cap(lim, cur);
+        }
+    }
+    return avail;
+#else
+    return 0;
+#endif
+}
+
+// 메모리 안전장치 — 분석기는 상태를 모두 메모리에 올린다(상태당 수 MB, 4,952 상태 런이면 30 GB 넘게). 읽기 전에 어림해
+// 가용보다 크면 숫자와 함께 멈춘다 — 조용히 OOM · earlyoom 에 죽으면 deep · post_analyze 는 원인을 모른다(2026-11-07).
+// KOOD3PLOT_MEMORY_CHECK=warn 이면 경고만 하고 계속, =off 면 보지 않는다. 어림을 못 하면 그냥 지나간다.
+bool memoryBudgetOk(D3plotReader& reader, const UnifiedProgressCallback& callback, std::string& why) {
+    const char* env = std::getenv("KOOD3PLOT_MEMORY_CHECK");
+    const std::string mode = env ? env : "";
+    if (mode == "off") return true;
+    const size_t n = reader.get_num_states();
+    if (n < 2) return true;
+    // 상태 하나의 크기는 헤더로 셈한다(StateDataParser 와 같은 워드 수, 메모리에서는 대부분 double 8 바이트).
+    // 🔴 여기서 reader.read_state() 를 부르면 안 된다 — 첫 호출이 전 상태를 리더 캐시에 올려, 뒤의 전 상태 읽기와
+    //    합쳐 두 벌을 쥔다(2026-11-07 실측 Test_006: 6.7 GB → 13.6 GB, 27 s → 212 s).
+    const auto& c = reader.get_control_data();
+    const double words = 1.0 + double(c.NGLBV) + double(c.NND) + double(c.ENN) + double(c.DELNN);
+    const size_t per = static_cast<size_t>(words * 8.0);
+    const uint64_t avail = availableBytes();
+    if (per == 0 || avail == 0) return true;
+    const double need = double(per) * double(n) * 1.10;                             // 읽는 동안의 덤 10%
+    char buf[256];
+    std::snprintf(buf, sizeof buf, "상태 %zu개 × %.1f MB ≈ %.1f GB 필요, 가용 %.1f GB(MemAvailable · cgroup 한도 중 작은 것)",
+                  n, per / 1048576.0, need / 1073741824.0, avail / 1073741824.0);
+    if (need > double(avail)) {
+        if (mode == "warn") {
+            std::fprintf(stderr, "WARNING: 메모리 부족 예상 — %s. KOOD3PLOT_MEMORY_CHECK=warn 이라 계속한다\n", buf);
+            if (callback) callback(std::string("WARNING: 메모리 부족 예상 — ") + buf);
+            return true;
+        }
+        why = std::string("메모리 부족 예상으로 멈춘다 — ") + buf +
+              ". 분석기는 상태를 모두 메모리에 올린다 — 메모리가 넓은 노드에서 돌리거나, 그래도 시도하려면 "
+              "KOOD3PLOT_MEMORY_CHECK=warn";
+        return false;
+    }
+    if (need > 0.7 * double(avail)) {
+        std::fprintf(stderr, "WARNING: 메모리 빠듯함 — %s\n", buf);
+        if (callback) callback(std::string("WARNING: 메모리 빠듯함 — ") + buf);
+    }
+    return true;
+}
+
+}  // namespace
 
 ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config) {
     return analyze(config, nullptr);
@@ -65,6 +157,14 @@ ExtendedAnalysisResult UnifiedAnalyzer::analyze(const UnifiedConfig& config, Uni
     if (err != ErrorCode::SUCCESS) {
         last_error_ = "Failed to open d3plot file";
         return result;
+    }
+
+    {
+        std::string why;
+        if (!memoryBudgetOk(reader, callback, why)) {
+            last_error_ = why;
+            return result;
+        }
     }
 
     if (callback) callback("Reading all states (parallel)...");
