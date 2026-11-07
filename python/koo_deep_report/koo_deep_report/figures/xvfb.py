@@ -20,6 +20,20 @@ def local_alive(d: str | None) -> bool:
     return bool(m) and Path(f"/tmp/.X11-unix/X{m.group(1)}").exists()
 
 
+def xvfb_cmd(exe: str, n: int, size: str) -> list[str]:
+    """Xvfb 명령.
+
+    - `-noreset` — 기본 Xvfb 는 마지막 클라이언트가 끊길 때 서버를 리셋한다(약 60 ms). 그림 한 겹마다 Plotter 를 열고 닫으므로
+      다음 겹이 1.6~2.0 ms 만에 리셋 도중으로 들어오고, 그 연결이 리셋에 함께 닫히면 VTK 가 「bad X server connection」 으로
+      abort() 한다 — 파이썬 예외가 아니라 deep 리포트 전체가 rc 134 로 죽었다(2026-11-07 배포 세션 실측, 부하 높을 때 22판 중 5판).
+    - `setpriv --pdeathsig TERM` — 부모(이 파이썬)가 abort · earlyoom 으로 죽어도 Xvfb 가 고아로 남지 않게(남으면 apptainer 마운트를
+      붙잡아 squashfuse 종료가 늦어진다). setpriv 가 없으면 그냥 띄운다.
+    """
+    cmd = [exe, f":{n}", "-screen", "0", size, "-nolisten", "tcp", "-noreset"]
+    sp = shutil.which("setpriv")
+    return [sp, "--pdeathsig", "TERM", "--", *cmd] if sp else cmd
+
+
 @contextlib.contextmanager
 def display(first: int = 140, last: int = 239, size: str = "2560x1600x24"):
     if local_alive(os.environ.get("DISPLAY")):
@@ -32,8 +46,7 @@ def display(first: int = 140, last: int = 239, size: str = "2560x1600x24"):
     for n in range(first, last + 1):
         if Path(f"/tmp/.X{n}-lock").exists() or Path(f"/tmp/.X11-unix/X{n}").exists():
             continue
-        proc = subprocess.Popen([exe, f":{n}", "-screen", "0", size, "-nolisten", "tcp"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(xvfb_cmd(exe, n, size), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):                                  # 소켓이 생길 때까지(최대 5 s)
             if Path(f"/tmp/.X11-unix/X{n}").exists() or proc.poll() is not None:
                 break

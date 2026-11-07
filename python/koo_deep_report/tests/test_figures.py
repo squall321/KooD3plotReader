@@ -401,3 +401,16 @@ def test_part_titles_follow_user_part_ids_when_title_ids_are_internal():
     assert s.part_titles.get(10) == "Pouch_Top_Shell"
     assert s.part_titles.get(11) == "Pouch_Bottom_Shell"
     assert 1 not in s.part_titles                      # 내부 순번은 키가 아니다
+
+
+def test_xvfb_cmd_noreset_and_dies_with_parent(monkeypatch):
+    """-noreset 이 없으면 겹마다 Plotter 를 닫을 때 서버가 리셋돼 다음 연결이 끊기고 VTK 가 abort() 한다(2026-11-07).
+    setpriv --pdeathsig 로 부모가 죽으면 Xvfb 도 같이 죽는다(고아 방지). setpriv 가 없으면 그냥 띄운다."""
+    from koo_deep_report.figures import xvfb
+    monkeypatch.setattr(xvfb.shutil, "which", lambda name: "/usr/bin/setpriv" if name == "setpriv" else None)
+    cmd = xvfb.xvfb_cmd("/usr/bin/Xvfb", 140, "10x10x24")
+    assert cmd[:5] == ["/usr/bin/setpriv", "--pdeathsig", "TERM", "--", "/usr/bin/Xvfb"]
+    assert ":140" in cmd and "-noreset" in cmd
+    monkeypatch.setattr(xvfb.shutil, "which", lambda name: None)
+    cmd = xvfb.xvfb_cmd("/usr/bin/Xvfb", 141, "10x10x24")
+    assert cmd[0] == "/usr/bin/Xvfb" and "-noreset" in cmd

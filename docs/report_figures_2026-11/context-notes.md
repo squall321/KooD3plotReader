@@ -147,3 +147,15 @@
   파일 이름 안의 점만 본다.
 - 확인(호스트, 새 분석기): 점 없는 경로 + `zoom_crop: false` → 확대본 없음 / 키 없음 → 「Cropped」 확대본 / `.work/` 경로 + 키 없음 →
   이제 제자리에 확대본. 새 분석기는 호스트 glibc 2.38 로 빌드돼 SIF(22.04) 안에서는 못 돌린다 — SIF 확인은 다음 배포판에서.
+
+## Xvfb 리셋 경쟁 — 그림이 가끔 abort(rc 134)로 deep 를 통째로 죽이던 결함 (11-07, v46 부터)
+- 배포 세션(pykoocae-53)이 v48 판정 중 찾았다 — 「vtkXOpenGLRenderWindow: bad X server connection. DISPLAY=:140. Aborting.」
+- 원인: `xvfb.display()` 가 Xvfb 를 `-noreset` 없이 띄웠다. 기본 Xvfb 는 마지막 클라이언트가 끊길 때 서버를 리셋하는데(약 60 ms),
+  `png._layer` 가 겹마다 Plotter 를 열고 닫아 다음 겹이 1.6~2.0 ms 만에 리셋 도중으로 들어온다 → 그 연결이 함께 닫혀 XOpenDisplay 가
+  NULL → VTK abort(). 파이썬 예외가 아니라 pack 의 try/except 가 못 잡고 deep · 캠페인 그림 프로세스 전체가 죽는다. abort 하면
+  display() 의 finally 가 안 돌아 Xvfb 가 고아(PPID 1)로 남아 apptainer 마운트를 붙잡는다.
+- 고침: `xvfb_cmd()` — `-noreset` + `setpriv --pdeathsig TERM --`(부모가 죽으면 Xvfb 도 죽는다, setpriv 없으면 그냥).
+- 실측(헤드 load ~50/32, DISPLAY 없이 그림 코드가 Xvfb 를 직접 띄움, 셸 파우치 snap 10회씩): v48 SIF 코드 8/10 · abort 2 · 고아 Xvfb 2,
+  고친 코드 10/10 · abort 0 · 새 고아 0. 고친 코드로 display() 안에서 os.abort() → Xvfb 도 사라짐. 부하가 낮으면 드물다(그래서 판정
+  deep airbag 11장은 통과했었다).
+- 렌더를 자식 프로세스로 떼어 abort 해도 deep 가 사는 방식은 하지 않았다 — 알려진 원인은 위에서 없앴다(필요하면 다음에).
