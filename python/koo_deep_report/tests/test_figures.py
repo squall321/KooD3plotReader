@@ -387,3 +387,17 @@ def test_gallery_index_and_idempotent_link(tmp_path):
     assert link_html(r, "figures/index.html") and link_html(r, "figures/index.html")
     t = r.read_text(encoding="utf-8")
     assert t.count(BEGIN) == 1 and t.count(END) == 1 and t.index(END) < t.index("</body>") and "본문" in t
+
+
+AIRBAG = Path("/data/battery_study/case_dent_stacked_shell_airbag/d3plot")
+
+
+@pytest.mark.skipif(not AIRBAG.exists(), reason="셸 파우치 실데이터 없음")
+def test_part_titles_follow_user_part_ids_when_title_ids_are_internal():
+    """파트 번호가 임의인 덱은 lasso 제목 번호가 내부 순번(1..N)이다 — 제목은 사용자 파트 ID 에 붙어야 한다(2026-11-07)."""
+    pytest.importorskip("lasso")
+    from koo_deep_report.figures import mesh
+    s = mesh.read_state(AIRBAG, 0)
+    assert s.part_titles.get(10) == "Pouch_Top_Shell"
+    assert s.part_titles.get(11) == "Pouch_Bottom_Shell"
+    assert 1 not in s.part_titles                      # 내부 순번은 키가 아니다

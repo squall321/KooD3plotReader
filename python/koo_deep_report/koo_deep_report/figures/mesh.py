@@ -148,7 +148,11 @@ def read_state(d3plot: str | Path, state_index: int) -> StateSurface:
     pids = np.asarray(arr.get(A.part_ids, arr.get(A.part_titles_ids)))
     titles = {}
     if A.part_titles in arr and A.part_titles_ids in arr:
-        for pid, tt in zip(arr[A.part_titles_ids], arr[A.part_titles]):
+        # 제목 표의 번호는 파트 번호가 임의인 덱에서 내부 순번(1..N)이다 — 사용자 파트 ID 는 part_ids 에
+        # 같은 내부 순서로 있다(셸 파우치 덱: 제목 1..60, 파트 10 · 11 · 100 …). 있으면 그것으로 묶는다.
+        keys = (arr[A.part_ids] if A.part_ids in arr and len(arr[A.part_ids]) == len(arr[A.part_titles])
+                else arr[A.part_titles_ids])
+        for pid, tt in zip(keys, arr[A.part_titles]):
             s = tt.decode("utf-8", "replace") if isinstance(tt, bytes) else str(tt)
             titles[int(pid)] = s.strip()
 

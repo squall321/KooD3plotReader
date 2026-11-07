@@ -98,3 +98,14 @@
   - `--from-json` 은 메시를 **JSON 이 있는 폴더**의 `output/Run_*/d3plot` 에서 찾는다(JSON 의 test_dir 가 아니다). 사본 폴더에 런 하나를
     가리키는 링크를 잠깐 두고(/data 는 SIF 에 :ro), 확인 뒤 링크만 지웠다.
   - 합성 사본이라 실제 셸 · 소성 캠페인으로는 아직 보지 않았다.
+
+## 실제 셸 · 소성 데이터로 sphere 경로 확인 (11-07)
+- `/data/Tests` 의 낙하 캠페인(Test_001 · 005 · 006)은 셸이 없다. 셸 파우치 덱을 런 둘로 **복사**(링크 없음)해 `.work/shell_plastic/shellcamp`
+  합성 캠페인을 만들었다 — DropSet.json 은 자세 둘(R0 · R90)과 파트 이름, scenario.json 은 이름만.
+- v47 배포판: unified_analyzer(YAML 에 criterion 없음 → 기본 von_mises + plastic_strain, 셸 이력 58) → `koo_sphere_report --test-dir` →
+  Playwright. 기준 선택지 둘, von_mises 112(56×2, 최대 390.1) ↔ plastic_strain 46(23×2, 최대 2.155 — 파트 1005 셸, 그 파트 ε_p 이력 최대
+  2.15537 과 맞음, 군집은 층 평균이라 아주 조금 작다), 범례 「ε_p 최대 [-] 0.157~2.155」, 페이지 오류 0. 파우치 메시 위에 셸 소성 군집이 그려진다.
+- **발견한 결함**: lasso 의 파트 제목 번호(`part_titles_ids`)가 파트 번호가 임의인 덱에서는 내부 순번(1..N)이다(셸 파우치: 제목 1..60,
+  `part_ids` 는 10 · 11 · 12 · 100 …). `figures/mesh.py` 가 제목을 그 번호로 묶어 이런 덱에서 이름이 엉뚱한 파트에 붙었다 — deep 그림은
+  deep 의 파트 이름을 먼저 써서 안 드러났고, 이름 없는 대체 경로(단독 `figures snap` · SVG 툴팁)에서 틀린다. `part_ids` 가 있고 수가 같으면
+  그것으로 묶게 고쳤다(없는 덱 — Test_006 · case_shell — 은 제목 번호가 곧 사용자 ID 라 종전 그대로). 실데이터 시험 추가.
