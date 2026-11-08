@@ -457,6 +457,13 @@ public:
      */
     std::string getLastOutput() const;
 
+    /// LS-PrePost 를 전용 Xvfb 위에서 돌리는 셸 명령(리눅스). Xvfb 가 `-displayfd` 로 빈 화면 번호를 스스로 고르고
+    /// **준비된 뒤** 번호를 알려 준다 — 예전의 고정 `:10+worker` · `sleep 0.5` 는 같은 노드에서 분석기 둘이 겹치면
+    /// 둘째가 첫째의 화면에 붙어 도중에 화면을 잃었고, 부하가 높으면 소켓이 늦어 화면을 못 열었다(2026-11-08).
+    /// Xvfb 를 못 띄우면 rc 97, 아니면 LS-PrePost 의 종료 코드를 낸다. 시험이 이 문자열을 그대로 돌린다.
+    static std::string xvfbRunCommand(const std::string& gl_prefix, const std::string& lsprepost_path,
+                                      const std::string& script_path);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> pImpl;

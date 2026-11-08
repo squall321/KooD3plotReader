@@ -467,8 +467,6 @@ bool LSPrePostRenderer::executeLSPrePost(
     // then kill the Xvfb. This is more reliable than xvfb-run -a for section views.
     std::ostringstream cmd;
 #ifndef _WIN32
-    // Dedicated Xvfb display per worker (avoids conflicts in parallel rendering)
-    int display_num = 10 + pImpl->worker_id;  // :10, :11, :12, ...
     // GPU 모드: GLX 전용 LSPrePost 를 헤드리스 GPU 로 가속하는 유일한 경로는
     // VirtualGL. vglrun 이 GLX 호출을 가로채 EGL(/dev/dri/renderDxxx)에서 GPU
     // 렌더 후 Xvfb 프레임버퍼로 blit. apptainer --nv 로 NVIDIA 드라이버 바인드 필요.
@@ -477,15 +475,7 @@ bool LSPrePostRenderer::executeLSPrePost(
     if (pImpl->gpu_mode && std::system("command -v vglrun >/dev/null 2>&1") == 0) {
         gl_prefix = "vglrun -d egl ";
     }
-    cmd << "Xvfb :" << display_num << " -ac -screen 0 1600x1200x24 &"
-        << " XVFB_PID=$!; sleep 0.5;"
-        << " DISPLAY=:" << display_num << ".0 "
-        << gl_prefix
-        << "\"" << pImpl->lsprepost_path << "\" c=\"" << script_path << "\";"
-        // LS-PrePost 의 종료 코드를 내야 한다 — 예전에는 마지막 명령(wait Xvfb)의
-        // 코드가 나가 LS-PrePost 가 abort 해도 성공이었다(2026-10-28 K-1).
-        << " LSPP_RC=$?;"
-        << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null; exit $LSPP_RC";
+    cmd << xvfbRunCommand(gl_prefix, pImpl->lsprepost_path, script_path);
 #else
     cmd << "\"" << pImpl->lsprepost_path << "\" -nographics c=\"" << script_path << "\"";
 #endif
@@ -534,7 +524,10 @@ bool LSPrePostRenderer::executeLSPrePost(
     // when multiple LSPrePost instances run in parallel.
     // 준비는 fork 전에 한다 — 렌더 작업자 스레드가 여럿일 때 fork 된 자식에서
     // 파일 입출력을 하는 것은 안전하지 않다.
-    const std::string fake_home = "/tmp/lspp_worker_" + std::to_string(pImpl->worker_id);
+    // 프로세스 번호까지 — 작업자 번호는 프로세스마다 0 부터라, 같은 노드의 분석기 둘이 한 폴더를 같이 썼다.
+    // 렌더가 끝나면 지운다(프로세스마다 생기므로 남기면 쌓인다).
+    const std::string fake_home = "/tmp/lspp_worker_" + std::to_string(getpid()) + "_" +
+                                  std::to_string(pImpl->worker_id);
     std::filesystem::create_directories(fake_home);
     prepareWorkerHome(fake_home);
 
@@ -561,6 +554,10 @@ bool LSPrePostRenderer::executeLSPrePost(
     // Parent process - wait for child
     int status;
     waitpid(pid, &status, 0);
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(fake_home, ec);
+    }
 
     if (!WIFEXITED(status)) {
         pImpl->last_error = "LSPrePost process terminated abnormally (signal)";
@@ -570,11 +567,34 @@ bool LSPrePostRenderer::executeLSPrePost(
     if (exit_code != 0) {
         pImpl->last_error = "LSPrePost exited with code " + std::to_string(exit_code)
                           + (exit_code == 134 ? " (abort — 메모리 부족일 수 있다)" : "")
+                          + (exit_code == 97 ? " (Xvfb 를 띄우지 못했다 — -displayfd)" : "")
                           + " (cmd: " + cmd.str().substr(0, 200) + ")";
         return false;
     }
     return true;
 #endif
+}
+
+std::string LSPrePostRenderer::xvfbRunCommand(const std::string& gl_prefix, const std::string& lsprepost_path,
+                                              const std::string& script_path) {
+    std::ostringstream c;
+    // -displayfd 3: 빈 번호를 서버가 고르고(잠금으로 겨룬다) 연결을 받을 준비가 된 뒤 번호를 fd 3 에 쓴다.
+    // setpriv --pdeathsig: 이 셸이 죽으면 Xvfb 도 같이 — 고아가 apptainer 마운트를 붙잡지 않게(없으면 그냥 띄운다).
+    // Xvfb 출력은 버린다 — 쓰이는 번호를 건너뛸 때마다 「server already running」 을 찍어 렌더 로그를 덮는다.
+    c << "F=$(mktemp /tmp/lspp_xvfb.XXXXXX) || exit 97;"
+      << " SP=; command -v setpriv >/dev/null 2>&1 && SP='setpriv --pdeathsig TERM --';"
+      << " $SP Xvfb -displayfd 3 -ac -screen 0 1600x1200x24 -nolisten tcp -noreset 3>\"$F\" >/dev/null 2>&1 & XVFB_PID=$!;"
+      << " i=0; while [ ! -s \"$F\" ] && kill -0 $XVFB_PID 2>/dev/null && [ $i -lt 300 ]; do sleep 0.05; i=$((i+1)); done;"
+      << " N=$(cat \"$F\" 2>/dev/null); rm -f \"$F\";"
+      << " if [ -z \"$N\" ] || ! kill -0 $XVFB_PID 2>/dev/null; then"
+      << " echo 'Xvfb 를 띄우지 못했다(-displayfd)' >&2; kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null; exit 97; fi;"
+      << " DISPLAY=:$N.0 " << gl_prefix
+      << "\"" << lsprepost_path << "\" c=\"" << script_path << "\";"
+      // LS-PrePost 의 종료 코드를 내야 한다 — 예전에는 마지막 명령(wait Xvfb)의
+      // 코드가 나가 LS-PrePost 가 abort 해도 성공이었다(2026-10-28 K-1).
+      << " LSPP_RC=$?;"
+      << " kill $XVFB_PID 2>/dev/null; wait $XVFB_PID 2>/dev/null; exit $LSPP_RC";
+    return c.str();
 }
 
 std::string LSPrePostRenderer::getLastError() const {
