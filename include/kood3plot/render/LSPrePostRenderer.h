@@ -391,7 +391,7 @@ public:
      * camera zoomed to target part bbox with margin.
      * Uses a dedicated Xvfb display for reliable view control.
      *
-     * Output structure: output_dir/part_{id}_{name}/section_{axis}.mp4
+     * Output structure: output_dir/part_{id}_{name}/section_{axis}.mp4 (name: partFolderName)
      *
      * @param d3plot_path Path to d3plot file
      * @param reader      D3plotReader (opened) for bbox calculation
@@ -463,6 +463,10 @@ public:
     /// Xvfb 를 못 띄우면 rc 97, 아니면 LS-PrePost 의 종료 코드를 낸다. 시험이 이 문자열을 그대로 돌린다.
     static std::string xvfbRunCommand(const std::string& gl_prefix, const std::string& lsprepost_path,
                                       const std::string& script_path);
+
+    /// 파트별 영상 폴더 이름 `part_<id>_<이름>`. 이름은 셸 명령 `c="…"` 과 LS-PrePost 명령의 `"…"` 안에 들어가므로
+    /// 영문 · 숫자 · `. _ -` 만 남기고 나머지 연속은 `_` 하나로, 앞뒤 `_` 는 떼고 40자로 자른다. 남는 글자가 없으면 `Part<id>`.
+    static std::string partFolderName(int pid, const std::string& name);
 
 private:
     struct Impl;

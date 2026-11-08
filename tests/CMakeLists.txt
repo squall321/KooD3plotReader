@@ -93,6 +93,14 @@ if(TARGET kood3plot_render)
     target_include_directories(test_lspp_xvfb PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# 파트별 단면 영상 폴더 이름 — 덱 이름을 살리되 셸 · LS-PrePost 명령을 깨는 글자는 남기지 않는다
+if(TARGET kood3plot_render)
+    add_executable(test_lspp_part_folder test_lspp_part_folder.cpp)
+    target_link_libraries(test_lspp_part_folder PRIVATE kood3plot_render)
+    target_include_directories(test_lspp_part_folder PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME LsppPartFolder COMMAND test_lspp_part_folder)
+endif()
+
 # LS-PrePost 명령 스크립트에서 숨길 파트가 fringe 뒤 · 첫 ac 앞에 꺼지는지(리포트 그림 3단계)
 if(TARGET kood3plot_render)
     add_executable(test_lspp_hide_parts test_lspp_hide_parts.cpp)

@@ -938,11 +938,15 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         return render::FringeType::VON_MISES;
     };
 
-    // Mesh part-name lookup (D3plot has no PART names; fall back to PID labels)
+    // 폴더 이름 — 덱 *PART 제목(deep 의 파트별 단면 키워드가 맞추는 이름과 같은 출처). 덱이 없으면 PID 표식.
+    // 예전에는 「d3plot 에는 이름이 없다」 며 늘 Part<id> 라 폴더를 보고 키워드를 고르면 헛쳤다(2026-11-08 v50 판정).
     auto mesh = reader.read_mesh();
+    const auto deck_names = UnifiedConfigParser::loadPartNames(reader.getFilePath());
     std::map<int, std::string> part_names;
     auto add_pname = [&](int32_t pid) {
-        part_names[static_cast<int>(pid)] = "Part" + std::to_string(pid);
+        auto it = deck_names.find(pid);
+        part_names[static_cast<int>(pid)] = (it != deck_names.end() && !it->second.empty())
+            ? it->second : "Part" + std::to_string(pid);
     };
     for (auto pid : mesh.solid_parts)        add_pname(pid);
     for (auto pid : mesh.shell_parts)        add_pname(pid);

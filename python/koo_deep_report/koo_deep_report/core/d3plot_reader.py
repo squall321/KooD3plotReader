@@ -162,11 +162,15 @@ def run_analysis(
         if kws and extracted_ids:
             names = _part_names(d3plot_path, result)
             low = [k.lower() for k in kws]
+            seen = [names[p] for p in extracted_ids if names.get(p)]
             extracted_ids = [p for p in extracted_ids if any(k in names.get(p, "").lower() for k in low)]
             if not extracted_ids:
+                # 어떤 이름과 맞춰 봤는지 같이 — 폴더 이름 · 짐작으로 고른 키워드가 헛친 까닭을 바로 알게(2026-11-08 v50 판정)
+                shown = ", ".join(seen[:8]) + (f" 외 {len(seen) - 8}개" if len(seen) > 8 else "")
                 render_warnings.append(
-                    f"[설정] 파트별 단면: 이름에 {' · '.join(kws)} 가 든 파트가 없어 만들지 않았다 — 키워드는 "
-                    "--section-view-part-keywords, 모든 파트는 --section-view-per-part")
+                    f"[설정] 파트별 단면: 이름에 {' · '.join(kws)} 가 든 파트가 없어 만들지 않았다"
+                    + (f"(파트 이름: {shown})" if shown else "(파트 이름을 찾지 못했다)")
+                    + " — 키워드는 --section-view-part-keywords, 모든 파트는 --section-view-per-part")
         if extracted_ids:
             if sv_needs_second_pass:
                 sv_per_part = copy.copy(section_view_config)

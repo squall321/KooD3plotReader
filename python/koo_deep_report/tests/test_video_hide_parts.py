@@ -162,14 +162,14 @@ def test_part_scope_standard_is_keyword_bga():
     assert _scope(["--no-section-view-per-part"]) == (False, [])
 
 
-def _fake_two_pass(monkeypatch, names):
+def _fake_two_pass(monkeypatch, names, pids=(5, 7, 9)):
     calls = []
     monkeypatch.setattr(R, "find_unified_analyzer", lambda d=None: Path("/bin/true"))
     monkeypatch.setattr(R, "_run_ua", lambda ua, y, v: calls.append(y))
     monkeypatch.setattr(R, "_part_names", lambda d3, res: names)
 
     def fake(out, parse_motion=True, series=None):
-        st = [PartTimeSeries(p, "", "von_mises", "", 1.0, 0.0, 0.0, [{"time": 0.0, "max": 1.0}], 1) for p in (5, 7, 9)]
+        st = [PartTimeSeries(p, "", "von_mises", "", 1.0, 0.0, 0.0, [{"time": 0.0, "max": 1.0}], 1) for p in pids]
         return D3plotResult(metadata={}, stress=st, strain=[], acceleration=[], motion={})
     monkeypatch.setattr(R, "_parse_outputs", fake)
     return calls
@@ -190,6 +190,24 @@ def test_no_keyword_part_means_no_second_pass_and_a_note(monkeypatch, tmp_path):
                          section_view_config=_svc(backend="software", per_part_render=True, part_keywords=["BGA"]))
     assert len(calls) == 1                                                    # 파트별 패스를 아예 안 돈다
     assert any(w.startswith("[설정] 파트별 단면") and "BGA" in w for w in res.render_warnings)
+    # 어떤 이름과 맞춰 봤는지 같이 찍는다 — 폴더 이름을 보고 고른 키워드가 헛친 까닭(2026-11-08 v50 판정)
+    assert any("(파트 이름: Housing, PCB, Battery)" in w for w in res.render_warnings)
+
+
+def test_no_keyword_note_lists_at_most_eight_names(monkeypatch, tmp_path):
+    pids = tuple(range(1, 12))
+    _fake_two_pass(monkeypatch, {p: f"P{p:02d}" for p in pids}, pids)
+    res = R.run_analysis(Path("/d3"), tmp_path, RenderConfig(enabled=False), None,
+                         section_view_config=_svc(backend="software", per_part_render=True, part_keywords=["BGA"]))
+    w = next(w for w in res.render_warnings if w.startswith("[설정] 파트별 단면"))
+    assert "(파트 이름: P01, P02, P03, P04, P05, P06, P07, P08 외 3개)" in w and "P09" not in w
+
+
+def test_no_keyword_note_without_any_name(monkeypatch, tmp_path):
+    _fake_two_pass(monkeypatch, {})
+    res = R.run_analysis(Path("/d3"), tmp_path, RenderConfig(enabled=False), None,
+                         section_view_config=_svc(backend="software", per_part_render=True, part_keywords=["BGA"]))
+    assert any(w.startswith("[설정] 파트별 단면") and "(파트 이름을 찾지 못했다)" in w for w in res.render_warnings)
 
 
 def test_yaml_config_part_keywords(tmp_path):

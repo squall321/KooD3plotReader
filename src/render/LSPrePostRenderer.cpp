@@ -9,6 +9,7 @@
 #include "kood3plot/render/LSPrePostRenderer.h"
 #include "kood3plot/render/GeometryAnalyzer.h"
 #include "kood3plot/D3plotReader.hpp"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -597,6 +598,23 @@ std::string LSPrePostRenderer::xvfbRunCommand(const std::string& gl_prefix, cons
     return c.str();
 }
 
+std::string LSPrePostRenderer::partFolderName(int pid, const std::string& name) {
+    // isalnum 은 로캘에 따라 0x80 이상 바이트도 참일 수 있다 — ASCII 를 직접 본다
+    auto ascii_alnum = [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    };
+    std::string s;
+    for (char c : name) {
+        if (ascii_alnum(c) || c == '.' || c == '-' || c == '_') s += c;
+        else if (!s.empty() && s.back() != '_') s += '_';
+    }
+    if (s.size() > 40) s.resize(40);
+    const size_t b = s.find_first_not_of('_'), e = s.find_last_not_of('_');
+    s = (b == std::string::npos) ? std::string() : s.substr(b, e - b + 1);
+    if (std::none_of(s.begin(), s.end(), ascii_alnum)) s = "Part" + std::to_string(pid);
+    return "part_" + std::to_string(pid) + "_" + s;
+}
+
 std::string LSPrePostRenderer::getLastError() const {
     return pImpl->last_error;
 }
@@ -699,16 +717,9 @@ int LSPrePostRenderer::renderAllPartSections(
     int success = 0, current = 0;
 
     for (int pid : part_ids) {
-        std::string pname;
         auto it = part_names.find(pid);
-        if (it != part_names.end() && !it->second.empty()) {
-            pname = it->second;
-            for (char& c : pname) {
-                if (c == '/' || c == '\\' || c == ' ' || c == ':') c = '_';
-            }
-        }
-        std::string folder = "part_" + std::to_string(pid);
-        if (!pname.empty()) folder += "_" + pname;
+        const std::string pname = it != part_names.end() ? it->second : std::string();  // 진행 로그용(원래 이름)
+        const std::string folder = partFolderName(pid, pname);
 
         fs::path part_dir = abs_output / folder;
         fs::create_directories(part_dir);
