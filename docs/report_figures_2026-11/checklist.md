@@ -37,3 +37,10 @@
 ## 5단계 — 배포
 - [x] 시험 전부 · SIF 배포 요청 · 배포판에서 확인 — **v44(e86fd1b) 배포 완료(11-06)**, 헤드리스 a1ca45cc 네 곳 동일, 확인 a·b·c-1·c-2 모두 `--no-home`(노드 조건) 통과
 - [ ] 노드(node001·002) 로컬 SIF — 노드가 켜지면(배포 세션)
+
+## v51 — 파트별 영상 폴더 이름을 덱 이름으로 (11-08, 배포 세션 지적 → 사용자 결정 「덱 이름 + 안내 보강」 · 「push + v51」)
+- [x] C++ `LSPrePostRenderer::partFolderName` — 영문 · 숫자 · `. _ -` 만 남기고 나머지 연속은 `_` 하나, 앞뒤 `_` 제거, 40자, 남는 글자가 없으면 `Part<id>`
+- [x] `processPartSectionRenders` 가 덱 *PART 제목(`UnifiedConfigParser::loadPartNames`, deep 키워드와 같은 출처)으로 이름을 채운다 — 덱이 없으면 `Part<id>`
+- [x] deep 안내 — 키워드에 맞는 파트가 없을 때 파트 이름(앞 8개 · 외 N개)을 같이 찍는다
+- [x] 시험 — C++ `tests/test_lspp_part_folder.cpp` · Python `test_video_hide_parts` · 실제 LS-PrePost(셸 덱, `pcb` → `part_1_PCB_FR4`) — **7076b19**, 단위 12 · deep 209 · 실측 통과
+- [ ] push + v51 배포 요청 · 배포판(`--no-home`)에서 폴더 이름 · 안내 확인

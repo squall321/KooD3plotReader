@@ -197,3 +197,18 @@
 - 산출물: /data/koopark · /data/Tests(깊이 8)에 renders/part_sections 폴더가 하나도 없다 — 이 경로의 파트별 영상은 그 전에도 쓰인 흔적이 없다.
   해당 기간 deep 결과에는 「파트별 렌더 패스 실패 … Invalid configuration」 경고가 남는다 — result.json 이 아니라 report.html 의 DATA.render_warnings
   (리포트 갤러리)에 실린다. 다른 곳의 캠페인 산출물은 `grep -l '파트별 렌더 패스 실패' <…>/report.html` 로 가린다. /data 전체 탐색은 몇 분 안에 안 끝났다.
+
+## 파트별 영상 폴더 이름을 덱 이름으로 (11-08, 배포 세션 v50 판정 지적 → 사용자 결정 「덱 이름 + 안내 보강」)
+- v50 판정에서 `--section-view-part-keywords Part` 가 영상 0 이었다 — 결함이 아니라 셸 덱의 *PART 제목이 `PCB_FR4` 라서다. 그런데 폴더 이름은
+  `part_1_Part1` 이다. `processPartSectionRenders` 가 「d3plot 에는 파트 이름이 없다」 는 옛 전제로 `"Part" + id` 만 넘겼기 때문이다(키워드가 맞추는
+  이름과 다르다). 폴더를 보고 키워드를 고르면 헛친다. 위 「결정(11-08)」 실측 줄의 「Part1」 도 이 폴더 표식이었다 — 덱 이름은 PCB_FR4 다.
+- 고침: 폴더 이름을 덱 *PART 제목으로(`UnifiedConfigParser::loadPartNames` — deep `_part_names` 와 같은 후보 순서). 이름이 셸 명령 `c="…"` 과
+  LS-PrePost 명령의 `"…"` 안에 들어가므로 영문 · 숫자 · `. _ -` 만 남긴다(따옴표 · `$` · 공백 · 한글 등은 `_`). 남는 글자가 없으면 종전대로
+  `Part<id>`. 길이는 40자로 자른다(LS-PrePost 경로 길이 한계를 실측하지 않아 종전 `Part<id>` 에 가깝게 둔다).
+- 덱이 없으면 deep 은 해석 결과 · d3plot 제목으로 거르지만 폴더는 `Part<id>` 다 — 이 경우까지 맞추려면 YAML 로 이름을 넘겨야 한다. 덱 없는
+  서버 런은 드물어 이번에는 두지 않는다.
+- 안내 보강: 맞는 파트가 없을 때 `[설정] 파트별 단면: …` 줄에 그 런의 파트 이름(앞 8개 · 외 N개)을 같이 찍는다. 줄 앞부분은 그대로 둬
+  기존 grep(`'\[설정\] 파트별 단면'`)이 계속 잡는다.
+- 실측(7076b19, 로컬 엔진 · 실제 LS-PrePost, 셸 덱 z 축 · render_threads 2): `pcb` → `part_sections/von_mises/part_1_PCB_FR4/{section_z,iso_clip_z}.mp4`
+  (각 26 프레임 · 1280×720, v50 의 `part_1_Part1` 과 같은 영상), `Part` → 영상 0 · 안내 「…없어 만들지 않았다(파트 이름: PCB_FR4) — …」, 거절 0,
+  남은 Xvfb 0. 리포트 DATA.renders 도 새 경로. 시험 `tests/test_lspp_part_folder.cpp`(12, ctest 등록) · deep 209 통과.
