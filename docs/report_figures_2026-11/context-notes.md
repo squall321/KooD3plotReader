@@ -212,3 +212,7 @@
 - 실측(7076b19, 로컬 엔진 · 실제 LS-PrePost, 셸 덱 z 축 · render_threads 2): `pcb` → `part_sections/von_mises/part_1_PCB_FR4/{section_z,iso_clip_z}.mp4`
   (각 26 프레임 · 1280×720, v50 의 `part_1_Part1` 과 같은 영상), `Part` → 영상 0 · 안내 「…없어 만들지 않았다(파트 이름: PCB_FR4) — …」, 거절 0,
   남은 Xvfb 0. 리포트 DATA.renders 도 새 경로. 시험 `tests/test_lspp_part_folder.cpp`(12, ctest 등록) · deep 209 통과.
+- **v51(226eca7) 배포(11-08 21:58~22:13, 배포 세션)** — 헤드리스 32997e9b(1,156,505,600 B) · GUI a3f06a56, 빌드 원본 · /data · compute-node-images ·
+  헤드 /opt 같음(이쪽도 헤드 /opt 에서 sha256 · VERSION · SIF 안 d3plot_reader.py 의 새 안내를 재확인). 노드는 v47(VM 꺼짐).
+  판정(`--no-home`, v50 헤드와 견줌): perpart_check kw pcb 영상 2 · 폴더 `part_1_PCB_FR4`(v50 `part_1_Part1`), `--section-view-per-part` 도 같은 폴더 2편,
+  lspp_e2e 「Part」 영상 0 · 이름 붙은 안내, 기본 · 동시 둘 · 남은 것 0 은 v50 과 같다. DynaForge 에 알림(그쪽 cae00 §5-1 「알려진 한계」 항목).

@@ -43,4 +43,4 @@
 - [x] `processPartSectionRenders` 가 덱 *PART 제목(`UnifiedConfigParser::loadPartNames`, deep 키워드와 같은 출처)으로 이름을 채운다 — 덱이 없으면 `Part<id>`
 - [x] deep 안내 — 키워드에 맞는 파트가 없을 때 파트 이름(앞 8개 · 외 N개)을 같이 찍는다
 - [x] 시험 — C++ `tests/test_lspp_part_folder.cpp` · Python `test_video_hide_parts` · 실제 LS-PrePost(셸 덱, `pcb` → `part_1_PCB_FR4`) — **7076b19**, 단위 12 · deep 209 · 실측 통과
-- [ ] push + v51 배포 요청 · 배포판(`--no-home`)에서 폴더 이름 · 안내 확인
+- [x] push + v51 배포 요청 · 배포판(`--no-home`)에서 폴더 이름 · 안내 확인 — **v51(226eca7) 배포 완료(11-08 22:13)**, 헤드리스 32997e9b · GUI a3f06a56, kw pcb → `part_1_PCB_FR4` 영상 2 · 「Part」 → 이름 붙은 안내
