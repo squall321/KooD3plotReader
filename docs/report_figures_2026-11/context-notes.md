@@ -187,3 +187,13 @@
   (셸 시험 [15]). 두 수정은 반드시 같은 판(v50)으로 나가야 한다.
 - 실측(셸 덱, 기본값): 파트 1 「Part1」 은 BGA 가 아니라 파트별 영상 없이 개관만, 안내 한 줄. 키워드가 맞으면 2차 패스가 그 파트들로
   part_section_renders 를 짓는다(검사 수정 뒤 파트별 영상 4개 실측).
+
+## 정정 — 파트별 LS-PrePost 단면 2차 패스가 거절된 기간 (11-08, a9 질문)
+- 19e00e2 설명의 「늘」 은 틀렸다. 0b8193b(2026-05-03)가 파트별 단면을 넣을 때는 2차 패스 YAML 에 개관 render_jobs 도 함께 실려 검사를
+  통과했다(개관을 두 번 렌더하는 비용은 있었다). **c65bf31(2026-10-28, 「파트별 2차 패스가 개관 영상을 다시 만들지 않게」)** 이 overview=False 로
+  개관을 빼면서 2차 패스가 part_section_renders 하나뿐이 되어 그때부터 거절됐다 — 배포판 **v42 ~ v49** 가 해당, v41 이하는 해당 없음.
+- c65bf31 의 시험(test_second_pass_overview.py)은 YAML 에 개관이 없는지만 봤고 분석기가 그 YAML 을 받는지는 보지 않았다. 19e00e2 의 C++ 시험([G])이
+  그 자리를 막는다.
+- 산출물: /data/koopark · /data/Tests(깊이 8)에 renders/part_sections 폴더가 하나도 없다 — 이 경로의 파트별 영상은 그 전에도 쓰인 흔적이 없다.
+  해당 기간 deep 결과에는 「파트별 렌더 패스 실패 … Invalid configuration」 경고가 남는다 — result.json 이 아니라 report.html 의 DATA.render_warnings
+  (리포트 갤러리)에 실린다. 다른 곳의 캠페인 산출물은 `grep -l '파트별 렌더 패스 실패' <…>/report.html` 로 가린다. /data 전체 탐색은 몇 분 안에 안 끝났다.
