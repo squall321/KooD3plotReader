@@ -14,10 +14,30 @@ import time
 from pathlib import Path
 
 
+_TMP = Path("/tmp")
+
+
 def local_alive(d: str | None) -> bool:
-    """':N' · 'unix:N' 꼴이고 /tmp/.X11-unix/XN 이 있으면 참."""
+    """':N' · 'unix:N' 꼴이고 /tmp/.X11-unix/XN 이 있으면 참 — 다만 /tmp/.XN-lock 의 PID 가 죽었으면 거짓.
+
+    서버가 정리 없이 죽으면(abort · 마운트가 먼저 내려간 뒤의 kill) 잠금과 소켓이 그대로 남는다. 그 번호의 DISPLAY 를 그대로
+    쓰면 죽은 화면에 붙어 VTK 가 abort 한다(2026-11-08 배포 세션 지적). 잠금을 못 읽으면(소켓만 묶은 컨테이너 등) 종전대로
+    소켓만 본다.
+    """
     m = re.fullmatch(r"(?:unix)?:(\d+)(?:\.\d+)?", d or "")
-    return bool(m) and Path(f"/tmp/.X11-unix/X{m.group(1)}").exists()
+    if not m or not (_TMP / ".X11-unix" / f"X{m.group(1)}").exists():
+        return False
+    try:
+        pid = int((_TMP / f".X{m.group(1)}-lock").read_text().strip())
+    except (OSError, ValueError):
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:                      # 다른 사용자의 살아 있는 서버
+        return True
+    return True
 
 
 def xvfb_cmd(exe: str, n: int, size: str) -> list[str]:

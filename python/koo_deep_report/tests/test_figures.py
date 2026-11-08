@@ -414,3 +414,20 @@ def test_xvfb_cmd_noreset_and_dies_with_parent(monkeypatch):
     monkeypatch.setattr(xvfb.shutil, "which", lambda name: None)
     cmd = xvfb.xvfb_cmd("/usr/bin/Xvfb", 141, "10x10x24")
     assert cmd[0] == "/usr/bin/Xvfb" and "-noreset" in cmd
+
+
+def test_local_alive_rejects_stale_lock(monkeypatch, tmp_path):
+    """서버가 정리 없이 죽어 남은 잠금 · 소켓을 살아 있는 화면으로 보지 않는다(2026-11-08). 잠금이 없으면 종전대로 소켓만 본다."""
+    import os
+    import subprocess
+    from koo_deep_report.figures import xvfb
+    monkeypatch.setattr(xvfb, "_TMP", tmp_path)
+    (tmp_path / ".X11-unix").mkdir()
+    (tmp_path / ".X11-unix" / "X150").write_text("")
+    assert xvfb.local_alive(":150")                              # 잠금 없음 → 소켓으로 판단
+    dead = subprocess.Popen(["true"]); dead.wait()
+    (tmp_path / ".X150-lock").write_text(f"{dead.pid:>10}\n")
+    assert not xvfb.local_alive(":150")                          # 잠금의 PID 가 죽었다 → 낡은 화면
+    (tmp_path / ".X150-lock").write_text(f"{os.getpid():>10}\n")
+    assert xvfb.local_alive(":150.0")                            # 살아 있는 PID
+    assert not xvfb.local_alive(":151") and not xvfb.local_alive("localhost:10.0")
