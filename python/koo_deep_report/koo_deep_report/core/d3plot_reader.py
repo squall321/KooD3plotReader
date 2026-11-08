@@ -157,6 +157,16 @@ def run_analysis(
     # Second pass: per-part renders using part IDs from analysis results
     if needs_second_pass:
         extracted_ids = _extract_part_ids(result)
+        # 표준(2026-11-08) — 이름에 키워드(기본 BGA)가 든 파트만 파트별 영상을 찍는다. 모든 파트는 서버에서 너무 느리다.
+        kws = list(getattr(section_view_config, "part_keywords", None) or []) if sv_needs_second_pass else []
+        if kws and extracted_ids:
+            names = _part_names(d3plot_path, result)
+            low = [k.lower() for k in kws]
+            extracted_ids = [p for p in extracted_ids if any(k in names.get(p, "").lower() for k in low)]
+            if not extracted_ids:
+                render_warnings.append(
+                    f"[설정] 파트별 단면: 이름에 {' · '.join(kws)} 가 든 파트가 없어 만들지 않았다 — 키워드는 "
+                    "--section-view-part-keywords, 모든 파트는 --section-view-per-part")
         if extracted_ids:
             if sv_needs_second_pass:
                 sv_per_part = copy.copy(section_view_config)
@@ -263,6 +273,41 @@ def _ignored_option_warnings(render_config, section_view_config) -> list[str]:
     for w in out:
         print(f"[koo_deep_report] {w}", file=sys.stderr)
     return out
+
+
+def _part_names(d3plot_path: Path, result: "D3plotResult") -> dict[int, str]:
+    """파트 ID → 이름 — 덱(.k) 제목이 먼저, 빈 자리는 해석 결과 · d3plot 제목으로 채운다(파트별 영상 키워드 거르기용)."""
+    names: dict[int, str] = {}
+    try:
+        from .keyword_parser import find_and_parse_keyword
+        kw = find_and_parse_keyword(d3plot_path)
+        if kw is not None:
+            names.update({int(pid): str(p.name) for pid, p in kw.parts.items() if getattr(p, "name", "")})
+    except Exception:  # noqa: BLE001 — 덱을 못 읽어도 다른 곳에서 찾는다
+        pass
+    for sr in list(result.stress) + list(result.strain):
+        if sr.part_name and sr.part_id not in names:
+            names[sr.part_id] = sr.part_name
+    for pid, mo in (result.motion or {}).items():
+        if getattr(mo, "part_name", "") and pid not in names:
+            names[pid] = mo.part_name
+    if any(p not in names for p in _extract_part_ids(result)):
+        try:
+            import numpy as np
+            from lasso.dyna import ArrayType as A, D3plot
+            arr = D3plot(str(d3plot_path), state_array_filter=[A.global_timesteps]).arrays
+            if A.part_titles in arr and A.part_titles_ids in arr:
+                titles = arr[A.part_titles]
+                # 번호가 임의인 덱은 제목 번호가 내부 순번이다 — 사용자 ID(part_ids)가 같은 순서로 있으면 그것으로
+                keys = (arr[A.part_ids] if A.part_ids in arr and len(arr[A.part_ids]) == len(titles)
+                        else arr[A.part_titles_ids])
+                for pid, tt in zip(np.asarray(keys).tolist(), titles):
+                    nm = (tt.decode("utf-8", "replace") if isinstance(tt, bytes) else str(tt)).strip()
+                    if nm and int(pid) not in names:
+                        names[int(pid)] = nm
+        except Exception:  # noqa: BLE001 — lasso 가 없거나 못 읽으면 아는 이름만
+            pass
+    return names
 
 
 def _extract_part_ids(result: "D3plotResult") -> list[int]:

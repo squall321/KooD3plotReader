@@ -135,8 +135,8 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                    help="(iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70%% 투명)")
     p.add_argument("--section-view-per-part", dest="section_view_per_part",
                    action="store_true",
-                   help="파트별 단면뷰 렌더링 강제 ON (기본: 켬 — --section-view-target-ids 를 주면 그 파트들만, "
-                        "--section-view-target-patterns 만 주면 끔)")
+                   help="파트별 단면뷰를 모든 파트에 강제 ON (느리다). 기본은 이름에 --section-view-part-keywords(기본 BGA)가 "
+                        "든 파트만, --section-view-target-ids 를 주면 그 파트들만, --section-view-target-patterns 만 주면 끔")
     p.add_argument("--no-section-view-per-part", dest="section_view_per_part",
                    action="store_false",
                    help="파트별 단면뷰 렌더링 강제 OFF")
@@ -153,6 +153,10 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
                         "— 분석 대상은 좁히지 않는다(--parts 와 다르다)")
     p.add_argument("--section-view-target-patterns", nargs="+", default=None, metavar="PAT",
                    help="단면뷰 타겟 파트 패턴 (예: \"*PKG*\")")
+    p.add_argument("--section-view-part-keywords", nargs="+", default=None, metavar="KW",
+                   help="파트별 단면 영상을 찍을 파트 이름 키워드(대소문자 무시 · 부분 일치, 쉼표로도 여럿). 기본 BGA — "
+                        "단면 대상 ID 를 주지 않으면 이 이름이 든 파트만 파트별 영상을 만든다(모든 파트를 찍으면 서버에서 "
+                        "너무 느리다, 2026-11-08 표준). 모든 파트는 --section-view-per-part")
     p.add_argument("--section-view-fade", type=float, default=0.0, metavar="DIST",
                    help="비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)")
     p.add_argument("--sv-threads", type=int, default=2, metavar="N",
@@ -577,6 +581,13 @@ def _parse_section_view_block(block: str) -> dict:
         items = [x.strip().strip('"').strip("'") for x in m.group(1).split(",")]
         out["section_view_target_patterns"] = [x for x in items if x]
 
+    # part_keywords (flow list of strings) — 파트별 단면을 찍을 이름 키워드
+    m = re.search(r'^\s+part_keywords:\s*\[([^\]]*)\]\s*(?:#.*)?$',
+                  block, re.MULTILINE)
+    if m:
+        items = [x.strip().strip('"').strip("'") for x in m.group(1).split(",")]
+        out["section_view_part_keywords"] = [x for x in items if x]
+
     # per_part
     m = re.search(r'^\s+per_part:\s*(true|false|yes|no|on|off|1|0)\s*(?:#.*)?$',
                   block, re.MULTILINE | re.IGNORECASE)
@@ -797,6 +808,9 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         if (getattr(args, "section_view_target_patterns", None) is None
                 and "section_view_target_patterns" in sv_cfg):
             args.section_view_target_patterns = sv_cfg["section_view_target_patterns"]
+        if (getattr(args, "section_view_part_keywords", None) is None
+                and "section_view_part_keywords" in sv_cfg):
+            args.section_view_part_keywords = sv_cfg["section_view_part_keywords"]
         if (getattr(args, "section_view_fade", 0.0) == 0.0
                 and "section_view_fade" in sv_cfg):
             args.section_view_fade = sv_cfg["section_view_fade"]
@@ -924,6 +938,32 @@ def _engine_hotspot_caps(install_dir: Path | None) -> tuple[tuple[str, ...], tup
     return _HOTSPOT_CRITERIA, _HOTSPOT_TIME_AGGREGATES
 
 
+
+# 파트별 단면 영상 표준(사용자 결정 2026-11-08) — 대상 ID 가 없으면 이름에 공통 키워드가 든 파트만 찍는다.
+_SV_PART_KEYWORDS_DEFAULT = ("BGA",)
+
+
+def _sv_part_scope(args: argparse.Namespace) -> tuple[bool, list[str]]:
+    """파트별 단면 영상의 범위 — (켬 여부, 이름 키워드). run_single · _run_one 이 같이 쓴다(예전엔 블록이 복제돼 있었다).
+
+    - --section-view-per-part 를 명시하면 모든 파트(키워드 없음), --no-section-view-per-part 면 끔.
+    - 대상 ID 를 주면 그 파트들(키워드는 쓰지 않는다). 패턴만 주면 종전대로 끔.
+    - 아무것도 없으면 이름에 키워드(기본 BGA, --section-view-part-keywords)가 든 파트만 — 모든 파트를 찍으면 서버에서 너무 느리다.
+    """
+    ids = getattr(args, "section_view_target_ids", None) or []
+    pats = getattr(args, "section_view_target_patterns", None) or []
+    user_pp = getattr(args, "section_view_per_part", None)
+    if user_pp is not None:
+        return bool(user_pp), []
+    if ids:
+        return True, []
+    if pats:
+        return False, []
+    raw = getattr(args, "section_view_part_keywords", None)
+    kws = [k.strip() for item in (raw if raw is not None else _SV_PART_KEYWORDS_DEFAULT)
+           for k in str(item).split(",") if k.strip()]
+    return bool(kws), kws
+
 def _split_criteria(value) -> list[str]:
     """리스트·쉼표 문자열·대괄호 표기를 이름 목록으로 나눈다 (검증은 안 한다)."""
     if isinstance(value, (list, tuple)):
@@ -1050,12 +1090,7 @@ def run_single(args: argparse.Namespace) -> None:
         # with --no-section-view-per-part.
         _ids = getattr(args, "section_view_target_ids", None) or []
         _pats = getattr(args, "section_view_target_patterns", None) or []
-        _user_pp = getattr(args, "section_view_per_part", None)  # tri-state (None=auto)
-        if _user_pp is None:
-            # 타겟 id 를 주면 그 파트들의 파트별 단면(분석 대상은 안 좁힘), 패턴만 주면 끔
-            sv_per_part = bool(_ids) or not _pats
-        else:
-            sv_per_part = bool(_user_pp)
+        sv_per_part, sv_keywords = _sv_part_scope(args)
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
@@ -1069,6 +1104,7 @@ def run_single(args: argparse.Namespace) -> None:
             target_patterns=_pats,
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=sv_per_part,
+            part_keywords=sv_keywords,
             sv_threads=getattr(args, "sv_threads", 2),
             iso_clip_view=getattr(args, "section_view_iso_clip", True),
             section_position=getattr(args, "section_view_section_position", 0.5),
@@ -1448,12 +1484,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
         # Same auto-enable rule as single mode.
         _ids = getattr(args, "section_view_target_ids", None) or []
         _pats = getattr(args, "section_view_target_patterns", None) or []
-        _user_pp = getattr(args, "section_view_per_part", None)
-        if _user_pp is None:
-            # 타겟 id 를 주면 그 파트들의 파트별 단면(분석 대상은 안 좁힘), 패턴만 주면 끔
-            sv_per_part = bool(_ids) or not _pats
-        else:
-            sv_per_part = bool(_user_pp)
+        sv_per_part, sv_keywords = _sv_part_scope(args)
         sv_cfg = SectionViewRenderConfig(
             enabled=True,
             backend=getattr(args, "section_view_backend", "lsprepost"),
@@ -1467,6 +1498,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
             target_patterns=_pats,
             fade_distance=getattr(args, "section_view_fade", 0.0),
             per_part_render=sv_per_part,
+            part_keywords=sv_keywords,
             sv_threads=getattr(args, "sv_threads", 2),
             iso_clip_view=getattr(args, "section_view_iso_clip", True),
             section_position=getattr(args, "section_view_section_position", 0.5),

@@ -81,7 +81,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --output) out="${2:-}"; shift 2 ;;
         --config|--yield-stress) shift 2 ;;
-        --no-figures|--no-hide-floor) echo "deepflag $1" >> "${STUB_LOG}"; shift ;;
+        --no-figures|--no-hide-floor|--section-view-per-part|--section-view-part-keywords)
+            echo "deepflag $1" >> "${STUB_LOG}"; shift ;;
         --*) shift ;;
         *) if [ -z "$d3" ]; then d3="$1"; fi; shift ;;
     esac
@@ -482,6 +483,20 @@ run_pa "$T14" --deep-only --no-render --no-figures
 chk "--no-figures 면 채우지 않는다" 0 "$(grep -c '^figs pack ' "$W/calls.log")"
 STUB_NO_FIGS=1 run_pa "$T14" --deep-only --no-render
 chk "옛 SIF(figures 명령 없음)면 채우지 않는다" 0 "$(grep -c '^figs pack ' "$W/calls.log")"
+
+# [15] 섹션뷰 기본 주입 — 모든 파트 강제(--section-view-per-part)를 넣지 않는다(표준: 이름 키워드 파트만, 2026-11-08)
+echo ""
+echo "[15] 섹션뷰 파트별 영상 표준"
+T15="$W/t15"
+mk_tree "$T15" Run_a/Output/d3plot
+run_pa "$T15" --deep-only
+chk "deep 이 돌았다" 1 "$(n_calls deep)"
+chk "기본 주입에 --section-view-per-part 가 없다(모든 파트 × 3축은 서버에서 너무 느리다)" 0 \
+    "$(grep -c '^deepflag --section-view-per-part$' "$W/calls.log")"
+run_pa "$T15" --deep-only --force --section-view-part-keywords BGA PKG
+chk "--section-view-part-keywords 를 deep 에 넘긴다" 1 "$(grep -c '^deepflag --section-view-part-keywords$' "$W/calls.log")"
+run_pa "$T15" --deep-only --force --section-view-per-part
+chk "모든 파트를 원하면 --section-view-per-part 를 그대로 넘긴다" 1 "$(grep -c '^deepflag --section-view-per-part$' "$W/calls.log")"
 
 echo ""
 if [ "$fails" -gt 0 ]; then

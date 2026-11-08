@@ -137,7 +137,9 @@ usage() {
     --section-view
     --section-view-backend {lsprepost|software}
     --section-view-mode {section|section_3d}
-    --section-view-per-part
+    --section-view-per-part        모든 파트의 파트별 영상(느리다 — 기본은 아래 키워드 파트만)
+    --section-view-part-keywords KW...
+                                   파트별 영상을 찍을 파트 이름 키워드(기본 BGA, 대소문자 무시 · 부분 일치)
     --section-view-axes x y z
     --section-view-fields von_mises eps strain ...
     --section-view-target-ids ID...
@@ -207,6 +209,11 @@ while [[ $# -gt 0 ]]; do
         --section-view-backend)    DEEP_EXTRA+=(--section-view-backend "$2"); shift 2 ;;
         --section-view-mode)       DEEP_EXTRA+=(--section-view-mode "$2"); shift 2 ;;
         --section-view-per-part)   DEEP_EXTRA+=(--section-view-per-part); shift ;;
+        --section-view-part-keywords)
+                                   DEEP_EXTRA+=(--section-view-part-keywords); shift
+                                   while [[ $# -gt 0 && "$1" != -* ]]; do
+                                       DEEP_EXTRA+=("$1"); shift
+                                   done ;;
         --section-view-axes)       DEEP_EXTRA+=(--section-view-axes); shift
                                    while [[ $# -gt 0 && "$1" != -* ]]; do
                                        DEEP_EXTRA+=("$1"); shift
@@ -961,7 +968,9 @@ run_step_deep() {
                 [ "${_e}" = "--section-view" ] && { _has_sv=true; break; }
             done
             if ! ${_has_sv}; then
-                cmd+=(--section-view --section-view-per-part
+                # 파트별 영상은 deep 표준(이름에 키워드 — 기본 BGA — 가 든 파트만)을 따른다. 예전처럼
+                # --section-view-per-part 를 넣으면 모든 파트 × 3축을 찍어 서버에서 너무 느리다(2026-11-08).
+                cmd+=(--section-view
                       --section-view-axes x y z
                       --section-view-fields von_mises)
                 # lsprepost 있으면 사용, 없으면 software fallback

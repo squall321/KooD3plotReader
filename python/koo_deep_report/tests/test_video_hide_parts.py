@@ -142,3 +142,62 @@ def test_namespace_without_flag_still_hides_floor():
     pytest.importorskip("lasso")
     from koo_deep_report.__main__ import _apply_video_hide
     assert _apply_video_hide(argparse.Namespace(), V14, RenderConfig(), None) == [23]
+
+
+# ── 파트별 단면 영상 표준 — 이름에 공통 키워드(기본 BGA)가 든 파트만 (사용자 결정 2026-11-08) ─────────
+def _scope(argv):
+    from koo_deep_report.__main__ import _add_single_args, _sv_part_scope
+    p = argparse.ArgumentParser()
+    _add_single_args(p)
+    return _sv_part_scope(p.parse_args(["x", "--section-view", *argv]))
+
+
+def test_part_scope_standard_is_keyword_bga():
+    assert _scope([]) == (True, ["BGA"])                                      # 기본 — BGA 이름 파트만
+    assert _scope(["--section-view-part-keywords", "BGA,PKG"]) == (True, ["BGA", "PKG"])
+    assert _scope(["--section-view-part-keywords", "PKG", "CELL"]) == (True, ["PKG", "CELL"])
+    assert _scope(["--section-view-target-ids", "5"]) == (True, [])          # 대상 ID 가 이긴다
+    assert _scope(["--section-view-target-patterns", "*PKG*"]) == (False, [])  # 패턴만 — 종전대로 끔
+    assert _scope(["--section-view-per-part"]) == (True, [])                  # 명시하면 모든 파트(느림)
+    assert _scope(["--no-section-view-per-part"]) == (False, [])
+
+
+def _fake_two_pass(monkeypatch, names):
+    calls = []
+    monkeypatch.setattr(R, "find_unified_analyzer", lambda d=None: Path("/bin/true"))
+    monkeypatch.setattr(R, "_run_ua", lambda ua, y, v: calls.append(y))
+    monkeypatch.setattr(R, "_part_names", lambda d3, res: names)
+
+    def fake(out, parse_motion=True, series=None):
+        st = [PartTimeSeries(p, "", "von_mises", "", 1.0, 0.0, 0.0, [{"time": 0.0, "max": 1.0}], 1) for p in (5, 7, 9)]
+        return D3plotResult(metadata={}, stress=st, strain=[], acceleration=[], motion={})
+    monkeypatch.setattr(R, "_parse_outputs", fake)
+    return calls
+
+
+def test_second_pass_keeps_only_keyword_parts(monkeypatch, tmp_path):
+    calls = _fake_two_pass(monkeypatch, {5: "U1_BGA_Ball", 7: "PCB", 9: "bga_underfill"})
+    R.run_analysis(Path("/d3"), tmp_path, RenderConfig(enabled=False), None,
+                   section_view_config=_svc(backend="software", per_part_render=True, part_keywords=["BGA"]))
+    assert len(calls) == 2
+    assert "section_view_part_5_z" in calls[1] and "section_view_part_9_z" in calls[1]     # 대소문자 무시
+    assert "section_view_part_7_z" not in calls[1]
+
+
+def test_no_keyword_part_means_no_second_pass_and_a_note(monkeypatch, tmp_path):
+    calls = _fake_two_pass(monkeypatch, {5: "Housing", 7: "PCB", 9: "Battery"})
+    res = R.run_analysis(Path("/d3"), tmp_path, RenderConfig(enabled=False), None,
+                         section_view_config=_svc(backend="software", per_part_render=True, part_keywords=["BGA"]))
+    assert len(calls) == 1                                                    # 파트별 패스를 아예 안 돈다
+    assert any(w.startswith("[설정] 파트별 단면") and "BGA" in w for w in res.render_warnings)
+
+
+def test_yaml_config_part_keywords(tmp_path):
+    from koo_deep_report.__main__ import _add_single_args, _apply_config_to_args
+    cfg = tmp_path / "a.yaml"
+    cfg.write_text("section_view:\n  enabled: true\n  part_keywords: [BGA, \"PKG\"]\n")
+    p = argparse.ArgumentParser()
+    _add_single_args(p)
+    a = p.parse_args(["x", "--config", str(cfg)])
+    _apply_config_to_args(a)
+    assert a.section_view_part_keywords == ["BGA", "PKG"]

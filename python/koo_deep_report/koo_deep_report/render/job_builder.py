@@ -25,6 +25,9 @@ class SectionViewRenderConfig:
     scalar_field: str = ""       # 단일 필드 (하위 호환) — 설정 시 scalar_fields 무시
     target_part_ids: list[int] = field(default_factory=list)     # [] = all parts as target
     target_patterns: list[str] = field(default_factory=list)     # e.g. ["*PKG*", "*CELL*"]
+    #: 파트별 단면을 찍을 파트 이름 키워드(대소문자 무시 · 부분 일치). 비면 거르지 않는다. deep 표준(2026-11-08)은
+    #: 대상 ID 가 없을 때 ["BGA"] — 모든 파트를 찍으면 서버에서 너무 느리다(run_analysis 2차 패스가 거른다).
+    part_keywords: list[str] = field(default_factory=list)
     #: 영상에서 숨길 파트(바닥 등) — 단면 · 외피 · 카메라 맞춤 · 파트별 목록에서 모두 뺀다. 비면 숨기지 않는다
     hide_part_ids: list[int] = field(default_factory=list)
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
