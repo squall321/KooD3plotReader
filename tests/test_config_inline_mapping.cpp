@@ -130,6 +130,26 @@ int main() {
             std::to_string(config.part_section_renders.size()) + " jobs");
     }
 
+    std::printf("[G] part_section_renders 하나뿐인 설정도 작업이 있다(deep 파트별 LS-PrePost 단면 2차 패스)\n");
+    {
+        const std::string yaml =
+            "input:\n"
+            "  d3plot: /tmp/none/d3plot\n"
+            "part_section_renders:\n"
+            "  - name: \"Per-Part Sections (von_mises)\"\n"
+            "    fringe_type: von_mises\n"
+            "    axes: [x, z]\n"
+            "    part_ids: [1]\n";
+        UnifiedConfig config;
+        UnifiedConfigParser::loadFromYAMLString(yaml, config);
+        chk("파트별 단면 1개를 읽는다", config.part_section_renders.size() == 1,
+            std::to_string(config.part_section_renders.size()) + " jobs");
+        chk("검사를 통과한다(예전에는 「Invalid configuration」)", UnifiedConfigParser::validate(config), "");
+        UnifiedConfig empty;
+        empty.d3plot_path = "/tmp/none/d3plot";
+        chk("작업이 정말 없으면 여전히 거절", !UnifiedConfigParser::validate(empty), "");
+    }
+
     std::printf("\n%s  실패 %d 건\n", g_failed ? "[FAIL]" : "[PASS]", g_failed);
     return g_failed ? 1 : 0;
 }

@@ -1385,8 +1385,11 @@ bool UnifiedConfigParser::validate(const UnifiedConfig& config) {
         return false;
     }
 
-    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty() && config.set_reports.empty()) {
-        last_error_ = "At least one analysis_job, render_job, section_view, or set_report is required";
+    // part_section_renders 도 작업이다 — 빠뜨려 deep 의 파트별 LS-PrePost 단면 2차 패스(이것 하나뿐인 YAML)가
+    // 늘 「Invalid configuration」 으로 거절됐다(2026-11-08).
+    if (config.analysis_jobs.empty() && config.render_jobs.empty() && config.section_views.empty() &&
+        config.set_reports.empty() && config.part_section_renders.empty()) {
+        last_error_ = "At least one analysis_job, render_job, section_view, part_section_render, or set_report is required";
         return false;
     }
 
