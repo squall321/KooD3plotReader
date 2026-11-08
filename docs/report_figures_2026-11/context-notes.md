@@ -159,3 +159,22 @@
   고친 코드 10/10 · abort 0 · 새 고아 0. 고친 코드로 display() 안에서 os.abort() → Xvfb 도 사라짐. 부하가 낮으면 드물다(그래서 판정
   deep airbag 11장은 통과했었다).
 - 렌더를 자식 프로세스로 떼어 abort 해도 deep 가 사는 방식은 하지 않았다 — 알려진 원인은 위에서 없앴다(필요하면 다음에).
+
+## LS-PrePost 렌더의 Xvfb (11-08, 배포 세션 · a9 지적 → 사용자 결정 「둘 다 고침」)
+- 리셋 경쟁은 해당 없다(LS-PrePost 가 연결 하나를 끝까지 쥔다 — 배포 세션 -audit 4 실측). 위험은 둘이었다.
+  1. 기동 대기가 고정 `sleep 0.5` — 부하가 높으면 소켓이 1~3 s 늦어 LS-PrePost 가 화면을 못 연다.
+  2. 화면 번호가 `:10 + 작업자 번호`(프로세스마다 0 부터) — 같은 노드의 분석기 둘이 겹치면 둘째 Xvfb 는 잠금에 막히고 둘째 LS-PrePost 가
+     첫째 화면에 붙었다가 첫째가 끝나며 화면을 잃는다. 설정 폴더 `/tmp/lspp_worker_<n>` 도 같은 이유로 둘이 같이 썼다.
+- 고침(`LSPrePostRenderer::xvfbRunCommand`): `Xvfb -displayfd 3 … -nolisten tcp -noreset 3>파일` — 서버가 빈 번호를 스스로 고르고 준비된 뒤
+  번호를 쓴다(a9 실측). 파일이 찰 때까지(최대 15 s) 기다리고, Xvfb 가 죽거나 못 뜨면 rc 97. `setpriv --pdeathsig` 로 셸이 죽으면 Xvfb 도.
+  Xvfb 출력은 버린다(쓰이는 번호를 건너뛸 때마다 「server already running」). 설정 폴더는 `/tmp/lspp_worker_<pid>_<n>`, 렌더 뒤 지운다.
+- 시험 `tests/test_lspp_xvfb.cpp`(가짜 LS-PrePost) — 동시에 둘이 :2 · :3 을 받고, 넘겨받을 때 소켓이 이미 있고, 종료 코드 그대로(7),
+  Xvfb 없으면 rc 97. 실제 LS-PrePost: 셸 덱 deep 단면(x · z, render_threads 2) 영상 둘 생성, 남은 Xvfb 0.
+- 그림 쪽 `xvfb.local_alive()` 도 잠금 PID 가 죽었으면 거짓 — 정리 없이 죽은 서버의 잠금 · 소켓이 남으면 그 DISPLAY 를 살아 있다고
+  보고 붙어 abort 할 수 있었다(배포 세션 지적). 잠금을 못 읽으면 종전대로 소켓만 본다.
+
+## 발견 — 파트별 LS-PrePost 단면 2차 패스가 늘 거절된다 (11-08, 미수정 · 사용자 결정 대기)
+- `UnifiedConfigParser::validate` 가 「작업이 하나는 있어야」 를 analysis_jobs · render_jobs · section_views · set_reports 로만 센다.
+  deep 이 단면 대상 없이 LS-PrePost 단면을 켜면(파트별 기본 켬) 2차 패스 YAML 은 `part_section_renders` 뿐이라 거절된다 —
+  「파트별 렌더 패스 실패 … Invalid configuration」 경고만 남고 파트별 영상은 안 나온다(셸 덱 실측). 소프트웨어 단면(자동화 7-1)은 해당 없음.
+- 고치면 모든 파트의 파트별 영상을 렌더해 시간이 크게 는다 — 검사만 고칠지, 기본값(대상 없을 때 파트별 켬)도 바꿀지 결정이 필요하다.
