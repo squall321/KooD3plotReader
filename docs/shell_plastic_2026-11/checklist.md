@@ -41,4 +41,4 @@
 - [x] 그림 파트 제목 = 사용자 파트 ID(d0bc3fb)
 - [x] 소성역 요약(n_yield · vol_yield)에도 ε_p 잡음 바닥 1e-6, 보고 임계 = 실제로 쓴 값(9db7f98) — Test_006 파트 23 만 966 → 0
 - [x] 시험 CMake — 단면 렌더러 끈 빌드에서 test_section_center_mode 를 만들지 않음(68f1213)
-- [ ] v48 배포 · 배포판 확인 — 설정 · 비교 /data/koopark/Post_v48/{cfg,cmp_v48.py}
+- [x] v48 배포 · 배포판 확인 — 설정 · 비교 /data/koopark/Post_v48/{cfg,cmp_v48.py} — **v48(ff71b03) 배포 · 판정 통과(11-07 22:02)**, 헤드리스 4ab927f7 · GUI 3b7cac49(v49 설치 때 백업 SmartTwinPostprocessor_backup_20261107_233254.sif 의 VERSION ff71b03 으로 재확인). 이후 v49~v51 까지 배포
