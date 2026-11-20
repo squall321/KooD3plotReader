@@ -469,6 +469,27 @@ private:
     std::vector<int32_t> shell_elem_to_part_, tshell_elem_to_part_;   ///< 순번 → 파트 ID
     std::unordered_map<int32_t, HotspotElementKind> part_kind_;      ///< 파트 ID → 요소 종류
 
+    /// 빔 상태 데이터의 배치 — 규격 공식으로 자기 검증한 결과(ls-dyna_database.txt 290 · 499 · 1975–1997).
+    /// 요소당 NV1D = 합력 6 + 적분점 5·BEAMIP + 이력 변수 NEIPB·(3 + BEAMIP) [+ 내부 에너지 1(BEMENG)].
+    struct BeamLayout {
+        bool ok = false;
+        std::string why;          ///< ok 가 아니면 사유 (빔이 없으면 빈 문자열)
+        int nv = 0;               ///< 요소당 워드 (NV1D)
+        int nip = 0;              ///< 기록된 적분점 수 (BEAMIP)
+        int ip_off = 6;           ///< 적분점 블록 시작 — 합력 6 뒤. 에너지 워드가 그 자리면 7
+    };
+
+    // 빔 파트 이력 — 적분점 응력을 기록한 덱(BEAMIP > 0)에서만. part_ids_ 와 따로 두고 buildResult 에서 합친다:
+    // 빔은 변형률 텐서 · 핫스팟 · 피크 텐서가 없어, part_ids_ 에 넣으면 그 배열들에 전부 NaN 인 줄이 생긴다.
+    size_t  num_beam_elements_ = 0;      ///< NEL2
+    int32_t nv1d_ = 0, neipb_ = 0, bemeng_ = 0;
+    BeamLayout beam_layout_;
+    std::vector<int32_t> beam_part_ids_;        ///< 빔 파트 ID (오름차순, 솔리드 · 셸 파트와 번호가 겹치면 뺀다)
+    std::vector<int32_t> beam_elem_to_slot_;    ///< 빔 순번 → beam_part_ids_ 색인, 이력 대상이 아니면 -1
+    std::vector<char> beam_part_seen_;          ///< [상태 × 파트] 0 아닌 적분점 워드가 있었는가
+    std::vector<PartTimeSeriesStats> beam_stress_results_, beam_max_principal_results_,
+                                     beam_min_principal_results_, beam_strain_results_;
+
     // Surface data (for surface stress analysis)
     std::vector<std::vector<Face>> surface_faces_;  // Per surface spec
     std::vector<SurfaceAnalysisSpec> surface_specs_;
@@ -568,6 +589,21 @@ private:
 
     /// 상태 배열을 훑어 침식 요약을 채운다 (통계 제외 사실을 남기기 위한 것).
     void recordErosionSummary(const std::vector<data::StateData>& all_states);
+
+    /// 빔 배치 해석(위 BeamLayout) — initialize 에서 한 번.
+    BeamLayout beamLayout() const;
+
+    /// 빔 파트 결과 저장소를 (다시) 만든다 — initializeResults 가 부른다.
+    void initializeBeamResults(size_t num_states, const AnalysisConfig& config);
+
+    /// 한 상태의 빔 파트 통계. 요소 값은 적분점 극값 — σ_vm · σ1 · ε_p 는 최대, σ3 는 최소(셸의 층 극값과 같은 규칙).
+    /// 상태마다 제 칸만 쓴다(상태 병렬에서 경합 없음).
+    void analyzeBeamPartStats(size_t state_idx, const data::StateData& state,
+                              bool analyze_stress, bool analyze_strain);
+
+    /// 빔 파트 이력을 결과에 합친다(파트 번호순). 적분점 값이 전 상태에서 0 인 파트 — 합력 빔 · 트러스 ·
+    /// 이산 빔 — 는 빼고 사유를 찍는다. 0 을 「측정된 0」 으로 내지 않는다.
+    void mergeBeamResults(AnalysisResult& result);
 
     // ========================================
     // Stress/Strain extraction

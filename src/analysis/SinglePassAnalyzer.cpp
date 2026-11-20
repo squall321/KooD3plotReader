@@ -408,6 +408,15 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
                       << " — 이 종류의 파트 응력 · 변형률 이력을 만들지 않습니다.\n";
     }
 
+    num_beam_elements_ = control_data.NEL2 > 0 ? static_cast<size_t>(control_data.NEL2) : 0;
+    nv1d_ = control_data.NV1D;
+    neipb_ = control_data.NEIPB;
+    bemeng_ = control_data.BEMENG;
+    beam_layout_ = beamLayout();
+    if (!beam_layout_.ok && !beam_layout_.why.empty())
+        std::cerr << "  [parts] 빔: " << beam_layout_.why
+                  << " — 빔 파트 응력 이력을 만들지 않습니다(합력 분석은 그대로).\n";
+
     // Read mesh
     mesh_ = reader_.read_mesh();
 
@@ -598,6 +607,220 @@ void SinglePassAnalyzer::accumulateLayeredPartStats(HotspotElementKind kind, con
     }
 }
 
+SinglePassAnalyzer::BeamLayout SinglePassAnalyzer::beamLayout() const {
+    BeamLayout L;
+    L.nv = nv1d_;
+    if (num_beam_elements_ == 0) return L;                   // 빔이 없다 — 사유 없음
+    if (L.nv < 6) {
+        L.why = "NV1D=" + std::to_string(L.nv) + " — 합력 6 워드도 기록되지 않았다";
+        return L;
+    }
+    // NV1D = 6 + 5·BEAMIP + NEIPB·(3 + BEAMIP) [+ 1] 을 BEAMIP 에 대해 푼다. 에너지 워드는 NV1D 에 들어 있다
+    // (실측: R16 덱 EXTRA 64 · BEAMIP 0 에서 NV1D 7 · BEMENG 7).
+    const int energy = (bemeng_ > 0) ? 1 : 0;
+    const int num = L.nv - 6 - energy - 3 * neipb_;
+    const int den = 5 + neipb_;
+    if (neipb_ < 0 || num < 0 || num % den != 0) {
+        L.why = "NV1D=" + std::to_string(L.nv) + " 이 규격 공식 6 + 5·BEAMIP + NEIPB·(3 + BEAMIP)" +
+                (energy ? " + 1" : "") + " 과 맞지 않는다(NEIPB=" + std::to_string(neipb_) +
+                ", BEMENG=" + std::to_string(bemeng_) + ")";
+        return L;
+    }
+    L.nip = num / den;
+    if (L.nip == 0) {
+        L.why = "적분점 응력이 기록되지 않은 덱(NV1D=" + std::to_string(L.nv) +
+                ", *DATABASE_EXTENT_BINARY 의 BEAMIP 이 0)";
+        return L;
+    }
+    if (energy) {
+        // BEMENG 은 요소 블록 안 에너지 워드의 자리(1부터 셈)다. 합력 바로 뒤면 적분점 블록이 한 칸 밀리고,
+        // 적분점 블록 뒤(이력 변수 쪽 · 블록 끝)면 그대로다. 그 밖의 자리면 「합력 6 뒤에 적분점마다 5 워드가
+        // 이어진다」 는 전제가 깨진다 — 틀린 워드를 응력으로 읽느니 만들지 않는다.
+        const int e = bemeng_ - 1;
+        if (e == 6) {
+            L.ip_off = 7;
+        } else if (e < 6 + 5 * L.nip || e >= L.nv) {
+            L.why = "BEMENG=" + std::to_string(bemeng_) + " 이 가리키는 에너지 워드가 합력 · 적분점 워드(1–" +
+                    std::to_string(6 + 5 * L.nip) + ") 안이거나 요소 블록(NV1D=" + std::to_string(L.nv) + ") 밖이다";
+            return L;
+        }
+    }
+    L.ok = true;
+    return L;
+}
+
+void SinglePassAnalyzer::initializeBeamResults(size_t num_states, const AnalysisConfig& config) {
+    beam_part_ids_.clear();
+    beam_elem_to_slot_.clear();
+    beam_part_seen_.clear();
+    for (auto* arr : {&beam_stress_results_, &beam_max_principal_results_, &beam_min_principal_results_,
+                      &beam_strain_results_}) {
+        arr->clear();
+    }
+    if (!beam_layout_.ok || !(config.analyze_stress || config.analyze_strain)) return;
+
+    // 빔 요소 → 파트. 솔리드 · 셸 파트와 번호가 같은 빔 파트는 뺀다 — 한 파트에 이력 줄은 하나다.
+    const size_t ne = std::min(num_beam_elements_, mesh_.beam_parts.size());
+    std::set<int32_t> unique, clash;
+    for (size_t e = 0; e < ne; ++e) {
+        const int32_t pid = mesh_.beam_parts[e];
+        (part_id_to_result_index_.count(pid) ? clash : unique).insert(pid);
+    }
+    for (int32_t pid : clash)
+        std::cerr << "  [parts] 빔 파트 " << pid << ": 솔리드 · 셸 파트와 번호가 같아 빔 응력 이력에서 뺍니다.\n";
+    if (unique.empty()) return;
+
+    beam_part_ids_.assign(unique.begin(), unique.end());
+    std::unordered_map<int32_t, int32_t> slot;
+    for (size_t i = 0; i < beam_part_ids_.size(); ++i) slot[beam_part_ids_[i]] = static_cast<int32_t>(i);
+    beam_elem_to_slot_.assign(ne, -1);
+    for (size_t e = 0; e < ne; ++e) {
+        const auto it = slot.find(mesh_.beam_parts[e]);
+        if (it != slot.end()) beam_elem_to_slot_[e] = it->second;
+    }
+    beam_part_seen_.assign(num_states * beam_part_ids_.size(), 0);
+
+    auto init = [&](std::vector<PartTimeSeriesStats>& arr, const char* quantity, const char* unit) {
+        arr.resize(beam_part_ids_.size());
+        for (size_t i = 0; i < arr.size(); ++i) {
+            arr[i].part_id = beam_part_ids_[i];
+            arr[i].quantity = quantity;
+            arr[i].unit = unit;
+            arr[i].element_type = "beam";                    // 값이 적분점 극값이라는 뜻
+            arr[i].data.resize(num_states);
+        }
+    };
+    if (config.analyze_stress) {
+        init(beam_stress_results_, "von_mises", kUnknownStressUnit);
+        init(beam_max_principal_results_, "max_principal_stress", kUnknownStressUnit);
+        init(beam_min_principal_results_, "min_principal_stress", kUnknownStressUnit);
+    }
+    if (config.analyze_strain) init(beam_strain_results_, "eff_plastic_strain", "");
+}
+
+void SinglePassAnalyzer::analyzeBeamPartStats(size_t state_idx, const data::StateData& state,
+                                              bool analyze_stress, bool analyze_strain) {
+    const size_t np = beam_part_ids_.size();
+    if (np == 0) return;
+
+    // 한 파트 · 한 상태의 요소 값 집계
+    struct MinMax {
+        double mx = -std::numeric_limits<double>::max(), mn = std::numeric_limits<double>::max(), sum = 0.0;
+        int32_t mx_id = 0, mn_id = 0;
+        void add(double v, int32_t id) {
+            if (v > mx) { mx = v; mx_id = id; }
+            if (v < mn) { mn = v; mn_id = id; }
+            sum += v;
+        }
+    };
+    struct Acc { MinMax vm, s1, s3, ep; size_t n = 0; };
+    std::vector<Acc> acc(np);
+
+    const auto& bd = state.beam_data;
+    const size_t ne = beam_elem_to_slot_.size();
+    const size_t nv = static_cast<size_t>(beam_layout_.nv), nip = static_cast<size_t>(beam_layout_.nip);
+    const size_t off = static_cast<size_t>(beam_layout_.ip_off);
+    // 침식된 요소는 워드가 0 으로 실린다 — 통계에서 뺀다(솔리드 · 셸과 같은 규칙).
+    const std::vector<bool> dead = deletedMask(state.deleted_beams, ne);
+
+    for (size_t e = 0; e < ne; ++e) {
+        const int32_t slot = beam_elem_to_slot_[e];
+        if (slot < 0 || (!dead.empty() && dead[e])) continue;
+        const size_t base = e * nv;
+        if (base + nv > bd.size()) break;                    // 이 상태에 이 요소부터는 없다
+
+        // 적분점 워드: σ_축 · τ_rs · τ_tr · ε_p · ε_축. 규격 문서(1981–1985 줄)는 전단을 앞에 적었지만 파일은
+        // 축응력이 먼저다 — 실측(R13.1.1 탄성 빔: 첫 워드 = E × 다섯째 워드, 둘째 · 셋째는 0)이고 lasso 가
+        // 읽는 순서와도 같다. 국부계 응력 성분이 이 셋뿐이라 σ_vm = √(σ² + 3(τ_rs² + τ_tr²)),
+        // 주응력은 0 과 σ/2 ± √(σ²/4 + τ_rs² + τ_tr²) 다(닫힌 꼴).
+        double vm = -std::numeric_limits<double>::max(), ep = -std::numeric_limits<double>::max();
+        double s1 = -std::numeric_limits<double>::max(), s3 = std::numeric_limits<double>::max();
+        bool finite = true, nonzero = false;
+        const double* ip = &bd[base + off];
+        for (size_t k = 0; k < nip; ++k, ip += 5) {
+            for (int w = 0; w < 5; ++w) {
+                if (!std::isfinite(ip[w])) finite = false;
+                else if (ip[w] != 0.0) nonzero = true;
+            }
+            const double tau2 = ip[1] * ip[1] + ip[2] * ip[2];
+            const double r = std::sqrt(0.25 * ip[0] * ip[0] + tau2);
+            vm = std::max(vm, std::sqrt(ip[0] * ip[0] + 3.0 * tau2));
+            s1 = std::max(s1, 0.5 * ip[0] + r);
+            s3 = std::min(s3, 0.5 * ip[0] - r);
+            ep = std::max(ep, ip[3]);
+        }
+        if (!finite) continue;                               // 발산한 요소 — 통계에 넣지 않는다
+        if (nonzero) beam_part_seen_[state_idx * np + static_cast<size_t>(slot)] = 1;
+
+        Acc& a = acc[static_cast<size_t>(slot)];
+        const int32_t eid = (e < mesh_.beams.size()) ? mesh_.beams[e].id : static_cast<int32_t>(e + 1);
+        if (analyze_stress) { a.vm.add(vm, eid); a.s1.add(s1, eid); a.s3.add(s3, eid); }
+        if (analyze_strain) a.ep.add(ep, eid);
+        a.n++;
+    }
+
+    auto store = [&](std::vector<PartTimeSeriesStats>& arr, size_t p, const MinMax& m, size_t n) {
+        auto& tp = arr[p].data[state_idx];
+        tp.time = state.time;
+        // 이 상태에 살아 있는 빔이 없는 파트(전량 침식) — 0 으로 위장하지 않는다. JSON 에는 null 로 나간다.
+        tp.max_value = measuredOrNaN(n > 0, m.mx);
+        tp.min_value = measuredOrNaN(n > 0, m.mn);
+        tp.avg_value = measuredOrNaN(n > 0, m.sum / static_cast<double>(n > 0 ? n : 1));
+        tp.max_element_id = m.mx_id;
+        tp.min_element_id = m.mn_id;
+    };
+    for (size_t p = 0; p < np; ++p) {
+        const Acc& a = acc[p];
+        if (analyze_stress && !beam_stress_results_.empty()) {
+            store(beam_stress_results_, p, a.vm, a.n);
+            store(beam_max_principal_results_, p, a.s1, a.n);
+            store(beam_min_principal_results_, p, a.s3, a.n);
+        }
+        if (analyze_strain && !beam_strain_results_.empty()) store(beam_strain_results_, p, a.ep, a.n);
+    }
+}
+
+void SinglePassAnalyzer::mergeBeamResults(AnalysisResult& result) {
+    const size_t np = beam_part_ids_.size();
+    if (np == 0) return;
+
+    const size_t ns = beam_part_seen_.size() / np;
+    std::vector<char> keep(np, 0);
+    std::string dropped;
+    size_t n_dropped = 0;
+    for (size_t p = 0; p < np; ++p) {
+        for (size_t s = 0; s < ns && !keep[p]; ++s) keep[p] = beam_part_seen_[s * np + p];
+        if (keep[p]) {
+            result.metadata.analyzed_parts.push_back(beam_part_ids_[p]);
+            continue;
+        }
+        if (n_dropped < 8) dropped += (n_dropped ? ", " : "") + std::to_string(beam_part_ids_[p]);
+        ++n_dropped;
+    }
+    if (n_dropped > 0) {
+        std::cerr << "  [parts] 빔 파트 " << dropped
+                  << (n_dropped > 8 ? " 외 " + std::to_string(n_dropped - 8) + "개" : std::string())
+                  << ": 적분점 값이 전 상태에서 0 — 합력 빔 · 트러스 · 이산 빔이거나 하중을 받지 않았다. "
+                     "이 파트의 응력 이력을 만들지 않습니다.\n";
+    }
+    std::sort(result.metadata.analyzed_parts.begin(), result.metadata.analyzed_parts.end());
+
+    // 기존 이력(파트 번호순) 뒤에 붙이고 번호순으로 다시 세운다 — 번호가 겹치지 않으니 순서가 하나로 정해진다
+    const auto merge = [&](std::vector<PartTimeSeriesStats>& dst, std::vector<PartTimeSeriesStats>& src) {
+        for (size_t p = 0; p < src.size(); ++p) {
+            if (keep[p]) dst.push_back(std::move(src[p]));
+        }
+        src.clear();
+        std::stable_sort(dst.begin(), dst.end(), [](const PartTimeSeriesStats& a, const PartTimeSeriesStats& b) {
+            return a.part_id < b.part_id;
+        });
+    };
+    merge(result.stress_history, beam_stress_results_);
+    merge(result.max_principal_history, beam_max_principal_results_);
+    merge(result.min_principal_history, beam_min_principal_results_);
+    merge(result.strain_history, beam_strain_results_);
+}
+
 void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConfig& config) {
     size_t num_parts = part_ids_.size();
 
@@ -691,6 +914,8 @@ void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConf
         surface_results_[i].part_ids = config.surface_specs[i].part_ids;
         surface_results_[i].data.resize(num_states);
     }
+
+    initializeBeamResults(num_states, config);
 }
 
 void SinglePassAnalyzer::extractSurfaces(const AnalysisConfig& config) {
@@ -746,6 +971,9 @@ void SinglePassAnalyzer::analyzePartStats(
     bool analyze_stress,
     bool analyze_strain
 ) {
+    // 빔 파트는 제 배열에 따로 쌓는다 — 솔리드 · 셸이 없는 덱도 있어 아래 조기 반환보다 앞이다
+    analyzeBeamPartStats(state_idx, state, analyze_stress, analyze_strain);
+
     const auto& solid_data = state.solid_data;
     // 셸만 있는 덱(솔리드 0)도 있다 — 셋 다 비었을 때만 돌아간다
     if (solid_data.empty() && state.shell_data.empty() && state.thick_shell_data.empty()) return;
@@ -1088,6 +1316,9 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
     bool analyze_stress,
     bool analyze_strain
 ) {
+    // 빔 파트는 제 배열에 따로 쌓는다 — 솔리드 · 셸이 없는 덱도 있어 아래 조기 반환보다 앞이다
+    analyzeBeamPartStats(state_idx, state, analyze_stress, analyze_strain);
+
     const auto& solid_data = state.solid_data;
     // 셸만 있는 덱(솔리드 0)도 있다 — 셋 다 비었을 때만 돌아간다
     if (solid_data.empty() && state.shell_data.empty() && state.thick_shell_data.empty()) return;
@@ -2337,6 +2568,8 @@ AnalysisResult SinglePassAnalyzer::buildResult(const AnalysisConfig& config) {
     }
     result.surface_analysis = std::move(surface_results_);
 
+    mergeBeamResults(result);
+
     // Save outputs if requested
     if (!config.output_json_path.empty()) {
         result.saveToFile(config.output_json_path);
@@ -2375,6 +2608,14 @@ void SinglePassAnalyzer::fillMetadata(
     } else if (!strain_results_.empty() && !strain_results_[0].data.empty()) {
         result.metadata.start_time = strain_results_[0].data.front().time;
         result.metadata.end_time = strain_results_[0].data.back().time;
+    } else {
+        // 빔만 있는 덱
+        for (const auto* arr : {&beam_stress_results_, &beam_strain_results_}) {
+            if (arr->empty() || (*arr)[0].data.empty()) continue;
+            result.metadata.start_time = (*arr)[0].data.front().time;
+            result.metadata.end_time = (*arr)[0].data.back().time;
+            break;
+        }
     }
 
     // Analyzed parts

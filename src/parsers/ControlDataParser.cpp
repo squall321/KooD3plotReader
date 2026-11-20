@@ -82,6 +82,10 @@ data::ControlData ControlDataParser::parse() {
 
     // If EXTRA > 0, read extended control words (words 65+)
     // For now, we skip them but could add specific ones if needed
+    // 빔 블록 배치에 쓰는 둘만 읽는다 (ls-dyna_database.txt 471 · 499 줄).
+    // 확장 워드는 64 번부터 EXTRA 개 — 그 범위를 벗어난 주소는 다른 블록이라 읽지 않는다.
+    if (cd.EXTRA > 67 - 64) cd.NEIPB = reader_->read_int(67);    // DISK ADDRESS 67
+    if (cd.EXTRA > 80 - 64) cd.BEMENG = reader_->read_int(80);   // DISK ADDRESS 80
 
     // Compute derived values (MDLOPT, ISTRN, NND, ENN)
     cd.compute_derived_values();

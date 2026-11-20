@@ -43,6 +43,14 @@ if(TARGET kood3plot_writer)
     add_test(NAME BeamAnalyzer COMMAND test_beam_analyzer)
 endif()
 
+# 빔 파트 응력 이력 tests (합성 d3plot 왕복) — 워드 배치(BEMENG · NEIPB) · 침식 · 값 없는 파트
+if(TARGET kood3plot_writer)
+    add_executable(test_beam_part_history test_beam_part_history.cpp)
+    target_link_libraries(test_beam_part_history PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_beam_part_history PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME BeamPartHistory COMMAND test_beam_part_history)
+endif()
+
 # MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
 if(TARGET kood3plot_writer)
     add_executable(test_motion_analyzer test_motion_analyzer.cpp)

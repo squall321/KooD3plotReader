@@ -408,9 +408,11 @@ void D3plotWriter::Impl::writeControlData() {
     }
 
     // Extended control words (if EXTRA > 0)
+    // 읽기 쪽(ControlDataParser)이 쓰는 둘만 싣는다 — 빔 블록 배치(NEIPB 67 · BEMENG 80). 나머지는 0.
     if (control.EXTRA > 0) {
         for (int i = 0; i < control.EXTRA; ++i) {
-            writer.write_int(0);
+            const int addr = 64 + i;
+            writer.write_int(addr == 67 ? control.NEIPB : addr == 80 ? control.BEMENG : 0);
         }
     }
 }

@@ -66,6 +66,8 @@ struct ControlData {
 
     // Extended control words (if EXTRA > 0)
     int32_t IDTDT;          ///< Delta T flag (used for ISTRN computation)
+    int32_t NEIPB;          ///< 빔 적분점 이력 변수 수 (확장 워드 67 — EXTRA 가 닿을 때만, 아니면 0)
+    int32_t BEMENG;         ///< 빔 블록 안 내부 에너지 밀도 워드의 자리, 1부터 셈 (확장 워드 80 — 없으면 0)
 
     /**
      * @brief Initialize with default values

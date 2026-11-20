@@ -43,7 +43,9 @@ ControlData::ControlData()
     , ENN(0)
     , DELNN(0)
     , NMMAT(0)
-    , IDTDT(0) {
+    , IDTDT(0)
+    , NEIPB(0)
+    , BEMENG(0) {
 
     // Initialize arrays
     for (int i = 0; i < 4; ++i) {

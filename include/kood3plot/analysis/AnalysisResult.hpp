@@ -60,7 +60,7 @@ struct PartTimeSeriesStats {
     std::string part_name;           ///< Part name (if available)
     std::string quantity;            ///< Quantity name (e.g., "von_mises", "eff_plastic_strain")
     std::string unit;                ///< Unit (e.g., "MPa", "mm/s^2")
-    /// 요소 종류 — 비면 솔리드. "shell" / "thick_shell" 이면 값은 적분점 층 극값이다.
+    /// 요소 종류 — 비면 솔리드. "shell" / "thick_shell" 이면 값은 적분점 층 극값, "beam" 이면 적분점 극값이다.
     /// JSON 에는 비어 있지 않을 때만 쓴다(솔리드만 있는 덱의 출력은 종전과 바이트 단위로 같다).
     std::string element_type;
     std::vector<TimePointStats> data; ///< Time series data
