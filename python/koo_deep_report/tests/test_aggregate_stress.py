@@ -1,10 +1,12 @@
-# 응력 이력이 없는 파트를 '0 MPa' 로 보고하지 않는지, 셸 이력은 층 최대로 표시되는지 검증하는 시험
+# 응력 이력이 없는 파트를 '0 MPa' 로 보고하지 않는지, 셸 이력은 층 최대 · 빔 이력은 적분점 최대로 표시되는지 검증하는 시험
 """`koo_deep_report.__main__._aggregate` 의 응력 집계 시험.
 
 C++ 의 stress_history 는 2026-11-07 판부터 솔리드 · 셸 · 두꺼운 셸(셸 계열은 적분점 층 최대)이고,
-빔 · 이산 요소와 옛 판의 셸은 없다. motion 은 전부 다룬다. 이력이 없는 파트에 0.0 을 채워 넣으면
+2026-11-20 판부터 적분점 응력을 기록한 빔(적분점 최대)도 든다. 적분점 응력이 없는 빔 · 이산 요소와
+옛 판의 셸 · 빔은 없다. motion 은 전부 다룬다. 이력이 없는 파트에 0.0 을 채워 넣으면
 보고서가 '피크 응력 0.00 MPa' 라는 **측정값** 으로 보여준다 — 항복을 넘긴 파트가 가장 안전해 보인다.
 """
+import json
 import re
 import shutil
 import subprocess
@@ -129,6 +131,49 @@ with tempfile.TemporaryDirectory() as td:
 chkb("파트 데이터에 요소 종류가 실린다", '"stress_element_type": "shell"' in html3)
 chkb("층 최대 표식 함수가 있다", "function layerTag(" in html3)
 chkb("모든 파트에 이력이 있으면 미산출 단서가 없다", "일부 파트 미산출" not in html3.split("function noStressCount")[0])
+
+print()
+
+# ---------------------------------------------------------------------------
+print("[4] 빔 이력(element_type=beam)은 값이 있고 '적분점 최대' 로 표시된다")
+
+bm = _series(3, 520.0, 7.0e-4)
+bm.element_type = "beam"
+# 파트 3 — 적분점 응력을 기록한 빔, 파트 4 — 적분점 응력이 없는 빔(motion 만 있다)
+dr4 = D3plotResult(
+    metadata={"num_states": 2, "end_time": 1.0e-3, "analyzed_parts": [1, 2, 3, 4]},
+    stress=[_series(1, 300.0, 5.0e-4), sh, bm], strain=[], acceleration=[],
+    motion={1: _motion(1, "HOUSING"), 2: _motion(2, "PCB_SHELL"), 3: _motion(3, "HINGE_PIN"),
+            4: _motion(4, "SPRING")}, output_dir=Path("/tmp"),
+)
+res4 = _aggregate(si, dr4, None, 0.0, "case")
+chk("빔 파트 피크 응력", res4.parts[3].peak_stress, 520.0)
+chk("빔 파트 요소 종류", res4.parts[3].stress_element_type, "beam")
+chk("전체 피크가 빔으로 갈 수 있다", res4.peak_stress_part_id, 3)
+chk("적분점 응력이 없는 빔 파트는 미산출", res4.parts[4].peak_stress, None)
+chkb("그 사유가 적분점 응력을 짚는다", "적분점 응력이 없는 빔" in res4.parts[4].peak_stress_reason)
+with tempfile.TemporaryDirectory() as td:
+    html4 = _build_html(res4, Path(td))
+chkb("파트 데이터에 빔이 실린다", '"stress_element_type": "beam"' in html4)
+chkb("미산출 안내가 빔 적분점 응력을 말한다", "적분점 응력을 기록한 빔" in html4)
+
+if NODE:
+    # 표식 함수를 실제로 돌려 본다 — 빔을 '셸 · 층 최대' 로 부르지 않는다
+    src = re.search(r"function layerTag\(p\) \{[\s\S]*?\n\}", html4).group(0)
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "tag.js"
+        f.write_text(src + "\nconsole.log(JSON.stringify(['', 'shell', 'thick_shell', 'beam']"
+                           ".map(t => layerTag({stress_element_type: t}))));\n", encoding="utf-8")
+        r = subprocess.run([NODE, str(f)], capture_output=True, text=True)
+    tags = json.loads(r.stdout) if r.returncode == 0 else []
+    chk("표식 함수가 네 종류에 답한다", len(tags), 4)
+    if len(tags) == 4:
+        chk("솔리드는 표식 없음", tags[0], "")
+        chkb("셸 — 층 최대", "(셸 · 층 최대)" in tags[1])
+        chkb("두꺼운 셸 — 층 최대", "(두꺼운 셸 · 층 최대)" in tags[2])
+        chkb("빔 — 적분점 최대", "(빔 · 적분점 최대)" in tags[3] and "층 최대" not in tags[3])
+else:
+    print("  -- node 없음 — 표식 함수 실행 건너뜀")
 
 print()
 

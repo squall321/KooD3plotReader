@@ -804,24 +804,26 @@ function partLabel(pid, p) {
   return p && p.name ? 'Part ' + pid + ' (' + p.name + ')' : 'Part ' + pid;
 }
 
-// 응력 이력이 없는 파트(빔 · 이산 요소, 옛 해석기 판의 셸)는 미산출이다. 0 으로 취급해 순위에
-// 올리면 '측정된 0 MPa' 로 읽힌다 — 정렬에서는 맨 뒤로, 표시에서는 뺀다.
+// 응력 이력이 없는 파트(적분점 응력이 없는 빔 · 이산 요소, 옛 해석기 판의 셸 · 빔)는 미산출이다. 0 으로 취급해
+// 순위에 올리면 '측정된 0 MPa' 로 읽힌다 — 정렬에서는 맨 뒤로, 표시에서는 뺀다.
 function hasStress(p) { return p && p.peak_stress !== null && p.peak_stress !== undefined; }
 function byStressDesc(a, b) {
   return (hasStress(b[1]) ? b[1].peak_stress : -Infinity)
        - (hasStress(a[1]) ? a[1].peak_stress : -Infinity);
 }
-// 셸 계열 파트의 응력은 적분점 층 최대다 — 솔리드 값과 나란히 볼 때 구분해 둔다.
+// 셸 계열 파트의 응력은 적분점 층 최대, 빔 파트는 적분점 최대다 — 솔리드 값과 나란히 볼 때 구분해 둔다.
 function layerTag(p) {
   const et = p && p.stress_element_type;
-  return et ? ` <span class="hs-dim">(${et === 'thick_shell' ? '두꺼운 셸' : '셸'} · 층 최대)</span>` : '';
+  if (!et) return '';
+  const what = et === 'beam' ? '빔 · 적분점 최대' : `${et === 'thick_shell' ? '두꺼운 셸' : '셸'} · 층 최대`;
+  return ` <span class="hs-dim">(${what})</span>`;
 }
 function noStressCount() {
   return Object.values(DATA.parts || {}).filter(p => !hasStress(p)).length;
 }
 function noStressNote() {
   const n = noStressCount();
-  return n ? `<div class="hs-dim" style="margin-top:6px">${n}개 파트는 응력 이력 없음 — 응력 집계는 솔리드 · 셸 · 두꺼운 셸을 본다(셸 계열은 적분점 층 최대). 빔 · 이산 요소와, 셸을 집계하지 않던 옛 해석기 판의 셸은 미산출.</div>` : '';
+  return n ? `<div class="hs-dim" style="margin-top:6px">${n}개 파트는 응력 이력 없음 — 응력 집계는 솔리드 · 셸 · 두꺼운 셸과 적분점 응력을 기록한 빔을 본다(셸 계열은 적분점 층 최대, 빔은 적분점 최대). 적분점 응력이 없는 빔(BEAMIP 0 · 합력 빔 · 트러스) · 이산 요소와, 그 요소 종류를 집계하지 않던 옛 해석기 판의 파트는 미산출.</div>` : '';
 }
 
 // ── Overview ──────────────────────────────────────────────────────────
@@ -834,7 +836,8 @@ function renderOverview() {
   const erClass = er === null ? '' : er > 1.1 ? 'kpi-err' : er > 1.05 ? 'kpi-warn' : 'kpi-ok';
 
   // 🔴 응력 이력이 없는 파트가 하나라도 있으면 '피크 응력' 은 모델 전체 최대가 아니다 → 명시한다.
-  //    셸 · 두꺼운 셸은 2026-11-07 해석기부터 이력에 든다 — 셸 핫스팟이 있다고 솔리드 전용 집계가 아니다.
+  //    셸 · 두꺼운 셸은 2026-11-07 해석기부터, 적분점 응력을 기록한 빔은 2026-11-20 해석기부터 이력에 든다 —
+  //    셸 핫스팟이 있다고 솔리드 전용 집계가 아니다.
   const partialStress = noStressCount() > 0;
   let kpis = `
   <div class="kpi-card">

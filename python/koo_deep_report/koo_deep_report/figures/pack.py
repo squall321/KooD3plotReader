@@ -55,6 +55,7 @@ class PartPeak:
     hist_v: list = field(default_factory=list)
     acc_t: list = field(default_factory=list)   # 파트 평균 가속도 크기(motion CSV, 덱 단위)
     acc_v: list = field(default_factory=list)
+    beam: bool = False                 # 빔 파트(값은 적분점 최대) — 면이 없어 스냅샷을 만들지 않는다
 
 
 @dataclass
@@ -106,12 +107,16 @@ def _fmt(v) -> str:
 def _from_series(stress, motion, num_states: int, summary: dict, notes: list[str]) -> dict[int, PartPeak]:
     """stress — PartTimeSeries 목록, motion — {pid: MotionData}, summary — {pid: (이름, 안전율, deep 판정)}."""
     parts: dict[int, PartPeak] = {}
+    beams: list[int] = []
     for st in stress:
         pid = int(st.part_id)
         name, sf, verdict = summary.get(pid, ("", None, "none"))
         times = [d.get("time") for d in st.data]
         state = None
-        if st.data and not st.truncated and (not num_states or len(st.data) == num_states):
+        beam = getattr(st, "element_type", "") == "beam"
+        if beam:
+            beams.append(pid)                                # 그릴 면이 없다 — 상태 번호를 비워 스냅샷 후보에서 뺀다
+        elif st.data and not st.truncated and (not num_states or len(st.data) == num_states):
             state = int(np.argmin(np.abs(np.asarray(times, dtype=np.float64) - float(st.time_of_max))))
         elif st.data:
             notes.append(f"파트 {pid}: 응력 이력 점 수({len(st.data)}/{st.num_points}, 상태 {num_states})가 맞지 않아 "
@@ -120,7 +125,10 @@ def _from_series(stress, motion, num_states: int, summary: dict, notes: list[str
         parts[pid] = PartPeak(pid, name or st.part_name or f"Part {pid}", _num(st.global_max), _num(st.time_of_max),
                               state, _num(sf), _VERDICT.get(verdict, "UNKNOWN"), times,
                               [d.get("max") for d in st.data],
-                              list(mo.t) if mo else [], list(mo.acc_mag) if mo else [])
+                              list(mo.t) if mo else [], list(mo.acc_mag) if mo else [], beam=beam)
+    if beams:
+        notes.append(f"빔 파트 {beams} 는 면이 없어 스냅샷을 만들지 않는다 — 파트 요약 차트에는 나온다"
+                     f"(전체 그림의 최대 순간은 면이 있는 파트에서 고른다)")
     return parts
 
 
@@ -290,6 +298,8 @@ def build(inp: RunInputs, out_dir: str | Path, *, top: int = 5, figure_parts: li
                              + (f", 환경 파트 {hidden} 숨김." if hidden else "."), "overview", None))
             for pid in targets:
                 pp = inp.parts.get(pid)
+                if pp is not None and pp.beam:
+                    continue                                 # 지정한 빔 파트 — 이력 차트만(사유는 notes 에 있다)
                 if pp is not None and pp.state is not None:
                     st, t, why = pp.state, pp.time, f"최대 von Mises {_fmt(pp.peak)} {inp.unit_stress} 순간"
                 else:

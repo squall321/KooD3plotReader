@@ -126,7 +126,8 @@ class PartTimeSeries:
     #: analysis_result.json 의 num_points — 해석이 실제로 남긴 점 수.
     #: data 보다 크면 JSON 이 잘린 것이다 (0 = 미기록).
     num_points: int = 0
-    #: 요소 종류 — "" 이면 솔리드, "shell" / "thick_shell" 이면 값은 적분점 층 극값(2026-11-07 해석기부터).
+    #: 요소 종류 — "" 이면 솔리드, "shell" / "thick_shell" 이면 값은 적분점 층 극값(2026-11-07 해석기부터),
+    #: "beam" 이면 적분점 극값(2026-11-20 해석기부터, 덱이 빔 적분점 응력을 기록했을 때).
     element_type: str = ""
 
     @property
@@ -347,12 +348,12 @@ class D3plotResult:
 class PartSummary:
     part_id: int
     part_name: str
-    #: 응력 이력이 없는 파트(빔 · 이산 요소, 옛 해석기 판의 셸 등)는 미산출이다 — 0 이 아니다.
+    #: 응력 이력이 없는 파트(적분점 응력이 없는 빔 · 이산 요소, 옛 해석기 판의 셸 · 빔 등)는 미산출이다 — 0 이 아니다.
     peak_stress: float | None = None
     time_of_peak_stress: float | None = None
     #: peak_stress 가 None 인 사유.
     peak_stress_reason: str = ""
-    #: 응력 이력의 요소 종류 — "" 솔리드, "shell" · "thick_shell" 이면 피크는 적분점 층 최대.
+    #: 응력 이력의 요소 종류 — "" 솔리드, "shell" · "thick_shell" 이면 피크는 적분점 층 최대, "beam" 이면 적분점 최대.
     stress_element_type: str = ""
     peak_element_id: int | None = None
     #: peak_element_id 가 None 인 사유 (시계열 잘림 등). 정상이면 빈 문자열.

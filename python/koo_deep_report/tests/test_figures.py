@@ -216,6 +216,49 @@ def test_state_index_from_history_and_refusals():
     assert len(notes) == 2
 
 
+def test_beam_parts_are_not_snapshot_candidates():
+    """빔 파트는 면이 없다 — 상태 번호를 비워 스냅샷 후보에서 빼고 사유를 한 번 남긴다(2026-11-20)."""
+    t = np.linspace(0, 1e-3, 11)
+    bm = _series(4, 11, t[5], gmax=900.0)
+    bm.element_type = "beam"
+    notes = []
+    parts = pack._from_series([_series(1, 11, t[7]), bm], {}, 11, {4: ("Pin", 0.5, "crit")}, notes)
+    assert parts[4].beam and parts[4].state is None and parts[4].peak == 900.0 and parts[4].sf == 0.5
+    assert not parts[1].beam and parts[1].state == 7
+    assert len(notes) == 1 and "빔 파트 [4]" in notes[0]
+    assert pack.choose_targets(parts, 5, None, set()) == [1]            # 안전율이 가장 낮아도 자동 대상이 아니다
+    assert pack.choose_targets(parts, 5, [4, 1], set()) == [4, 1]       # 지정하면 대상 — 이력 차트만 만든다
+
+
+def test_pack_skips_beam_snapshots_but_keeps_its_charts(tmp_path, monkeypatch):
+    """빔 파트가 최대 응력이어도 전체 그림 · 스냅샷은 면이 있는 파트로 만든다. 요약 차트에는 나오고,
+    대상으로 지정하면 이력 차트만 만든다 — '면이 없다' 실패 줄을 남기지 않는다(2026-11-20)."""
+    pytest.importorskip("pyvista")
+    import shutil
+    if not shutil.which("Xvfb"):
+        pytest.skip("Xvfb 없음")
+    monkeypatch.setattr(mesh, "read_state", lambda d3, i: _two_parts())     # 상태 3 · 시각 1e-3 · 파트 1(40) · 2(70)
+    bm = _series(3, 4, 1e-3, gmax=900.0)
+    bm.element_type = "beam"
+    notes = []
+    parts = pack._from_series([_series(1, 4, 1e-3, gmax=40.0), _series(2, 4, 1e-3, gmax=70.0), bm], {}, 4, {}, notes)
+    inp = pack.RunInputs(tmp_path / "d3plot", "Run_X", parts, notes=notes)
+
+    m = pack.build(inp, tmp_path / "auto", top=5, views=("iso",))
+    assert m["targets"] == [2, 1]
+    assert [f["id"] for f in m["figures"]] == ["overview_peak", "part_2_peak_iso", "part_1_peak_iso", "parts_peak",
+                                               "part_2_history", "part_1_history"]
+    assert "파트 2" in m["figures"][0]["caption"]                           # 전체 그림의 순간은 면이 있는 파트에서
+    assert [n for n in m["notes"] if "빔 파트 [3]" in n] and not [n for n in m["notes"] if "실패" in n or "다르다" in n]
+    assert "3 Part 3" in (tmp_path / "auto" / "parts_peak.svg").read_text(encoding="utf-8")
+
+    m = pack.build(inp, tmp_path / "pick", top=5, figure_parts=[3, 1], views=("iso",))
+    assert m["targets"] == [3, 1]
+    assert [f["id"] for f in m["figures"]] == ["overview_peak", "part_1_peak_iso", "parts_peak", "part_3_history",
+                                               "part_1_history"]
+    assert not [n for n in m["notes"] if "실패" in n]
+
+
 def _pp(pid, peak, sf=None, state=1):
     return pack.PartPeak(pid, f"P{pid}", peak, 0.0, state, sf)
 
@@ -370,6 +413,44 @@ def test_campaign_end_to_end_with_synthetic_state(tmp_path, monkeypatch):
     assert html.count(BEGIN) == 1 and 'href="figures/index.html"' in html
     campaign.build(tmp_path / "report.json", top=1, views=("iso",))
     assert (tmp_path / "report.html").read_text(encoding="utf-8").count(BEGIN) == 1
+
+
+def test_campaign_skips_parts_without_faces(tmp_path, monkeypatch):
+    """빔 파트는 report.json 에 응력 값이 있어도 면이 없다 — 전체 그림의 기준에서 빼고, 그 파트 그림은 사유를 남기고
+    건너뛴다. '옛 분석기 산출물' 이라는 엉뚱한 경고를 내지 않는다(2026-11-20)."""
+    pytest.importorskip("pyvista")
+    import shutil
+    if not shutil.which("Xvfb"):
+        pytest.skip("Xvfb 없음")
+    from koo_deep_report.figures import campaign, mesh as M
+    rep = _report()
+    rep["test_dir"] = str(tmp_path)
+    rep["parts"]["3"] = {"part_name": "Pin"}
+    rep["results_summary"][0]["parts"]["3"] = {"peak_stress": 500.0}
+    rep["results_summary"][1]["parts"]["3"] = {"peak_stress": 100.0}
+    (tmp_path / "report.json").write_text(json.dumps(rep), encoding="utf-8")
+    for run, vals in (("Run_A", {1: 40.0, 2: 70.0, 3: 500.0}), ("Run_B", {1: 90.0, 2: 1.0, 3: 100.0})):
+        st = tmp_path / "analysis_results" / run / "stress"
+        st.mkdir(parents=True)
+        for pid, v in vals.items():
+            (st / f"part_{pid}_von_mises.csv").write_text(f"Time,Max_von_mises\n0,0\n0.0001,{v}\n0.0002,1\n")
+        (tmp_path / "output" / run).mkdir(parents=True)
+        (tmp_path / "output" / run / "d3plot").write_bytes(b"x")
+
+    def fake(d3, i):                                   # 면은 파트 1 · 2 뿐 — 파트 3(빔)은 값도 면도 없다
+        s = _two_parts()
+        s.part_max = {1: 90.0 if "Run_B" in str(d3) else 40.0, 2: 70.0 if "Run_A" in str(d3) else 1.0}
+        s.state_index = i
+        return s
+    monkeypatch.setattr(M, "read_state", fake)
+    m = campaign.build(tmp_path / "report.json", top=3, views=("iso",), link_html=False)
+    assert m["targets"] == [1, 3, 2]
+    assert [f["id"] for f in m["figures"]] == ["overview_worst", "part_1_worst_iso", "part_2_worst_iso", "parts_worst"]
+    assert m["figures"][0]["check"]["part_id"] == 1 and m["figures"][0]["check"]["match"]     # 최악 파트 3 이 아니라 1
+    notes = m["notes"]
+    assert [n for n in notes if "파트 3" in n and "전체 그림의 기준에서 뺐다" in n]
+    assert [n for n in notes if n.startswith("part_3_worst_iso 실패") and "그릴 면이 없다" in n]
+    assert not [n for n in notes if "옛 분석기" in n]
 
 
 def test_gallery_index_and_idempotent_link(tmp_path):

@@ -185,9 +185,12 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
                 for w in sorted((w for w in worst.values() if w.pid not in hidden and w.peak > 0),
                                 key=lambda w: -w.peak)[:3]:
                     try:
-                        _, env, _ = load(w)
+                        s, env, _ = load(w)
                     except Exception as e:  # noqa: BLE001
                         notes.append(f"런 {w.run_folder} 를 읽지 못했다 — {type(e).__name__}: {e}")
+                        continue
+                    if not s.part_mask([w.pid]).any():
+                        notes.append(f"파트 {w.pid} 는 그릴 면이 없어(빔 파트 등) 전체 그림의 기준에서 뺐다")
                         continue
                     if w.pid not in env:
                         gw = w
@@ -201,6 +204,9 @@ def build(report_path: str | Path, *, test_dir: str | Path | None = None, out_di
                 for pid, w, view, fid in jobs:
                     try:
                         s, _, (st, t_row, v_row) = load(w)
+                        if pid is not None and not s.part_mask([pid]).any():
+                            # 면이 없는 파트는 읽은 상태에 값도 없다 — 아래 대조가 '옛 분석기' 로 잘못 짚지 않게 먼저 끊는다
+                            raise ValueError(f"파트 {pid} 는 이 상태에 그릴 면이 없다(빔 파트 등)")
                         m = s.part_max.get(w.pid)
                         match = m is not None and abs(m - v_row) <= max(1e-4 * abs(v_row), 1e-6)
                         if not match:
