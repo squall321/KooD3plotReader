@@ -175,7 +175,7 @@ struct RenderOptions {
 
     // Highlight mode: show only these parts in fringe color, hide others
     // Empty = show all parts (no blanking). Non-empty = blank all, unblank only these.
-    std::vector<int> highlight_parts;   ///< Part IDs to show with fringe (camera zooms to these)
+    std::vector<int> highlight_parts;   ///< Part IDs to show with fringe (camera fits to these only with fit_highlight)
     std::vector<int> context_parts;     ///< Part IDs for genselect removal (Z: also shown as mesh)
     /// 영상에서 숨길 파트(바닥 등) — `-M <id>`. fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로
     /// 그 뒤마다 다시 숨긴다(writeHideParts).
@@ -183,6 +183,13 @@ struct RenderOptions {
     /// hidden_parts 와 같은 순서의 요소 형식 — 'H' 솔리드 · 'S' 셸 · 'T' 두꺼운 셸, 0 = 모름. 알면 GUI 가 기록하는
     /// 꼴(`-M S21`)도 함께 쓴다(맨 숫자 `-M 21` 은 솔리드에서만 실측했다).
     std::vector<char> hidden_kinds;
+    /// 카메라를 타겟(highlight_parts)에 맞춘다 — 타겟과 단면(section_planes)이 둘 다 있을 때만 쓰인다.
+    /// 방향은 기본 영상과 같고(보이는 모델 전체에 맞춘 `ac` 가 정한다), 단면을 넣는 순간에만 타겟만 보이게 해서
+    /// 화면이 그 상자에 맞는다. 찍은 뒤 잘라내는 `_zoom` 과 달리 해상도가 그대로다. 단면 하나로 실측했다.
+    bool fit_highlight = false;
+    /// 타겟 맞춤 여백 — `zin m m 1-m 1-m` 의 m(PartSectionOptions::section_margin 과 같은 규약).
+    /// 음수 = 넓게(-0.3 = 1.6배), 0 = 꼭 맞게, 양수 = 타겟 안쪽으로 잘린다. 0.5 이상은 사각형이 뒤집힌다.
+    double fit_margin = -0.3;
 
     // Section settings
     std::vector<SectionPlane> section_planes;

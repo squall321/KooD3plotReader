@@ -23,8 +23,9 @@
 - [x] 시험(deep 212 통과, `ElasticBeam` deep 실행 확인) · 커밋
 
 ## 4. 카메라 타겟 맞춤
-- [ ] 실측 — 타겟만 표시 → 맞춤 → 복원 순서, 단면 뒤 `ac`, `ac` 대 `vauto`, 여백 `zin`
-- [ ] C++ `RenderOptions` · `generateScript` · `RenderJob` · YAML 키 · `processRenderJobs`
+- [x] 실측 — 타겟만 표시 → 맞춤 → 복원 순서, 단면 뒤 `ac`, `ac` 대 `vauto`, 여백 `zin`(71 경우 — 맞춤은 `splane projectview` 에서, 방향은 최근 `ac` 를 따른다)
+- [x] C++ `RenderOptions` · `generateScript` · `RenderJob` · YAML 키 · `processRenderJobs` — 끄면 cfile 바이트 동일(109 조합),
+      분석기 실행의 첫 · 마지막 프레임이 실측과 동일, 시험 `LsppViewFit` · `test_config_inline_mapping` [H]
 - [ ] deep CLI `--view-fit` · `--view-margin` · 설정 파일 키 · 작업 생성 · `[설정]` 안내
 - [ ] 실렌더 확인(맞춤 전 · 후 첫 프레임) · C++/파이썬 시험 · 커밋
 

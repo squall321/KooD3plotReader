@@ -744,6 +744,12 @@ struct RenderJob {
 
     // View override (empty = auto-select based on section axis or ISOMETRIC)
     std::string view_str;  ///< "right", "front", "top", "iso", "left", "bottom", "back"
+    /// 카메라를 타겟(parts · part_pattern)에 맞춘다 — YAML `view_fit: target`(기본 `model` = 보이는 모델 전체).
+    /// 방향은 그대로 두고 화면만 타겟 상자로 당긴다. 단면 작업에서 보이는 타겟이 있을 때만 걸리고, 아니면 모델 전체에
+    /// 맞추고 사유를 남긴다. 맞춤이 걸린 작업은 `_zoom` 확대본을 만들지 않는다(이미 확대본이다).
+    bool view_fit_target = false;
+    /// 타겟 맞춤 여백 — YAML `view_margin`. LS-PrePost `zin` 규약(음수 = 넓게, -0.3 = 1.6배 · 0 = 꼭 맞게), 0.5 미만.
+    double view_margin = -0.3;
 
     // Output settings
     RenderOutputSpec output;

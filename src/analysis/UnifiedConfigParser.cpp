@@ -9,6 +9,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -923,6 +924,32 @@ bool UnifiedConfigParser::loadFromYAMLString(const std::string& yaml_content, Un
                     }
                 } else if (key == "view") {
                     current_render_job.view_str = value;
+                } else if (key == "view_fit" || key == "view_margin") {
+                    // 카메라 타겟 맞춤. 못 쓰는 값은 말한다 — 오타가 말없이 「모델 전체」 가 되면 왜 안 맞았는지 알 길이 없다.
+                    std::ostringstream issue;
+                    if (key == "view_fit") {
+                        std::string lower = value;
+                        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                        if (lower == "target") current_render_job.view_fit_target = true;
+                        else if (lower == "model") current_render_job.view_fit_target = false;
+                        else issue << "설정 " << (i + 1) << "행 view_fit '" << value
+                                   << "' 을 모릅니다(model | target) — model 로 둡니다.";
+                    } else {
+                        // zin 사각형(m, m, 1-m, 1-m)은 m 이 0.5 이상이면 뒤집힌다
+                        double m = 0.0;
+                        size_t used = 0;
+                        try { m = std::stod(value, &used); } catch (...) { used = 0; }
+                        if (used > 0 && used == value.size() && std::isfinite(m) && m < 0.5) {
+                            current_render_job.view_margin = m;
+                        } else {
+                            issue << "설정 " << (i + 1) << "행 view_margin '" << value
+                                  << "' 은 쓸 수 없습니다(0.5 미만의 수) — 기본값(-0.3)으로 둡니다.";
+                        }
+                    }
+                    if (!issue.str().empty()) {
+                        config.config_issues.push_back(issue.str());
+                        std::cerr << "[config] 경고: " << issue.str() << std::endl;
+                    }
                 }
             }
             continue;

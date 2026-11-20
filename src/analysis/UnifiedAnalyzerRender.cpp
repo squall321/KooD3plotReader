@@ -511,6 +511,7 @@ bool UnifiedAnalyzer::processRenderJobs(
 
         // Collect context parts once per job (for highlight mode)
         std::vector<int> context_parts;
+        int fit_visible_targets = 0;  // 모델에 있고 숨김 대상이 아닌 타겟 수(view_fit: target 일 때만 센다)
         if (!target_parts.empty()) {
             auto mesh = reader.read_mesh();
             std::set<int32_t> highlight_set(target_parts.begin(), target_parts.end());
@@ -524,6 +525,37 @@ bool UnifiedAnalyzer::processRenderJobs(
             for (int32_t pid : mesh.solid_parts)      add_ctx(pid);
             for (int32_t pid : mesh.shell_parts)      add_ctx(pid);
             for (int32_t pid : mesh.thick_shell_parts) add_ctx(pid);
+
+            if (job.view_fit_target) {
+                for (int pid : meshPartIds(mesh)) {
+                    if (highlight_set.count(pid) && std::find(job.hide_part_ids.begin(), job.hide_part_ids.end(),
+                                                              pid) == job.hide_part_ids.end()) {
+                        ++fit_visible_targets;
+                    }
+                }
+            }
+        }
+
+        // 카메라 타겟 맞춤(view_fit: target) — 화면은 단면을 넣는 순간 보이는 파트에 맞는다. 그래서 단면이 있고,
+        // 보이는 타겟(모델에 있고 숨김 대상이 아닌 것)이 하나라도 있을 때만 건다. 보이는 타겟이 없는데 걸면
+        // 영상이 통째로 빈 화면이다(2026-11-20 실측 — 타겟이 전부 숨김 대상일 때 · 모델에 없는 번호일 때).
+        bool fit_target = false;
+        if (job.view_fit_target) {
+            const char* why_not = job.sections.empty() ? "단면이 없는 작업이다"
+                                : target_parts.empty() ? "타겟 파트가 없다"
+                                : fit_visible_targets == 0 ? "보이는 타겟이 없다(모두 숨김 대상이거나 모델에 없는 번호)"
+                                : nullptr;
+            fit_target = (why_not == nullptr);
+            if (callback) {
+                if (fit_target) {
+                    std::ostringstream msg;
+                    msg << "    View fit: 타겟 파트 " << fit_visible_targets << "개에 카메라를 맞춥니다(여백 "
+                        << job.view_margin << ")";
+                    callback(msg.str());
+                } else {
+                    callback(std::string("    View fit: ") + why_not + " — 보이는 모델 전체에 맞춥니다");
+                }
+            }
         }
 
         // Full-model render (no sections): render once with the specified view
@@ -650,7 +682,10 @@ bool UnifiedAnalyzer::processRenderJobs(
                 // Store bbox info for ffmpeg post-crop (단면 영상 잡은 zoom_crop: false 로 끈다)
                 task.model_bbox = model_bbox;
                 task.part_bbox = bbox;
-                task.need_crop = job.zoom_crop;
+                // 타겟에 맞춘 영상은 그 자체가 확대본이다 — `_zoom` 을 한 벌 더 만들지 않는다
+                task.need_crop = job.zoom_crop && !fit_target;
+                task.options.fit_highlight = fit_target;
+                task.options.fit_margin = job.view_margin;
 
                 if (task.options.auto_fringe_range) {
                     size_t total_states = reader.get_num_states();

@@ -390,6 +390,25 @@ std::string LSPrePostRenderer::generateScript(
     script << view_str << "\n";
     script << "ac\n\n";
 
+    // 타겟 맞춤 — 화면은 단면을 넣는 순간(`splane projectview`) 보이는 파트의 상자에 맞는다. 방향은 바로 위 `ac`
+    // (보이는 모델 전체)가 정해 두었으니 기본 영상과 같고, 여기서 타겟만 남기면 화면만 타겟으로 당겨진다.
+    // 실측(2026-11-20, Test_006, LS-PrePost 4.12 mesa 배치): `selectpart reverse` 는 `-M` 으로 숨긴 파트를 되살린다 —
+    //   다시 숨기지 않으면 바닥까지 맞춘다. 타겟만 켠 채 `ac` 를 하면 방향이 타겟 단면의 긴 변을 따라 돌고,
+    //   단면 뒤의 `ac` · `vauto` 는 아무것도 바꾸지 않는다. 보이는 타겟이 없으면 빈 화면이다(부르는 쪽이 거른다).
+    const bool fit_target = options.fit_highlight && has_target && !options.section_planes.empty();
+    if (fit_target) {
+        script << "$# Fit view to target part(s)\n";
+        script << "genselect target part\n";
+        script << "selectpart select 1\n";
+        for (int pid : options.highlight_parts) {
+            script << "genselect part remove part " << pid << "/0\n";
+        }
+        script << "selectpart reverse\n";
+        script << "selectpart select 0\n";
+        writeHideParts(script, options.hidden_parts, options.hidden_kinds);
+        script << "\n";
+    }
+
     // Apply section planes
     // drawcut + projectview: smooth cut on ALL axes (X/Y/Z) via Xvfb
     if (!options.section_planes.empty()) {
@@ -403,6 +422,18 @@ std::string LSPrePostRenderer::generateScript(
             script << "splane drawcut\n";
         }
         script << "ac\n\n";
+
+        // 타겟에 맞춘 화면에 여백을 주고 전체를 다시 켠다 — `selectpart all on` 이 숨김을 되돌리므로 한 번 더 숨긴다
+        if (fit_target) {
+            const double m = options.fit_margin;
+            script << "zin " << m << " " << m << " " << (1.0 - m) << " " << (1.0 - m) << "\n";
+            script << "genselect target part\n";
+            script << "selectpart select 1\n";
+            script << "selectpart all on\n";
+            script << "selectpart select 0\n";
+            writeHideParts(script, options.hidden_parts, options.hidden_kinds);
+            script << "\n";
+        }
     }
 
     // Generate animation (LSPrePost batch mode only supports movie output, not single images)

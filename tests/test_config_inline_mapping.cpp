@@ -150,6 +150,61 @@ int main() {
         chk("작업이 정말 없으면 여전히 거절", !UnifiedConfigParser::validate(empty), "");
     }
 
+    std::printf("[H] 카메라 타겟 맞춤 — render_jobs 가 view_fit · view_margin 을 읽고, 못 쓰는 값은 말한다\n");
+    {
+        // 키가 무시되면 영상은 나오되 모델 전체에 맞는다(조용한 실패). 오타도 같은 결과라 사유를 남긴다.
+        const std::string yaml =
+            "input:\n"
+            "  d3plot: /tmp/none/d3plot\n"
+            "render_jobs:\n"
+            "  - name: fit\n"
+            "    type: section_view\n"
+            "    parts: [6]\n"
+            "    view_fit: \"target\"\n"
+            "    view_margin: -0.1\n"
+            "  - name: plain\n"
+            "    type: section_view\n"
+            "  - name: explicit_model\n"
+            "    type: section_view\n"
+            "    view_fit: model\n"
+            "    view_margin: 0\n"
+            "  - name: typo\n"
+            "    type: section_view\n"
+            "    view_fit: targets\n"
+            "    view_margin: 0.5\n"
+            "  - name: junk\n"
+            "    type: section_view\n"
+            "    view_fit: TARGET\n"
+            "    view_margin: wide\n"
+            "  - name: inf\n"
+            "    type: section_view\n"
+            "    view_margin: -inf\n";
+        UnifiedConfig config;
+        UnifiedConfigParser::loadFromYAMLString(yaml, config);
+        const auto& j = config.render_jobs;
+        chk("작업 6개", j.size() == 6, std::to_string(j.size()) + " jobs");
+        if (j.size() == 6) {
+            chk("view_fit: \"target\" · view_margin: -0.1", j[0].view_fit_target && j[0].view_margin == -0.1,
+                std::to_string(j[0].view_margin));
+            chk("키가 없으면 모델 전체 · -0.3(종전 그대로)", !j[1].view_fit_target && j[1].view_margin == -0.3, "");
+            chk("view_fit: model · view_margin: 0", !j[2].view_fit_target && j[2].view_margin == 0.0, "");
+            chk("모르는 값(targets)은 모델 전체로", !j[3].view_fit_target, "");
+            chk("0.5 이상의 여백은 받지 않는다(zin 사각형이 뒤집힌다)", j[3].view_margin == -0.3,
+                std::to_string(j[3].view_margin));
+            chk("대소문자는 가리지 않는다(TARGET)", j[4].view_fit_target, "");
+            chk("수가 아닌 여백 · 무한대는 받지 않는다", j[4].view_margin == -0.3 && j[5].view_margin == -0.3, "");
+        }
+        std::string all;
+        for (const auto& s : config.config_issues) all += s + "\n";
+        chk("못 쓰는 값 넷을 사유로 남긴다(말없이 기본값이 되지 않는다)", config.config_issues.size() == 4,
+            std::to_string(config.config_issues.size()) + " 건");
+        chk("사유가 행 번호 · 키 · 값을 짚는다",
+            all.find("17행 view_fit 'targets'") != std::string::npos &&
+            all.find("18행 view_margin '0.5'") != std::string::npos &&
+            all.find("22행 view_margin 'wide'") != std::string::npos &&
+            all.find("25행 view_margin '-inf'") != std::string::npos, all);
+    }
+
     std::printf("\n%s  실패 %d 건\n", g_failed ? "[FAIL]" : "[PASS]", g_failed);
     return g_failed ? 1 : 0;
 }
