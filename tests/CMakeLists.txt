@@ -67,6 +67,14 @@ if(TARGET kood3plot_writer)
     add_test(NAME SurfaceIpMean COMMAND test_surface_ip_mean)
 endif()
 
+# set 리포트 segments 지표의 솔리드 적분점 처리 tests (합성 d3plot 왕복) — 부모 요소의 적분점 극값 · 빈 자리 · 파트 이력과의 일치
+if(TARGET kood3plot_writer)
+    add_executable(test_set_segment_ip test_set_segment_ip.cpp)
+    target_link_libraries(test_set_segment_ip PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_set_segment_ip PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SetSegmentIp COMMAND test_set_segment_ip)
+endif()
+
 # MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
 if(TARGET kood3plot_writer)
     add_executable(test_motion_analyzer test_motion_analyzer.cpp)

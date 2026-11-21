@@ -17,6 +17,7 @@
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
 #include "kood3plot/parsers/KeywordSetParser.hpp"
 #include "kood3plot/data/NodeKinematics.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
 #include <cmath>
@@ -1510,6 +1511,7 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
     auto mesh = reader.read_mesh();
     const auto& cd = reader.get_control_data();
     const int nv3d = cd.NV3D;
+    const data::SolidIpLayout solid_ip = data::SolidIpLayout::from(cd);
     const size_t n_state = all_states.size();
 
     for (auto& sr : result.set_report_results) {
@@ -1598,12 +1600,22 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                 int32_t s_idx = -1, e_idx = -1;
                 for (int32_t ei : sr.parent_elem_idx) {
                     const size_t base = (size_t)ei * nv3d;
-                    if (base + 6 >= st.solid_data.size()) continue;
-                    const StressTensor sig(st.solid_data[base], st.solid_data[base+1],
-                                           st.solid_data[base+2], st.solid_data[base+3],
-                                           st.solid_data[base+4], st.solid_data[base+5]);
-                    const double vm = sig.vonMises();
-                    const double ep = st.solid_data[base + 6];
+                    // 적분점 여덟 자리 덱은 요소 블록 전체가 있어야 자리를 고를 수 있다
+                    const size_t need_words = solid_ip.nip > 1 ? (size_t)nv3d : 7;
+                    if (base + need_words > st.solid_data.size()) continue;
+                    // 요소 값 = 값이 실린 적분점 가운데 최대 — 파트 이력의 Max 와 같은 정의다.
+                    // 첫 자리만 읽으면 여덟 자리 덱에서 파트의 요소를 다 덮는 세트가 그 파트의
+                    // 이력보다 낮게 나온다. 한 자리 덱은 자리 0 하나라 종전과 같은 식이다.
+                    const double* blk = st.solid_data.data() + base;
+                    const data::SolidIpSet ips = data::solidIps(blk, solid_ip);
+                    double vm = 0.0, ep = 0.0;
+                    for (int k = 0; k < ips.n; ++k) {
+                        const double* p = blk + (size_t)ips.ip[k] * solid_ip.stride;
+                        const StressTensor sig(p[0], p[1], p[2], p[3], p[4], p[5]);
+                        const double vm_k = sig.vonMises();
+                        if (k == 0 || vm_k > vm) vm = vm_k;
+                        if (k == 0 || p[6] > ep) ep = p[6];
+                    }
                     const int32_t rid = ((size_t)ei < mesh.solids.size())
                                         ? mesh.solids[ei].id : ei + 1;
                     if (vm > smax) { smax = vm; s_id = rid; s_idx = ei; }
