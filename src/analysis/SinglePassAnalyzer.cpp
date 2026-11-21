@@ -388,7 +388,14 @@ bool SinglePassAnalyzer::initialize(const AnalysisConfig& config) {
     // 🔴 NEL8 < 0 은 10절점 솔리드 표시다(개수 = |NEL8|). 부호째 size_t 에 넣으면
     //    1.8e19 가 되어 아래 resize 에서 죽는다. 형상·상태 파서는 이미 abs 를 쓴다.
     num_solid_elements_ = static_cast<size_t>(std::abs(control_data.NEL8));
-    has_strain_tensor_ = (control_data.ISTRN != 0 && nv3d_ >= 13);
+    // 적분점 여덟 자리 덱(NINTSLD 8)은 응력 · ε_p · 이력 변수 · 변형률이 적분점 블록마다 실린다 —
+    // 변형률이 있는지는 블록 크기로 본다(한 자리 덱은 블록 = 요소라 종전 판정 그대로).
+    solid_ip_ = data::SolidIpLayout::from(control_data);
+    has_strain_tensor_ = (solid_ip_.strain_off >= 0);
+    if (solid_ip_.nip > 1 && num_solid_elements_ > 0)
+        std::cout << "  [parts] 솔리드: 요소당 적분점 " << solid_ip_.nip << "개가 기록됐습니다(NV3D " << nv3d_
+                  << " = " << solid_ip_.nip << " × " << solid_ip_.stride
+                  << ") — 요소 값은 값이 실린 적분점의 극값입니다.\n";
 
     num_shell_elements_ = control_data.NEL4 > 0 ? static_cast<size_t>(control_data.NEL4) : 0;
     num_tshell_elements_ = control_data.NELT > 0 ? static_cast<size_t>(control_data.NELT) : 0;
@@ -1023,8 +1030,11 @@ void SinglePassAnalyzer::analyzePartStats(
                               mesh_.real_solid_ids[elem_idx] :
                               static_cast<int32_t>(elem_idx + 1);
 
+            // 적분점 여덟 자리 덱은 값이 실린 적분점의 극값, 한 자리 덱은 그 자리 값 그대로다(solidElemPeak)
+            const SolidElemPeak ev = solidElemPeak(solid_data, elem_idx, analyze_stress, analyze_strain);
+
             if (analyze_stress) {
-                double vm = extractVonMises(solid_data, elem_idx);
+                double vm = ev.vm;
                 if (vm > stats.stress_max) {
                     stats.stress_max = vm;
                     stats.stress_max_elem = elem_id;
@@ -1037,9 +1047,8 @@ void SinglePassAnalyzer::analyzePartStats(
                 stats.stress_count++;
 
                 // Principal stresses (always computed alongside von_mises)
-                auto tensor = extractStressTensor(solid_data, elem_idx);
-                double s1 = tensor.maxPrincipal();
-                double s3 = tensor.minPrincipal();
+                double s1 = ev.s1;
+                double s3 = ev.s3;
                 if (s1 > stats.max_principal_max) {
                     stats.max_principal_max = s1;
                     stats.max_principal_max_elem = elem_id;
@@ -1058,7 +1067,7 @@ void SinglePassAnalyzer::analyzePartStats(
             }
 
             if (analyze_strain) {
-                double strain = extractEffPlasticStrain(solid_data, elem_idx);
+                double strain = ev.ep;
                 if (strain > stats.strain_max) {
                     stats.strain_max = strain;
                     stats.strain_max_elem = elem_id;
@@ -1072,9 +1081,8 @@ void SinglePassAnalyzer::analyzePartStats(
 
                 // Principal strains (only when strain tensor is available)
                 if (has_strain_tensor_) {
-                    auto etensor = extractStrainTensor(solid_data, elem_idx);
-                    double e1 = etensor.maxPrincipal();
-                    double e3 = etensor.minPrincipal();
+                    double e1 = ev.e1;
+                    double e3 = ev.e3;
                     if (e1 > stats.max_principal_strain_max) {
                         stats.max_principal_strain_max = e1;
                         stats.max_principal_strain_max_elem = elem_id;
@@ -1089,7 +1097,7 @@ void SinglePassAnalyzer::analyzePartStats(
                     if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                     stats.min_principal_strain_sum += e3;
 
-                    const double evm = vonMisesStrainOf(etensor);
+                    const double evm = ev.evm;
                     if (evm > stats.vm_strain_max) {
                         stats.vm_strain_max = evm;
                         stats.vm_strain_max_elem = elem_id;
@@ -1127,8 +1135,11 @@ void SinglePassAnalyzer::analyzePartStats(
                           mesh_.real_solid_ids[elem_idx] :
                           static_cast<int32_t>(elem_idx + 1);
 
+        // 적분점 여덟 자리 덱은 값이 실린 적분점의 극값, 한 자리 덱은 그 자리 값 그대로다(solidElemPeak)
+        const SolidElemPeak ev = solidElemPeak(solid_data, elem_idx, analyze_stress, analyze_strain);
+
         if (analyze_stress) {
-            double vm = extractVonMises(solid_data, elem_idx);
+            double vm = ev.vm;
             if (vm > stats.stress_max) {
                 stats.stress_max = vm;
                 stats.stress_max_elem = elem_id;
@@ -1141,9 +1152,8 @@ void SinglePassAnalyzer::analyzePartStats(
             stats.stress_count++;
 
             // Principal stresses (always computed alongside von_mises)
-            auto tensor = extractStressTensor(solid_data, elem_idx);
-            double s1 = tensor.maxPrincipal();
-            double s3 = tensor.minPrincipal();
+            double s1 = ev.s1;
+            double s3 = ev.s3;
             if (s1 > stats.max_principal_max) {
                 stats.max_principal_max = s1;
                 stats.max_principal_max_elem = elem_id;
@@ -1162,7 +1172,7 @@ void SinglePassAnalyzer::analyzePartStats(
         }
 
         if (analyze_strain) {
-            double strain = extractEffPlasticStrain(solid_data, elem_idx);
+            double strain = ev.ep;
             if (strain > stats.strain_max) {
                 stats.strain_max = strain;
                 stats.strain_max_elem = elem_id;
@@ -1176,9 +1186,8 @@ void SinglePassAnalyzer::analyzePartStats(
 
             // Principal strains (only when strain tensor is available)
             if (has_strain_tensor_) {
-                auto etensor = extractStrainTensor(solid_data, elem_idx);
-                double e1 = etensor.maxPrincipal();
-                double e3 = etensor.minPrincipal();
+                double e1 = ev.e1;
+                double e3 = ev.e3;
                 if (e1 > stats.max_principal_strain_max) {
                     stats.max_principal_strain_max = e1;
                     stats.max_principal_strain_max_elem = elem_id;
@@ -1193,7 +1202,7 @@ void SinglePassAnalyzer::analyzePartStats(
                 if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                 stats.min_principal_strain_sum += e3;
 
-                const double evm = vonMisesStrainOf(etensor);
+                const double evm = ev.evm;
                 if (evm > stats.vm_strain_max) {
                     stats.vm_strain_max = evm;
                     stats.vm_strain_max_elem = elem_id;
@@ -1351,8 +1360,11 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                           mesh_.real_solid_ids[elem_idx] :
                           static_cast<int32_t>(elem_idx + 1);
 
+        // 적분점 여덟 자리 덱은 값이 실린 적분점의 극값, 한 자리 덱은 그 자리 값 그대로다(solidElemPeak)
+        const SolidElemPeak ev = solidElemPeak(solid_data, elem_idx, analyze_stress, analyze_strain);
+
         if (analyze_stress) {
-            double vm = extractVonMises(solid_data, elem_idx);
+            double vm = ev.vm;
             if (vm > stats.stress_max) {
                 stats.stress_max = vm;
                 stats.stress_max_elem = elem_id;
@@ -1365,9 +1377,8 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
             stats.stress_count++;
 
             // Principal stresses (always computed alongside von_mises)
-            auto tensor = extractStressTensor(solid_data, elem_idx);
-            double s1 = tensor.maxPrincipal();
-            double s3 = tensor.minPrincipal();
+            double s1 = ev.s1;
+            double s3 = ev.s3;
             if (s1 > stats.max_principal_max) {
                 stats.max_principal_max = s1;
                 stats.max_principal_max_elem = elem_id;
@@ -1386,7 +1397,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
         }
 
         if (analyze_strain) {
-            double strain = extractEffPlasticStrain(solid_data, elem_idx);
+            double strain = ev.ep;
             if (strain > stats.strain_max) {
                 stats.strain_max = strain;
                 stats.strain_max_elem = elem_id;
@@ -1400,9 +1411,8 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
 
             // Principal strains (only when strain tensor is available)
             if (has_strain_tensor_) {
-                auto etensor = extractStrainTensor(solid_data, elem_idx);
-                double e1 = etensor.maxPrincipal();
-                double e3 = etensor.minPrincipal();
+                double e1 = ev.e1;
+                double e3 = ev.e3;
                 if (e1 > stats.max_principal_strain_max) {
                     stats.max_principal_strain_max = e1;
                     stats.max_principal_strain_max_elem = elem_id;
@@ -1417,7 +1427,7 @@ void SinglePassAnalyzer::analyzePartStatsSequential(
                 if (e3 > stats.min_principal_strain_max) { stats.min_principal_strain_max = e3; stats.min_principal_strain_max_elem = elem_id; }
                 stats.min_principal_strain_sum += e3;
 
-                const double evm = vonMisesStrainOf(etensor);
+                const double evm = ev.evm;
                 if (evm > stats.vm_strain_max) {
                     stats.vm_strain_max = evm;
                     stats.vm_strain_max_elem = elem_id;
@@ -1593,9 +1603,10 @@ void SinglePassAnalyzer::analyzeSurfaceStatsSequential(
 
 double SinglePassAnalyzer::extractVonMises(
     const std::vector<double>& solid_data,
-    size_t elem_idx
+    size_t elem_idx,
+    int ip
 ) {
-    size_t base = elem_idx * nv3d_;
+    size_t base = solidWordBase(elem_idx, ip);
     if (base + 6 > solid_data.size()) return 0.0;
 
     double sxx = solid_data[base + 0];
@@ -1616,9 +1627,10 @@ double SinglePassAnalyzer::extractVonMises(
 
 double SinglePassAnalyzer::extractEffPlasticStrain(
     const std::vector<double>& solid_data,
-    size_t elem_idx
+    size_t elem_idx,
+    int ip
 ) {
-    size_t base = elem_idx * nv3d_;
+    size_t base = solidWordBase(elem_idx, ip);
     if (base + 7 > solid_data.size()) return 0.0;
 
     return solid_data[base + 6];  // Word 6 is effective plastic strain
@@ -1626,9 +1638,10 @@ double SinglePassAnalyzer::extractEffPlasticStrain(
 
 StressTensor SinglePassAnalyzer::extractStressTensor(
     const std::vector<double>& solid_data,
-    size_t elem_idx
+    size_t elem_idx,
+    int ip
 ) {
-    size_t base = elem_idx * nv3d_;
+    size_t base = solidWordBase(elem_idx, ip);
     if (base + 6 > solid_data.size()) {
         return StressTensor(0, 0, 0, 0, 0, 0);
     }
@@ -1645,7 +1658,8 @@ StressTensor SinglePassAnalyzer::extractStressTensor(
 
 StressTensor SinglePassAnalyzer::extractStrainTensor(
     const std::vector<double>& solid_data,
-    size_t elem_idx
+    size_t elem_idx,
+    int ip
 ) {
 // 🔴 d3plot solid 변형률은 **NEIPH 확장값의 마지막 6개**다. 규격 원문:
 //      7.         유효소성변형률
@@ -1655,9 +1669,10 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
 //    `base + 7` 은 NEIPH == 6 (NV3D == 13) 일 때만 우연히 맞는다.
 //    실덱 확인: /data/battery_study 의 덱 10개가 NV3D 26~30 이라
 //    올바른 위치는 base+20~24 인데 base+7 은 이력변수 슬롯을 읽는다.
-    if (nv3d_ < 13) return StressTensor(0, 0, 0, 0, 0, 0);
-    const size_t base = elem_idx * nv3d_;
-    const size_t off = base + static_cast<size_t>(nv3d_) - 6;
+//    적분점 여덟 자리 덱(NV3D = 8 × (7 + NEIPH))은 이 배치가 적분점 블록마다 되풀이된다 —
+//    변형률은 **그 적분점 블록의** 마지막 6개다(요소 블록의 끝은 여덟째 적분점의 변형률이다).
+    if (solid_ip_.strain_off < 0) return StressTensor(0, 0, 0, 0, 0, 0);
+    const size_t off = solidWordBase(elem_idx, ip) + static_cast<size_t>(solid_ip_.strain_off);
     if (off + 6 > solid_data.size()) {
         return StressTensor(0, 0, 0, 0, 0, 0);
     }
@@ -1670,6 +1685,56 @@ StressTensor SinglePassAnalyzer::extractStrainTensor(
         solid_data[off + 4],   // eyz
         solid_data[off + 5]    // ezx
     );
+}
+
+data::SolidIpSet SinglePassAnalyzer::solidIpSet(
+    const std::vector<double>& solid_data,
+    size_t elem_idx
+) const {
+    data::SolidIpSet set;
+    if (solid_ip_.nip <= 1) return set;
+    const size_t base = elem_idx * static_cast<size_t>(nv3d_);
+    if (base + static_cast<size_t>(nv3d_) > solid_data.size()) return set;   // 잘린 요소 블록 — 자리 0 만
+    return data::solidIps(&solid_data[base], solid_ip_);
+}
+
+SinglePassAnalyzer::SolidElemPeak SinglePassAnalyzer::solidElemPeak(
+    const std::vector<double>& solid_data,
+    size_t elem_idx,
+    bool want_stress,
+    bool want_strain
+) {
+    // 자리마다 종전과 같은 식(extract*)으로 값을 내고 극값만 고른다 — 한 자리 덱은 결과가 종전과 비트까지 같다.
+    SolidElemPeak r;
+    const data::SolidIpSet ips = solidIpSet(solid_data, elem_idx);
+    for (int j = 0; j < ips.n; ++j) {
+        const int ip = ips.ip[j];
+        if (want_stress) {
+            const double vm = extractVonMises(solid_data, elem_idx, ip);
+            if (j == 0 || vm > r.vm) r.vm = vm;
+
+            const StressTensor tensor = extractStressTensor(solid_data, elem_idx, ip);
+            const double s1 = tensor.maxPrincipal();
+            const double s3 = tensor.minPrincipal();
+            if (j == 0 || s1 > r.s1) r.s1 = s1;
+            if (j == 0 || s3 < r.s3) r.s3 = s3;
+        }
+        if (want_strain) {
+            const double ep = extractEffPlasticStrain(solid_data, elem_idx, ip);
+            if (j == 0 || ep > r.ep) r.ep = ep;
+
+            if (has_strain_tensor_) {
+                const StressTensor etensor = extractStrainTensor(solid_data, elem_idx, ip);
+                const double e1 = etensor.maxPrincipal();
+                const double e3 = etensor.minPrincipal();
+                const double evm = vonMisesStrainOf(etensor);
+                if (j == 0 || e1 > r.e1) r.e1 = e1;
+                if (j == 0 || e3 < r.e3) r.e3 = e3;
+                if (j == 0 || evm > r.evm) r.evm = evm;
+            }
+        }
+    }
+    return r;
 }
 
 // ========================================
@@ -1790,26 +1855,40 @@ void SinglePassAnalyzer::clusterTimeAggregate(
             double val = 0.0;
             bool ok = false;
             if (!is_shell_like) {
-                if (crit == HotspotCriterion::PlasticStrain) {
-                    // ε_p 는 word 6 — 1패스(plasticStrainMax)와 같은 자리
-                    if (nv3d_ >= 7 && base + 7 <= sd.size()) { val = sd[base + 6]; ok = true; }
-                } else if (base + 6 <= sd.size()) {
-                    const double sxx = sd[base+0], syy = sd[base+1], szz = sd[base+2];
-                    const double sxy = sd[base+3], syz = sd[base+4], szx = sd[base+5];
-                    if (crit == HotspotCriterion::VonMises) {
-                        val = equivalentStress(sxx, syy, szz, sxy, syz, szx);
-                    } else if (crit == HotspotCriterion::XTension) { val = sxx;
-                    } else if (crit == HotspotCriterion::YTension) { val = syy;
-                    } else if (crit == HotspotCriterion::ZTension) { val = szz;
+                // 적분점 평균 — 아래 셸 계열의 층 평균과 같은 뜻이다(같은 시각의 덩어리 하중).
+                // 한 자리 덱 · 여덟 자리가 같은 값인 덱은 자리 하나라 종전 값 그대로다.
+                const data::SolidIpSet ips = solidIpSet(sd, ei);
+                const size_t stride = static_cast<size_t>(solid_ip_.stride);
+                double acc = 0.0;
+                int n = 0;
+                for (int j = 0; j < ips.n; ++j) {
+                    const size_t b = base + static_cast<size_t>(ips.ip[j]) * stride;
+                    double v = 0.0;
+                    if (crit == HotspotCriterion::PlasticStrain) {
+                        // ε_p 는 적분점 블록의 word 6 — 1패스(plasticStrainMax)와 같은 자리
+                        if (solid_ip_.stride < 7 || b + 7 > sd.size()) break;
+                        v = sd[b + 6];
                     } else {
-                        const StressTensor st{sxx, syy, szz, sxy, syz, szx};
-                        const auto pr = st.principalStresses();
-                        val = (crit == HotspotCriterion::MaxPrincipal) ? pr[0]
-                            : (crit == HotspotCriterion::MinPrincipal) ? pr[2]
-                            : 0.5 * (pr[0] - pr[2]);          // MaxShear
+                        if (b + 6 > sd.size()) break;
+                        const double sxx = sd[b+0], syy = sd[b+1], szz = sd[b+2];
+                        const double sxy = sd[b+3], syz = sd[b+4], szx = sd[b+5];
+                        if (crit == HotspotCriterion::VonMises) {
+                            v = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                        } else if (crit == HotspotCriterion::XTension) { v = sxx;
+                        } else if (crit == HotspotCriterion::YTension) { v = syy;
+                        } else if (crit == HotspotCriterion::ZTension) { v = szz;
+                        } else {
+                            const StressTensor st{sxx, syy, szz, sxy, syz, szx};
+                            const auto pr = st.principalStresses();
+                            v = (crit == HotspotCriterion::MaxPrincipal) ? pr[0]
+                              : (crit == HotspotCriterion::MinPrincipal) ? pr[2]
+                              : 0.5 * (pr[0] - pr[2]);          // MaxShear
+                        }
                     }
-                    ok = true;
+                    acc = (n == 0) ? v : acc + v;
+                    ++n;
                 }
+                if (n > 0) { val = (n == 1) ? acc : acc / n; ok = true; }
             } else if (P > 0 && maxint_ > 0) {
                 // 층 평균 — 1패스는 '가장 뜨거운 층' 을 쓰지만, 여기서는 같은 시각의
                 // 덩어리 하중을 보는 것이므로 두께 방향 평균이 물리적으로 맞다.
@@ -1910,7 +1989,9 @@ void SinglePassAnalyzer::accumulateElementExtremes(
     }
 
     const size_t ns = all_states.size();
-    const bool strain_ok = has_strain_tensor_ && nv3d_ >= 13;
+    const bool strain_ok = (solid_ip_.strain_off >= 0);
+    // 적분점 블록 하나의 워드 수 — 한 자리 덱은 요소 블록 전체다(nv3d_)
+    const size_t stride = static_cast<size_t>(solid_ip_.stride);
 
     // 소성일 밀도 w_p = ∫σ_vm dε_p.
     // ε_p 는 word 6 이라 변형률 텐서(STRFLG)와 무관하게 거의 모든 덱에서 나온다.
@@ -1965,18 +2046,68 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             if (base + 6 > sd.size()) continue;   // 이 상태에는 이 요소가 없다
             seen = true;
 
-            const double sxx = sd[base + 0], syy = sd[base + 1], szz = sd[base + 2];
-            const double sxy = sd[base + 3], syz = sd[base + 4], szx = sd[base + 5];
+            // 값이 실린 적분점 자리. 한 자리 덱 · 여덟 자리가 같은 값인 덱은 자리 하나라 아래가 종전과 같은 계산이다.
+            const data::SolidIpSet ips = solidIpSet(sd, static_cast<size_t>(ei));
+            // ε_p(word 6)를 읽을 수 있는가 — 자리가 여럿이면 요소 블록이 온전하다는 뜻이라 첫 자리만 보면 된다.
+            const bool ep_in = eps_ok && (base + static_cast<size_t>(ips.ip[0]) * stride + 7 <= sd.size());
+            const bool work_here = work_ok && ep_in;
+
+            // 이 상태의 기준값들 — 기준마다 **가장 뜨거운 적분점**(같으면 앞 자리)을 고른다. 셸 계열의
+            // 「가장 뜨거운 층」 과 같은 규칙이다. σ_vm · ε_p 는 적분점 평균도 따로 모은다 — ε_p 최댓값 ·
+            // 소성일은 셸 계열(층 평균)처럼 평균으로 요소를 대표시킨다.
+            double cur[kHotspotCritSlots] = {};
+            int    cur_ip[kHotspotCritSlots] = {};
+            double vm_mean = 0.0, ep_mean = 0.0;
+            for (int j = 0; j < ips.n; ++j) {
+                const size_t b = base + static_cast<size_t>(ips.ip[j]) * stride;
+                const double sxx = sd[b + 0], syy = sd[b + 1], szz = sd[b + 2];
+                const double sxy = sd[b + 3], syz = sd[b + 4], szx = sd[b + 5];
+
+                // 필요한 것만, 주응력은 한 번만 분해
+                double c[kHotspotStressCritSlots] = {};
+                if (need_vm || work_here) c[0] = equivalentStress(sxx, syy, szz, sxy, syz, szx);
+                if (need_pr) {
+                    const StressTensor st{sxx, syy, szz, sxy, syz, szx};
+                    const auto pr = st.principalStresses();   // 내림차순 [σ1, σ2, σ3]
+                    c[1] = pr[0];
+                    c[2] = pr[2];
+                    // 최대 전단 — 정수압 성분이 상쇄되므로 von Mises 로 안 보이는
+                    // 전단 파괴(볼 전단)가 드러난다. 좌표계 무관한 불변량이다.
+                    c[3] = 0.5 * (pr[0] - pr[2]);
+                }
+                // 축별 수직응력 — 전역 좌표계 성분 (주응력 분해 불필요)
+                if (want[4]) c[4] = sxx;
+                if (want[5]) c[5] = syy;
+                if (want[6]) c[6] = szz;
+
+                for (int k = 0; k < kHotspotStressCritSlots; ++k) {
+                    if (j == 0 || (k == 2 ? (c[k] < cur[k]) : (c[k] > cur[k]))) {
+                        cur[k] = c[k];
+                        cur_ip[k] = ips.ip[j];
+                    }
+                }
+                if (j == 0) {
+                    vm_mean = c[0];
+                    if (ep_in) ep_mean = sd[b + 6];
+                } else {
+                    vm_mean += c[0];
+                    if (ep_in) ep_mean += sd[b + 6];
+                }
+            }
+            if (ips.n > 1) {
+                vm_mean /= static_cast<double>(ips.n);
+                ep_mean /= static_cast<double>(ips.n);
+            }
 
             // ── 소성일 누적 — 극값 갱신 여부와 무관하게 **모든 상태**에서 해야 한다 ──
-            if (eps_ok && base + 7 <= sd.size()) {
-                const double ep_here = sd[base + 6];
+            if (ep_in) {
+                const double ep_here = ep_mean;
                 if (ep_here > ep_run_max_all) { ep_run_max_all = ep_here; ep_t = all_states[si].time; }
                 seen_ep = true;
             }
-            if (work_ok && base + 7 <= sd.size()) {
-                const double vm_now = equivalentStress(sxx, syy, szz, sxy, syz, szx);
-                const double ep_now = sd[base + 6];
+            if (work_here) {
+                const double vm_now = vm_mean;
+                const double ep_now = ep_mean;
                 if (have_prev) {
                     // ε_p 는 이론상 단조증가지만 실덱에서 오르내리는 경우가 있다
                     // (word 6 을 다른 이력변수로 쓰는 재료, 요소 소거 등).
@@ -1990,23 +2121,6 @@ void SinglePassAnalyzer::accumulateElementExtremes(
                 prev_vm = vm_now; prev_ep = ep_now; have_prev = true;
             }
 
-            // 이 상태의 기준값들 — 필요한 것만, 주응력은 한 번만 분해
-            double cur[kHotspotCritSlots] = {};
-            if (need_vm) cur[0] = equivalentStress(sxx, syy, szz, sxy, syz, szx);
-            if (need_pr) {
-                const StressTensor st{sxx, syy, szz, sxy, syz, szx};
-                const auto pr = st.principalStresses();   // 내림차순 [σ1, σ2, σ3]
-                cur[1] = pr[0];
-                cur[2] = pr[2];
-                // 최대 전단 — 정수압 성분이 상쇄되므로 von Mises 로 안 보이는
-                // 전단 파괴(볼 전단)가 드러난다. 좌표계 무관한 불변량이다.
-                cur[3] = 0.5 * (pr[0] - pr[2]);
-            }
-            // 축별 수직응력 — 전역 좌표계 성분 (주응력 분해 불필요)
-            if (want[4]) cur[4] = sxx;
-            if (want[5]) cur[5] = syy;
-            if (want[6]) cur[6] = szz;
-
             // 갱신이 필요한 기준이 하나라도 있으면 짝 변형률을 그때 계산
             bool upd[kHotspotCritSlots] = {};
             if (want[0] && cur[0] > best[0]) upd[0] = true;
@@ -2019,43 +2133,36 @@ void SinglePassAnalyzer::accumulateElementExtremes(
             for (int k = 0; k < kHotspotCritSlots; ++k) any_upd |= upd[k];
             if (!any_upd) continue;
 
-            double eq_e = 0.0, e1 = 0.0, e3 = 0.0;
-            double axis_e[3] = {0.0, 0.0, 0.0};   // εxx, εyy, εzz
-            bool have_e = false, have_axis_e = false;
-            if (strain_ok) {
-                // 변형률 위치는 base + nv3d_ - 6 (NEIPH 확장값의 마지막 6개).
-                // extractStrainTensor 와 같은 규약 — 자세한 근거는 그쪽 주석 참조.
-                const size_t eo = base + static_cast<size_t>(nv3d_) - 6;
-                if (eo + 6 <= sd.size()) {
-                    have_e = true;
-                    axis_e[0] = sd[eo + 0];
-                    axis_e[1] = sd[eo + 1];
-                    axis_e[2] = sd[eo + 2];
-                    have_axis_e = true;
-                    if (upd[0]) {
-                        eq_e = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
-                                                sd[eo + 3], sd[eo + 4], sd[eo + 5]);
-                    }
-                    if (upd[1] || upd[2] || upd[3]) {
+            // 짝 변형률 — **그 기준값을 낸 적분점**의 것이다(응력과 변형률이 같은 적분점의 짝).
+            // 위치는 적분점 블록의 마지막 6개 — extractStrainTensor 와 같은 규약(근거는 그쪽 주석).
+            const double t = all_states[si].time;
+            int    pe_ip = -1;                // 주변형률을 분해해 둔 적분점 — 자리가 같으면 한 번만 분해한다
+            double e1 = 0.0, e3 = 0.0;
+            for (int k = 0; k < kHotspotStressCritSlots; ++k) {
+                if (!upd[k]) continue;
+                best[k] = cur[k];
+                best_t[k] = t;
+                if (!strain_ok) continue;
+                const size_t eo = base + static_cast<size_t>(cur_ip[k]) * stride
+                                + static_cast<size_t>(solid_ip_.strain_off);
+                if (eo + 6 > sd.size()) continue;
+                if (k == 0) {
+                    best_e[0] = equivalentStrain(sd[eo + 0], sd[eo + 1], sd[eo + 2],
+                                                 sd[eo + 3], sd[eo + 4], sd[eo + 5]);
+                } else if (k <= 3) {
+                    if (pe_ip != cur_ip[k]) {
                         // d3plot 변형률 성분은 **텐서 성분**이라 고유값이 곧 주변형률이다.
                         const StressTensor et{sd[eo + 0], sd[eo + 1], sd[eo + 2],
                                               sd[eo + 3], sd[eo + 4], sd[eo + 5]};
                         const auto pe = et.principalStresses();
                         e1 = pe[0];
                         e3 = pe[2];
+                        pe_ip = cur_ip[k];
                     }
+                    best_e[k] = (k == 1) ? e1 : (k == 2) ? e3 : 0.5 * (e1 - e3);
+                } else {
+                    best_e[k] = sd[eo + static_cast<size_t>(k - 4)];   // εxx, εyy, εzz
                 }
-            }
-            const double t = all_states[si].time;
-            if (upd[0]) { best[0] = cur[0]; best_t[0] = t; if (have_e) best_e[0] = eq_e; }
-            if (upd[1]) { best[1] = cur[1]; best_t[1] = t; if (have_e) best_e[1] = e1; }
-            if (upd[2]) { best[2] = cur[2]; best_t[2] = t; if (have_e) best_e[2] = e3; }
-            if (upd[3]) { best[3] = cur[3]; best_t[3] = t;
-                          if (have_e) best_e[3] = 0.5 * (e1 - e3); }
-            for (int k = 4; k < kHotspotStressCritSlots; ++k) {
-                if (!upd[k]) continue;
-                best[k] = cur[k]; best_t[k] = t;
-                if (have_axis_e) best_e[k] = axis_e[k - 4];
             }
         }
 
@@ -2493,9 +2600,35 @@ void SinglePassAnalyzer::extractPeakElementTensors(
         hist.syz.reserve(num_states);
         hist.szx.reserve(num_states);
 
+        // 적분점 여덟 자리 덱 — 피크 시각에 그 극값을 낸 적분점 **하나**의 이력을 싣는다(상태마다 자리를 바꾸면
+        // 한 물질점의 이력이 아니게 된다). 한 자리 덱 · 여덟 자리가 같은 값인 덱은 자리 0 그대로다.
+        int peak_ip = 0;
+        if (solid_ip_.nip > 1) {
+            for (size_t si = 0; si < num_states; ++si) {
+                if (all_states[si].time != peak.peak_time) continue;
+                const auto& solid_data = all_states[si].solid_data;
+                const data::SolidIpSet ips = solidIpSet(solid_data, elem_idx);
+                double best = 0.0;
+                for (int j = 0; j < ips.n; ++j) {
+                    const int ip = ips.ip[j];
+                    // 클수록 「이 사유의 극값」 — σ3 는 부호를 뒤집어 최소를 고른다. 같으면 앞 자리.
+                    double v = 0.0;
+                    if (peak.reason == "peak_von_mises") {
+                        v = extractVonMises(solid_data, elem_idx, ip);
+                    } else if (peak.reason == "peak_max_principal") {
+                        v = extractStressTensor(solid_data, elem_idx, ip).maxPrincipal();
+                    } else {
+                        v = -extractStressTensor(solid_data, elem_idx, ip).minPrincipal();
+                    }
+                    if (j == 0 || v > best) { best = v; peak_ip = ip; }
+                }
+                break;
+            }
+        }
+
         for (size_t si = 0; si < num_states; ++si) {
             const auto& solid_data = all_states[si].solid_data;
-            size_t base = elem_idx * nv3d_;
+            size_t base = solidWordBase(elem_idx, peak_ip);
             if (base + 6 > solid_data.size()) {
                 hist.time.push_back(all_states[si].time);
                 hist.sxx.push_back(0.0);

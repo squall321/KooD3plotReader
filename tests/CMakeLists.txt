@@ -51,6 +51,14 @@ if(TARGET kood3plot_writer)
     add_test(NAME BeamPartHistory COMMAND test_beam_part_history)
 endif()
 
+# 솔리드 적분점 여덟 개 덱 tests (합성 d3plot 왕복) — 적분점 극값 · 빈 자리 · 변형률 자리 · 핫스팟 · 피크 텐서
+if(TARGET kood3plot_writer)
+    add_executable(test_solid_ip_history test_solid_ip_history.cpp)
+    target_link_libraries(test_solid_ip_history PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_solid_ip_history PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SolidIpHistory COMMAND test_solid_ip_history)
+endif()
+
 # MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
 if(TARGET kood3plot_writer)
     add_executable(test_motion_analyzer test_motion_analyzer.cpp)

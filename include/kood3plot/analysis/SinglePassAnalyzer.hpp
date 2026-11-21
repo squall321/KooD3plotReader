@@ -20,6 +20,7 @@
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
 #include "kood3plot/analysis/VectorMath.hpp"
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include <map>
 #include <vector>
 #include <unordered_map>
@@ -352,6 +353,7 @@ public:
     /// @param out_time    [출력] 그 극값이 난 시각
     ///
     /// 상태 루프는 **한 번만** 돈다 — 덩어리마다 따로 훑지 않는다.
+    /// 요소 값은 셸 계열이 층 평균, 적분점 여덟 자리 솔리드가 값이 실린 적분점의 평균이다.
     void clusterTimeAggregate(
         const std::vector<data::StateData>& all_states,
         HotspotElementKind kind,
@@ -418,7 +420,10 @@ private:
     int32_t nv3d_ = 0;  // Values per solid element
     size_t num_solid_elements_ = 0;
     size_t num_states_ = 0;  // Number of states (set after read_all_states)
-    bool has_strain_tensor_ = false;  // true when ISTRN != 0 and nv3d >= 13
+    bool has_strain_tensor_ = false;  // true when ISTRN != 0 and the per-integration-point block has >= 13 words
+    /// 솔리드 요소 블록의 적분점 배치 — 머리말이 여덟 자리라고 확실히 말할 때만 여덟 자리, 그 밖에는 한 자리(종전).
+    /// 파트 이력 · 핫스팟 · 군집 집계 · 피크 텐서가 **같은** 배치를 쓴다.
+    data::SolidIpLayout solid_ip_;
 
     // Element to part mapping
     std::vector<int32_t> elem_to_part_;  // elem_index -> part_id
@@ -609,26 +614,47 @@ private:
     // Stress/Strain extraction
     // ========================================
 
+    // 아래 넷의 ip 는 적분점 자리(0부터) — 한 자리 덱은 0 뿐이다(solid_ip_).
+
+    /// 요소 elem_idx 의 적분점 ip 블록이 solid_data 에서 시작하는 워드
+    size_t solidWordBase(size_t elem_idx, int ip) const {
+        return elem_idx * static_cast<size_t>(nv3d_)
+             + static_cast<size_t>(ip) * static_cast<size_t>(solid_ip_.stride);
+    }
+
     /**
      * @brief Extract Von Mises stress for an element
      */
-    double extractVonMises(const std::vector<double>& solid_data, size_t elem_idx);
+    double extractVonMises(const std::vector<double>& solid_data, size_t elem_idx, int ip = 0);
 
     /**
      * @brief Extract effective plastic strain for an element
      */
-    double extractEffPlasticStrain(const std::vector<double>& solid_data, size_t elem_idx);
+    double extractEffPlasticStrain(const std::vector<double>& solid_data, size_t elem_idx, int ip = 0);
 
     /**
      * @brief Extract stress tensor for an element
      */
-    StressTensor extractStressTensor(const std::vector<double>& solid_data, size_t elem_idx);
+    StressTensor extractStressTensor(const std::vector<double>& solid_data, size_t elem_idx, int ip = 0);
 
     /**
      * @brief Extract strain tensor for an element (only when has_strain_tensor_)
      * @note Uses StressTensor struct for eigenvalue computation (same math for any symmetric 3x3 tensor)
      */
-    StressTensor extractStrainTensor(const std::vector<double>& solid_data, size_t elem_idx);
+    StressTensor extractStrainTensor(const std::vector<double>& solid_data, size_t elem_idx, int ip = 0);
+
+    /// 요소 하나에서 값이 실린 적분점 자리. 한 자리 덱 · 요소 블록이 잘린 상태는 자리 0 하나.
+    data::SolidIpSet solidIpSet(const std::vector<double>& solid_data, size_t elem_idx) const;
+
+    /// 솔리드 요소 하나의 값 — 값이 실린 적분점의 극값(σ_vm · σ1 · ε_p · ε1 · 등가 변형률은 최대, σ3 · ε3 는 최소).
+    /// 셸 · 두꺼운 셸(층) · 빔(적분점)과 같은 규칙이다. 한 자리 덱은 그 자리 값 그대로.
+    struct SolidElemPeak {
+        double vm = 0.0, s1 = 0.0, s3 = 0.0;
+        double ep = 0.0;
+        double e1 = 0.0, e3 = 0.0, evm = 0.0;   ///< has_strain_tensor_ 일 때만 채운다
+    };
+    SolidElemPeak solidElemPeak(const std::vector<double>& solid_data, size_t elem_idx,
+                                bool want_stress, bool want_strain);
 
     /// von Mises 등가 변형률 ε_eq = sqrt(2/3 · e_dev:e_dev)
     static double vonMisesStrainOf(const StressTensor& e) {
@@ -648,6 +674,8 @@ private:
      *
      * Identifies elements with peak von Mises, σ1, σ3 per part and
      * extracts their full 6-component stress tensor history from all states.
+     *
+     * 적분점 여덟 자리 솔리드 덱(solid_ip_)은 피크 시각에 그 극값을 낸 적분점 **하나**의 이력이다.
      */
     void extractPeakElementTensors(
         const std::vector<data::StateData>& all_states,
@@ -666,6 +694,9 @@ private:
      * 기준별 극값 방향: von Mises·σ1 은 max, σ3 은 **min**.
      * 주응력은 σ1·σ3 중 하나라도 요청됐을 때 (요소,상태)당 **한 번만** 분해한다.
      * 짝 변형률: VM→등가변형률, σ1→ε1, σ3→ε3 — 모두 극값이 난 시각의 값.
+     *
+     * 적분점 여덟 자리 솔리드 덱(solid_ip_)은 셸 계열과 같은 규칙이다 — 응력 기준은 상태마다 가장 뜨거운
+     * 적분점(짝 변형률도 그 적분점의 것), ε_p 최댓값 · 소성일은 값이 실린 적분점의 평균.
      */
     void accumulateElementExtremes(const std::vector<data::StateData>& all_states,
                                    const std::vector<HotspotCriterion>& criteria);

@@ -47,8 +47,9 @@ enum class HotspotCriterion {
     ZTension = 6,
     /// 유효소성변형률 ε_p 의 이력 최댓값 [무차원]. 응력 상위 p% 밖이어도 소성이
     /// 크게 난 영역(국부 찍힘 · 재하중)을 군집한다 — 응력 기준만으로는 화면에 없다.
-    /// 값은 SinglePassAnalyzer::plasticStrainMax 그대로다(셸 계열은 층 평균, 소성역
-    /// 요약과 같은 값). 항복 임계(yield_eps_threshold) 이하 요소는 순위에 들지 않는다.
+    /// 값은 SinglePassAnalyzer::plasticStrainMax 그대로다(셸 계열은 층 평균, 적분점 여덟
+    /// 자리 솔리드는 적분점 평균 — 소성역 요약과 같은 값). 항복 임계(yield_eps_threshold)
+    /// 이하 요소는 순위에 들지 않는다.
     PlasticStrain = 7,
     /// 누적 소성일 밀도 w_p = ∫σ_vm dε_p [응력 단위 = 에너지/부피].
     /// 값은 SinglePassAnalyzer::plasticWorkDensity 그대로다. 상태별 누적값을 두지
