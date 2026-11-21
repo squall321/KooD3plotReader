@@ -118,6 +118,14 @@ if(TARGET kood3plot_section_render)
     target_include_directories(test_section_center_mode PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# 단면 렌더의 절점 평균(NodalAverager) tests (덱 없이 메모리의 메시 · 상태) — 요소 값을 읽는 규칙 · 절점에 나누는 규칙
+if(TARGET kood3plot_section_render)
+    add_executable(test_nodal_averager test_nodal_averager.cpp)
+    target_link_libraries(test_nodal_averager PRIVATE kood3plot_section_render)
+    target_include_directories(test_nodal_averager PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME NodalAverager COMMAND test_nodal_averager)
+endif()
+
 # LS-PrePost 용 Xvfb — 빈 화면 번호 · 준비된 뒤 넘김 · 동시에 둘(가짜 LS-PrePost, Xvfb 가 있어야 돈다)
 if(TARGET kood3plot_render)
     add_executable(test_lspp_xvfb test_lspp_xvfb.cpp)

@@ -16,6 +16,7 @@
 #include "kood3plot/section_render/NodalAverager.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <array>
 
 namespace kood3plot {
@@ -272,7 +273,7 @@ bool computeDegenerateStrain(const double coords[][3], const double disp[][3],
 // ============================================================
 
 NodalAverager::NodalAverager(const data::Mesh& mesh, const data::ControlData& control)
-    : mesh_(mesh), control_(control)
+    : mesh_(mesh), control_(control), solid_ip_(data::SolidIpLayout::from(control))
 {
     int32_t numnp = control_.NUMNP;
     node_sum_.assign(numnp, 0.0);
@@ -596,18 +597,18 @@ double vonMises(double sxx, double syy, double szz,
     return std::sqrt(0.5*(s1*s1 + s2*s2 + s3*s3) + 3.0*(sxy*sxy + syz*syz + szx*szx));
 }
 
-double extractStress(const std::vector<double>& data, size_t base, int stride,
-                     FieldSelector field)
+/// p 에서 시작하는 응력 6 워드(+ ε_p)에서 스칼라를 낸다. avail = p 부터 읽을 수 있는 워드 수.
+double extractStress(const double* p, size_t avail, FieldSelector field)
 {
-    if (base + 6 > data.size()) return 0.0;
-    double sxx = data[base+0], syy = data[base+1], szz = data[base+2];
-    double sxy = data[base+3], syz = data[base+4], szx = data[base+5];
+    if (avail < 6) return 0.0;
+    double sxx = p[0], syy = p[1], szz = p[2];
+    double sxy = p[3], syz = p[4], szx = p[5];
 
     switch (field) {
         case FieldSelector::VonMises:
             return vonMises(sxx, syy, szz, sxy, syz, szx);
         case FieldSelector::EffectivePlasticStrain:
-            return (base + 7 <= data.size()) ? data[base + 6] : 0.0;
+            return (avail >= 7) ? p[6] : 0.0;
         case FieldSelector::PressureStress:
             return -(sxx + syy + szz) / 3.0;
         case FieldSelector::MaxShearStress:
@@ -618,7 +619,14 @@ double extractStress(const std::vector<double>& data, size_t base, int stride,
         default:
             return vonMises(sxx, syy, szz, sxy, syz, szx);
     }
+}
+
+double extractStress(const std::vector<double>& data, size_t base, int stride,
+                     FieldSelector field)
+{
     (void)stride;
+    if (base + 6 > data.size()) return 0.0;
+    return extractStress(data.data() + base, data.size() - base, field);
 }
 
 } // anonymous namespace
@@ -627,6 +635,19 @@ double NodalAverager::extractSolidValue(const data::StateData& state,
                                          int32_t ei, FieldSelector field) const
 {
     size_t base = static_cast<size_t>(ei) * control_.NV3D;
+    // 적분점 여덟 자리 덱(NINTSLD 8) — 요소 값은 값이 실린 자리마다 낸 값 가운데 가장 큰 것이다.
+    // LS-PrePost 가 기본으로 칠하는 값(「max IP. value」)이고 파트 표 · 세트 리포트의 극값과 같은 규칙이다.
+    // 앞 7 워드만 읽으면 첫 자리 하나, 곧 요소 한 귀퉁이의 값을 요소 전체의 값처럼 절점에 나누게 된다.
+    // 한 자리 덱 · 자리가 전부 같은 값인 덱은 아래 종전 경로와 같은 워드를 같은 식으로 읽는다.
+    if (solid_ip_.nip > 1 && base + static_cast<size_t>(control_.NV3D) <= state.solid_data.size()) {
+        const double* blk = state.solid_data.data() + base;
+        const data::SolidIpSet set = data::solidIps(blk, solid_ip_);
+        double best = extractStress(blk + static_cast<std::ptrdiff_t>(set.ip[0]) * solid_ip_.stride, 7, field);
+        for (int k = 1; k < set.n; ++k) {
+            best = std::max(best, extractStress(blk + static_cast<std::ptrdiff_t>(set.ip[k]) * solid_ip_.stride, 7, field));
+        }
+        return best;
+    }
     return extractStress(state.solid_data, base, control_.NV3D, field);
 }
 

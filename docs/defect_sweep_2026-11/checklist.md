@@ -21,7 +21,15 @@
 - [x] S1 `solidVonMises`(적분점 최대) · 호출부 둘 · `test_s1_core` · 계약 초안 문구 · 대조 스크립트 → 커밋
 - [x] 겉면 응력 · 변형률(쓰인 적분점 평균 텐서) · 시험 → 커밋
 - [x] set 리포트 segments 지표(적분점 극값) · 시험 → 커밋
-- [ ] 소프트웨어 단면 렌더 절점 평균(적분점 평균) · 시험 → 커밋
+- [x] 소프트웨어 단면 렌더 절점 평균(적분점 최대 — LS-PrePost 「max IP. value」 를 재서 평균 텐서 안을 버렸다) · 시험 → 커밋
+
+## 2b. 단면 렌더에서 같이 찾은 것
+- [ ] V 셸 · 두꺼운 셸의 층 최대(지금은 첫 층 = 중립면만) — 시험 먼저 → `ElasticBeam` 셸 파트 59.7 → 999.4 계열 → 커밋
+- [ ] S 삭제 요소를 순번으로 견주기(`NodalAverager` · `SectionClipper`) — 시험 먼저 → erode7 → 커밋
+- [ ] T 단면뷰 `max_shear` = (σ1−σ3)/2 — 시험 먼저 → 커밋
+- [ ] U 되풀이 절점을 한 번만 세기(응력 경로 · 총변형률 경로) — 시험 먼저 → 커밋
+- [ ] W `computePartFringeRange` — LS-PrePost 실렌더로 재현(fringe 종류 · 적분점 최대와의 차이) → 고치거나 보고
+- [ ] X LS-PrePost 백엔드 fringe 이름 대응(`displacement_mag` · `max_shear` · `pressure` · `strain`) — 재현 → 고치거나 보고
 
 ## 3. Q — `parts:` 걸러내기
 - [ ] 재현 시험(합성 덱 — 요청한 파트만 나오는지, 없는 번호 사유 줄, 빔 · 핫스팟)

@@ -22,6 +22,7 @@
 #include "kood3plot/data/Mesh.hpp"
 #include "kood3plot/data/StateData.hpp"
 #include "kood3plot/data/ControlData.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/section_render/PartMatcher.hpp"
 #include <vector>
 #include <unordered_map>
@@ -73,6 +74,7 @@ public:
 private:
     const data::Mesh&        mesh_;
     const data::ControlData& control_;
+    const data::SolidIpLayout solid_ip_;  ///< 솔리드 요소 블록의 적분점 배치(머리말에서 한 번 읽는다)
 
     std::vector<double>  node_sum_;    ///< Averaged scalar values per node (after compute)
     std::vector<int32_t> node_count_;  ///< Number of contributing elements per node
