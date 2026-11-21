@@ -36,3 +36,14 @@
 - [x] 전체 시험(C++ · 파이썬 패키지 · post_analyze 셸 시험) — C++ 26 + 5 · 파이썬 여섯 패키지 820 · 셸 시험 통과, 실렌더 다시(md5 동일)
 - [x] 옛 문서의 보류 표시 갱신(`report_figures_2026-11/checklist.md` 3단계 · `shell_plastic_2026-11` 빔 언급) — `report_figures_2026-11/plan.md` 의 `vauto` 설명에도
 - [x] 사용자 보고(11-21) — push · 배포 요청은 승인 뒤
+
+## 6. push · 배포 (11-21, 사용자 승인 「ㄱㄱ」)
+- [x] 판정 꾸러미 `/data/koopark/Post_v52/`(`check_v52.sh` · `cmp_v52.py` · `framecmp.py` · 링크 덱 · 기준 프레임) — v51 기준선 · 로컬 예행 「어긋난 것 0」
+- [x] push `dff1a22..d2f0d6b`(origin/main = d2f0d6b)
+- [x] pykoocae-53 에 v52 배포 요청
+- [x] 완료 알림 뒤 배포판 직접 확인 — v52 = d2f0d6b(11-21 11:25–11:37 UTC). 배포 세션 `check_v52.sh … v52` 와 이쪽 `… v52b`(헤드 `/opt` 사본) 둘 다
+      `cmp_v52.py v51 <태그>` 「어긋난 것 0」, 네 지점의 SIF 여덟 개 · tar 의 sha256 과 SIF 넷의 VERSION 을 직접 읽음. 노드 로컬 사본은 VM 이 꺼져 v47 그대로
+- [x] 배포 뒤 더 본 것 — σ1 독립 대조(꾸러미 기준표에 σ1 줄 추가) · DynaForge 꾸러미 전후 비교와 그쪽 검사기 통과 ·
+      sphere 가 파트별 CSV 로 빔 응력을 받는 길(적재기 실행으로 확인, a9 에 알림) · 빔 워드 근거의 한계(실덱의 전단 · 소성 워드가 전부 0)
+- [x] kooremapper-4a(DynaForge)에 판 알림 — 빔 파트에 응력 값이 생긴다 · 사용자 보고 · 이 절과 context-notes 커밋
+- [ ] 위 마감 커밋 push — 사용자 승인 뒤

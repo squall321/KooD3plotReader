@@ -319,3 +319,103 @@
   - deep 은 분석기 설정 사본을 `/tmp/last_ua_config_<pid>.yaml` 로 남긴다(디버그용).
   - `test_surface_stress` 는 `add_test` 로 등록돼 있지 않고(실행 파일만 만든다) CSV 를 `/tmp` 에 쓴다.
 - push · 배포 요청은 사용자 승인 뒤에 한다 — 로컬 커밋 401f6d3 · c06e5e7 · 378a611 · 37c5f88 · 5dbdfa9 와 이 마감 커밋.
+
+## push · 배포 요청 (11-21)
+- 사용자 승인(「ㄱㄱ」 — 「push 와 pykoocae-53 배포 요청을 진행할까요?」 의 답)으로 `dff1a22..d2f0d6b` 를 push 했다(origin/main = d2f0d6b).
+  굽는 프로세스가 없는 것을 본 뒤다. 이어 pykoocae-53 에 v52 배포 요청을 보냈다. 완료 알림까지 push · `apptainer/` · `scripts/` 수정은 멈추고,
+  이 절과 checklist 6절은 커밋하지 않고 둔다.
+- **판정 꾸러미 `/data/koopark/Post_v52/`** — 배포판은 `--no-home` 으로 봐야 해서 홈 밖에 둔다(앞선 `Post_vNN` 과 같은 자리).
+  - `check_v52.sh <SIF|local> <태그>` — ① 분석기 여섯 덱(Test_006 · ElasticBeam · DynaAnalysis · case_shell · 두꺼운 셸 · airbag, 핫스팟 세 기준)
+    ② ElasticBeam deep(렌더 없이) ③ Test_006 Z 단면뷰 다섯 가지(plain · fit · fit_m0 · pattern · declined, 보폭 400 = 3프레임)
+    ④ 남은 Xvfb · 링크 덱에 떨어진 것 · 원본 덱 폴더 여섯 곳의 수정 시각. `local` 은 같은 일을 로컬 빌드(`.work/beam_viewfit/inst_dep`)로 돈다.
+  - `cmp_v52.py <옛 태그> <새 태그>` — 분석기 산출을 각인 · 빔 줄만 떼고 바이트로 맞대고(허용: ElasticBeam 파트 4 의 빔 줄 넷 + 새 CSV 넷),
+    빔 값을 lasso 기준값과(1e-9), deep 의 파트 4 피크와 표식, 카메라 프레임 md5 와 안내 줄을 본다. 끝 줄 「어긋난 것 N」, 어긋나면 rc 1.
+  - 렌더는 꾸러미 안 심볼릭 링크 덱 `deck006/` · `deck_eb/` 로만 돈다. 기준 프레임은 `ref/`(로컬 빌드 d2f0d6b 가 찍은 10장).
+- **v51 기준선**(`check_v51.log`) — VERSION 226eca7. 분석기 여섯 덱 rc 0 · 빔 사유 줄 0. ElasticBeam 파트 4 피크 None(「응력 이력 없음」).
+  `plain` rc 0 · 3프레임, 나머지 네 칸은 rc 2(`unrecognized arguments: --view-fit …` — 옛 판이라 당연하다). 남은 Xvfb 0 · 원본 덱 폴더 그대로.
+  - **배포판 v51 의 `plain` 프레임이 로컬 빌드와 md5 까지 같다**(3a33f80f4e80 / bebd441aec07). SIF 의 렌더 스택이 달라 md5 가 어긋날까 봐
+    화소 비교(`framecmp.py`)를 넣었는데, 실제로는 md5 를 그대로 맞대도 된다.
+- **로컬 예행**(`check_local.log` · `cmp_v51_local.log`) — 「어긋난 것 0」.
+  - 분석기 산출은 여섯 덱 모두 ElasticBeam 파트 4 의 빔 줄 · 새 CSV 넷 · 각인 말고 바이트까지 같다(공통 파일 Test_006 170 · ElasticBeam 26 ·
+    DynaAnalysis 28 · case_shell 6 · 두꺼운 셸 283 · airbag 487). 핫스팟 세 기준을 켠 Test_006 · 두꺼운 셸 · airbag 은 이번에 처음 옛 · 새 판을 맞댄 덱이다.
+  - 빔 값은 lasso 기준과 같고, DynaAnalysis 사유 줄 1 · deep 파트 4 피크 999.5647325 · 「빔 · 적분점 최대」 1.
+  - 카메라 다섯 칸 rc 0 · 1280×720 · 3프레임, 프레임이 기준과 md5 동일. `declined` 는 `[설정]` 안내가 로그와 보고서에 실렸다. `_zoom` 0 · 남은 Xvfb 0.
+
+## v52 배포 · 확인 (11-21)
+- **배포** — pykoocae-53 이 11:25:37 – 11:37:17 UTC 에 구웠다(`/data/koopark/Post_v52/post_release.log`, `RELEASE_RC=0`). 스왑 39/39 GB 가 찬 머신이라
+  `post_release_capped.sh` 로 묶어 돌렸다 — `systemd-run --scope` 의 `MemoryMax=28G` · `MemorySwapMax=0`, `taskset -c 0-7` · `nice -n 10`,
+  가용 메모리가 8.5 GB 아래로 내려가면 멈추는 감시. 굽는 동안 최저 가용 34,448,872 kB. Drive 올림 셋과 메일 발송까지 로그에 있다.
+  - 헤드리스 SIF 1,156,812,800 B · sha256 `75b03b9d43d634a59830e8a7e45f87cfc7ac8b35bcfc9141c0bf47ff9fa4760f` — VERSION `d2f0d6b` ·
+    Built `2026-11-21T11:27:18Z` · Viewer false · LSPrePost bundled.
+  - GUI SIF 370,671,616 B · sha256 `992a0a646b80b8bee0d55bb805d9c824bf4aa150167e5ef9068955a0ff5ab0b6` — VERSION `d2f0d6b` ·
+    Built `2026-11-21T11:31:47Z` · Viewer true · LSPrePost not included.
+  - tar `/data/SmartTwinPostprocessor/SmartTwinPostprocessor_20261121_v52.tar.gz` 575,429,803 B ·
+    sha256 `7bbdd2c241182521faf19ed6bd4294d8ef3308099f23634a73e8c3c278412f25`.
+  - **네 지점이 같다** — 빌드 원본 `apptainer/` · `/data/SmartTwinPostprocessor/` · 헤드 `/opt/apptainers/` ·
+    `KooSlurmInstallAutomationRefactory/apptainer/compute-node-images/` 의 SIF 여덟 개와 tar 의 sha256 을 직접 셌다(12:07 UTC).
+    각인은 NFS · 헤드 사본 넷을 `--no-home` 으로 읽었다.
+  - 옛 판(v51) 사본 — `/data/SmartTwinPostprocessor/SmartTwinPostprocessor_backup_20261121_113203.sif`,
+    `/opt/apptainers/SmartTwinPostprocessor{,GUI}_backup_20261121_114036.sif`.
+  - **노드 로컬 사본은 옛 판 그대로다** — `sinfo`(12:00 UTC)에서 node001 · node002 · viz-node001 이 `down*`, viz-node002 가 `unknown*`.
+    기록에 남은 마지막 노드 판은 v47 이다(`report_figures_2026-11/context-notes.md`). VM 이 뜨면 따로 바꿔야 한다.
+- **배포 세션 판정**(태그 `v52` — `check_v52.log` · `cmp_v51_v52.log`) — VERSION d2f0d6b, 분석기 여섯 덱 rc 0(DynaAnalysis 사유 줄 1),
+  카메라 다섯 칸 rc 0 · 1280×720 · 3프레임 · 기준 프레임과 동일, `cmp_v52.py v51 v52` 「어긋난 것 0」. 알려진 나쁜 입력 `cmp_v52.py v51 v51` 은
+  rc 1 이다(`knownbad_v51_as_new.log` — `!!` 15줄 뒤, v51 에는 `declined/` 가 없어 `FileNotFoundError` 로 끝난다. 종료 코드가 0 이 아니라
+  판정은 서므로 꾸러미는 그대로 뒀다).
+- **직접 다시 잰 것**(태그 `v52b` — 헤드 사본 `/opt/apptainers/SmartTwinPostprocessor.sif` · `--no-home`, `check_v52b.log` · `cmp_v51_v52b.log`) — 「어긋난 것 0」.
+  - 분석기 여섯 덱 rc 0, DynaAnalysis 사유 줄 1. 산출은 ElasticBeam 파트 4 의 빔 줄 넷 · 새 CSV 넷 · 각인 말고 v51 과 바이트까지 같다
+    (공통 파일 Test_006 170 · ElasticBeam 26 · DynaAnalysis 28 · case_shell 6 · 두꺼운 셸 283 · airbag 487).
+  - deep — 파트 1 `Hex` 998.6226228 · 2 `Tet` 1001.069475 · 3 `Shell` 999.3968813 · 4 `Beam` 999.5647325(t = 1), 「빔 · 적분점 최대」 1곳,
+    「빔 파트 [4] 는 면이 없어 스냅샷을 만들지 않는다」 줄.
+  - 카메라 — plain 52초 · fit 23 · fit_m0 21 · pattern 19 · declined 18, 다섯 칸 rc 0 · `1280,720,3`, 프레임 md5 가 `cmp_v52.py` 의 `LOCAL` 표와 같다.
+    `declined` 는 `[설정]` 안내가 로그와 보고서에 실렸다. `_zoom` 0 · 남은 Xvfb 0 · 원본 덱 폴더 여섯 곳의 수정 시각 그대로.
+    링크 덱 `deck006` 에는 `lspost.cfile` · `lspost.msg` 가 떨어진다(그걸 받으라고 둔 링크 덱이다).
+- **배포 뒤 더 본 것**
+  - **σ1 독립 대조** — 「빔 — 구현에서 확정한 것」 절에서 lasso 와 맞댄 것은 σ_vm · σ3 뿐이었다. ElasticBeam t = 1 의 σ1 을 lasso · numpy 로 따로 내면
+    최대 999.5647325(요소 1117) · 최소 94.5958199(1136) · 평균 689.3463558 로 분석기 값과 같다. σ_vm 과 숫자까지 같은 것은 이 덱의 전단 워드가
+    전부 0 이라서다 — 그러면 σ_vm = |σ_축|, σ1 = max(σ_축, 0) 이고, 요소 20개의 평균까지 같으니 요소마다 인장 쪽 적분점이 더 크다는 뜻이다.
+    그래서 이 대조는 주응력 식의 전단 항을 보지 못한다.
+    - 꾸러미 `cmp_v52.py` 의 기준표에 σ1 줄을 넣고(11:59 UTC) 세 판을 다시 맞댔다 — `cmp_v51_v52_s1.log` · `cmp_v51_v52b_s1.log` ·
+      `cmp_v51_local_s1.log` 모두 「어긋난 것 0」. σ1 줄이 없던 때의 로그(`cmp_v51_v52.log` · `cmp_v51_v52b.log` · `cmp_v51_local.log` ·
+      `knownbad_v51_as_new.log`)는 그대로 둔다.
+    - 새 줄이 잡는지 기준값을 바꿔 봤다 — 값(999.5657325) · 요소 번호 맞바꿈 · 평균(689.3473558)은 rc 1 로 잡히고, 1e-7 변이(999.5647326)는
+      **잡히지 않는다**. 꾸러미의 값 비교는 상대 1e-9, 곧 아홉 자리쯤까지다. 「lasso 와 10자리 일치」 는 값을 직접 맞댄 결과지 꾸러미가 보장하는 것이 아니다.
+  - **빔 워드 순서의 값 근거는 축응력 · 축변형률 자리뿐이다** — ElasticBeam 의 lasso 배열을 다시 세면 `element_beam_axial_stress` 와
+    `element_beam_axial_strain` 은 0 이 아닌 값이 180개씩인데, `element_beam_shear_stress`(2 × 20 × 9 × 2)와 `element_beam_plastic_strain` 에는
+    **0 이 아닌 값이 하나도 없다**. 실덱이 값으로 받쳐 주는 것은 첫째 워드 = 축응력, 다섯째 워드 = 축변형률(σ = E·ε, E = 1.0E7)이고,
+    둘째 – 넷째 워드(τ_rs · τ_tr · ε_p)의 자리는 lasso 2.2.6 의 배치를 따른 것이다. 합성 시험(`BeamPartHistory`)은 전단 · 소성 워드를 채워 식을 보지만,
+    읽는 쪽과 같은 배치로 쓴 자료라 자리의 근거는 못 된다. 전단이나 소성이 생기는 빔(Hughes-Liu 소성 빔 따위)의 σ_vm · ε_p 는 실덱 값으로 확인한 적이 없다 —
+    앞 절들의 「실데이터 근거는 R13.1.1 덱 하나」 를 이만큼 좁혀 읽어야 한다.
+  - **DynaForge 꾸러미가 받는 것** — ElasticBeam 의 `report.ontology.json` 을 v51 · v52b 로 맞대면 어휘 0.5 와 객체 수(캠페인 1 · 런 1 · 파트 4 ·
+    파트 응답 4)는 그대로고 달라지는 것은 셋이다(4,635 → 4,959 B).
+    ① `cae_part part/4` 에 `worst_von_mises` 999.5647325 · `worst_von_mises_run` · `worst_max_principal` 999.5647325 · `worst_min_principal` −999.514809 ·
+    `worst_plastic_strain` 0 이 생기고 `n_runs_measured` 가 0 → 1. ② `cae_part_response resp/single/4` 에 `peak_von_mises` · `peak_von_mises_time` 1 ·
+    `peak_max_principal` · `peak_max_principal_time` 1 · `min_principal` · `peak_plastic_strain` 0. ③ 각인(`cae_run.analyzer_commit` 226eca7 → d2f0d6b ·
+    `cae_campaign.produced_at`). 빔에는 변형률 계열 값이 없고, 꾸러미에도 deep `result.json` 에도 요소 종류 키가 없다. `severity` 는 UNKNOWN 그대로다
+    (탄성 재료라 항복 한계가 없다). 항복 한계가 있는 빔 파트에는 `min_safety_factor` · `yield_limit` · `yield_criterion` · `severity` 가 붙는다 —
+    코드 경로로만 봤고 돌려 본 덱은 없다.
+  - **DynaForge 검사기 통과** — 그쪽 저장소의 `KooRemapper/platform/backend/app/reports/onto_package.py` `check()` 에 v51 · v52 · v52b 꾸러미를
+    그대로 넣으면 셋 다 통과한다(행 5 · 선 1 · 경고 없음 — `.work/beam_viewfit/sphere_csv/check_dynaforge.py` · `.out`). 검사기는 읽기만 했다.
+  - **sphere 로 가는 길이 있다** — sphere 는 `stress_history` 키를 읽지 않지만(참조 0건), 적재기 `loader.py` `load_simulation_result()` 가
+    `metadata.analyzed_parts` 의 파트마다 `stress/part_{pid}_von_mises.csv`(726행) · `…_max_principal_stress.csv`(732) ·
+    `…_min_principal_stress.csv`(735) · `strain/part_{pid}_eff_plastic_strain.csv`(748)를 있으면 읽는다. v52 는 빔 파트에 이 넷을 새로 쓰고
+    (열은 솔리드 것과 같다 — 요소 종류 열이 없다), 빔 파트 번호는 운동 작업 덕에 v51 때도 `analyzed_parts` 에 있었다. 적재기를 두 판 산출에 직접 돌리면
+    (`.work/beam_viewfit/sphere_csv/probe_loader.py` · `.out`) 파트 4 의 `peak_stress` · `peak_principal` · `min_principal` · `peak_strain` 이
+    v51 에서는 전부 None, v52b 에서는 999.5647325 · 999.5647325 · −999.514809 · 0.0 이다. 파트 1 – 3 은 두 판이 같다.
+    - sphere 는 그 파트가 빔인 줄 모른다. `models.py:268`(`peak_stress`) → `report/json_report.py:162` · `report/html_report.py:232` 로 솔리드와 같은 길을 타고,
+      `analyzer.py` 의 항복 판정도 파트 종류를 가리지 않는다(`pr.peak_stress` · `pr.peak_principal` 을 파트의 한계와 견준다 — 코드로만 봤다).
+      `stress_ts.elem` 은 `Max_Element_ID` 를 보여 줄 뿐 메시에서 찾지 않는다.
+    - **이번 판의 「회귀 불요」 는 그대로 선다** — 적분 빔이 없는 다섯 덱은 CSV 까지 v51 과 바이트로 같고, 훑은 `/data` 2,476 폴더 중 적분 빔 덱은
+      ElasticBeam 하나며 sphere 캠페인이 아니다. 적분 빔이 든 덱으로 캠페인을 돌리면 v52 부터 빔 파트 값이 sphere 표 · 항복 판정 · 온톨로지 꾸러미에
+      실린다 — 아무도 돌려 본 적 없는 자리다.
+    - a9 의 원장(`docs/sphere_automation_2026-10/release-verdicts.md`) v52 항목은 이 길을 「통로 자체가 없다」 로 적고 있었다. 11:57 UTC 쯤 알렸고
+      a9 가 af0b301 로 고쳤다(통로 4 를 「분석기 산출 폴더 전체 — 파트별 CSV 포함」 으로 넓힘). 원장은 그쪽 파일이라 손대지 않았다.
+    - a9 가 미리 짚어 둔 것 — 핫스팟 군집이 빔을 품게 되면 sphere 가 `hotspot_clusters[].element_type` 의 `"beam"` 을 `meta["et"]`
+      (`report/html_report.py:481`)로 그대로 싣는다. 빔을 핫스팟에 넣는 일을 하게 되면 먼저 a9 에 알린다.
+- **알림** — kooremapper-4a(DynaForge)에 v52 판 알림을 보냈다(11:57 UTC 쯤 — 판 지문 · 바뀐 것 둘 · 확인한 것 · 남는 한계). 회신은 청하지 않았고,
+  그쪽이 다른 일을 하는 중이라 수신함에 들어간 것까지만 안다. a9 에 보낸 것은 위와 같다.
+- **저장소** — a9 가 d2f0d6b 위에 12c2cb4 · c033f66 · af0b301(원장)을 올려 origin/main = af0b301 이다. 이 절과 checklist 6절을 담은 커밋은
+  그 위 로컬에 있고, push 는 사용자 승인 뒤에 한다.
+- **치운 것** — 11-08 부터 떠 있던 내 배경 셸 하나(`xargs … grep` 이 표준 입력을 기다리며 멈춰 있었다)를 끝냈다.
+- **남는 것** — 노드 로컬 SIF(v47 → 최신, VM 이 뜨면) · 전단이나 소성이 있는 빔 덱으로 값 확인(라이선스가 살아나면) ·
+  적분 빔 캠페인이 생기면 sphere 쪽 표식과 판정 · 솔리드 첫 적분점(44 덱). 앞의 둘은 지금 손댈 수 없고, 뒤의 둘은 요청받지 않았다.
