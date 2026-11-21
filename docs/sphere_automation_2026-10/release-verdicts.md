@@ -54,3 +54,11 @@ sphere 로 들어오는 통로는 넷이고, 넷을 다 막아야 "불요" 다.
 **핫스팟 군집이 빔을 품으면** sphere 는 `"beam"` 을 `meta["et"]` 로 그대로 싣고
 솔리드와 같은 자로 세운다 — 적분점 극값을 요소 표면값처럼 읽는 꼴이다.
 그때는 sphere 쪽 표식을 같이 고쳐야 한다. 상류에 통보를 요청해 두었다.
+
+**배포 확인(11-21 11:4x UTC).** 상류 주장(헤드리스 `75b03b9d` · GUI `992a0a64`,
+네 곳 같음)을 직접 세어 **여덟 모두 일치**했다 — `/opt/apptainers`,
+`/data/SmartTwinPostprocessor`, `KooSlurmInstallAutomationRefactory/apptainer/compute-node-images`,
+빌드 원본 `apptainer/`. SIF 안(`--no-home` · `PYTHONNOUSERSITE=1`) 에서 각인 `d2f0d6b`,
+sphere 임포트 6/6, 흐름 캐시 schema 4, `--parallel-runs`·`--yield-map`·`--viewer`·`--hotspot-part`
+노출 확인. **노드 로컬 `/opt/apptainers`(node001·002·viz)는 여전히 옛 판** — VM 셋 다
+응답 없음. 네 지점은 전부 이 머신이라, 노드는 뜨는 대로 따로 바꿔야 한다.
