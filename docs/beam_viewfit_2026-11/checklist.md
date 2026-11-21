@@ -24,10 +24,13 @@
 
 ## 4. 카메라 타겟 맞춤
 - [x] 실측 — 타겟만 표시 → 맞춤 → 복원 순서, 단면 뒤 `ac`, `ac` 대 `vauto`, 여백 `zin`(71 경우 — 맞춤은 `splane projectview` 에서, 방향은 최근 `ac` 를 따른다)
+      + 11차 4 경우(기운 판) — 맞춤 상자는 파트 상자가 아니라 보이는 파트를 평면이 **자른 도형** 의 상자다
 - [x] C++ `RenderOptions` · `generateScript` · `RenderJob` · YAML 키 · `processRenderJobs` — 끄면 cfile 바이트 동일(109 조합),
       분석기 실행의 첫 · 마지막 프레임이 실측과 동일, 시험 `LsppViewFit` · `test_config_inline_mapping` [H]
-- [ ] deep CLI `--view-fit` · `--view-margin` · 설정 파일 키 · 작업 생성 · `[설정]` 안내
-- [ ] 실렌더 확인(맞춤 전 · 후 첫 프레임) · C++/파이썬 시험 · 커밋
+- [x] deep CLI `--view-fit` · `--view-margin` · 설정 파일 키 · 작업 생성 · `[설정]` 안내 — 작업 규칙 한 곳(`_fit_to_target`, 끄면 YAML 글자 동일),
+      실행 전 안내 넷 + 분석기가 걸지 않은 영상 건지기(1차 · 2차 패스), 시험 `test_view_fit.py` 24개 함수 · 42 경우(변이 70개 전부 잡힘)
+- [x] 실렌더 확인(맞춤 전 · 후 첫 프레임) · C++/파이썬 시험 · 커밋 — 단면뷰 경로 세 축이 실측 그림과 md5 동일, 설정 파일 · 패턴 · 배치 ·
+      걸리지 않는 경우까지. 예전 경로는 작은 실덱(`deck_eb`)으로만(Test_006 예전 경로는 돌리지 않았다). deep 254 · C++ 26 + 5 통과
 
 ## 5. 마감
 - [ ] 전체 시험(C++ · 파이썬 패키지 · post_analyze 셸 시험)

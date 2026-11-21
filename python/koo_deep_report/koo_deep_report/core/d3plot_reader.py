@@ -147,7 +147,8 @@ def run_analysis(
 
     yaml_content = _build_yaml(d3plot_path, output_dir, rc_first, part_ids, threads, render_threads, verbose, element_quality=element_quality, install_dir=install_dir, section_view_config=sv_first, hotspot=hotspot)
     # 렌더 실패는 분석 실패가 아니다 — 보고서에 남겨 갤러리 공백이 조용히 지나가지 않게 한다
-    render_warnings: list[str] = _ignored_option_warnings(render_config, section_view_config)
+    render_warnings: list[str] = (_ignored_option_warnings(render_config, section_view_config)
+                                  + _view_fit_warnings(render_config, section_view_config))
     w = _run_ua(ua, yaml_content, verbose)
     if w:
         render_warnings.append(w)
@@ -220,8 +221,8 @@ _UA_RC_RENDER_FAILED = 3
 def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> str | None:
     """Write YAML to temp file, run unified_analyzer, clean up.
 
-    반환: 분석은 됐지만 렌더·단면 영상이 실패했으면(rc 3) 그 설명, 아니면 None.
-    그 밖의 실패는 RuntimeError.
+    반환: 분석은 됐지만 렌더·단면 영상이 실패했으면(rc 3) 그 설명, 분석기가 카메라 타겟 맞춤을 걸지 않은
+    영상이 있으면 그 '[설정]' 안내, 아니면 None. 그 밖의 실패는 RuntimeError.
     """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, prefix="sa_") as f:
         f.write(yaml_content)
@@ -239,16 +240,18 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> str | None:
             capture_output=not verbose,
             text=True,
         )
+        # 진행 출력(stdout) — 실패한 작업 줄(FAILED …) · 맞춤을 걸지 않은 까닭 줄이 여기로 나온다(verbose 면 비어 있다)
+        out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
+        fit_note = _view_fit_declined(out)
         if proc.returncode == _UA_RC_RENDER_FAILED:
-            # 실패한 작업 줄(FAILED …)은 진행 출력(stdout)으로 나온다
-            out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
             failed = [ln.strip() for ln in out.splitlines() if "FAILED" in ln or "failed" in ln]
             detail = "\n".join(failed[:10])
-            return "unified_analyzer 렌더 일부 실패 (rc=3)" + (f":\n{detail}" if detail else "")
+            return ("unified_analyzer 렌더 일부 실패 (rc=3)" + (f":\n{detail}" if detail else "")
+                    + (f"\n{fit_note}" if fit_note else ""))
         if proc.returncode != 0:
             stderr = getattr(proc, "stderr", "") or ""
             raise RuntimeError(f"unified_analyzer failed (rc={proc.returncode}):\n{stderr[:2000]}")
-        return None
+        return fit_note
     finally:
         yaml_path.unlink(missing_ok=True)
 
@@ -277,6 +280,61 @@ def _ignored_option_warnings(render_config, section_view_config) -> list[str]:
     for w in out:
         print(f"[koo_deep_report] {w}", file=sys.stderr)
     return out
+
+
+def _view_fit_warnings(render_config, section_view_config) -> list[str]:
+    """--view-fit target 이 어디에도 걸리지 않는 조합을 실행 전에 알린다 — '[설정]' 경고.
+
+    맞춤은 타겟이 있는 LS-PrePost 단면 작업에만 걸린다(job_builder._fit_to_target). 번호 · 패턴이 모델과 안 맞아
+    분석기가 걸지 않은 경우는 실행 뒤 `_view_fit_declined` 가 건진다.
+    """
+    from ..render.job_builder import RenderConfig as RC
+    out: list[str] = []
+    sv = section_view_config
+    if sv is not None and sv.enabled:
+        cfg, sv_on = sv, True
+    elif isinstance(render_config, RC) and render_config.enabled:
+        cfg, sv_on = render_config, False
+    else:
+        return out          # 영상을 만들지 않는 실행
+    if not cfg.view_fit_target:
+        if cfg.view_margin != -0.3:
+            out.append(f"[설정] --view-margin {cfg.view_margin:g} 은 --view-fit target 과 함께일 때만 쓰인다")
+    elif sv_on and getattr(sv, "backend", "lsprepost") == "software":
+        out.append("[설정] --view-fit target 은 LS-PrePost 영상에만 쓰인다 — 소프트웨어 단면은 타겟을 주면 원래 "
+                   "그 상자에 맞춘다")
+    elif sv_on and not (sv.target_part_ids or sv.target_patterns):
+        out.append("[설정] --view-fit target 은 타겟이 있어야 쓰인다 — 개관 단면 영상은 모델 전체에 맞춘다. 타겟은 "
+                   "--section-view-target-ids · --section-view-target-patterns 로 준다(파트별 영상은 원래 그 파트에 맞춘다)")
+    elif not sv_on and not (cfg.part_pattern or cfg.per_part_render):
+        out.append("[설정] --view-fit target 은 타겟이 있어야 쓰인다 — 단면 영상은 모델 전체에 맞춘다. 타겟은 "
+                   "--part-pattern · --per-part-render 로 준다")
+    for w in out:
+        print(f"[koo_deep_report] {w}", file=sys.stderr)
+    return out
+
+
+# unified_analyzer 가 카메라 타겟 맞춤을 걸지 않은 작업마다 찍는 줄의 머리 · 꼬리 —
+# "    View fit: <까닭> — 보이는 모델 전체에 맞춥니다"(UnifiedAnalyzerRender.cpp processRenderJobs). 문구를 바꾸면 같이 바꾼다
+_VIEW_FIT_HEAD = "View fit:"
+_VIEW_FIT_DECLINED_TAIL = "— 보이는 모델 전체에 맞춥니다"
+
+
+def _view_fit_declined(ua_output: str) -> str | None:
+    """분석기 출력에서 「카메라 타겟 맞춤을 걸지 않았다」 줄을 모아 '[설정]' 경고 한 줄로 — 없으면 None.
+
+    타겟 번호가 모델에 없거나 전부 숨김 대상이거나 패턴에 맞는 파트가 없으면 분석기는 모델 전체에 맞춰 찍는다.
+    출력을 잡아 두는 실행에서는 그 줄이 버려지므로 여기서 건져 보고서에 싣는다.
+    """
+    reasons: list[str] = []
+    for ln in ua_output.splitlines():
+        rest = ln.partition(_VIEW_FIT_HEAD)[2]          # 머리가 없는 줄이면 빈 글
+        if rest.endswith(_VIEW_FIT_DECLINED_TAIL):
+            reasons.append(rest[: -len(_VIEW_FIT_DECLINED_TAIL)].strip())
+    if not reasons:
+        return None
+    return (f"[설정] --view-fit target 이 영상 {len(reasons)}개에 걸리지 않았다(모델 전체에 맞췄다) — "
+            + " · ".join(dict.fromkeys(reasons)))
 
 
 def _part_names(d3plot_path: Path, result: "D3plotResult") -> dict[int, str]:

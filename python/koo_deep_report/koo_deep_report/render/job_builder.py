@@ -30,6 +30,10 @@ class SectionViewRenderConfig:
     part_keywords: list[str] = field(default_factory=list)
     #: 영상에서 숨길 파트(바닥 등) — 단면 · 외피 · 카메라 맞춤 · 파트별 목록에서 모두 뺀다. 비면 숨기지 않는다
     hide_part_ids: list[int] = field(default_factory=list)
+    #: 카메라 타겟 맞춤(LS-PrePost 개관 단면 영상) — 화면을 보이는 모델 전체가 아니라 타겟의 단면(잘린 면)에 맞춘다. 타겟이 있는
+    #: 작업에만 걸린다. 여백은 zin 약속 — 음수 = 넓게(-0.3 = 1.6배), 0 = 꼭 맞게, 양수 = 타겟 안쪽으로(0.5 미만)
+    view_fit_target: bool = False
+    view_margin: float = -0.3
     fade_distance: float = 0.0   # 0 = flat categorical bg; >0 = semi-transparent bg by dist
     # 자를 자리를 어디로 볼지 (software 백엔드 전용).
     #   "aabb" = 형상 가운데(기본, 종전 동작) | "peak" = 응력 피크가 지나는 자리
@@ -82,6 +86,13 @@ def _visible(part_ids: list[int] | None, hide: list[int]) -> list[int]:
 
 def _ids_yaml(ids: list[int]) -> str:
     return "[" + ", ".join(str(i) for i in ids) + "]"
+
+
+def _fit_to_target(job: dict, config) -> None:
+    """카메라 타겟 맞춤 키를 단다 — 타겟(`parts` · `part_pattern`)이 있는 작업에만. 타겟이 없으면 맞출 것이 없다."""
+    if config.view_fit_target and (job.get("parts") or job.get("part_pattern")):
+        job["view_fit"] = "target"
+        job["view_margin"] = config.view_margin
 
 
 def _parse_signed_axis(s: str) -> tuple[str, int]:
@@ -344,6 +355,7 @@ def build_lsprepost_section_jobs(
             # 단면 영상은 _zoom 확대본을 만들지 않는다 — 타겟은 파트별 단면이 따로 맞춰 나오고, 자르기는 응력 색을 못
             # 찾으면 최소 크기로 엉뚱한 곳을 잘라 거의 한 색 영상이 갤러리에 실린다(v44 확인, 11-06)
             job["zoom_crop"] = False
+            _fit_to_target(job, config)
             jobs.append(job)
 
     # Per-part: each part × field × axis (숨길 파트는 빼고)
@@ -377,6 +389,7 @@ def build_lsprepost_section_jobs(
                     if config.hide_part_ids:
                         job["hide_part_ids"] = list(config.hide_part_ids)
                     job["zoom_crop"] = False
+                    _fit_to_target(job, config)
                     jobs.append(job)
 
     return jobs
@@ -394,6 +407,8 @@ class RenderConfig:
     resolution: list[int] = field(default_factory=lambda: [2560, 1440])
     part_pattern: str = ""          # 빈 문자열 = 전체
     hide_part_ids: list[int] = field(default_factory=list)   # 영상에서 숨길 파트(바닥 등)
+    view_fit_target: bool = False   # 카메라 타겟 맞춤 — 타겟(part_pattern · 파트별)이 있는 작업의 화면을 타겟의 단면에 맞춘다
+    view_margin: float = -0.3       # 맞춤 여백(zin 약속 — 음수 = 넓게, 0.5 미만)
 
 
 def build_render_jobs(
@@ -437,6 +452,7 @@ def build_render_jobs(
             job["part_pattern"] = config.part_pattern
         if config.hide_part_ids:
             job["hide_part_ids"] = list(config.hide_part_ids)
+        _fit_to_target(job, config)
         jobs.append(job)
 
     # 부품별 X/Y/Z 단면 (해당 부품 bbox 중심 통과)
@@ -446,7 +462,7 @@ def build_render_jobs(
         for pid in _visible(part_ids, config.hide_part_ids):
             part_dir = str(Path(output_dir) / "renders" / f"part_{pid}")
             for axis in config.section_axes:
-                jobs.append({
+                job = {
                     "name": f"part_{pid}_{axis}",
                     "type": "section_view",
                     "fringe": config.fringe,
@@ -461,6 +477,8 @@ def build_render_jobs(
                         "filename": f"part_{pid}_{axis}",
                     },
                     **({"hide_part_ids": list(config.hide_part_ids)} if config.hide_part_ids else {}),
-                })
+                }
+                _fit_to_target(job, config)
+                jobs.append(job)
 
     return jobs

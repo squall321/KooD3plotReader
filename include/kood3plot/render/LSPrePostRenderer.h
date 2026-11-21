@@ -185,7 +185,8 @@ struct RenderOptions {
     std::vector<char> hidden_kinds;
     /// 카메라를 타겟(highlight_parts)에 맞춘다 — 타겟과 단면(section_planes)이 둘 다 있을 때만 쓰인다.
     /// 방향은 기본 영상과 같고(보이는 모델 전체에 맞춘 `ac` 가 정한다), 단면을 넣는 순간에만 타겟만 보이게 해서
-    /// 화면이 그 상자에 맞는다. 찍은 뒤 잘라내는 `_zoom` 과 달리 해상도가 그대로다. 단면 하나로 실측했다.
+    /// 화면이 타겟의 잘린 면에 맞는다(파트 상자가 아니다). 찍은 뒤 잘라내는 `_zoom` 과 달리 해상도가 그대로다.
+    /// 단면 하나로 실측했다.
     bool fit_highlight = false;
     /// 타겟 맞춤 여백 — `zin m m 1-m 1-m` 의 m(PartSectionOptions::section_margin 과 같은 규약).
     /// 음수 = 넓게(-0.3 = 1.6배), 0 = 꼭 맞게, 양수 = 타겟 안쪽으로 잘린다. 0.5 이상은 사각형이 뒤집힌다.

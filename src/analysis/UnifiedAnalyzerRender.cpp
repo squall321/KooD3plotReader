@@ -553,6 +553,7 @@ bool UnifiedAnalyzer::processRenderJobs(
                         << job.view_margin << ")";
                     callback(msg.str());
                 } else {
+                    // deep 이 이 줄을 건져 보고서에 싣는다(d3plot_reader._view_fit_declined) — 머리 · 꼬리 문구를 바꾸면 같이 바꾼다
                     callback(std::string("    View fit: ") + why_not + " — 보이는 모델 전체에 맞춥니다");
                 }
             }

@@ -4,6 +4,7 @@ import argparse
 import functools
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -76,6 +77,17 @@ def main() -> None:
         args = parser.parse_args(argv)
         args.command = "single"
         run_single(args)
+
+
+def _view_margin(s: str) -> float:
+    """--view-margin · 설정 파일 view_margin 값 — zin 약속(음수 = 넓게). 0.5 이상이면 맞춤 사각형이 뒤집힌다."""
+    try:
+        v = float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{s!r} 는 수가 아니다") from None
+    if not math.isfinite(v) or v >= 0.5:
+        raise argparse.ArgumentTypeError(f"{s!r} — 유한한 수이고 0.5 보다 작아야 한다(0.5 부터는 맞춤 사각형이 뒤집힌다)")
+    return v
 
 
 def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
@@ -277,6 +289,15 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--no-hide-floor", dest="hide_floor", action="store_false",
                    help="영상에 바닥을 그대로 둔다(예전 모양)")
     p.set_defaults(hide_floor=True)
+    # 카메라 타겟 맞춤 — 기본값 None = 안 줌(설정 파일이 채울 수 있다). 직접 준 값은 설정 파일을 이긴다
+    p.add_argument("--view-fit", choices=["model", "target"], default=None,
+                   help="LS-PrePost 단면 영상의 카메라 맞춤. target = 타겟 파트(--section-view-target-ids · "
+                        "--section-view-target-patterns, 단면뷰를 끄면 --part-pattern · --per-part-render)의 "
+                        "단면(잘린 면)에 화면을 맞춘다 — 영상을 오려 확대하는 것이 아니라 카메라를 당기는 것이라 "
+                        "해상도가 그대로다. model = 보이는 모델 전체의 단면 (default model)")
+    p.add_argument("--view-margin", type=_view_margin, default=None, metavar="M",
+                   help="--view-fit target 의 여백 — zin 약속: 음수 = 넓게(-0.3 = 꼭 맞을 때의 1.6배 범위), 0 = 꼭 맞게, "
+                        "양수 = 타겟 안쪽으로. 0.5 보다 작아야 한다 (default -0.3)")
     p.add_argument("--figure-context-opacity", type=float, default=0.15, metavar="A",
                    help="그림의 주변 파트 불투명도 0–1 (default 0.15)")
 
@@ -435,6 +456,23 @@ def _parse_config_yaml(path: str) -> dict:
     m = re.search(r'part_pattern:\s*["\']?([^"\'#\n]+)', text)
     if m:
         cfg["part_pattern"] = m.group(1).strip()
+
+    # 카메라 타겟 맞춤 — 분석기 렌더 작업 키와 같은 이름. 맨 위 · section_view 블록 · 렌더 작업 어디에 써도 받는다
+    # (줄 머리에서만 찾는다 — 주석 처리한 줄은 아니다). 틀린 값은 말하고 버린다
+    m = re.search(r'^[ \t]*view_fit:[ \t]*(.*?)[ \t]*(?:#.*)?$', text, re.MULTILINE)
+    if m:
+        v = m.group(1).strip('"\'').lower()
+        if v in ("model", "target"):
+            cfg["view_fit"] = v
+        else:
+            print(f"[koo_deep_report] 설정 파일 view_fit: {m.group(1)!r} 는 model · target 이 아니다 — 무시",
+                  file=sys.stderr)
+    m = re.search(r'^[ \t]*view_margin:[ \t]*(.*?)[ \t]*(?:#.*)?$', text, re.MULTILINE)
+    if m:
+        try:
+            cfg["view_margin"] = _view_margin(m.group(1).strip('"\''))
+        except argparse.ArgumentTypeError as e:
+            print(f"[koo_deep_report] 설정 파일 view_margin: {e} — 무시", file=sys.stderr)
 
     # render_jobs → render enabled/disabled
     cfg["no_render"] = "render_jobs:" not in text
@@ -775,6 +813,11 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         args.part_pattern = cfg["part_pattern"]
     if not getattr(args, "install_dir", "") and "install_dir" in cfg:
         args.install_dir = cfg["install_dir"]
+    # 카메라 타겟 맞춤 — CLI 가 안 준 것(None)만 채운다
+    if getattr(args, "view_fit", None) is None and "view_fit" in cfg:
+        args.view_fit = cfg["view_fit"]
+    if getattr(args, "view_margin", None) is None and "view_margin" in cfg:
+        args.view_margin = cfg["view_margin"]
 
     # section_view block: only apply YAML when CLI did not override (defaults intact).
     sv_cfg = cfg.get("section_view") or {}
@@ -1127,6 +1170,7 @@ def run_single(args: argparse.Namespace) -> None:
           f"{' | 단면뷰ON' if sv_cfg else ''})")
     try:
         _apply_video_hide(args, sim_info.d3plot, render_cfg, sv_cfg)
+        _apply_view_fit(args, render_cfg, sv_cfg)
         d3plot_result = run_analysis(
             d3plot_path=sim_info.d3plot,
             output_dir=output_dir,
@@ -1266,6 +1310,21 @@ def _apply_video_hide(args: argparse.Namespace, d3plot, render_cfg, sv_cfg) -> l
     if ids:
         print(f"[koo_deep_report] 영상에서 숨길 파트: {ids}")
     return ids
+
+
+def _apply_view_fit(args: argparse.Namespace, render_cfg, sv_cfg) -> bool:
+    """카메라 타겟 맞춤(--view-fit target · --view-margin)을 렌더 설정 둘 다에 싣는다. 켰으면 True."""
+    fit = (getattr(args, "view_fit", None) or "model") == "target"
+    margin = getattr(args, "view_margin", None)
+    if margin is None:
+        margin = -0.3
+    for cfg in (render_cfg, sv_cfg):
+        if cfg is not None:
+            cfg.view_fit_target = fit
+            cfg.view_margin = margin
+    if fit:
+        print(f"[koo_deep_report] 카메라 맞춤: 타겟(여백 {margin:g})")
+    return fit
 
 
 def _write_figures(result: SingleResult, output_dir: Path, args: argparse.Namespace) -> None:
@@ -1517,6 +1576,7 @@ def _run_one(sim_info, output_dir: Path, args: argparse.Namespace,
             sliding_peak_time=getattr(args, "section_view_sliding_peak_time", -1.0),
         )
     _apply_video_hide(args, sim_info.d3plot, render_cfg, sv_cfg)
+    _apply_view_fit(args, render_cfg, sv_cfg)
     d3plot_result = run_analysis(
         d3plot_path=sim_info.d3plot,
         output_dir=output_dir,
