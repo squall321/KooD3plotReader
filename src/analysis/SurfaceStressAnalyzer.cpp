@@ -29,6 +29,7 @@ bool SurfaceStressAnalyzer::initialize() {
     const auto& control_data = reader_.get_control_data();
 
     nv3d_ = control_data.NV3D;
+    layout_ = data::SolidIpLayout::from(control_data);
     // NEL8 < 0 은 10절점 사면체(절점 2개가 더 실림) 표식이지 요소 수가 아니다.
     // 부호를 그대로 담으면 아래 침식 마스크가 0 개로 만들어져 제외가 꺼진다.
     // 나머지 배관(GeometryParser·StateDataParser·SinglePassAnalyzer)도 |NEL8| 을 쓴다.
@@ -45,23 +46,24 @@ StressTensor SurfaceStressAnalyzer::extractStressTensor(
     // Words 0-5: sxx, syy, szz, sxy, yz, zx (stress components)
     // Word 6: effective plastic strain
     // Words 7+: extra history variables or strain
+    //
+    // 적분점을 여덟 자리 적은 덱(NINTSLD 8)은 이 묶음이 여덟 번 되풀이된다. 면 값(수직 · 전단)은 텐서에서
+    // 나고 「최대 텐서」 라는 것은 없으므로, 요소의 값은 값이 실린 자리의 평균 텐서 — 요소 중심값, NINTSLD 1 이
+    // 적는 값 — 로 읽는다. 앞 6워드만 읽으면 첫 자리 하나(요소 한 귀퉁이)의 응력이다.
 
     const auto& solid_data = state.solid_data;
     size_t base_offset = elem_internal_index * nv3d_;
 
-    if (base_offset + 6 > solid_data.size()) {
+    if (base_offset + stressWords() > solid_data.size()) {
         // Return zero tensor if data not available
         return StressTensor(0, 0, 0, 0, 0, 0);
     }
 
-    double sxx = solid_data[base_offset + 0];
-    double syy = solid_data[base_offset + 1];
-    double szz = solid_data[base_offset + 2];
-    double sxy = solid_data[base_offset + 3];
-    double syz = solid_data[base_offset + 4];
-    double szx = solid_data[base_offset + 5];
+    const double* blk = solid_data.data() + base_offset;
+    double s[6];
+    data::solidIpMean(blk, layout_, data::solidIps(blk, layout_), 0, 6, s);
 
-    return StressTensor(sxx, syy, szz, sxy, syz, szx);
+    return StressTensor(s[0], s[1], s[2], s[3], s[4], s[5]);
 }
 
 std::vector<bool> SurfaceStressAnalyzer::deletedSolidMask(const data::StateData& state, size_t num_solids) {
@@ -100,7 +102,7 @@ FaceStressResult SurfaceStressAnalyzer::analyzeFace(
         return result;
     }
     const size_t elem_index = static_cast<size_t>(face.element_id);
-    if (elem_index * static_cast<size_t>(nv3d_) + 6 > state.solid_data.size()) {
+    if (elem_index * static_cast<size_t>(nv3d_) + stressWords() > state.solid_data.size()) {
         return result;
     }
     result.valid = true;

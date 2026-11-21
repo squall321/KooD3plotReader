@@ -59,6 +59,14 @@ if(TARGET kood3plot_writer)
     add_test(NAME SolidIpHistory COMMAND test_solid_ip_history)
 endif()
 
+# 겉면 응력 · 변형률의 솔리드 적분점 처리 tests (합성 d3plot 왕복) — 쓰인 적분점의 평균 텐서 · 빈 자리 · 변형률 자리
+if(TARGET kood3plot_writer)
+    add_executable(test_surface_ip_mean test_surface_ip_mean.cpp)
+    target_link_libraries(test_surface_ip_mean PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_surface_ip_mean PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SurfaceIpMean COMMAND test_surface_ip_mean)
+endif()
+
 # MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
 if(TARGET kood3plot_writer)
     add_executable(test_motion_analyzer test_motion_analyzer.cpp)

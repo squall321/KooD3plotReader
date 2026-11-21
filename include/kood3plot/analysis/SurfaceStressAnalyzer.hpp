@@ -18,6 +18,7 @@
 #include "kood3plot/analysis/VectorMath.hpp"
 #include "kood3plot/analysis/AnalysisResult.hpp"
 #include "kood3plot/D3plotReader.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/data/StateData.hpp"
 #include <vector>
 #include <functional>
@@ -250,6 +251,9 @@ public:
 
     /**
      * @brief Extract stress tensor for a solid element from state data
+     *
+     * 적분점을 여덟 자리 적은 덱(NINTSLD 8)에서는 값이 실린 자리의 평균 텐서를 돌려준다.
+     *
      * @param state State data
      * @param elem_internal_index Internal element index (0-based)
      * @return StressTensor object
@@ -304,7 +308,11 @@ private:
     D3plotReader& reader_;
     int nv3d_;                    ///< Number of values per solid element
     int num_solid_elements_;      ///< Total number of solid elements
+    data::SolidIpLayout layout_;  ///< 솔리드 요소 블록의 적분점 배치
     std::string last_error_;
+
+    /// 요소 하나의 응력을 읽는 데 있어야 하는 워드 수 — 여덟 자리 덱은 블록 전체, 한 자리 덱은 응력 6워드
+    size_t stressWords() const { return layout_.nip > 1 ? static_cast<size_t>(nv3d_) : 6; }
 
     /**
      * @brief Initialize analyzer (read control data)

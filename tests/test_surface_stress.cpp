@@ -19,6 +19,7 @@
 
 #include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include "kood3plot/analysis/SurfaceExtractor.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/D3plotReader.hpp"
 #include <iostream>
 #include <cmath>
@@ -371,6 +372,9 @@ bool test_single_face_analysis(const std::string& d3plot_path) {
  * analyzeState 결과가 모든 상태에서 같아야 한다. 예전 구현은 내부 순번을 실제
  * 요소 ID 사전에서 찾아, ID 가 순번+1 인 덱에서는 옆 요소 값을, ID 가 다른
  * 덱에서는 0 을 조용히 냈다.
+ *
+ * 적분점을 여덟 자리 적은 덱(NINTSLD 8)이면 요소의 텐서는 값이 실린 자리의 평균이다 — 한 자리 덱은
+ * 블록의 앞 6워드 그대로. 평균 규칙 자체는 test_surface_ip_mean 이 생성식에서 낸 기대값으로 따로 본다.
  */
 bool test_face_index_matches_state_data(const std::string& d3plot_path) {
     std::cout << "  Testing face index -> solid_data mapping... ";
@@ -387,6 +391,8 @@ bool test_face_index_matches_state_data(const std::string& d3plot_path) {
     }
 
     const int nv3d = reader.get_control_data().NV3D;
+    const data::SolidIpLayout layout = data::SolidIpLayout::from(reader.get_control_data());
+    const size_t need = layout.nip > 1 ? static_cast<size_t>(nv3d) : 6;
     SurfaceStressAnalyzer analyzer(reader);
     size_t states = reader.get_num_states();
     double overall_max = 0.0;
@@ -398,9 +404,11 @@ bool test_face_index_matches_state_data(const std::string& d3plot_path) {
         int32_t expect_id = 0;
         for (const auto& f : faces) {
             size_t base = static_cast<size_t>(f.element_id) * static_cast<size_t>(nv3d);
-            TEST_ASSERT(base + 6 <= state.solid_data.size(), "face index out of solid_data");
-            StressTensor t(state.solid_data[base], state.solid_data[base + 1], state.solid_data[base + 2],
-                           state.solid_data[base + 3], state.solid_data[base + 4], state.solid_data[base + 5]);
+            TEST_ASSERT(base + need <= state.solid_data.size(), "face index out of solid_data");
+            const double* blk = state.solid_data.data() + base;
+            double s[6];
+            data::solidIpMean(blk, layout, data::solidIps(blk, layout), 0, 6, s);
+            StressTensor t(s[0], s[1], s[2], s[3], s[4], s[5]);
             double vm = t.vonMises();
             if (vm > expect_max) { expect_max = vm; expect_id = f.element_real_id; }
         }

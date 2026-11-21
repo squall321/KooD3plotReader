@@ -37,9 +37,10 @@ bool SurfaceStrainAnalyzer::initialize() {
     }
 
     // 변형률 텐서 가용 여부. SinglePassAnalyzer 와 같은 판정식을 쓴다
-    // (ISTRN != 0 이고 solid 워드가 6응력+1소성+6변형률 = 13 이상).
+    // (ISTRN != 0 이고 적분점 하나의 solid 워드가 6응력+1소성+6변형률 = 13 이상).
     const auto& control = reader_.get_control_data();
-    has_strain_tensor_ = (control.ISTRN != 0 && control.NV3D >= 13);
+    layout_ = data::SolidIpLayout::from(control);
+    has_strain_tensor_ = (layout_.strain_off >= 0);
     const std::string note = has_strain_tensor_
         ? std::string()
         : "d3plot 에 변형률 텐서 없음 (ISTRN=" + std::to_string(control.ISTRN) +
@@ -124,6 +125,9 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
 
     // solid 레이아웃: sxx,syy,szz,sxy,syz,szx, eff_plastic, [exx,eyy,ezz,exy,eyz,ezx], ...
     // 변형률 텐서는 STRFLG 로 켰을 때만 7번째 워드부터 6성분이 실린다.
+    // 적분점을 여덟 자리 적은 덱(NINTSLD 8)은 이 묶음이 요소마다 여덟 번 되풀이된다. 요소의 값은 값이 실린
+    // 자리의 평균 — 요소 중심의 상태, NINTSLD 1 이 적는 값 — 으로 읽는다. 블록의 7번째 워드만 읽으면 첫 자리의
+    // ε_p 이고, 블록의 마지막 6워드만 읽으면 여덟째 자리의 변형률이다(사면체는 그 자리가 비어 0 이 된다).
     const size_t total_solids = state.solid_data.size() / static_cast<size_t>(nv3d);
 
     // --- 축적기: 실제 텐서 기반 ---
@@ -166,9 +170,12 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
             continue;
         }
         const size_t base = elem_idx * static_cast<size_t>(nv3d);
+        const double* blk = state.solid_data.data() + base;
+        const data::SolidIpSet ips = data::solidIps(blk, layout_);
 
-        // 유효소성변형률 (7번째 워드)
-        const double eps = state.solid_data[base + 6];
+        // 유효소성변형률 (적분점마다 7번째 워드)
+        double eps = 0.0;
+        data::solidIpMean(blk, layout_, ips, 6, 1, &eps);
         if (eps > eps_max) {
             eps_max = eps;
             eps_max_elem_id = face.element_real_id;
@@ -181,22 +188,11 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
             continue;
         }
 
-        // 변형률 6성분은 NEIPH 확장값의 **마지막 6개** — 0-based 시작 = base + NV3D - 6
-        const size_t eoff = base + static_cast<size_t>(nv3d) - 6;
-        if (eoff + 6 > state.solid_data.size()) {
-            continue;
-        }
-
-        const StressTensor e(
-            // 변형률 위치 = base + NV3D - 6 (NEIPH 확장값의 마지막 6개).
-            // base+7 은 NV3D==13 일 때만 맞는다 — SinglePassAnalyzer::extractStrainTensor 주석 참조.
-            state.solid_data[eoff + 0],   // exx
-            state.solid_data[eoff + 1],   // eyy
-            state.solid_data[eoff + 2],   // ezz
-            state.solid_data[eoff + 3],   // exy
-            state.solid_data[eoff + 4],   // eyz
-            state.solid_data[eoff + 5]    // ezx
-        );
+        // 변형률 6성분은 적분점마다 NEIPH 확장값의 **마지막 6개** — 한 자리 덱이면 0-based 시작 = base + NV3D - 6.
+        // base+7 은 NV3D==13 일 때만 맞는다 — SinglePassAnalyzer::extractStrainTensor 주석 참조.
+        double e6[6];   // exx eyy ezz exy eyz ezx
+        data::solidIpMean(blk, layout_, ips, layout_.strain_off, 6, e6);
+        const StressTensor e(e6[0], e6[1], e6[2], e6[3], e6[4], e6[5]);
 
         // 면 법선 기준 수직/전단 변형률 — 응력과 동일한 텐서 사영식을 쓴다.
         const double en = e.normalStress(face.normal);
