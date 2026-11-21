@@ -2,6 +2,7 @@
 #pragma once
 
 #include "kood3plot/data/Mesh.hpp"
+#include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/data/StateData.hpp"
 
 #include <array>
@@ -51,8 +52,10 @@ struct Surface {
  */
 Surface extractSurface(const data::Mesh& mesh, const std::set<int32_t>& excluded_parts);
 
-/// 솔리드 요소 e 의 von Mises (solid_data 의 앞 6 성분 σxx σyy σzz σxy σyz σzx)
-double solidVonMises(const data::StateData& state, size_t elem_index, int nv3d);
+/// 솔리드 요소 e 의 von Mises (적분점 블록의 앞 6 성분 σxx σyy σzz σxy σyz σzx).
+/// 적분점이 여덟 자리로 실린 덱(layout.nip = 8)은 **자리 최대** 다 — 리포트(SinglePassAnalyzer)의
+/// 요소 값과 같은 규칙이라 게이트의 파트 최대가 리포트의 파트 최대와 같다. 한 자리 덱은 그 자리 값 그대로.
+double solidVonMises(const data::StateData& state, size_t elem_index, const data::SolidIpLayout& layout);
 
 /// 3성분 벡터 (이 모듈 전용)
 struct V3 {

@@ -228,17 +228,25 @@ Surface extractSurface(const data::Mesh& mesh, const std::set<int32_t>& excluded
     return out;
 }
 
-double solidVonMises(const data::StateData& state, size_t elem_index, int nv3d) {
-    const size_t base = elem_index * static_cast<size_t>(nv3d);
-    if (nv3d < 6 || base + 5 >= state.solid_data.size()) return 0.0;
-    const double sxx = state.solid_data[base + 0];
-    const double syy = state.solid_data[base + 1];
-    const double szz = state.solid_data[base + 2];
-    const double sxy = state.solid_data[base + 3];
-    const double syz = state.solid_data[base + 4];
-    const double szx = state.solid_data[base + 5];
-    const double d = (sxx - syy) * (sxx - syy) + (syy - szz) * (syy - szz) + (szz - sxx) * (szz - sxx);
-    return std::sqrt(0.5 * d + 3.0 * (sxy * sxy + syz * syz + szx * szx));
+double solidVonMises(const data::StateData& state, size_t elem_index, const data::SolidIpLayout& layout) {
+    if (layout.nv < 6) return 0.0;
+    double vm_max = 0.0;
+    for (int ip = 0; ip < layout.nip; ++ip) {
+        const size_t base = elem_index * static_cast<size_t>(layout.nv)
+                          + static_cast<size_t>(ip) * static_cast<size_t>(layout.stride);
+        if (base + 5 >= state.solid_data.size()) break;
+        const double sxx = state.solid_data[base + 0];
+        const double syy = state.solid_data[base + 1];
+        const double szz = state.solid_data[base + 2];
+        const double sxy = state.solid_data[base + 3];
+        const double syz = state.solid_data[base + 4];
+        const double szx = state.solid_data[base + 5];
+        const double d = (sxx - syy) * (sxx - syy) + (syy - szz) * (syy - szz) + (szz - sxx) * (szz - sxx);
+        const double vm = std::sqrt(0.5 * d + 3.0 * (sxy * sxy + syz * syz + szx * szx));
+        // 안 쓰인 자리(사면체의 뒤 네 자리 등)는 0 이라 최대에 끼지 못한다 — 따로 가를 것이 없다
+        if (ip == 0 || vm > vm_max) vm_max = vm;
+    }
+    return vm_max;
 }
 
 V3 smallestEigenvector(const double m_in[3][3]) {

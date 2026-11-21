@@ -395,6 +395,11 @@ int run(const Options& o) {
     D3plotReader reader(o.d3plot);
     if (reader.open() != ErrorCode::SUCCESS) throw std::runtime_error("d3plot 을 열지 못했다: " + o.d3plot);
     const auto& cd = reader.get_control_data();
+    // 적분점이 여덟 자리로 실린 덱은 요소 von Mises 가 자리 최대다(리포트의 파트 최대와 같은 규칙)
+    const data::SolidIpLayout solid_ip = data::SolidIpLayout::from(cd);
+    if (solid_ip.nip > 1)
+        std::cerr << "[s1] 솔리드 — 요소당 적분점 " << solid_ip.nip << "개가 기록됐다(NV3D " << cd.NV3D << " = "
+                  << solid_ip.nip << " × " << solid_ip.stride << ") — 요소 von Mises 는 적분점 최대다\n";
     const data::Mesh mesh = reader.read_mesh();
 
     // ── 겉면 ──
@@ -516,7 +521,7 @@ int run(const Options& o) {
         for (size_t s = 0; s < mesh.solids.size(); ++s) {
             const int32_t pi = solid_pidx[s];
             if (pi < 0) continue;
-            const double vm = s1::solidVonMises(st, s, cd.NV3D);
+            const double vm = s1::solidVonMises(st, s, solid_ip);
             if (is_surface_solid[s]) {
                 vmin[pi] = std::min(vmin[pi], vm);
                 vmax[pi] = std::max(vmax[pi], vm);
@@ -841,7 +846,7 @@ int run(const Options& o) {
                 std::set<int32_t> dead;
                 if (deletion) dead.insert(st.deleted_solids.begin(), st.deleted_solids.end());
                 for (size_t i = 0; i < Ne; ++i) {
-                    const double vm = s1::solidVonMises(st, selems[i], cd.NV3D);
+                    const double vm = s1::solidVonMises(st, selems[i], solid_ip);
                     const int32_t gi = elem_group[i];
                     if (o.float32) fv[i] = static_cast<float>(vm);
                     else qv[i] = quantize(vm, vmin[gi], vscale[gi]);

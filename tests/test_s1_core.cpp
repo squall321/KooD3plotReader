@@ -182,8 +182,44 @@ int main() {
     {
         data::StateData st;
         st.solid_data = {100, 0, 0, 0, 0, 0, 0, /* 둘째 요소 */ 0, 0, 0, 10, 0, 0, 0};
-        checkTrue("σxx=100 → 100", std::abs(solidVonMises(st, 0, 7) - 100.0) < 1e-9);
-        checkTrue("τxy=10 → 10√3", std::abs(solidVonMises(st, 1, 7) - 10.0 * std::sqrt(3.0)) < 1e-9);
+        data::ControlData cd{};
+        cd.NV3D = 7;
+        cd.IOSOL[0] = 1;
+        cd.IOSOL[1] = 1;
+        const auto one = data::SolidIpLayout::from(cd);   // 한 자리 덱
+        checkTrue("배치 — 한 자리", one.nip == 1 && one.stride == 7);
+        checkTrue("σxx=100 → 100", std::abs(solidVonMises(st, 0, one) - 100.0) < 1e-9);
+        checkTrue("τxy=10 → 10√3", std::abs(solidVonMises(st, 1, one) - 10.0 * std::sqrt(3.0)) < 1e-9);
+    }
+
+    std::printf("[8b] von Mises — 적분점 여덟 자리 덱은 자리 최대(리포트 파트 최대와 같은 규칙)\n");
+    {
+        data::ControlData cd{};
+        cd.NV3D = 56;                 // 8 × (응력 6 + ε_p 1)
+        cd.IOSOL[0] = 1;
+        cd.IOSOL[1] = 1;
+        const auto eight = data::SolidIpLayout::from(cd);
+        checkTrue("배치 — 여덟 자리 × 7워드", eight.nip == 8 && eight.stride == 7);
+
+        data::StateData st;
+        st.solid_data.assign(2 * 56, 0.0);
+        // 첫 요소 — 자리마다 σxx 가 다르다. 첫 자리는 120, 가장 큰 값 180 은 여섯째 자리.
+        const double sxx[8] = {120, 60, 150, 90, 30, 180, 75, 45};
+        for (int ip = 0; ip < 8; ++ip) st.solid_data[ip * 7] = sxx[ip];
+        // 둘째 요소 — 사면체처럼 앞 네 자리만 쓰고 뒤 네 자리는 0. 가장 큰 값 τxy 40 은 셋째 자리.
+        const double sxy[4] = {10, 25, 40, 5};
+        for (int ip = 0; ip < 4; ++ip) st.solid_data[56 + ip * 7 + 3] = sxy[ip];
+        checkTrue("자리마다 다른 요소 → 자리 최대 180 (첫 자리 120 이 아니다)",
+                  std::abs(solidVonMises(st, 0, eight) - 180.0) < 1e-9);
+        checkTrue("뒤 네 자리가 0 인 요소 → 앞 네 자리 최대 40√3",
+                  std::abs(solidVonMises(st, 1, eight) - 40.0 * std::sqrt(3.0)) < 1e-9);
+
+        // 요소 블록이 중간에서 잘린 상태 — 읽을 수 있는 자리까지만 본다(범위를 넘겨 읽지 않는다)
+        data::StateData cut;
+        cut.solid_data.assign(st.solid_data.begin(), st.solid_data.begin() + 3 * 7);
+        checkTrue("잘린 블록 → 남은 세 자리의 최대 150",
+                  std::abs(solidVonMises(cut, 0, eight) - 150.0) < 1e-9);
+        checkTrue("블록이 아예 없는 요소 → 0", solidVonMises(cut, 1, eight) == 0.0);
     }
 
     std::printf("[9] 가장 작은 고윳값의 고유벡터 — A·v = λ·v\n");

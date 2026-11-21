@@ -66,8 +66,9 @@ def main():
     sid = d3.arrays[ArrayType.element_solid_ids]
     spos = {e: i for i, e in enumerate(sid)}
     ei = np.array([spos[e] for e in elem_ids])
-    stress = d3.arrays[ArrayType.element_solid_stress][:, ei, 0, :]
-    vm_ref = vm_of(stress.astype(np.float64))
+    # 요소 값 = 층(적분점) 축의 최대 — 솔리드마다 한 벌인 덱은 층이 하나라 그 값 그대로다(계약 §6)
+    stress = d3.arrays[ArrayType.element_solid_stress][:, ei, :, :]
+    vm_ref = vm_of(stress.astype(np.float64)).max(axis=-1)
     t_ref = d3.arrays[ArrayType.global_timesteps]
     alive_ref = d3.arrays.get(ArrayType.element_solid_is_alive)
 
@@ -93,7 +94,7 @@ def main():
     if full_gate:
         # 100 상태씩 끊어 읽어 요소별 전 상태 최대만 남긴다 (메모리 상한)
         n_src = int(f["states"].attrs["n_states_source"])
-        cache = s1_path + ".vm_elem_max.npy"   # 다시 돌릴 때 d3plot 을 또 읽지 않게
+        cache = s1_path + ".vm_elem_ipmax.npy"   # 다시 돌릴 때 d3plot 을 또 읽지 않게
         try:
             vm_elem_max = np.load(cache)
         except OSError:
@@ -101,8 +102,8 @@ def main():
             for s0 in range(0, n_src, 100):
                 d3a = D3plot(d3_path, state_filter=set(range(s0, min(n_src, s0 + 100))), buffered_reading=True,
                              state_array_filter=[ArrayType.element_solid_stress])
-                st = d3a.arrays[ArrayType.element_solid_stress][:, :, 0, :]
-                m = vm_of(st.astype(np.float64)).max(axis=0)
+                st = d3a.arrays[ArrayType.element_solid_stress]          # [상태, 요소, 층, 6]
+                m = vm_of(st.astype(np.float64)).max(axis=2).max(axis=0)   # 층 최대 → 상태 최대
                 vm_elem_max = m if vm_elem_max is None else np.maximum(vm_elem_max, m)
             np.save(cache, vm_elem_max)
         vm = vm_elem_max[None, :]
