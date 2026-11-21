@@ -289,3 +289,33 @@
   (CLI 로 `--section-view` 를 줘도 `(렌더OFF | 단면뷰ON)`). 그러면 생성 YAML 에 `lsprepost_path` 가 빠지고 분석기가 스스로 찾는데, 배포 꼴
   (`bin/unified_analyzer` 옆 `lsprepost/`)에서는 찾고 개발용 심볼릭 링크 꼴에서는 못 찾아 rc 3 이다. 내 키가 없는 설정(`ua_threads: 4` 뿐)으로도
   똑같이 난다 — 2026-03 · 05 의 규칙이고 이번 기능과 무관하다. 고치지 않고 보고한다.
+
+## 마감 (11-21)
+- **전체 시험** — 문구 · 주석을 고친 뒤 다시 돌린 결과다.
+  - C++(`.work/beam_viewfit/run_ctests.sh`) — 렌더 켠 빌드 26개 통과(건너뜀 0) · 끈 빌드 5개 통과.
+  - 파이썬 여섯 패키지 820 통과 — deep 254 · sphere 187 · impact 148 · federate 211 · custom 13 · scatter 7(`KOOD3PLOT_HOME` 은 새 빌드).
+  - `tests/scripts/test_post_analyze.sh` 통과(실패 0 건).
+  - 실렌더 다시 — 단면뷰 세 축(맞춤 전 · 후)과 예전 경로 `*Tet*`(맞춤 전 · 후)의 첫 · 마지막 프레임이 위에 적은 md5 와 전부 같다
+    (`deep_e2e/run_final.out`). 남은 Xvfb 0.
+- **솔리드가 적분점을 여러 개 기록한 덱이 얼마나 되나** — 빔 작업 중에 본 「분석기는 솔리드의 첫 적분점만 읽는다」 가 닿는 범위다.
+  머리말만 읽어 셌다(`.work/beam_viewfit/scan_solid_ip.py` · `.out`, 깊이 7 까지, 심볼릭 링크는 따라가지 않음).
+  `/data/Tests` · `/data/koopark` · `/data/warpage_study` · `/data/battery_study` · `/data/cms_study` · `/data/backup` 의 d3plot 폴더 1,992개 중
+  솔리드가 있는 것이 1,695개, 그 가운데 `NV3D - NEIPH > 13` 인 것이 44개다 — `/data/battery_study` 43개(NV3D 208 = 8 × (7 + 19))와
+  `ElasticBeam`(NV3D 56 = 8 × 7). 나머지 네 곳에는 없다. 값을 읽어 「분석기 값 = 첫 적분점」 을 확인한 것은 `ElasticBeam` 하나고,
+  배터리 덱 43개는 머리말 산수로만 본 것이다. 고치지 않고 보고한다.
+- **옛 문서** — `report_figures_2026-11/checklist.md` 3단계의 보류 칸, 같은 폴더 `plan.md` 2-3 의 `vauto` 설명,
+  `shell_plastic_2026-11/context-notes.md` 의 「빔은 이력이 없다」 에 이 폴더를 가리키는 말을 달았다.
+- **치운 것** — 고치기 전 빌드용 작업 트리 `.work/beam_viewfit/wt_head`(401f6d3). 대조 결과는 `cfile_cmp/` 에 남아 있다.
+- **하지 못한 것 · 하지 않은 것**
+  - 로컬 LS-DYNA 라이선스가 만료돼 R16 빔 덱을 풀지 못했다(우회하지 않았다). 빔 워드 순서의 실데이터 근거는 R13.1.1 덱 하나다.
+  - 예전 경로의 Test_006 실렌더는 돌리지 않았다(근거는 `deck_eb` 뿐).
+  - 기존 동작이라 손대지 않은 것 — 단면 위치(타겟 번호 전부의 합집합 상자 중심), 빔만 있는 타겟의 상자, `--config` 가 렌더를 끄는 규칙,
+    Xvfb 1600×1200 고정, 솔리드 첫 적분점. 위 각 절에 적었다.
+- **작업 중 본 것(이번 범위 밖 — 고치지 않았다)**
+  - `--config` 도움말은 「CLI 인수보다 우선」 이라 하는데 코드는 반대다 — CLI 가 준 값은 두고, 기본값 그대로인 것만 설정 파일이 채운다(`_apply_config_to_args`).
+  - rc 3 일 때 보고서에 실리는 까닭은 `FAILED` · `failed` 가 든 줄뿐이다. LS-PrePost 를 못 찾은 경우의 실제 사유 줄
+    (`WARNING: LSPrePost not found at: …`)은 실리지 않는다.
+  - 타겟이 있는 개관 영상은 프린지 범위(`range userdef`)를 쓰지 않는다 — `generateScript` 의 타겟 없는 가지에만 있다. 범례는 LS-PrePost 기본이다.
+  - deep 은 분석기 설정 사본을 `/tmp/last_ua_config_<pid>.yaml` 로 남긴다(디버그용).
+  - `test_surface_stress` 는 `add_test` 로 등록돼 있지 않고(실행 파일만 만든다) CSV 를 `/tmp` 에 쓴다.
+- push · 배포 요청은 사용자 승인 뒤에 한다 — 로컬 커밋 401f6d3 · c06e5e7 · 378a611 · 37c5f88 · 5dbdfa9 와 이 마감 커밋.

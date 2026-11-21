@@ -33,6 +33,6 @@
       걸리지 않는 경우까지. 예전 경로는 작은 실덱(`deck_eb`)으로만(Test_006 예전 경로는 돌리지 않았다). deep 254 · C++ 26 + 5 통과
 
 ## 5. 마감
-- [ ] 전체 시험(C++ · 파이썬 패키지 · post_analyze 셸 시험)
-- [ ] 옛 문서의 보류 표시 갱신(`report_figures_2026-11/checklist.md` 3단계 · `shell_plastic_2026-11` 빔 언급)
-- [ ] 사용자 보고 — push · 배포 요청은 승인 뒤
+- [x] 전체 시험(C++ · 파이썬 패키지 · post_analyze 셸 시험) — C++ 26 + 5 · 파이썬 여섯 패키지 820 · 셸 시험 통과, 실렌더 다시(md5 동일)
+- [x] 옛 문서의 보류 표시 갱신(`report_figures_2026-11/checklist.md` 3단계 · `shell_plastic_2026-11` 빔 언급) — `report_figures_2026-11/plan.md` 의 `vauto` 설명에도
+- [x] 사용자 보고(11-21) — push · 배포 요청은 승인 뒤

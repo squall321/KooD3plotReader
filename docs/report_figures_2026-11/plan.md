@@ -77,6 +77,7 @@ deep 리포트 폴더 `figures/`(`renders/` 는 매번 지워지므로 따로)�
 - `--hide-parts PID…` / `--hide-floor` — 영상에서 그 파트를 뺀다. LS-PrePost 는 pfringe 뒤에 `selectpart part N off`,
   소프트웨어 렌더러(7-1 이 쓰는 것)는 그 파트 면을 그리지 않는다. 바닥은 그림 엔진과 같은 감지 규칙.
 - `--view-fit target` + `--view-margin` — 전체 뷰도 타겟만 켜고 `vauto` 로 맞춘 뒤 찍는다(잘라내기 아님).
+  (구현은 2026-11-21 `docs/beam_viewfit_2026-11/` — 실측해 보니 `vauto` 는 아무 일도 하지 않아, 타겟만 보이는 순간에 단면을 넣어 맞춘다.)
 - `--section-view-target-ids` 만으로 그 파트들의 파트별 단면(분석 대상은 안 좁힘), `--section-view` 와 함께 준 렌더 옵션이
   무시될 때는 그렇다고 말한다.
 - 주변 반투명은 LS-PrePost 명령이 없어 영상에는 넣지 않는다 — 반투명이 필요한 정지 그림은 그림 꾸러미가 맡는다.
