@@ -45,6 +45,20 @@ def test_run_ua_rc3_returns_failed_lines(tmp_path):
     assert "FAILED: section_view_z" in w and "code 134" in w
 
 
+def test_run_ua_rc3_carries_warning_reason(tmp_path):
+    """LS-PrePost 를 못 찾으면 FAILED 줄 없이 rc 3 이다 — 사유는 분석기의 WARNING 줄에만 있다."""
+    ua = _fake_ua(
+        tmp_path, 3,
+        stdout="Processing render jobs...\n"
+               "  Using LSPrePost: /opt/x/lsprepost\n"
+               "  WARNING: LSPrePost not found at: /opt/x/lsprepost\n"
+               "  Set lsprepost_path in YAML or install LSPrePost",
+    )
+    w = R._run_ua(ua, "version: 2.0\n", verbose=False)
+    assert w is not None and "rc=3" in w
+    assert "LSPrePost not found at: /opt/x/lsprepost" in w
+
+
 def test_run_ua_other_rc_raises(tmp_path):
     with pytest.raises(RuntimeError, match="rc=1"):
         R._run_ua(_fake_ua(tmp_path, 1, stderr="Analysis failed"), "version: 2.0\n", verbose=False)

@@ -244,7 +244,9 @@ def _run_ua(ua: Path, yaml_content: str, verbose: bool) -> str | None:
         out = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
         fit_note = _view_fit_declined(out)
         if proc.returncode == _UA_RC_RENDER_FAILED:
-            failed = [ln.strip() for ln in out.splitlines() if "FAILED" in ln or "failed" in ln]
+            # 실패한 작업 줄과 분석기의 WARNING 줄(LSPrePost 를 못 찾음 · xvfb-run 없음 · 메모리 등 — 그 경우는 FAILED 줄 없이 끝난다)
+            failed = [ln.strip() for ln in out.splitlines()
+                      if "FAILED" in ln or "failed" in ln or ln.strip().startswith("WARNING:")]
             detail = "\n".join(failed[:10])
             return ("unified_analyzer 렌더 일부 실패 (rc=3)" + (f":\n{detail}" if detail else "")
                     + (f"\n{fit_note}" if fit_note else ""))

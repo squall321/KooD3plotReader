@@ -773,3 +773,19 @@ C++ 전체 렌더 켠 빌드 통과 32 · 실패 0, 렌더 끈 빌드 통과 8 �
 (`run/cd_test_before.out` · `cd_test_after.out`).
 
 **바꾼 것** — 「렌더 없음」 합치기에 `not args.section_view` 조건, 도움말 문구. deep 시험 전체 258 통과(`run/cd_deep_pytest.out`).
+
+### 4.15 E — 렌더 실패(rc 3) 메시지의 사유 줄 (11-22)
+
+**재현** — `_run_ua` 는 rc 3 에서 `FAILED` · `failed` 가 든 줄만 메시지에 담았다. LS-PrePost 를 못 찾으면 분석기는 `WARNING: LSPrePost not found at: …` 만 찍고
+작업 줄 없이 rc 3 으로 끝나므로, 보고서에는 「렌더 일부 실패 (rc=3)」 와 일반 문장 「[RENDER] Some render jobs failed.」 뿐 — 원인을 알 수 없었다.
+
+**시험 먼저** — `test_render_failure_reporting.py` 에 `test_run_ua_rc3_carries_warning_reason`(가짜 분석기가 WARNING 줄만 내고 rc 3). 고치기 전 실패, 고친 뒤 통과
+(`run/e_test_before.out` · `e_test_after.out`).
+
+**바꾼 것** — rc 3 의 세부 줄에 분석기의 `WARNING:` 줄을 더한다(출력 차례 그대로, 열 줄까지). 분석기의 WARNING 줄은 LS-PrePost 없음 · xvfb-run 없음 · 메모리 ·
+모르는 fringe 이름(4.10)뿐이라 다른 줄을 밀어내지 않는다.
+
+**실분석기로**(`run/e_e2e.out`) — 없는 `lsprepost_path` 로 렌더 잡을 준 설정을 진짜 분석기로 `_run_ua` 에 돌리면 메시지가
+「렌더 일부 실패 (rc=3): / WARNING: LSPrePost not found at: …/no_such/lsprepost / [RENDER] Some render jobs failed.」 이다.
+(deep 은 설치 폴더에 LS-PrePost 가 없으면 저장소의 `installed/lsprepost` 로 물러나 이 경로를 deep 명령으로는 재현하지 못했다.)
+deep 시험 전체 통과(`run/e_deep_pytest.out`).
