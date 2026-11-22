@@ -789,3 +789,21 @@ C++ 전체 렌더 켠 빌드 통과 32 · 실패 0, 렌더 끈 빌드 통과 8 �
 「렌더 일부 실패 (rc=3): / WARNING: LSPrePost not found at: …/no_such/lsprepost / [RENDER] Some render jobs failed.」 이다.
 (deep 은 설치 폴더에 LS-PrePost 가 없으면 저장소의 `installed/lsprepost` 로 물러나 이 경로를 deep 명령으로는 재현하지 못했다.)
 deep 시험 전체 통과(`run/e_deep_pytest.out`).
+
+### 4.16 L — 전 구간 미계측 시계열의 최대 (11-22)
+
+**재현** — C++ 는 전 상태에서 미계측(NaN)인 시계열에 `global_max` · `global_min` · `time_of_max` 를 쓰지 않고 `"global_unmeasured": true` 를 쓴다
+(`AnalysisResult.hpp` — 스칼라 null 은 소비처가 막지 못해 키를 빼고 사유만 남긴다). deep 의 `_parse_series` 는 빠진 키를 0.0 으로 채워 「측정된 0」 으로 읽었고,
+impact 적재기(`_extract_part_stress_strain`)는 `float(… or 0.0)` 로 None 도 0 으로 바꿨다. 그 아래 단계(PairResult)는 이미 None 을 「응력 이력 없음」 으로 다룬다.
+이 시계열이 나오는 곳은 셸에만 변형률 텐서가 있는 덱의 솔리드 파트(변형률 텐서 계열 — `SinglePassAnalyzer.cpp` 「셸 계열 텐서만 있는 덱」)다.
+덱 훑기에서는 셸 변형률이 있는 덱 201개 모두 솔리드에도 변형률이 있어 지금 자료에서는 드러나지 않는다(잠복).
+
+**시험 먼저** — deep `tests/test_unmeasured_series.py`(새 — 읽기는 None, 측정된 시계열은 그대로, `_aggregate` 가 미계측을 없는 시계열처럼 다룬다),
+impact `tests/test_unmeasured_peak.py`(새 — 적재기가 None 을 지킨다). 고치기 전 deep 2건 · impact 1건 실패, 고친 뒤 통과.
+
+**바꾼 것** — `_parse_series`(global_unmeasured → None 셋), `PartTimeSeries` 의 형 표기(float | None), `_aggregate`(최대 · 최소가 None 인 시계열은 없는 것으로 —
+`ps.peak_strain > 0` · `max(p.peak_strain …)` 이 None 에서 터지지 않게. 응력이 미계측이면 사유는 「전 상태에서 계측되지 않았다」), impact 적재기 두 곳.
+deep 시험 262 · impact 시험 150 통과.
+
+**보고만** — `_aggregate` 는 없는 변형률 · 주응력 · 주변형률 시계열을 0.0 으로 채운다(`peak_strain=sr.global_max if sr else 0.0` 등). 응력은 이미 None + 사유로 바꿨지만
+나머지는 수치 필드가 float 이라는 전제가 표 · 차트 · 위험도 계산 곳곳에 있어 이번에 함께 바꾸지 않았다 — 같은 「측정된 0」 문제다.

@@ -744,14 +744,17 @@ def _parse_series(raw: dict) -> PartTimeSeries:
         num_points = 0
     if num_points <= 0:
         num_points = len(data)
+    # 전 상태에서 미계측인 시계열 — C++ 는 최대 · 최소 · 그 시각을 쓰지 않고 global_unmeasured 를 쓴다.
+    # 빠진 키를 0.0 으로 채우면 「측정된 0」 이 된다 — 값 없음(None)으로 둔다.
+    unmeasured = bool(raw.get("global_unmeasured"))
     return PartTimeSeries(
         part_id=raw.get("part_id", 0),
         part_name=raw.get("part_name", ""),
         quantity=raw.get("quantity", ""),
         unit=raw.get("unit", ""),
-        global_max=raw.get("global_max", 0.0),
-        global_min=raw.get("global_min", 0.0),
-        time_of_max=raw.get("time_of_max", 0.0),
+        global_max=None if unmeasured else raw.get("global_max", 0.0),
+        global_min=None if unmeasured else raw.get("global_min", 0.0),
+        time_of_max=None if unmeasured else raw.get("time_of_max", 0.0),
         data=data,
         num_points=num_points,
         element_type=str(raw.get("element_type") or ""),

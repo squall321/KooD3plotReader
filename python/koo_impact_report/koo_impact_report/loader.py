@@ -1404,7 +1404,8 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
             continue
         st_t, st_m = _series_to_lists(s)
         rec = out.setdefault(int(pid), {})
-        rec["peak_stress"] = float(getattr(s, "global_max", 0.0) or 0.0)
+        gm = getattr(s, "global_max", None)
+        rec["peak_stress"] = float(gm) if gm is not None else None   # 전 구간 미계측 — 값 없음(0 MPa 가 아니다)
         rec["stress_unit"] = getattr(s, "unit", "") or ""
         if n_states > 0 and len(st_t) < n_states:
             # 잘렸다 — 전해상도 CSV 로 되읽는다 (지금 작성기의 CSV 는
@@ -1433,7 +1434,8 @@ def _extract_part_stress_strain(d3plot_result) -> dict[int, dict]:
             continue
         sn_t, sn_m = _series_to_lists(s)
         rec = out.setdefault(int(pid), {})
-        rec["peak_strain"] = float(getattr(s, "global_max", 0.0) or 0.0)
+        gm = getattr(s, "global_max", None)
+        rec["peak_strain"] = float(gm) if gm is not None else None   # 전 구간 미계측 — 값 없음
         if n_states > 0 and len(sn_t) < n_states:
             # 잘렸다 — 응력과 같이 전해상도 CSV 로 되읽는다. '변형률 CSV 는
             # 소수 6자리 고정이라 대체 불가' 라던 옛 근거는 fce37bf 가

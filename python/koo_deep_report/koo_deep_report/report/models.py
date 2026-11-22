@@ -119,9 +119,9 @@ class PartTimeSeries:
     part_name: str
     quantity: str          # "von_mises" | "eff_plastic_strain"
     unit: str
-    global_max: float
-    global_min: float
-    time_of_max: float
+    global_max: float | None   # None = 전 상태에서 미계측(analysis_result.json 의 global_unmeasured)
+    global_min: float | None
+    time_of_max: float | None
     data: list[dict]       # [{time, max, min, avg, max_element_id}]
     #: analysis_result.json 의 num_points — 해석이 실제로 남긴 점 수.
     #: data 보다 크면 JSON 이 잘린 것이다 (0 = 미기록).

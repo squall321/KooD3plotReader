@@ -1700,6 +1700,10 @@ def _aggregate(
         e1 = d3plot_result.get_max_principal_strain(pid)
         e3 = d3plot_result.get_min_principal_strain(pid)
         evm = d3plot_result.get_vm_strain(pid)
+        # 전 상태에서 미계측인 시계열(최대가 None)은 없는 시계열과 같게 다룬다 — 「측정된 0」 으로 쓰지 않는다
+        st_unmeasured = st is not None and st.global_max is None
+        st, sr, s1, s3, e1, e3, evm = (None if s is not None and s.global_max is None and s.global_min is None else s
+                                       for s in (st, sr, s1, s3, e1, e3, evm))
 
         # Priority: keyword name > C++ output name > fallback
         part_name = kw_name_map.get(pid, "")
@@ -1718,7 +1722,9 @@ def _aggregate(
             # 0 으로 채우면 '측정된 0 MPa' 로 읽혀 가장 안전해 보인다.
             peak_stress=st.global_max if st else None,
             time_of_peak_stress=st.time_of_max if st else None,
-            peak_stress_reason=("" if st else "응력 이력 없음 — 적분점 응력이 없는 빔(BEAMIP 0 · 합력 빔 · 트러스) · "
+            peak_stress_reason=("" if st else
+                                "응력이 전 상태에서 계측되지 않았다(해석기 global_unmeasured)" if st_unmeasured else
+                                "응력 이력 없음 — 적분점 응력이 없는 빔(BEAMIP 0 · 합력 빔 · 트러스) · "
                                 "이산 요소이거나, 그 요소 종류를 집계하지 않던 옛 해석기 판"),
             stress_element_type=(getattr(st, "element_type", "") if st else ""),
             peak_element_id=st.peak_element_id if st else None,

@@ -42,7 +42,7 @@
 - [x] C `--config` 가 `--section-view` 를 끄지 않게 — 시험(고치기 전 실패) → 커밋(D 와 함께 — 「CLI 가 우선」 한 가지)
 - [x] D `--config` 도움말 → 커밋(C 와 함께)
 - [x] E rc 3 사유 줄 — 시험(고치기 전 실패) → 실분석기로 확인 → 커밋
-- [ ] L `global_unmeasured` — 시험 먼저 → impact 적재기도 확인 → 커밋
+- [x] L `global_unmeasured` — 시험(deep · impact 고치기 전 실패) → impact 적재기도 고침 → 커밋
 
 ## 5. 그 밖
 - [ ] R `PartAnalyzer::get_nv3d()` — 이력 변수 있는 실덱으로 전후 대조 → 커밋(확인 안 되면 보고만)
