@@ -188,6 +188,14 @@ if(TARGET kood3plot_render)
     add_test(NAME SectionBoxTargets COMMAND test_section_box_targets)
 endif()
 
+# LS-PrePost 타깃 렌더 색 범위(타깃 파트의 전 상태 값 범위, LS-PrePost 「max IP. value」 규칙) — 덱 없이 메모리의 메시 · 상태
+if(TARGET kood3plot_render)
+    add_executable(test_target_fringe_range test_target_fringe_range.cpp)
+    target_link_libraries(test_target_fringe_range PRIVATE kood3plot_render)
+    target_include_directories(test_target_fringe_range PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME TargetFringeRange COMMAND test_target_fringe_range)
+endif()
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)

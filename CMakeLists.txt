@@ -436,6 +436,7 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
         src/render/ProgressMonitor.cpp
         src/render/RenderConfig.cpp
         src/render/GeometryAnalyzer.cpp
+        src/render/TargetFringeRange.cpp
         src/render/MultiRunProcessor.cpp
         src/render/D3plotCache.cpp
     )
@@ -447,6 +448,7 @@ if(KOOD3PLOT_BUILD_V4_RENDER)
         include/kood3plot/render/ProgressMonitor.h
         include/kood3plot/render/RenderConfig.h
         include/kood3plot/render/GeometryAnalyzer.h
+        include/kood3plot/render/TargetFringeRange.h
         include/kood3plot/render/MultiRunProcessor.h
         include/kood3plot/render/D3plotCache.h
     )

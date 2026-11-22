@@ -34,7 +34,7 @@ size_t count(const std::string& s, const std::string& what) {
 
 int main() {
     LSPrePostRenderer r("/nonexistent/lsprepost");
-    const std::string range = "range userdef 0.000000 50.000000;\n";   // 스크립트는 소수 여섯 자리 고정으로 적는다
+    const std::string range = "range userdef 0 50;\n";   // 색 범위 숫자는 유효숫자 10자리(작은 변형률 범위가 뭉개지지 않게)
 
     std::printf("[1] 사용자 범위 — 타겟이 있어도 적는다(색을 입힌 바로 뒤)\n");
     {
@@ -58,7 +58,18 @@ int main() {
         chk("`fringe 9 / pfringe / range userdef 0 50`", s.find("fringe 9\npfringe\n" + range) != std::string::npos && count(s, range) == 1);
     }
 
-    std::printf("[3] 자동 범위 — 타겟이 있든 없든 범위를 적지 않는다\n");
+    std::printf("[3] 작은 범위도 자릿수를 잃지 않는다(유효숫자 10자리)\n");
+    {
+        RenderOptions o;
+        o.highlight_parts = {6};
+        o.auto_fringe_range = false;
+        o.fringe_min = 0.0;
+        o.fringe_max = 2.5e-06;
+        const std::string s = r.generateScript("/x/d3plot", "/x/out", o);
+        chk("`range userdef 0 2.5e-06;`", s.find("range userdef 0 2.5e-06;\n") != std::string::npos);
+    }
+
+    std::printf("[4] 자동 범위 — 타겟이 있든 없든 범위를 적지 않는다\n");
     for (bool target : {false, true}) {
         RenderOptions o;
         if (target) o.highlight_parts = {6};

@@ -8,6 +8,7 @@
 
 #include "kood3plot/render/LSPrePostRenderer.h"
 #include "kood3plot/render/GeometryAnalyzer.h"
+#include "kood3plot/render/TargetFringeRange.h"
 #include "kood3plot/D3plotReader.hpp"
 #include <algorithm>
 #include <fstream>
@@ -320,6 +321,13 @@ int LSPrePostRenderer::renderMultipleSections(
 // GUI 세션 기록(lspost.cfile)은 형식 접두어를 붙인다(`-M H31` 솔리드 · `-M S21` 셸 · `-M T2004` 두꺼운 셸). 맨 숫자와
 // 접두어 꼴은 솔리드에서 둘 다 · 함께 써도 같은 화면이었다 — 형식을 알면 둘 다 써서 셸 바닥에도 닿게 한다.
 // fringe/pfringe 와 `selectpart all on` 이 감추기를 되돌리므로 그 뒤마다 부른다. 빈 목록이면 아무것도 쓰지 않는다.
+/// 색 범위 한 줄 — 숫자는 유효숫자 10자리로. 스크립트 흐름의 고정 소수 형식(6자리)을 따르면 작은 변형률 범위가 0.000003 처럼 뭉개진다.
+static std::string rangeLine(double lo, double hi) {
+    std::ostringstream o;
+    o << std::setprecision(10) << "range userdef " << lo << " " << hi << ";\n";
+    return o.str();
+}
+
 static void writeHideParts(std::ostream& s, const std::vector<int>& hidden, const std::vector<char>& kinds) {
     if (hidden.empty()) return;
     s << "$# Hide parts (floor etc.)\n";
@@ -366,7 +374,7 @@ std::string LSPrePostRenderer::generateScript(
         script << "pfringe\n";
         // 사용자가 준 색 범위 — 타겟이 있어도 적는다(예전에는 타겟 없는 갈래에만 있어 렌더 잡의 fringe_range 가 말없이 빠졌다)
         if (!options.auto_fringe_range) {
-            script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+            script << rangeLine(options.fringe_min, options.fringe_max);
         }
         script << "\n";
 
@@ -381,7 +389,7 @@ std::string LSPrePostRenderer::generateScript(
         script << "fringe " << fringe_code << "\n";
         script << "pfringe\n";
         if (!options.auto_fringe_range) {
-            script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+            script << rangeLine(options.fringe_min, options.fringe_max);
         }
         script << "\n";
     }
@@ -753,7 +761,29 @@ int LSPrePostRenderer::renderAllPartSections(
     int total = (int)part_ids.size() * (int)section_opts.axes.size() * views_per_axis;
     int success = 0, current = 0;
 
+    // 파트별 색 범위 — 자동 범위면 파트마다 전 상태 범위(LS-PrePost 「max IP. value」 규칙)를 한 번에 낸다.
+    // LS-PrePost 자동 범위는 모델 전체에서 잡혀, 응력이 작은 파트는 거의 한 색이 된다(사용자 결정 2026-11-22).
+    std::map<int32_t, FringeRange> part_range;
+    if (options.auto_fringe_range && !part_ids.empty()) {
+        part_range = partFringeRanges(reader, std::vector<int32_t>(part_ids.begin(), part_ids.end()), options.fringe_type);
+    }
+
     for (int pid : part_ids) {
+        RenderOptions part_opts = options;
+        if (options.auto_fringe_range) {
+            const auto it = part_range.find(pid);
+            if (it != part_range.end() && it->second.ok) {
+                part_opts.auto_fringe_range = false;
+                part_opts.fringe_min = it->second.min;
+                part_opts.fringe_max = it->second.max;
+            }
+        }
+        {
+            std::ostringstream o;
+            if (part_opts.auto_fringe_range) o << "LS-PrePost 자동(파트 값이 없다)";
+            else o << std::setprecision(6) << part_opts.fringe_min << " ~ " << part_opts.fringe_max << " (전 상태)";
+            std::cout << "    Part " << pid << " fringe range: " << o.str() << "\n";
+        }
         auto it = part_names.find(pid);
         const std::string pname = it != part_names.end() ? it->second : std::string();  // 진행 로그용(원래 이름)
         const std::string folder = partFolderName(pid, pname);
@@ -777,7 +807,9 @@ int LSPrePostRenderer::renderAllPartSections(
             s << "selectpart reverse\n";
             s << "selectpart select 0\n";
             s << "fringe " << fringe_code << "\n";
-            s << "pfringe\n\n";
+            s << "pfringe\n";
+            if (!part_opts.auto_fringe_range) s << rangeLine(part_opts.fringe_min, part_opts.fringe_max);
+            s << "\n";
         };
 
         auto writeRestoreAll = [&](std::ostringstream& s) {
@@ -934,7 +966,7 @@ int LSPrePostRenderer::renderAllPartSections(
                 int rc = renderSlidingSection(
                     abs_d3plot.string(), reader, part_dir.string(),
                     pid, axis_char, axis_sign, SlidingStyle::SECTION,
-                    options, section_opts);
+                    part_opts, section_opts);
                 if (rc) success++;
             }
 
@@ -948,7 +980,7 @@ int LSPrePostRenderer::renderAllPartSections(
                 int rc = renderSlidingSection(
                     abs_d3plot.string(), reader, part_dir.string(),
                     pid, axis_char, axis_sign, SlidingStyle::ISO,
-                    options, section_opts);
+                    part_opts, section_opts);
                 if (rc) success++;
             }
         }
@@ -1024,7 +1056,9 @@ int LSPrePostRenderer::renderSlidingSection(
         s << "selectpart reverse\n";
         s << "selectpart select 0\n";
         s << "fringe " << fringe_code << "\n";
-        s << "pfringe\n\n";
+        s << "pfringe\n";
+        if (!options.auto_fringe_range) s << rangeLine(options.fringe_min, options.fringe_max);
+        s << "\n";
     };
     auto writeRestoreAll = [&](std::ostringstream& s) {
         s << "genselect target part\n";

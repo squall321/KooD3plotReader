@@ -274,7 +274,7 @@ bool computeDegenerateStrain(const double coords[][3], const double disp[][3],
 
 NodalAverager::NodalAverager(const data::Mesh& mesh, const data::ControlData& control)
     : mesh_(mesh), control_(control), solid_ip_(data::SolidIpLayout::from(control)),
-      shell_layer_(layerLayout(control, true)), tshell_layer_(layerLayout(control, false))
+      shell_layer_(data::ShellLayerLayout::from(control, true)), tshell_layer_(data::ShellLayerLayout::from(control, false))
 {
     int32_t numnp = control_.NUMNP;
     node_sum_.assign(numnp, 0.0);
@@ -627,25 +627,6 @@ double maxOverLayers(const double* blk, int layers, int stride, size_t words, Fi
 }
 
 } // anonymous namespace
-
-NodalAverager::LayerLayout NodalAverager::layerLayout(const data::ControlData& c, bool shell)
-{
-    // 분석기 파트 이력(SinglePassAnalyzer::layeredLayout)과 같은 검사 — 통과하지 못하면 layers 0(종전 경로)
-    LayerLayout L;
-    const int nv = shell ? c.NV2D : c.NV3DT;
-    if (nv <= 0 || c.IOSHL[0] == 0 || c.MAXINT <= 0) return L;
-    if (shell && (c.NDIM == 5 || c.NDIM == 7)) return L;   // 강체 셸이 빠진 채 압축된 덱 — 요소 자리가 어긋난다
-    const int P = 6 * c.IOSHL[0] + c.IOSHL[1] + c.NEIPS;
-    const int lw = c.MAXINT * P;
-    const int rem = shell ? nv - (lw + 8 * c.IOSHL[2] + 4 * c.IOSHL[3])   // 12 = 변형률(안 · 바깥 면)
-                          : nv - lw;                                      // 12 = 변형률, 1 = 내부 에너지
-    const bool ok = shell ? (rem == 0 || rem == 12) : (rem == 0 || rem == 1 || rem == 12 || rem == 13);
-    if (!ok) return L;
-    L.layers = c.MAXINT;
-    L.stride = P;
-    L.words  = c.IOSHL[1] ? 7 : 6;
-    return L;
-}
 
 double NodalAverager::extractSolidValue(const data::StateData& state,
                                          int32_t ei, FieldSelector field) const

@@ -15,10 +15,12 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iomanip>
 #include <limits>
 #include <mutex>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <thread>
 
 #ifdef _WIN32
@@ -43,6 +45,7 @@ std::string tmpDir() {
 #ifdef KOOD3PLOT_HAS_RENDER
 #include "kood3plot/render/LSPrePostRenderer.h"
 #include "kood3plot/render/GeometryAnalyzer.h"
+#include "kood3plot/render/TargetFringeRange.h"
 #include "kood3plot/render/RenderConfig.h"
 #endif
 
@@ -537,6 +540,28 @@ bool UnifiedAnalyzer::processRenderJobs(
             continue;
         }
 
+        // 타깃 색 범위 — 잡마다 fringe 종류별로 한 번. 보이는(숨기지 않은) 타깃 파트의 전 상태 범위
+        // (LS-PrePost 「max IP. value」 규칙 — render::partFringeRanges)
+        std::map<int, render::FringeRange> range_cache;
+        auto targetRange = [&](render::FringeType ft) -> render::FringeRange {
+            const auto hit = range_cache.find(static_cast<int>(ft));
+            if (hit != range_cache.end()) return hit->second;
+            std::vector<int32_t> shown;
+            for (int32_t pid : target_parts) {
+                if (std::find(job.hide_part_ids.begin(), job.hide_part_ids.end(), pid) == job.hide_part_ids.end())
+                    shown.push_back(pid);
+            }
+            const render::FringeRange r = render::mergeRanges(render::partFringeRanges(reader, shown, ft), shown);
+            if (callback) {
+                std::ostringstream msg;
+                if (r.ok) msg << "    Fringe range: 타깃 파트 " << std::setprecision(6) << r.min << " ~ " << r.max << " (전 상태)";
+                else msg << "    Fringe range: 타깃 파트 값이 없어 LS-PrePost 자동 범위";
+                callback(msg.str());
+            }
+            range_cache[static_cast<int>(ft)] = r;
+            return r;
+        };
+
         // Process each section specification
         for (const auto& section_spec : job.sections) {
             int axis = 2;
@@ -613,9 +638,16 @@ bool UnifiedAnalyzer::processRenderJobs(
                 task.options.fit_highlight = fit_target;
                 task.options.fit_margin = job.view_margin;
 
-                // 색 범위는 잡의 fringe_range 를 준 경우만 건다(위). 자동이면 LS-PrePost 자동 범위다 —
-                // 예전에 여기서 낸 「파트별 범위」(첫 적분점 · 첫 층의 von Mises, 다섯 상태 표본)는 7d33676 이후
-                // 스크립트에 한 번도 실리지 않은 채 로그에만 찍혔다.
+                // 색 범위 — 잡이 준 fringe_range 가 우선(위). 자동이면 타깃 파트의 범위(전 상태)를 건다.
+                // LS-PrePost 자동 범위는 보이는 모델 전체에서 잡혀, 응력이 작은 타깃은 거의 한 색이 된다(사용자 결정 2026-11-22).
+                if (task.options.auto_fringe_range) {
+                    const render::FringeRange r = targetRange(task.options.fringe_type);
+                    if (r.ok) {
+                        task.options.auto_fringe_range = false;
+                        task.options.fringe_min = r.min;
+                        task.options.fringe_max = r.max;
+                    }
+                }
             }
 
             // Build output filename
