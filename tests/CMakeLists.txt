@@ -126,6 +126,14 @@ if(TARGET kood3plot_section_render)
     add_test(NAME NodalAverager COMMAND test_nodal_averager)
 endif()
 
+# 단면 렌더의 지운 요소 tests (덱 없이 메모리의 메시 · 상태) — 절점 평균 · 단면 자르기가 지운 요소를 순번으로 가려 빼는지
+if(TARGET kood3plot_section_render)
+    add_executable(test_section_deleted test_section_deleted.cpp)
+    target_link_libraries(test_section_deleted PRIVATE kood3plot_section_render)
+    target_include_directories(test_section_deleted PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SectionDeletedElements COMMAND test_section_deleted)
+endif()
+
 # LS-PrePost 용 Xvfb — 빈 화면 번호 · 준비된 뒤 넘김 · 동시에 둘(가짜 LS-PrePost, Xvfb 가 있어야 돈다)
 if(TARGET kood3plot_render)
     add_executable(test_lspp_xvfb test_lspp_xvfb.cpp)

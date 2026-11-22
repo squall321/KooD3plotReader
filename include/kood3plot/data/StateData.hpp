@@ -37,12 +37,13 @@ struct StateData {
     std::vector<double> beam_data;            ///< Beam element data
     std::vector<double> shell_data;           ///< Shell element data
 
-    // Deletion flags
-    std::vector<int32_t> deleted_nodes;       ///< Deleted node IDs
-    std::vector<int32_t> deleted_solids;      ///< Deleted solid element IDs
-    std::vector<int32_t> deleted_beams;       ///< Deleted beam element IDs
-    std::vector<int32_t> deleted_shells;      ///< Deleted shell element IDs
-    std::vector<int32_t> deleted_thick_shells; ///< Deleted thick shell element IDs
+    // Deletion flags — 전부 그 종류 배열 안의 1부터 세는 순번이다(실제 절점 · 요소 ID 가 아니다).
+    // NARBS 로 번호를 따로 매긴 덱에서는 Element::id(실제 ID)와 다르니 배열 위치(ei + 1)와 견줄 것.
+    std::vector<int32_t> deleted_nodes;       ///< Deleted nodes (MDLOPT 1) — 내부 절점 순번(1부터)
+    std::vector<int32_t> deleted_solids;      ///< Deleted solids — 솔리드 배열 안 순번(1부터)
+    std::vector<int32_t> deleted_beams;       ///< Deleted beams — 빔 배열 안 순번(1부터)
+    std::vector<int32_t> deleted_shells;      ///< Deleted shells — 셸 배열 안 순번(1부터)
+    std::vector<int32_t> deleted_thick_shells; ///< Deleted thick shells — 두꺼운 셸 배열 안 순번(1부터)
 
     /**
      * @brief Constructor

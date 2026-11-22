@@ -321,6 +321,8 @@ void NodalAverager::compute(const data::StateData& state,
     std::fill(node_count_.begin(), node_count_.end(), 0);
 
     // Build deletion lookup sets
+    // 지운 요소 목록은 요소 ID 가 아니라 그 종류 배열 안의 1부터 세는 순번이다(StateDataParser). 덱이 요소 번호를
+    // 따로 매기면(NARBS) elem.id 는 실제 요소 ID 라 순번과 다르다 — ID 로 견주면 지운 요소가 남고 산 요소가 빠진다.
     std::unordered_set<int32_t> del_solids(
         state.deleted_solids.begin(), state.deleted_solids.end());
     std::unordered_set<int32_t> del_thick(
@@ -387,7 +389,7 @@ void NodalAverager::compute(const data::StateData& state,
         // Solid elements
         for (size_t ei = 0; ei < mesh_.solids.size(); ++ei) {
             const auto& elem = mesh_.solids[ei];
-            if (!del_solids.empty() && del_solids.count(elem.id)) continue;
+            if (!del_solids.empty() && del_solids.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.solid_parts.size()) ? mesh_.solid_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
@@ -433,7 +435,7 @@ void NodalAverager::compute(const data::StateData& state,
         // Thick shell elements (8-node: treat as hex8)
         for (size_t ei = 0; ei < mesh_.thick_shells.size(); ++ei) {
             const auto& elem = mesh_.thick_shells[ei];
-            if (!del_thick.empty() && del_thick.count(elem.id)) continue;
+            if (!del_thick.empty() && del_thick.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.thick_shell_parts.size()) ? mesh_.thick_shell_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
@@ -463,7 +465,7 @@ void NodalAverager::compute(const data::StateData& state,
         // Shell elements (4-node quad)
         for (size_t ei = 0; ei < mesh_.shells.size(); ++ei) {
             const auto& elem = mesh_.shells[ei];
-            if (!del_shells.empty() && del_shells.count(elem.id)) continue;
+            if (!del_shells.empty() && del_shells.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.shell_parts.size()) ? mesh_.shell_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
@@ -506,7 +508,7 @@ void NodalAverager::compute(const data::StateData& state,
     if (!state.solid_data.empty() && control_.NV3D > 0) {
         for (size_t ei = 0; ei < mesh_.solids.size(); ++ei) {
             const auto& elem = mesh_.solids[ei];
-            if (!del_solids.empty() && del_solids.count(elem.id)) continue;
+            if (!del_solids.empty() && del_solids.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.solid_parts.size()) ? mesh_.solid_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
@@ -525,7 +527,7 @@ void NodalAverager::compute(const data::StateData& state,
     if (!state.thick_shell_data.empty() && control_.NV3DT > 0) {
         for (size_t ei = 0; ei < mesh_.thick_shells.size(); ++ei) {
             const auto& elem = mesh_.thick_shells[ei];
-            if (!del_thick.empty() && del_thick.count(elem.id)) continue;
+            if (!del_thick.empty() && del_thick.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.thick_shell_parts.size()) ? mesh_.thick_shell_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
@@ -544,7 +546,7 @@ void NodalAverager::compute(const data::StateData& state,
     if (!state.shell_data.empty() && control_.NV2D > 0) {
         for (size_t ei = 0; ei < mesh_.shells.size(); ++ei) {
             const auto& elem = mesh_.shells[ei];
-            if (!del_shells.empty() && del_shells.count(elem.id)) continue;
+            if (!del_shells.empty() && del_shells.count(static_cast<int32_t>(ei) + 1)) continue;
             int32_t pid = (ei < mesh_.shell_parts.size()) ? mesh_.shell_parts[ei] : 0;
             if (!target.empty() && !target.matches(pid, "")) continue;
 
