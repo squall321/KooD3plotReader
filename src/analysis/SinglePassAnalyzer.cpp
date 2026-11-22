@@ -476,6 +476,31 @@ void SinglePassAnalyzer::buildElementMapping() {
     for (size_t i = 0; i < part_ids_.size(); ++i) {
         part_id_to_result_index_[part_ids_[i]] = i;
     }
+    all_part_ids_ = part_ids_;
+}
+
+void SinglePassAnalyzer::applyPartFilter(const AnalysisConfig& config) {
+    // 분석 작업의 parts(deep --parts) — 요청한 파트만 이력 · 피크 텐서에 낸다. 비었으면 전부(종전과 같다).
+    // 요소 → 파트 표는 그대로 두고 결과 색인에서만 뺀다 — 누적 경로는 색인에 없는 파트의 요소를 이미 건너뛴다.
+    // 예전에는 이 목록을 읽는 곳이 없어 준 옵션이 말없이 무시됐다(없는 번호도 조용히 넘어갔다).
+    requested_parts_.clear();
+    requested_parts_.insert(config.part_ids.begin(), config.part_ids.end());
+    part_ids_.clear();
+    for (int32_t pid : all_part_ids_) {
+        if (requested_parts_.empty() || requested_parts_.count(pid)) part_ids_.push_back(pid);
+    }
+    part_id_to_result_index_.clear();
+    for (size_t i = 0; i < part_ids_.size(); ++i) part_id_to_result_index_[part_ids_[i]] = i;
+
+    if (requested_parts_.empty()) return;
+    std::set<int32_t> in_model;
+    for (const auto* parts : {&mesh_.solid_parts, &mesh_.thick_shell_parts, &mesh_.shell_parts, &mesh_.beam_parts}) {
+        in_model.insert(parts->begin(), parts->end());
+    }
+    for (int32_t pid : requested_parts_) {
+        if (!in_model.count(pid))
+            std::cerr << "  [parts] 파트 " << pid << ": 모델에 없는 번호 — 건너뜁니다.\n";
+    }
 }
 
 /// 응력 시계열의 단위 라벨. d3plot 에 단위계 정보가 없으므로 "덱 단위 그대로,
@@ -671,6 +696,7 @@ void SinglePassAnalyzer::initializeBeamResults(size_t num_states, const Analysis
     std::set<int32_t> unique, clash;
     for (size_t e = 0; e < ne; ++e) {
         const int32_t pid = mesh_.beam_parts[e];
+        if (!requested_parts_.empty() && !requested_parts_.count(pid)) continue;   // 분석 작업의 parts 밖
         (part_id_to_result_index_.count(pid) ? clash : unique).insert(pid);
     }
     for (int32_t pid : clash)
@@ -829,6 +855,7 @@ void SinglePassAnalyzer::mergeBeamResults(AnalysisResult& result) {
 }
 
 void SinglePassAnalyzer::initializeResults(size_t num_states, const AnalysisConfig& config) {
+    applyPartFilter(config);
     size_t num_parts = part_ids_.size();
 
     // Initialize stress results

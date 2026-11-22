@@ -409,6 +409,9 @@ void UnifiedAnalyzer::processSolidJobs(
 
     collect_parts(stress_jobs);
     if (!want_all) collect_parts(strain_jobs);
+    // 파트를 골랐는데(패턴) 맞는 파트가 하나도 없으면 빈 목록 = 전부로 분석한다 — 말없이 넘어가지 않게 한 줄 남긴다
+    if (!want_all && requested_parts.empty() && callback)
+        callback("  [parts] 요청한 파트 패턴에 맞는 파트가 없어 전 파트를 분석합니다");
 
     // Single-pass: Von Mises + Principal stress + Eff. plastic strain + Principal strain
     if (callback) {
@@ -510,6 +513,13 @@ void UnifiedAnalyzer::processSolidJobs(
                         sp_analyzer.layerScheme(), pnames, hc,
                         sp_analyzer.plasticWorkDensity(kind),
                         sp_analyzer.plasticStrainMax(kind));
+                    // 분석 작업의 parts — 요청한 파트의 군집만 남긴다(이력과 같은 목록, 비었으면 전부)
+                    if (!want_all && !requested_parts.empty()) {
+                        part.erase(std::remove_if(part.begin(), part.end(), [&](const PartHotspotResult& r) {
+                            return std::find(requested_parts.begin(), requested_parts.end(), r.part_id) ==
+                                   requested_parts.end();
+                        }), part.end());
+                    }
 
                     // ── 2패스: max_t(mean_e) ────────────────────────────
                     // 기본 stress_mean 은 mean_e(max_t) 라 서로 다른 시각의 피크를

@@ -22,6 +22,7 @@
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
 #include "kood3plot/data/SolidIpLayout.hpp"
 #include <map>
+#include <set>
 #include <vector>
 #include <unordered_map>
 #include <functional>
@@ -465,8 +466,10 @@ private:
     std::string layer_scheme_;
 
     // Part information
-    std::vector<int32_t> part_ids_;  // Unique part IDs
+    std::vector<int32_t> part_ids_;  // Unique part IDs — 분석 작업의 parts 로 거른 뒤(이력 · 피크 텐서에 나갈 파트)
     std::unordered_map<int32_t, size_t> part_id_to_result_index_;
+    std::vector<int32_t> all_part_ids_;      ///< 메시에서 모은 이력 대상 파트 전부(거르기 전)
+    std::set<int32_t> requested_parts_;      ///< 분석 작업의 parts — 비었으면 전부
 
     // 셸 · 두꺼운 셸 파트 이력 — 배치가 규격과 맞을 때만 그 종류의 파트가 part_ids_ 에 든다
     // (맞지 않으면 종전처럼 이력에 없다 — 전 상태 NaN 줄로 하류 CSV 를 어지럽히지 않는다).
@@ -527,6 +530,8 @@ private:
      * @brief Initialize result storage
      */
     void initializeResults(size_t num_states, const AnalysisConfig& config);
+    /// config.part_ids 로 part_ids_ · part_id_to_result_index_ 를 다시 짠다(비었으면 전부). 모델에 없는 번호는 사유 한 줄.
+    void applyPartFilter(const AnalysisConfig& config);
 
     /**
      * @brief Extract surfaces for surface stress analysis

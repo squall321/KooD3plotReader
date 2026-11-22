@@ -32,10 +32,10 @@
 - [x] X LS-PrePost 백엔드 fringe 이름 대응 — 실렌더로 재현(`displacement_mag` · `max_shear` · `pressure` 가 von Mises 로 그려졌다) → 이름 표 하나 · 시험 → 커밋. `strain` 의 이름표(「Total Strain」 인데 LS-PrePost 는 유효 소성 변형률)는 사용자 결정으로 보고
 
 ## 3. Q — `parts:` 걸러내기
-- [ ] 재현 시험(합성 덱 — 요청한 파트만 나오는지, 없는 번호 사유 줄, 빔 · 핫스팟)
-- [ ] `SinglePassAnalyzer`(요청 목록 · 빔) · `UnifiedAnalyzer`(핫스팟 군집)
-- [ ] deep `--parts 1` 끝까지 — 표 · 그림 꾸러미 · 온톨로지 꾸러미가 견디는지, 옵션 없으면 지금과 같은지
-- [ ] 커밋
+- [x] 재현 시험(합성 덱 — 요청한 파트만 나오는지, 없는 번호 사유 줄, 빔) — 고치기 전 21건 실패
+- [x] `SinglePassAnalyzer`(요청 목록 · 빔) · `UnifiedAnalyzer`(핫스팟 군집) — `ElasticBeam` 실덱 [] · [1] · [1, 99]
+- [x] deep `--parts 1` 끝까지 — 표 · 그림 꾸러미 · 온톨로지 꾸러미 모두 파트 1 만, 옵션 없으면 지금과 같다
+- [x] 커밋
 
 ## 4. 렌더 · deep 쪽
 - [ ] B 단면 위치 상자 — 재현(면 없는 타겟 · 숨긴 타겟) → 수정 → 실렌더 한 번(링크 덱) → 커밋

@@ -15,6 +15,8 @@
  *   4. 침식된 빔 · 유한하지 않은 워드 · 잘린 상태의 빔은 통계에서 빠지고, 살아 있는 빔이 없는 상태는 NaN 이다
  *   5. 솔리드 파트와 번호가 같은 빔 파트는 빠지고(솔리드 줄은 그대로), 남은 빔 줄은 파트 번호순으로 선다
  *   6. 응력만 · 변형률만 켠 실행, 나머지 진입점(analyzeParallel · analyzeLegacy)
+ *   7. 분석 작업의 parts(AnalysisConfig::part_ids) — 요청한 파트의 줄만 낸다(솔리드 · 빔 · 피크 텐서 · analyzed_parts),
+ *      값은 거르지 않은 실행과 같고, 모델에 없는 번호는 사유 한 줄. 비었으면 전부(지금과 같다)
  *
  * Run: ./test_beam_part_history
  */
@@ -231,7 +233,8 @@ struct Run {
 
 /// tweak 은 읽어 온 상태를 고친다 — Writer 가 삭제 표를 쓰지 않아 침식은 여기서 넣는다(WithStates 에서만).
 Run runDeck(const std::string& path, bool stress, bool strain, Entry entry = Entry::WithStates,
-            const std::function<void(std::vector<data::StateData>&)>& tweak = nullptr) {
+            const std::function<void(std::vector<data::StateData>&)>& tweak = nullptr,
+            const std::vector<int32_t>& parts = {}) {
     Run r;
     D3plotReader reader(path);
     if (reader.open() != ErrorCode::SUCCESS) return r;
@@ -241,6 +244,7 @@ Run runDeck(const std::string& path, bool stress, bool strain, Entry entry = Ent
     cfg.d3plot_path = path;
     cfg.analyze_stress = stress;
     cfg.analyze_strain = strain;
+    cfg.part_ids = parts;
 
     std::ostringstream cap;
     std::streambuf* old = std::cerr.rdbuf(cap.rdbuf());
@@ -470,6 +474,65 @@ void caseClash(const fs::path& dir) {
     expect(r.res.metadata.analyzed_parts == std::vector<int32_t>({1, 2}), "analyzed_parts = {1, 2}");
 }
 
+void caseParts(const fs::path& dir) {
+    Case c("[parts] 요청한 파트의 줄만 낸다 — 솔리드 · 빔 · 피크 텐서, 값은 그대로, 모델에 없는 번호는 사유 한 줄");
+    const Layout L = {"", 4, 0, 0, 0};
+    const std::string path = deckPath(dir, "parts");
+    if (!writeDeck(path, L, true)) return expect(false, "합성 d3plot 생성");
+    const Run all = runDeck(path, true, true);
+    expect(all.opened && all.res.stress_history.size() == 2, "거르지 않은 실행 — 빔 파트 1 · 솔리드 파트 2");
+    const auto hists = [](const Run& r) {
+        return std::array<const std::vector<PartTimeSeriesStats>*, 4>{
+            &r.res.stress_history, &r.res.max_principal_history, &r.res.min_principal_history, &r.res.strain_history};
+    };
+    const auto sameRow = [](const PartTimeSeriesStats* a, const PartTimeSeriesStats* b) {
+        if (!a || !b || a->data.size() != b->data.size()) return false;
+        for (size_t s = 0; s < a->data.size(); ++s) {
+            const auto& x = a->data[s];
+            const auto& y = b->data[s];
+            const auto same = [](double u, double v) { return (std::isnan(u) && std::isnan(v)) || u == v; };
+            if (!same(x.max_value, y.max_value) || !same(x.min_value, y.min_value) || !same(x.avg_value, y.avg_value) ||
+                x.max_element_id != y.max_element_id || x.min_element_id != y.min_element_id) return false;
+        }
+        return true;
+    };
+
+    for (Entry e : {Entry::WithStates, Entry::Parallel, Entry::Legacy}) {
+        const std::string at = (e == Entry::WithStates) ? "" : (e == Entry::Parallel) ? " (analyzeParallel)" : " (analyzeLegacy)";
+        // 빔 파트 1 만
+        const Run r = runDeck(path, true, true, e, nullptr, {1});
+        expect(r.opened, "d3plot 열기" + at);
+        const auto h = hists(r);
+        const auto ha = hists(all);
+        for (int q = 0; q < 4; ++q) {
+            const std::string tag = std::string(kQuantity[q]) + at;
+            expect(h[q]->size() == 1 && findRow(*h[q], 1), tag + ": parts [1] — 빔 파트 1 줄 하나(" + std::to_string(h[q]->size()) + "줄)");
+            expect(sameRow(findRow(*h[q], 1), findRow(*ha[q], 1)), tag + ": 빔 파트 1 값이 거르지 않은 실행과 같다");
+        }
+        expect(r.res.metadata.analyzed_parts == std::vector<int32_t>({1}), "analyzed_parts = {1}" + at);
+        expect(r.res.peak_element_tensors.empty(), "피크 텐서 — 솔리드 파트 2 를 빼면 없다" + at);
+        expect(r.err.find("모델에 없는") == std::string::npos, "있는 번호만 주면 사유 줄이 없다" + at);
+    }
+    // 솔리드 파트 2 만 — 번호가 같은 빔 파트 2 는 지금처럼 빠진다
+    {
+        const Run r = runDeck(path, true, true, Entry::WithStates, nullptr, {2});
+        const PartTimeSeriesStats* solid = findRow(r.res.stress_history, 2);
+        expect(r.res.stress_history.size() == 1 && solid && solid->element_type.empty(), "parts [2] — 솔리드 파트 2 줄 하나");
+        expect(sameRow(solid, findRow(all.res.stress_history, 2)), "솔리드 파트 2 값이 거르지 않은 실행과 같다");
+        bool peaks_ok = !r.res.peak_element_tensors.empty();
+        for (const auto& t : r.res.peak_element_tensors) peaks_ok = peaks_ok && t.part_id == 2;
+        expect(peaks_ok, "피크 텐서는 파트 2 것만");
+        expect(r.res.peak_element_tensors.size() == all.res.peak_element_tensors.size(), "피크 텐서 수가 거르지 않은 실행과 같다");
+    }
+    // 모델에 없는 번호를 섞으면 사유 한 줄 — 있는 번호는 그대로 낸다
+    {
+        const Run r = runDeck(path, true, true, Entry::WithStates, nullptr, {1, 7});
+        expect(r.res.stress_history.size() == 1 && findRow(r.res.stress_history, 1), "parts [1, 7] — 빔 파트 1 줄 하나");
+        expect(r.err.find("[parts] 파트 7") != std::string::npos && r.err.find("모델에 없는") != std::string::npos,
+               "없는 파트 7 의 사유 줄");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -511,6 +574,7 @@ int main() {
     caseSwitches(dir);
     caseEntryPoints(dir);
     caseClash(dir);
+    caseParts(dir);
 
     fs::remove_all(dir);
 
