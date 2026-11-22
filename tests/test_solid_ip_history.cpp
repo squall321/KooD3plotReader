@@ -17,12 +17,14 @@
  *   7. 한 자리 덱, 머리말 식과 맞지 않는 덱은 종전 그대로(요소 블록 전체가 적분점 하나)
  *   8. 여덟 자리에 같은 값을 적은 덱은 한 자리 덱과 결과가 비트까지 같다
  *   9. 나머지 진입점(analyzeParallel · analyzeLegacy)
+ *  10. 옛 PartAnalyzer(예제 · TimeHistoryAnalyzer 경로) — 요소 블록 폭을 머리말 NV3D 로 읽는다(이력 변수가 있어도 밀리지 않는다)
  *
  * Run: ./test_solid_ip_history
  */
 
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
+#include "kood3plot/analysis/PartAnalyzer.hpp"
 #include "kood3plot/analysis/SinglePassAnalyzer.hpp"
 #include "kood3plot/analysis/TimeHistoryAnalyzer.hpp"
 #include "kood3plot/analysis/VectorMath.hpp"
@@ -863,6 +865,34 @@ void caseSameBits(const fs::path& dir, const Deck& same, const Deck& one, const 
 
 }  // namespace
 
+/// 옛 PartAnalyzer 의 파트 최대 von Mises — 한 자리 덱에서는 요소 값(앞 7 워드)이 단일 패스 분석기와 같아야 한다.
+/// 예전 get_nv3d() 는 7 + (ISTRN ? 6 : 0) 이라 이력 변수가 있는 덱(NV3D = 7 + NEIPH)에서 요소 블록이 밀렸다.
+void caseOldPartAnalyzer(const fs::path& dir, const Deck& D, const std::string& folder) {
+    Case c(std::string("[PartAnalyzer] ") + D.name + " — NV3D " + std::to_string(D.nv3d()));
+    const std::string path = deckPath(dir, folder);
+    expect(writeDeck(path, D), "덱 쓰기");
+    D3plotReader reader(path);
+    if (reader.open() != ErrorCode::SUCCESS) return expect(false, "덱 열기");
+    std::ostringstream cap;
+    std::streambuf* old = std::cout.rdbuf(cap.rdbuf());
+    PartAnalyzer pa(reader);
+    const bool ok = pa.initialize();
+    std::cout.rdbuf(old);
+    expect(ok, "PartAnalyzer 초기화");
+    if (!ok) return;
+    for (int s = 0; s < kStates; ++s) {
+        const data::StateData st = reader.read_state(static_cast<size_t>(s));
+        for (int pid = 1; pid <= 3; ++pid) {
+            double want = -std::numeric_limits<double>::max();
+            for (int e = 0; e < kElems; ++e) {
+                if (kPartOf[e] == pid) want = std::max(want, elemValue(D, e, s, Q_VM));
+            }
+            const PartStats got = pa.analyze_state(pid, st, StressComponent::VON_MISES);
+            expectNear(got.stress_max, want, "파트 " + std::to_string(pid) + " 상태 " + std::to_string(s) + " σ_vm 최대");
+        }
+    }
+}
+
 int main() {
     std::printf("=== 솔리드 적분점 여덟 개 덱 검증 (합성 d3plot) ===\n\n");
 
@@ -885,6 +915,8 @@ int main() {
     for (const Deck& D : decks) caseDeck(dir, D, "deck" + std::to_string(n++));
     caseSameBits(dir, decks[5], decks[0], "bits0");
     caseSameBits(dir, decks[6], decks[1], "bits1");
+    caseOldPartAnalyzer(dir, decks[0], "pa0");
+    caseOldPartAnalyzer(dir, decks[1], "pa1");
 
     fs::remove_all(dir);
 

@@ -103,18 +103,10 @@ const PartInfo* PartAnalyzer::get_part_by_id(int32_t part_id) const {
 }
 
 int PartAnalyzer::get_nv3d() const {
-    // Calculate NV3D from control data
-    // ls-dyna_database.txt: NV3D = 13 for stress tensor + plastic strain
-    // This is the number of values per solid element per state
-    int istrn = control_data_.ISTRN;
-    int nv3d = 7;  // Base: 6 stress components + effective plastic strain
-
-    // If ISTRN != 0, add 6 strain components
-    if (istrn != 0) {
-        nv3d += 6;
-    }
-
-    return nv3d;
+    // 솔리드 요소 블록의 워드 수는 머리말의 NV3D 그대로다. 예전에는 7 + (ISTRN ? 6 : 0) 으로 셈해,
+    // 이력 변수가 있는 덱(NV3D = 7 + NEIPH, 예: 26)에서 요소 블록이 밀려 이웃 요소의 워드를 응력으로 읽었다.
+    // 앞 7 워드(응력 6 + ε_p)만 읽으므로 적분점 여덟 자리 덱에서는 첫 자리의 값이다.
+    return control_data_.NV3D;
 }
 
 double PartAnalyzer::extract_stress(const std::vector<double>& solid_data,

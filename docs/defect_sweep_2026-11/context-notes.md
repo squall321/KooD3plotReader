@@ -807,3 +807,20 @@ deep 시험 262 · impact 시험 150 통과.
 
 **보고만** — `_aggregate` 는 없는 변형률 · 주응력 · 주변형률 시계열을 0.0 으로 채운다(`peak_strain=sr.global_max if sr else 0.0` 등). 응력은 이미 None + 사유로 바꿨지만
 나머지는 수치 필드가 float 이라는 전제가 표 · 차트 · 위험도 계산 곳곳에 있어 이번에 함께 바꾸지 않았다 — 같은 「측정된 0」 문제다.
+
+### 4.17 R — 옛 `PartAnalyzer` 의 요소 블록 폭 (11-22)
+
+**재현** — `PartAnalyzer::get_nv3d()` 는 솔리드 요소 블록 폭을 7 + (ISTRN ? 6 : 0) 으로 셈했다. 이력 변수가 있는 덱(NV3D = 7 + NEIPH)에서는 요소 블록이 밀려
+이웃 요소 · 이력 변수 워드를 응력으로 읽는다. 쓰는 곳은 예제(`test_part_analyzer` · `full_extraction_example` — 설치 대상이지만 SIF 는 `unified_analyzer` 만 복사한다)와
+`TimeHistoryAnalyzer`(예제 · `AnalysisConfigParser`) — 제품 분석기는 쓰지 않는다. 라이브러리 공개 클래스라 고친다.
+실덱 `bat1x26`(NV3D 26, 한 자리 + 이력 변수 19)에서 마지막 상태의 파트 최대 von Mises 를 단일 패스 분석기 파트 이력과 견주면(`r_check.cpp`)
+고치기 전 솔리드 파트 3개가 모두 다르다(파트 31 의 값이 파트 30 의 참값 — 블록이 밀렸다), 고친 뒤 3개 모두 같다. vib13(NV3D 13)은 전 · 뒤 22개 같다
+(`run/r_check_before.out` · `r_check_after.out`).
+
+**시험** — `test_solid_ip_history` 에 `[PartAnalyzer]` 사례(한 자리 덱 · 한 자리 + 이력 변수 3 + 변형률 덱, 파트 셋 × 상태 넷의 σ_vm 최대).
+고치기 전 라이브러리(`030a7ba`)에 묶으면 이력 변수 덱에서 10건 실패(파트 2 는 이력 변수 표지 9e5 를 응력으로 읽어 σ_vm 2.7e6), 고친 뒤 통과
+(`run/r_test_base.out` · `r_test_after.out`).
+
+**바꾼 것** — `get_nv3d()` 가 머리말 NV3D 를 돌려준다. 앞 7 워드만 읽으므로 적분점 여덟 자리 덱에서는 첫 자리의 값이다(원시 내보내기 계열과 같은 한계 — 보고만).
+
+**시험(전체)** — C++ 렌더 켠 빌드 통과 33 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/r_ctests.out`).

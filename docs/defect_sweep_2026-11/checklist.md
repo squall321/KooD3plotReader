@@ -45,7 +45,7 @@
 - [x] L `global_unmeasured` — 시험(deep · impact 고치기 전 실패) → impact 적재기도 고침 → 커밋
 
 ## 5. 그 밖
-- [ ] R `PartAnalyzer::get_nv3d()` — 이력 변수 있는 실덱으로 전후 대조 → 커밋(확인 안 되면 보고만)
+- [x] R `PartAnalyzer::get_nv3d()` — 이력 변수 있는 실덱(bat1x26)으로 전후 대조 · 시험(고치기 전 10건 실패) → 커밋
 - [ ] P 「lasso 2.2.6」 표기 정정(내 문서 · 메모리. a9 원장은 알리기만)
 
 ## 6. 마감
