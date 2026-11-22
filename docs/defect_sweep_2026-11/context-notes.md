@@ -760,3 +760,16 @@ C++ 전체 렌더 켠 빌드 통과 32 · 실패 0, 렌더 끈 빌드 통과 8 �
 모델 중앙을 자른다. deep 은 이름 키워드(기본 BGA)로 파트별 대상을 고르고 빔 파트를 고를 일이 드물어 이번에는 렌더 잡 상자만 고쳤다.
 
 **시험** — 고친 뒤 `test_section_box_targets` 통과(`run/b_test_after.out`). C++ 전체 렌더 켠 빌드 통과 33 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/b_ctests.out`).
+
+### 4.14 C · D — deep `--config` 와 CLI 의 우선순위 (11-22)
+
+**재현** — `_apply_config_to_args` 는 설정 파일 값을 CLI 가 주지 않은 자리에만 채운다(CLI 가 이긴다). 그런데
+- **C** — `_parse_config_yaml` 이 `render_jobs:` 가 없는 설정 파일에 `no_render` 를 켜고, 합칠 때 그것이 CLI 로 준 `--section-view` 위에 덮였다.
+  단면 영상을 달라고 했는데 렌더가 통째로 꺼진다(말없이).
+- **D** — `--config` 도움말은 「CLI 인수보다 우선」 이라고 반대로 적었다.
+
+**시험 먼저** — `python/koo_deep_report/tests/test_config_precedence.py`(새) — CLI `--section-view` 가 설정 파일을 이긴다, CLI 가 렌더를 달라고 하지 않으면
+종전대로 설정 파일을 따른다, CLI 값(`--render-threads`)이 설정 파일 값을 이긴다, 도움말이 「CLI 인수가 우선」. 고치기 전 2건 실패(C · D), 고친 뒤 통과
+(`run/cd_test_before.out` · `cd_test_after.out`).
+
+**바꾼 것** — 「렌더 없음」 합치기에 `not args.section_view` 조건, 도움말 문구. deep 시험 전체 258 통과(`run/cd_deep_pytest.out`).

@@ -94,7 +94,7 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     if add_path:
         p.add_argument("path", nargs="?", help="시뮬 디렉토리 또는 d3plot 파일 경로")
     p.add_argument("--config", "-c", default="", metavar="YAML",
-                   help="YAML 설정 파일 (GUI에서 생성. CLI 인수보다 우선)")
+                   help="YAML 설정 파일 (GUI에서 생성). CLI 인수가 우선 — 설정 파일은 CLI 가 주지 않은 값만 채운다")
     p.add_argument("--output", "-o", default="./single_report",
                    help="출력 디렉토리 (기본: ./single_report)")
     p.add_argument("--label", default="",
@@ -781,7 +781,8 @@ def _apply_config_to_args(args: argparse.Namespace) -> None:
         args.verbose = True
     if not getattr(args, "element_quality", False) and cfg.get("element_quality"):
         args.element_quality = True
-    if not getattr(args, "no_render", False) and cfg.get("no_render"):
+    # render_jobs: 가 없는 설정 파일은 「렌더 없음」 이지만, CLI 로 --section-view 를 줬으면 끄지 않는다(CLI 가 우선)
+    if not getattr(args, "no_render", False) and cfg.get("no_render") and not getattr(args, "section_view", False):
         args.no_render = True
     if not getattr(args, "design_overrides", "") and "design_overrides" in cfg:
         args.design_overrides = cfg["design_overrides"]
