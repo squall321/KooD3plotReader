@@ -864,3 +864,27 @@ post_analyze 는 분석기 빌드 커밋 · 실행 파일이 바뀌면 다시 �
 pykoocae-53(parts 를 넘기는 파이프라인이 있는지 질문 — 답 대기). 모두 「로컬 커밋, push · 배포는 사용자 승인 뒤」 라고 적었다.
 
 **메모리** — 새 작업 기록 `defect_sweep_2026_11.md`, 옛 줄 정정(`render_pipeline_sif_diagnosis.md` 의 ② ③ · SW 단면 렌더 — 코드로 확인), lasso 표기(98a8d43 과 같이).
+
+### 4.14 정정 — C 의 실제 영향 (11-22, 판정 꾸러미로 잰 뒤)
+
+배포된 v52 로 `--config`(render_jobs 없음) + CLI `--section-view` 를 돌리면 **단면 영상은 나온다**(`/data/koopark/Post_v53/v52/cfg_sv.log`).
+deep 의 단면뷰 경로는 「렌더 없음」 과 따로 돌기 때문이다. 실제로 빠진 것은 deep 의 실행 표시(「렌더OFF | 단면뷰ON」)와, deep 이 찾은 LS-PrePost 경로를 분석기 설정에 싣는 일
+(`_resolve_lsprepost` 가 렌더 꺼짐이면 None)이다. SIF 와 개발 트리에서는 분석기가 LS-PrePost 를 스스로 찾아 영상이 나왔다.
+그러니 4.14 의 「단면 영상이 말없이 사라졌다」 는 과장이다 — 분석기 쪽 기본 경로로 LS-PrePost 를 못 찾는 설치에서만 영상이 빠진다.
+고친 판은 「렌더ON | 단면뷰ON」 이다(같은 꾸러미의 local). 판정 꾸러미는 영상 유무가 아니라 이 표시를 본다.
+
+## 6. push · v53 배포 요청 (11-22)
+
+- 사용자 승인(「push + v53 배포 요청」)으로 `af0b301..9b3c081`(커밋 23개)을 push 했다 — `git push origin 9b3c081:main`.
+  로컬 main 위에 a9 의 문서 커밋 `6f17612` 가 얹혀 있어, 승인 범위(내 커밋 23개)대로 그 앞까지만 올렸다. 굽는 프로세스가 없는 것을 본 뒤다.
+- **판정 꾸러미 `/data/koopark/Post_v53/`** — `check_v53.sh <SIF|local> <태그>` · `cmp_v53.py <옛> <새> [local]`.
+  ① 분석기 일곱 덱(Test_006 · ElasticBeam · DynaAnalysis · case_shell · 두꺼운 셸 · airbag · erode7, 핫스팟 세 기준) + ElasticBeam parts [1]
+  ② ElasticBeam deep 전 파트 · --parts 1 ③ 소프트웨어 단면뷰 피크 줄 셋 ④ LS-PrePost 렌더 여섯(von Mises · 변위 · 최대 전단 · 압력 · 사용자 색 범위 · 없는 번호 섞인 타깃)
+  ⑤ deep --config + CLI --section-view ⑥ 뒷정리. 비교는 수를 상대 1e-8 로, 값이 같은 줄의 요소 번호 차이는 동률로 세고, 덱마다 허용한 파일만 「다름」 을 받는다.
+  v52 꾸러미의 traceback(없는 폴더)은 폴더가 없으면 어긋남 한 줄로 바꿨다(N).
+- **v52 기준선**(`check_v52.log`) — 고치기 전 동작이 그대로 재현된다: 최대 전단 · 압력 · 사용자 색 범위 잡의 그림이 von Mises 기본 그림과 md5 까지 같고,
+  없는 번호 섞인 타깃은 다른(빈) 그림, 단면뷰 피크 59.73 · 576.555 · 998.623, deep --parts 1 은 네 파트.
+- **로컬 예행**(`check_local.log` · `cmp_v52_local.log`) — 「어긋난 것 0」. 꾸러미가 내 회귀 덱에 없던 DynaAnalysis 의 침식(상태 75 부터 솔리드 3개)을 잡아
+  `surface/Bottom__-Z__strain.csv` 의 ε_p 평균 열 10줄이 바뀌는 것을 보였다 — 4.18 과 같은 의도한 변경이라 그 덱에도 침식 허용을 줬다.
+- pykoocae-53 에 v53 배포를 요청했다(9b3c081). 굽는 동안 push · `apptainer/` · `scripts/` 수정은 하지 않는다.
+- pykoocae-53 답 — pyKooCAE 는 deep 에 --parts 를 스스로 넘기지 않는다(사용자가 deep_extra_args 에 적을 때만). smarttwin-mcp 레시피는 확인하지 못했다고 했다.
