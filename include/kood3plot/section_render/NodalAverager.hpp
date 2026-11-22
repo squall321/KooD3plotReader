@@ -72,9 +72,19 @@ public:
     double globalMax() const { return global_max_; }
 
 private:
+    /// 셸 · 두꺼운 셸 요소 블록의 층 배치. layers 0 = 배치를 믿지 못한다 — 종전처럼 블록의 앞 7 워드만 읽는다
+    struct LayerLayout {
+        int    layers = 0;   ///< 저장된 층 수(MAXINT)
+        int    stride = 0;   ///< 층 하나의 워드 수 = 6·IOSHL(1) + IOSHL(2) + NEIPS
+        size_t words  = 0;   ///< 층마다 읽는 워드 수 — 응력 6, ε_p 를 적는 덱(IOSHL(2) = 1)은 7
+    };
+    static LayerLayout layerLayout(const data::ControlData& control, bool shell);
+
     const data::Mesh&        mesh_;
     const data::ControlData& control_;
     const data::SolidIpLayout solid_ip_;  ///< 솔리드 요소 블록의 적분점 배치(머리말에서 한 번 읽는다)
+    const LayerLayout shell_layer_;       ///< 셸 요소 블록의 층 배치(머리말에서 한 번 읽는다)
+    const LayerLayout tshell_layer_;      ///< 두꺼운 셸 요소 블록의 층 배치
 
     std::vector<double>  node_sum_;    ///< Averaged scalar values per node (after compute)
     std::vector<int32_t> node_count_;  ///< Number of contributing elements per node

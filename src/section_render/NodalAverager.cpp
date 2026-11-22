@@ -9,8 +9,8 @@
  *
  * Indexing:
  *   solid_data[elem * NV3D + offset]       — offsets 0-5: sxx,syy,szz,sxy,syz,szx; 6: EPS
- *   thick_shell_data[elem * NV3DT + offset]
- *   shell_data[elem * NV2D + offset]       — simplified: first integration point
+ *   thick_shell_data[elem * NV3DT + offset] — 층(MAXINT)마다 응력 6 + ε_p + NEIPS 워드
+ *   shell_data[elem * NV2D + offset]       — 층(MAXINT)마다 응력 6 + ε_p + NEIPS 워드, 그 뒤 합력 · 두께 · 변형률
  */
 
 #include "kood3plot/section_render/NodalAverager.hpp"
@@ -273,7 +273,8 @@ bool computeDegenerateStrain(const double coords[][3], const double disp[][3],
 // ============================================================
 
 NodalAverager::NodalAverager(const data::Mesh& mesh, const data::ControlData& control)
-    : mesh_(mesh), control_(control), solid_ip_(data::SolidIpLayout::from(control))
+    : mesh_(mesh), control_(control), solid_ip_(data::SolidIpLayout::from(control)),
+      shell_layer_(layerLayout(control, true)), tshell_layer_(layerLayout(control, false))
 {
     int32_t numnp = control_.NUMNP;
     node_sum_.assign(numnp, 0.0);
@@ -629,7 +630,36 @@ double extractStress(const std::vector<double>& data, size_t base, int stride,
     return extractStress(data.data() + base, data.size() - base, field);
 }
 
+/// 층 블록 blk 에서 요소 값 — 저장된 층마다 낸 스칼라 가운데 가장 큰 것
+double maxOverLayers(const double* blk, int layers, int stride, size_t words, FieldSelector field)
+{
+    double best = extractStress(blk, words, field);
+    for (int l = 1; l < layers; ++l) {
+        best = std::max(best, extractStress(blk + static_cast<std::ptrdiff_t>(l) * stride, words, field));
+    }
+    return best;
+}
+
 } // anonymous namespace
+
+NodalAverager::LayerLayout NodalAverager::layerLayout(const data::ControlData& c, bool shell)
+{
+    // 분석기 파트 이력(SinglePassAnalyzer::layeredLayout)과 같은 검사 — 통과하지 못하면 layers 0(종전 경로)
+    LayerLayout L;
+    const int nv = shell ? c.NV2D : c.NV3DT;
+    if (nv <= 0 || c.IOSHL[0] == 0 || c.MAXINT <= 0) return L;
+    if (shell && (c.NDIM == 5 || c.NDIM == 7)) return L;   // 강체 셸이 빠진 채 압축된 덱 — 요소 자리가 어긋난다
+    const int P = 6 * c.IOSHL[0] + c.IOSHL[1] + c.NEIPS;
+    const int lw = c.MAXINT * P;
+    const int rem = shell ? nv - (lw + 8 * c.IOSHL[2] + 4 * c.IOSHL[3])   // 12 = 변형률(안 · 바깥 면)
+                          : nv - lw;                                      // 12 = 변형률, 1 = 내부 에너지
+    const bool ok = shell ? (rem == 0 || rem == 12) : (rem == 0 || rem == 1 || rem == 12 || rem == 13);
+    if (!ok) return L;
+    L.layers = c.MAXINT;
+    L.stride = P;
+    L.words  = c.IOSHL[1] ? 7 : 6;
+    return L;
+}
 
 double NodalAverager::extractSolidValue(const data::StateData& state,
                                          int32_t ei, FieldSelector field) const
@@ -655,6 +685,14 @@ double NodalAverager::extractShellValue(const data::StateData& state,
                                          int32_t ei, FieldSelector field) const
 {
     size_t base = static_cast<size_t>(ei) * control_.NV2D;
+    // 셸은 두께 방향 층(MAXINT)마다 응력을 적는다 — 요소 값은 저장된 층마다 낸 값 가운데 가장 큰 것이다
+    // (LS-PrePost 가 기본으로 칠하는 「max IP. value」, 파트 표와 같은 규칙). 앞 7 워드만 읽으면 첫 층만 보게 되는데
+    // MAXINT 3 덱의 첫 층은 중립면이라, 굽힘을 받는 셸이 겉면 값의 몇 % 로 칠해진다.
+    // 층 배치가 규격 공식과 맞지 않는 덱은 종전대로 앞 7 워드를 읽는다.
+    if (shell_layer_.layers > 0 && base + static_cast<size_t>(control_.NV2D) <= state.shell_data.size()) {
+        return maxOverLayers(state.shell_data.data() + base, shell_layer_.layers, shell_layer_.stride,
+                             shell_layer_.words, field);
+    }
     return extractStress(state.shell_data, base, control_.NV2D, field);
 }
 
@@ -662,6 +700,11 @@ double NodalAverager::extractThickShellValue(const data::StateData& state,
                                               int32_t ei, FieldSelector field) const
 {
     size_t base = static_cast<size_t>(ei) * control_.NV3DT;
+    // 셸과 같다 — 저장된 층마다 낸 값 가운데 가장 큰 것, 배치가 공식과 맞지 않으면 앞 7 워드
+    if (tshell_layer_.layers > 0 && base + static_cast<size_t>(control_.NV3DT) <= state.thick_shell_data.size()) {
+        return maxOverLayers(state.thick_shell_data.data() + base, tshell_layer_.layers, tshell_layer_.stride,
+                             tshell_layer_.words, field);
+    }
     return extractStress(state.thick_shell_data, base, control_.NV3DT, field);
 }
 

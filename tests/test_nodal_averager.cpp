@@ -12,6 +12,11 @@
  *   2. 사면체처럼 뒤 자리가 0 으로 실린 요소 — 빈 자리는 세지 않는다(압력이 전부 음수여도 0 이 최대로 뽑히지 않는다)
  *   3. 한 자리 덱, 머리말 식과 맞지 않는 덱은 종전 그대로(요소 블록의 앞 7 워드)
  *   4. 여덟 자리에 같은 값을 적은 덱은 한 자리 덱과 절점 값이 비트까지 같다
+ *   5. 셸 · 두꺼운 셸 — 요소 값은 저장된 층(MAXINT)마다 낸 값 가운데 가장 큰 것이다(LS-PrePost 「max IP. value」,
+ *      파트 표와 같은 규칙). 첫 층만 읽으면 MAXINT 3 덱에서 중립면 값으로 칠해져 굽힘을 받는 셸이 거의 0 으로 보인다
+ *   6. 층 배치는 분석기 파트 이력과 같은 검사(층 워드 · 합력 · 두께 · 변형률 나머지 워드, 강체 셸 압축 NDIM 5 · 7)를
+ *      통과할 때만 믿고, 아니면 종전대로 앞 7 워드
+ *   7. ε_p 를 적지 않은 덱(IOSHL(2) = 0)의 ε_p 는 0 — 옆 워드(이력 변수 · 다음 층 응력)를 ε_p 로 읽지 않는다
  *
  * Run: ./test_nodal_averager
  */
@@ -287,6 +292,199 @@ void caseDeck(const Deck& d, std::vector<double>* flat) {
     }
 }
 
+// ---- 셸 · 두꺼운 셸(층) ----
+
+constexpr int kLayElems = 3;                            // 사각 셸 · 삼각 셸 · 두꺼운 셸
+constexpr int kTshell = 2;                              // 위 셋 가운데 두꺼운 셸의 자리
+constexpr int kLayNodes = 13;
+constexpr double kTailSentinel = 7.7e5;                 // 층 뒤 워드(합력 · 두께 · 변형률 · 내부 에너지)
+constexpr double kLayerZ[] = {0.0, -1.0, 1.0, -0.5, 0.5};   // 층 l 의 두께 좌표 — 층 0 = 중립면(MAXINT 3 덱이 적는 차례)
+
+// 사각 셸과 삼각 셸이 절점 2 를, 삼각 셸과 두꺼운 셸이 절점 5 를 나눠 쓴다.
+// 삼각 셸은 d3plot 이 적는 그대로 셋째 절점을 되풀이한다(그 절점은 삼각 셸에만 닿는다).
+constexpr int kLayNn[kLayElems] = {4, 4, 8};
+constexpr int kLayConn[kLayElems][8] = {
+    {1, 2, 3, 4, 0, 0, 0, 0},
+    {2, 5, 6, 6, 0, 0, 0, 0},
+    {5, 7, 8, 9, 10, 11, 12, 13}};
+constexpr double kLayXyz[kLayNodes][3] = {
+    {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {2, 0, 0}, {1.5, 1, 0},
+    {3, 0, 0}, {3, 1, 0}, {2, 1, 0}, {2, 0, 1}, {3, 0, 1}, {3, 1, 1}, {2, 1, 1}};
+
+/// 셸 · 두꺼운 셸 요소 블록의 워드 배치 — 층(MAXINT)마다 [응력 6][ε_p(IOSHL(2))][이력 변수 NEIPS], 그 뒤 꼬리 워드
+struct LayDeck {
+    const char* name;
+    int maxint;           // 1 ~ 5
+    int io[4];            // IOSHL(1..4) — 응력(늘 1) · ε_p · 합력 8 워드 · 두께와 요소 변수 2 와 내부 에너지 4 워드
+    int neips;
+    int shell_tail;       // 셸 블록 끝의 나머지 워드 — 규격상 0 또는 12(변형률)
+    int tshell_tail;      // 두꺼운 셸 블록 끝의 나머지 워드 — 규격상 0 · 1 · 12 · 13
+    int ndim;             // 5 · 7 = 강체 셸이 빠진 채 압축된 덱
+    bool shell_layered;   // 셸을 층으로 읽어야 한다(아니면 종전처럼 앞 7 워드 — 그런 덱은 ε_p 를 적는다)
+    bool tshell_layered;
+    int P() const { return 6 * io[0] + io[1] + neips; }
+    int nv2d() const { return maxint * P() + 8 * io[2] + 4 * io[3] + shell_tail; }
+    int nv3dt() const { return maxint * P() + tshell_tail; }
+};
+
+/// 층 요소 e(0부터) · 층 l · 상태 s 의 값 — 막 성분 + z × 굽힘 성분. 중립면(z 0)이 어느 값에서도 가장 크지 않고,
+/// 굽힘의 부호가 요소 · 값마다 달라 가장 큰 층이 늘 마지막 층도 아니다.
+Ip layerValue(int e, int l, int s) {
+    Ip v;
+    if (s == 0) return v;
+    static const double s_mem[kLayElems][6] = {
+        { 40.0, -20.0,  0.0,  10.0,  0.0,   0.0},
+        {-30.0,  50.0,  0.0, -15.0,  0.0,   0.0},
+        { 60.0,  30.0, 20.0,  12.0, -8.0,   6.0}};
+    static const double s_bend[kLayElems][6] = {
+        { 200.0,   60.0,  0.0, 30.0,  0.0,   0.0},
+        {-120.0, -180.0,  0.0, 40.0,  0.0,   0.0},
+        { 150.0,  -90.0, 40.0, 24.0, 10.0, -14.0}};
+    static const double s_ep[kLayElems][2] = {{0.010, 0.004}, {0.012, -0.003}, {0.015, 0.005}};
+    const double z = kLayerZ[l];
+    for (int k = 0; k < 6; ++k) v.s[k] = s * (s_mem[e][k] + z * s_bend[e][k]);
+    v.ep = s * (s_ep[e][0] + z * s_ep[e][1]);
+    return v;
+}
+
+/// NodalAverager 가 층 요소의 요소 값으로 삼아야 하는 값 — 저장된 층마다 낸 스칼라 가운데 가장 큰 것
+double expectedLayElem(const LayDeck& d, int e, int s, FieldSelector f) {
+    const bool layered = (e == kTshell) ? d.tshell_layered : d.shell_layered;
+    if (!layered) return scalarOf(f, layerValue(e, 0, s));   // 종전 — 앞 7 워드(첫 층의 응력과 ε_p)
+    double best = 0.0;
+    for (int l = 0; l < d.maxint; ++l) {
+        Ip v = layerValue(e, l, s);
+        if (!d.io[1]) v.ep = 0.0;                            // ε_p 를 적지 않은 덱
+        best = (l == 0) ? scalarOf(f, v) : std::max(best, scalarOf(f, v));
+    }
+    return best;
+}
+
+data::Mesh buildLayMesh() {
+    data::Mesh mesh;
+    for (int i = 0; i < kLayNodes; ++i) mesh.nodes.push_back({i + 1, kLayXyz[i][0], kLayXyz[i][1], kLayXyz[i][2]});
+    for (int e = 0; e < kLayElems; ++e) {
+        Element el;
+        el.id = e + 1;
+        el.type = (e == kTshell) ? ElementType::THICK_SHELL : ElementType::SHELL;
+        el.material_id = 1;
+        el.node_ids.assign(kLayConn[e], kLayConn[e] + kLayNn[e]);
+        if (e == kTshell) {
+            mesh.thick_shells.push_back(el);
+            mesh.thick_shell_parts.push_back(1);
+        } else {
+            mesh.shells.push_back(el);
+            mesh.shell_parts.push_back(1);
+        }
+    }
+    mesh.num_solids = 0;
+    mesh.num_shells = mesh.shells.size();
+    mesh.num_thick_shells = mesh.thick_shells.size();
+    return mesh;
+}
+
+data::ControlData buildLayControl(const LayDeck& d) {
+    data::ControlData c;
+    c.NDIM = d.ndim;
+    c.NUMNP = kLayNodes;
+    c.NEL4 = 2;
+    c.NV2D = d.nv2d();
+    c.NELT = 1;
+    c.NV3DT = d.nv3dt();
+    c.MAXINT = d.maxint;                                     // 머리말 원시값의 부호(MDLOPT)는 ControlData 가 이미 벗긴다
+    c.NEIPS = d.neips;
+    for (int i = 0; i < 4; ++i) c.IOSHL[i] = d.io[i];
+    return c;
+}
+
+/// 층 요소 하나의 블록 — 층마다 [응력 6][ε_p][이력 변수], 그 뒤 꼬리 워드. 상태 0 은 전부 0.
+void fillLayBlock(const LayDeck& d, int e, int s, double* blk, int nv) {
+    if (s == 0) return;
+    const int P = d.P();
+    for (int l = 0; l < d.maxint; ++l) {
+        double* w = blk + static_cast<size_t>(l) * P;
+        const Ip v = layerValue(e, l, s);
+        for (int k = 0; k < 6; ++k) w[k] = v.s[k];
+        int at = 6;
+        if (d.io[1]) w[at++] = v.ep;
+        for (int h = 0; h < d.neips; ++h) w[at++] = kHistSentinel;
+    }
+    for (int i = d.maxint * P; i < nv; ++i) blk[i] = kTailSentinel;
+}
+
+data::StateData buildLayState(const LayDeck& d, int s) {
+    data::StateData st;
+    st.time = 0.125 * s;
+    const int nv2d = d.nv2d(), nv3dt = d.nv3dt();
+    st.shell_data.assign(2 * static_cast<size_t>(nv2d), 0.0);
+    st.thick_shell_data.assign(static_cast<size_t>(nv3dt), 0.0);
+    fillLayBlock(d, 0, s, st.shell_data.data(), nv2d);
+    fillLayBlock(d, 1, s, st.shell_data.data() + nv2d, nv2d);
+    fillLayBlock(d, kTshell, s, st.thick_shell_data.data(), nv3dt);
+    return st;
+}
+
+/// 절점 n(0부터)에 닿는 층 요소들 — 요소마다 한 번
+std::vector<int> layElemsOfNode(int n) {
+    std::vector<int> out;
+    for (int e = 0; e < kLayElems; ++e) {
+        if (std::find(kLayConn[e], kLayConn[e] + kLayNn[e], n + 1) != kLayConn[e] + kLayNn[e]) out.push_back(e);
+    }
+    return out;
+}
+
+/// 생성식 스스로의 점검 — 이 시험이 「층 최대」 를 「첫 층」 · 「마지막 층」 과 가를 수 있는 값인지
+void caseLayReference() {
+    Case c("기준값 점검(층) — 층 최대가 첫 층(중립면)과 늘 다르고, 마지막 층과도 다른 경우가 있다");
+    const auto differ = [](double a, double b) { return std::abs(a - b) > 1e-6 * std::max(1.0, std::abs(b)); };
+    for (int n : {3, 5}) {
+        const LayDeck d{"", n, {1, 1, 0, 0}, 0, 0, 0, 4, true, true};
+        int last_differs = 0;
+        for (int s = 1; s < kStates; ++s) {
+            for (int e = 0; e < kLayElems; ++e) {
+                for (const Field& f : kFields) {
+                    const double best = expectedLayElem(d, e, s, f.sel);
+                    expect(differ(scalarOf(f.sel, layerValue(e, 0, s)), best),
+                           std::string(f.name) + " — 첫 층 값과 달라야 한다 (층 " + std::to_string(n) + " · 요소 " + std::to_string(e) + ")");
+                    if (differ(scalarOf(f.sel, layerValue(e, n - 1, s)), best)) ++last_differs;
+                }
+            }
+        }
+        expect(last_differs > 0, "마지막 층만 읽는 코드도 가를 수 있어야 한다 (층 " + std::to_string(n) + ")");
+    }
+}
+
+/// 층 덱 하나 — 상태 · 값마다 절점 값과 범위를 본다
+void caseLayDeck(const LayDeck& d) {
+    Case c(std::string("층 덱: ") + d.name + " (MAXINT " + std::to_string(d.maxint) + " · NV2D " + std::to_string(d.nv2d()) +
+           " · NV3DT " + std::to_string(d.nv3dt()) + ")");
+    const data::Mesh mesh = buildLayMesh();
+    const data::ControlData ctrl = buildLayControl(d);
+    NodalAverager avg(mesh, ctrl);
+    const PartMatcher all;
+
+    for (int s = 0; s < kStates; ++s) {
+        const data::StateData st = buildLayState(d, s);
+        for (const Field& f : kFields) {
+            avg.compute(st, f.sel, all);
+            double lo = 1e300, hi = -1e300;
+            for (int n = 0; n < kLayNodes; ++n) {
+                const std::vector<int> es = layElemsOfNode(n);
+                double want = 0.0;
+                for (int e : es) want += expectedLayElem(d, e, s, f.sel);
+                want /= static_cast<double>(es.size());
+                lo = std::min(lo, want);
+                hi = std::max(hi, want);
+                expectNear(avg.nodeValue(n), want, std::string(f.name) + " 상태 " + std::to_string(s) + " 절점 " + std::to_string(n + 1));
+            }
+            if (s == 0) continue;
+            if (hi <= lo + 1e-12) hi = lo + 1.0;            // 값이 전부 같으면(ε_p 를 적지 않은 덱) 범위를 1 만큼 벌린다
+            expectNear(avg.globalMin(), lo, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 아래");
+            expectNear(avg.globalMax(), hi, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 위");
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -309,6 +507,18 @@ int main() {
         Case c("여덟 자리가 같은 값인 덱 = 한 자리 덱(비트까지)");
         expect(!flat[4].empty() && sameBits(flat[4], flat[1]), "절점 값이 비트까지 같다");
     }
+
+    // 이름, MAXINT, IOSHL(1..4), NEIPS, 셸 꼬리, 두꺼운 셸 꼬리, NDIM, 셸을 층으로, 두꺼운 셸을 층으로
+    const LayDeck lay_decks[] = {
+        {"층 하나", 1, {1, 1, 0, 0}, 0, 0, 0, 4, true, true},
+        {"층 셋", 3, {1, 1, 0, 0}, 0, 0, 0, 4, true, true},
+        {"층 셋 · 이력 변수 2 · 합력 · 두께 · 변형률(두꺼운 셸은 + 내부 에너지)", 3, {1, 1, 1, 1}, 2, 12, 13, 4, true, true},
+        {"층 다섯 · ε_p 없음 · 이력 변수 1(두꺼운 셸은 + 내부 에너지)", 5, {1, 0, 0, 0}, 1, 0, 1, 4, true, true},
+        {"규격 공식과 맞지 않는다 — 앞 7 워드", 3, {1, 1, 0, 0}, 0, 1, 5, 4, false, false},
+        {"강체 셸 압축(NDIM 5) — 셸만 앞 7 워드", 3, {1, 1, 0, 0}, 0, 0, 0, 5, false, true},
+    };
+    caseLayReference();
+    for (const LayDeck& d : lay_decks) caseLayDeck(d);
 
     std::printf("\n");
     if (g_failed) {
