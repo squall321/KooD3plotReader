@@ -17,6 +17,8 @@
  *   6. 층 배치는 분석기 파트 이력과 같은 검사(층 워드 · 합력 · 두께 · 변형률 나머지 워드, 강체 셸 압축 NDIM 5 · 7)를
  *      통과할 때만 믿고, 아니면 종전대로 앞 7 워드
  *   7. ε_p 를 적지 않은 덱(IOSHL(2) = 0)의 ε_p 는 0 — 옆 워드(이력 변수 · 다음 층 응력)를 ε_p 로 읽지 않는다
+ *   8. 최대 전단(max_shear) = (σ1 − σ3)/2 — LS-PrePost 의 max shear, 핫스팟 기준 max_shear 와 같은 정의(σ_vm/√3 이 아니다).
+ *      기대값은 시험 안의 야코비 회전으로 낸 주응력에서 낸다(코드의 주응력 공식과 따로)
  *
  * Run: ./test_nodal_averager
  */
@@ -24,9 +26,11 @@
 #include "kood3plot/section_render/NodalAverager.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -65,8 +69,8 @@ void expect(bool ok, const std::string& what) {
     if (g_failed - g_case_failed0 <= kMaxPrint) std::printf("    [FAIL] %s\n", what.c_str());
 }
 
-void expectNear(double got, double want, const std::string& what) {
-    const bool ok = std::isfinite(got) && std::abs(got - want) <= 1e-12 * std::max(1.0, std::abs(want));
+void expectNear(double got, double want, const std::string& what, double rel = 1e-12) {
+    const bool ok = std::isfinite(got) && std::abs(got - want) <= rel * std::max(1.0, std::abs(want));
     char buf[96];
     std::snprintf(buf, sizeof(buf), " got=%.15g want=%.15g", got, want);
     expect(ok, what + buf);
@@ -150,6 +154,43 @@ double vonMises(const double* s) {
     return std::sqrt(0.5 * (a * a + b * b + c * c) + 3.0 * (s[3] * s[3] + s[4] * s[4] + s[5] * s[5]));
 }
 
+/// 대칭 3×3 행렬(σxx σyy σzz σxy σyz σzx)의 고윳값, 큰 것부터 — 야코비 회전
+std::array<double, 3> eigenSym3(const double* s) {
+    double a[3][3] = {{s[0], s[3], s[5]}, {s[3], s[1], s[4]}, {s[5], s[4], s[2]}};
+    for (int sweep = 0; sweep < 64; ++sweep) {
+        const double off = a[0][1] * a[0][1] + a[0][2] * a[0][2] + a[1][2] * a[1][2];
+        const double diag = a[0][0] * a[0][0] + a[1][1] * a[1][1] + a[2][2] * a[2][2];
+        if (off <= 1e-34 * diag || off == 0.0) break;
+        for (int p = 0; p < 2; ++p) {
+            for (int q = p + 1; q < 3; ++q) {
+                if (a[p][q] == 0.0) continue;
+                const double theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+                const double t = (theta >= 0.0 ? 1.0 : -1.0) / (std::abs(theta) + std::sqrt(theta * theta + 1.0));
+                const double c = 1.0 / std::sqrt(t * t + 1.0), sn = t * c;
+                for (int k = 0; k < 3; ++k) {
+                    const double akp = a[k][p], akq = a[k][q];
+                    a[k][p] = c * akp - sn * akq;
+                    a[k][q] = sn * akp + c * akq;
+                }
+                for (int k = 0; k < 3; ++k) {
+                    const double apk = a[p][k], aqk = a[q][k];
+                    a[p][k] = c * apk - sn * aqk;
+                    a[q][k] = sn * apk + c * aqk;
+                }
+            }
+        }
+    }
+    std::array<double, 3> ev = {a[0][0], a[1][1], a[2][2]};
+    std::sort(ev.begin(), ev.end(), std::greater<double>());
+    return ev;
+}
+
+/// 최대 전단 (σ1 − σ3)/2
+double tresca(const double* s) {
+    const std::array<double, 3> ev = eigenSym3(s);
+    return (ev[0] - ev[2]) / 2.0;
+}
+
 struct Field {
     FieldSelector sel;
     const char* name;
@@ -158,15 +199,20 @@ const Field kFields[] = {
     {FieldSelector::VonMises, "σ_vm"},
     {FieldSelector::EffectivePlasticStrain, "ε_p"},
     {FieldSelector::PressureStress, "압력"},
+    {FieldSelector::MaxShearStress, "최대 전단"},
 };
 
 double scalarOf(FieldSelector f, const Ip& v) {
     switch (f) {
         case FieldSelector::EffectivePlasticStrain: return v.ep;
         case FieldSelector::PressureStress:         return -(v.s[0] + v.s[1] + v.s[2]) / 3.0;
+        case FieldSelector::MaxShearStress:         return tresca(v.s);
         default:                                    return vonMises(v.s);
     }
 }
+
+/// 값마다 허용 오차 — 최대 전단은 코드가 닫힌 꼴(삼각함수)로, 시험이 야코비 회전으로 주응력을 내 끝자리가 갈린다
+double tolOf(FieldSelector f) { return f == FieldSelector::MaxShearStress ? 1e-9 : 1e-12; }
 
 /// NodalAverager 가 요소 값으로 삼아야 하는 값 — 값이 실린 자리마다 낸 스칼라 가운데 가장 큰 것
 double expectedElem(const Deck& d, int e, int s, FieldSelector f) {
@@ -252,6 +298,10 @@ void caseReference() {
                 expect(differ(scalarOf(f.sel, ipValue(e, 0, s)), best), std::string(f.name) + " — 첫 자리 값과 달라야 한다" + at);
                 expect(differ(scalarOf(f.sel, meanOfUsed(e, s)), best), std::string(f.name) + " — 평균 텐서의 값과 달라야 한다" + at);
             }
+            // 최대 전단 — 종전 식 σ_vm/√3 로 낸 값과 갈려야 한다
+            double vm3 = 0.0;
+            for (int p = 0; p < kUsedSlots[e]; ++p) vm3 = std::max(vm3, vonMises(ipValue(e, p, s).s) / std::sqrt(3.0));
+            expect(differ(vm3, expectedElem(multi, e, s, FieldSelector::MaxShearStress)), "최대 전단 — σ_vm/√3 과 달라야 한다" + at);
             // 빈 자리(0)가 최대로 뽑히면 드러나도록 — 뒤 자리가 빈 요소의 압력은 쓰인 자리에서 전부 음수다
             if (kUsedSlots[e] < 8) {
                 expect(expectedElem(multi, e, s, FieldSelector::PressureStress) < -1.0,
@@ -282,12 +332,12 @@ void caseDeck(const Deck& d, std::vector<double>* flat) {
                 lo = std::min(lo, want);
                 hi = std::max(hi, want);
                 const double got = avg.nodeValue(n);
-                expectNear(got, want, std::string(f.name) + " 상태 " + std::to_string(s) + " 절점 " + std::to_string(n + 1));
+                expectNear(got, want, std::string(f.name) + " 상태 " + std::to_string(s) + " 절점 " + std::to_string(n + 1), tolOf(f.sel));
                 if (flat) flat->push_back(got);
             }
             if (s == 0) continue;                         // 전부 0 인 상태는 범위가 (0, 1) 로 벌어진다
-            expectNear(avg.globalMin(), lo, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 아래");
-            expectNear(avg.globalMax(), hi, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 위");
+            expectNear(avg.globalMin(), lo, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 아래", tolOf(f.sel));
+            expectNear(avg.globalMax(), hi, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 위", tolOf(f.sel));
         }
     }
 }
@@ -448,6 +498,10 @@ void caseLayReference() {
                            std::string(f.name) + " — 첫 층 값과 달라야 한다 (층 " + std::to_string(n) + " · 요소 " + std::to_string(e) + ")");
                     if (differ(scalarOf(f.sel, layerValue(e, n - 1, s)), best)) ++last_differs;
                 }
+                double vm3 = 0.0;
+                for (int l = 0; l < n; ++l) vm3 = std::max(vm3, vonMises(layerValue(e, l, s).s) / std::sqrt(3.0));
+                expect(differ(vm3, expectedLayElem(d, e, s, FieldSelector::MaxShearStress)),
+                       "최대 전단 — σ_vm/√3 과 달라야 한다 (층 " + std::to_string(n) + " · 요소 " + std::to_string(e) + ")");
             }
         }
         expect(last_differs > 0, "마지막 층만 읽는 코드도 가를 수 있어야 한다 (층 " + std::to_string(n) + ")");
@@ -475,12 +529,13 @@ void caseLayDeck(const LayDeck& d) {
                 want /= static_cast<double>(es.size());
                 lo = std::min(lo, want);
                 hi = std::max(hi, want);
-                expectNear(avg.nodeValue(n), want, std::string(f.name) + " 상태 " + std::to_string(s) + " 절점 " + std::to_string(n + 1));
+                expectNear(avg.nodeValue(n), want, std::string(f.name) + " 상태 " + std::to_string(s) + " 절점 " + std::to_string(n + 1),
+                           tolOf(f.sel));
             }
             if (s == 0) continue;
             if (hi <= lo + 1e-12) hi = lo + 1.0;            // 값이 전부 같으면(ε_p 를 적지 않은 덱) 범위를 1 만큼 벌린다
-            expectNear(avg.globalMin(), lo, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 아래");
-            expectNear(avg.globalMax(), hi, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 위");
+            expectNear(avg.globalMin(), lo, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 아래", tolOf(f.sel));
+            expectNear(avg.globalMax(), hi, std::string(f.name) + " 상태 " + std::to_string(s) + " 범위 위", tolOf(f.sel));
         }
     }
 }

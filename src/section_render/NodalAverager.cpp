@@ -615,7 +615,9 @@ double extractStress(const double* p, size_t avail, FieldSelector field)
         case FieldSelector::PressureStress:
             return -(sxx + syy + szz) / 3.0;
         case FieldSelector::MaxShearStress:
-            return vonMises(sxx, syy, szz, sxy, syz, szx) / std::sqrt(3.0);
+            // 최대 전단 = (σ1 − σ3)/2 — LS-PrePost 의 max shear, 핫스팟 기준 max_shear 와 같은 정의.
+            // 예전 식 σ_vm/√3 은 순수 전단에서만 같고 단축 응력에서는 15 % 크다(1/√3 대 1/2).
+            return analysis::StressTensor(sxx, syy, szz, sxy, syz, szx).maxShear();
         case FieldSelector::TotalStrain:
         case FieldSelector::DisplacementMagnitude:
             return 0.0;  // handled separately in compute()

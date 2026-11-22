@@ -26,7 +26,7 @@
 ## 2b. 단면 렌더에서 같이 찾은 것
 - [x] V 셸 · 두꺼운 셸의 층 최대(첫 층 = 중립면만 읽던 것) · 시험 → `ElasticBeam` 셸 파트 59.73 → 999.397(LS-PrePost 와 같다) → 커밋
 - [x] S 삭제 요소를 순번으로 견주기(`NodalAverager` · `SectionClipper`) · 시험(고치기 전 40건 실패) → erode7 프레임 그대로 → 커밋
-- [ ] T 단면뷰 `max_shear` = (σ1−σ3)/2 — 시험 먼저 → 커밋
+- [x] T 단면뷰 `max_shear` = (σ1−σ3)/2 · 시험(고치기 전 360건 실패) → `ElasticBeam` 576.948 → 499.833(LS-PrePost 와 같다) → 커밋
 - [ ] U 되풀이 절점을 한 번만 세기(응력 경로 · 총변형률 경로) — 시험 먼저 → 커밋
 - [ ] W `computePartFringeRange` — LS-PrePost 실렌더로 재현(fringe 종류 · 적분점 최대와의 차이) → 고치거나 보고
 - [ ] X LS-PrePost 백엔드 fringe 이름 대응(`displacement_mag` · `max_shear` · `pressure` · `strain`) — 재현 → 고치거나 보고
