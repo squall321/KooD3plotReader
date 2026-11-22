@@ -363,7 +363,12 @@ std::string LSPrePostRenderer::generateScript(
         script << "selectpart reverse\n";
         script << "selectpart select 0\n";
         script << "fringe " << fringe_code << "\n";
-        script << "pfringe\n\n";
+        script << "pfringe\n";
+        // 사용자가 준 색 범위 — 타겟이 있어도 적는다(예전에는 타겟 없는 갈래에만 있어 렌더 잡의 fringe_range 가 말없이 빠졌다)
+        if (!options.auto_fringe_range) {
+            script << "range userdef " << options.fringe_min << " " << options.fringe_max << ";\n";
+        }
+        script << "\n";
 
         // Restore all parts visible
         script << "$# Restore all parts\n";

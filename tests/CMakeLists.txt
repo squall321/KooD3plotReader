@@ -172,6 +172,14 @@ if(TARGET kood3plot_render)
     add_test(NAME LsppFringeNames COMMAND test_lspp_fringe_names)
 endif()
 
+# LS-PrePost 명령 스크립트가 사용자가 준 색 범위를 타겟 있는 렌더에도 적는지(타겟이 있으면 말없이 빠지던 것)
+if(TARGET kood3plot_render)
+    add_executable(test_lspp_fringe_range test_lspp_fringe_range.cpp)
+    target_link_libraries(test_lspp_fringe_range PRIVATE kood3plot_render)
+    target_include_directories(test_lspp_fringe_range PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME LsppFringeRange COMMAND test_lspp_fringe_range)
+endif()
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)

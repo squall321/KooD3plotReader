@@ -28,7 +28,7 @@
 - [x] S 삭제 요소를 순번으로 견주기(`NodalAverager` · `SectionClipper`) · 시험(고치기 전 40건 실패) → erode7 프레임 그대로 → 커밋
 - [x] T 단면뷰 `max_shear` = (σ1−σ3)/2 · 시험(고치기 전 360건 실패) → `ElasticBeam` 576.948 → 499.833(LS-PrePost 와 같다) → 커밋
 - [x] U 되풀이 절점을 한 번만 세기(응력 경로 · 총변형률 경로) · 시험(고치기 전 4건 실패) → `ElasticBeam` 사면체 파트 절점 54개 값이 바뀜 → 커밋
-- [ ] W `computePartFringeRange` — LS-PrePost 실렌더로 재현(fringe 종류 · 적분점 최대와의 차이) → 고치거나 보고
+- [x] W `computePartFringeRange` — 실렌더로 재현하니 범위가 영상에 실린 적이 없다(타겟 갈래에 범위 줄 없음) → 사용자 `fringe_range` 를 타겟 렌더에도 적고 죽은 자동 범위를 지움 · 시험 → 커밋. 타깃 자동 범위 정책은 보고
 - [x] X LS-PrePost 백엔드 fringe 이름 대응 — 실렌더로 재현(`displacement_mag` · `max_shear` · `pressure` 가 von Mises 로 그려졌다) → 이름 표 하나 · 시험 → 커밋. `strain` 의 이름표(「Total Strain」 인데 LS-PrePost 는 유효 소성 변형률)는 사용자 결정으로 보고
 
 ## 3. Q — `parts:` 걸러내기

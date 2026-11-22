@@ -52,86 +52,6 @@ namespace analysis {
 #ifdef KOOD3PLOT_HAS_RENDER
 namespace {
 
-/// Compute von_mises stress range for target parts by sampling a few states.
-/// Returns {min, max}. Reads only ~5 evenly spaced states for speed.
-std::pair<double, double> computePartFringeRange(
-    D3plotReader& reader,
-    const std::vector<int32_t>& target_parts,
-    size_t total_states)
-{
-    if (target_parts.empty() || total_states == 0) return {0.0, 0.0};
-
-    auto mesh = reader.read_mesh();
-    const auto& ctrl = reader.get_control_data();
-    int nv3d = ctrl.NV3D;
-    int nv2d = ctrl.NV2D;
-
-    // Build element index sets for target parts (solids + shells)
-    std::set<int32_t> target_set(target_parts.begin(), target_parts.end());
-    std::vector<size_t> solid_indices, shell_indices;
-
-    for (size_t i = 0; i < mesh.solid_materials.size(); ++i) {
-        if (target_set.count(mesh.solid_materials[i])) solid_indices.push_back(i);
-    }
-    for (size_t i = 0; i < mesh.shell_materials.size(); ++i) {
-        if (target_set.count(mesh.shell_materials[i])) shell_indices.push_back(i);
-    }
-
-    if (solid_indices.empty() && shell_indices.empty()) return {0.0, 0.0};
-
-    // Sample ~5 evenly spaced states (including last)
-    std::vector<size_t> sample_states;
-    if (total_states <= 5) {
-        for (size_t i = 0; i < total_states; ++i) sample_states.push_back(i);
-    } else {
-        for (int k = 0; k < 5; ++k) {
-            sample_states.push_back(k * (total_states - 1) / 4);
-        }
-    }
-
-    double range_min = std::numeric_limits<double>::max();
-    double range_max = 0.0;
-
-    auto calc_vm = [](double sxx, double syy, double szz,
-                      double sxy, double syz, double szx) -> double {
-        double d1 = sxx - syy, d2 = syy - szz, d3 = szz - sxx;
-        return std::sqrt(0.5 * (d1*d1 + d2*d2 + d3*d3) + 3.0 * (sxy*sxy + syz*syz + szx*szx));
-    };
-
-    for (size_t si : sample_states) {
-        auto state = reader.read_state(si);
-
-        // Solid elements
-        if (nv3d >= 7) {
-            for (size_t ei : solid_indices) {
-                size_t base = ei * nv3d;
-                if (base + 6 > state.solid_data.size()) continue;
-                double vm = calc_vm(state.solid_data[base], state.solid_data[base+1],
-                                    state.solid_data[base+2], state.solid_data[base+3],
-                                    state.solid_data[base+4], state.solid_data[base+5]);
-                if (vm > range_max) range_max = vm;
-                if (vm < range_min) range_min = vm;
-            }
-        }
-
-        // Shell elements (mid-surface stress: first integration point)
-        if (nv2d >= 7) {
-            for (size_t ei : shell_indices) {
-                size_t base = ei * nv2d;
-                if (base + 6 > state.shell_data.size()) continue;
-                double vm = calc_vm(state.shell_data[base], state.shell_data[base+1],
-                                    state.shell_data[base+2], state.shell_data[base+3],
-                                    state.shell_data[base+4], state.shell_data[base+5]);
-                if (vm > range_max) range_max = vm;
-                if (vm < range_min) range_min = vm;
-            }
-        }
-    }
-
-    if (range_max <= 0.0) return {0.0, 0.0};
-    return {0.0, range_max};  // min=0 for von_mises (always >= 0)
-}
-
 /// 렌더 잡의 fringe 이름 → LS-PrePost fringe. 모르는 이름은 von Mises 로 그리되 경고 줄을 남긴다(예전에는 말없이 그렸다).
 render::FringeType fringeForJob(const std::string& name, const std::string& job, const UnifiedProgressCallback& callback)
 {
@@ -683,19 +603,9 @@ bool UnifiedAnalyzer::processRenderJobs(
                 task.options.fit_highlight = fit_target;
                 task.options.fit_margin = job.view_margin;
 
-                if (task.options.auto_fringe_range) {
-                    size_t total_states = reader.get_num_states();
-                    auto [fmin, fmax] = computePartFringeRange(reader, target_parts, total_states);
-                    if (fmax > 0.0) {
-                        task.options.auto_fringe_range = false;
-                        task.options.fringe_min = fmin;
-                        task.options.fringe_max = fmax;
-                        if (callback) {
-                            callback("    Per-part fringe range: " +
-                                     std::to_string(fmin) + " ~ " + std::to_string(fmax));
-                        }
-                    }
-                }
+                // 색 범위는 잡의 fringe_range 를 준 경우만 건다(위). 자동이면 LS-PrePost 자동 범위다 —
+                // 예전에 여기서 낸 「파트별 범위」(첫 적분점 · 첫 층의 von Mises, 다섯 상태 표본)는 7d33676 이후
+                // 스크립트에 한 번도 실리지 않은 채 로그에만 찍혔다.
             }
 
             // Build output filename
