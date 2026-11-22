@@ -116,6 +116,14 @@ enum class FringeType {
 };
 
 /**
+ * @brief 설정 · deep 이 쓰는 fringe 이름 → FringeType
+ *
+ * 렌더 잡 · 파트별 단면이 같은 표를 쓴다. 모르는 이름이면 known 에 false 를 적고 VON_MISES 를 돌려준다 —
+ * 부르는 쪽이 경고 줄을 낸다(예전에는 deep 이 보내는 displacement_mag · max_shear 까지 말없이 von Mises 로 그렸다).
+ */
+FringeType fringeTypeFromName(const std::string& name, bool* known = nullptr);
+
+/**
  * @brief Output image format
  */
 enum class ImageFormat {

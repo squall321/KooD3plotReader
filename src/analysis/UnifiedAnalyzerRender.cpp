@@ -132,6 +132,17 @@ std::pair<double, double> computePartFringeRange(
     return {0.0, range_max};  // min=0 for von_mises (always >= 0)
 }
 
+/// 렌더 잡의 fringe 이름 → LS-PrePost fringe. 모르는 이름은 von Mises 로 그리되 경고 줄을 남긴다(예전에는 말없이 그렸다).
+render::FringeType fringeForJob(const std::string& name, const std::string& job, const UnifiedProgressCallback& callback)
+{
+    bool known = false;
+    const render::FringeType t = render::fringeTypeFromName(name, &known);
+    if (!known && callback) {
+        callback("  WARNING: [" + job + "] 알 수 없는 fringe '" + name + "' — von Mises 로 그린다");
+    }
+    return t;
+}
+
 /// Pixel bounding box detected from a rendered frame
 struct PixelBBox { int x1, y1, x2, y2; };
 
@@ -585,14 +596,8 @@ bool UnifiedAnalyzer::processRenderJobs(
             task.options.image_width  = job.output.resolution[0];
             task.options.image_height = job.output.resolution[1];
 
-            if (!job.fringe_type.empty()) {
-                if (job.fringe_type == "von_mises")
-                    task.options.fringe_type = render::FringeType::VON_MISES;
-                else if (job.fringe_type == "eff_plastic_strain")
-                    task.options.fringe_type = render::FringeType::EFFECTIVE_PLASTIC_STRAIN;
-                else if (job.fringe_type == "displacement")
-                    task.options.fringe_type = render::FringeType::DISPLACEMENT;
-            }
+            if (!job.fringe_type.empty())
+                task.options.fringe_type = fringeForJob(job.fringe_type, job.name, callback);
 
             task.output_file = job.output.filename.empty() ? job.name : job.output.filename;
             if (!eff_output_dir.empty())
@@ -657,18 +662,8 @@ bool UnifiedAnalyzer::processRenderJobs(
             task.options.image_width = job.output.resolution[0];
             task.options.image_height = job.output.resolution[1];
 
-            if (!job.fringe_type.empty()) {
-                if (job.fringe_type == "von_mises")
-                    task.options.fringe_type = render::FringeType::VON_MISES;
-                else if (job.fringe_type == "eff_plastic_strain")
-                    task.options.fringe_type = render::FringeType::EFFECTIVE_PLASTIC_STRAIN;
-                else if (job.fringe_type == "displacement")
-                    task.options.fringe_type = render::FringeType::DISPLACEMENT;
-                else if (job.fringe_type == "velocity")
-                    task.options.fringe_type = render::FringeType::VELOCITY;
-                else if (job.fringe_type == "acceleration")
-                    task.options.fringe_type = render::FringeType::ACCELERATION;
-            }
+            if (!job.fringe_type.empty())
+                task.options.fringe_type = fringeForJob(job.fringe_type, job.name, callback);
 
             if (!job.fringe_range.is_auto()) {
                 task.options.auto_fringe_range = false;
@@ -963,17 +958,6 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         }
     }
 
-    // Map fringe_type string → enum
-    auto parseFringe = [](const std::string& s) -> render::FringeType {
-        if (s == "von_mises")            return render::FringeType::VON_MISES;
-        if (s == "eff_plastic_strain")   return render::FringeType::EFFECTIVE_PLASTIC_STRAIN;
-        if (s == "displacement")         return render::FringeType::DISPLACEMENT;
-        if (s == "velocity")             return render::FringeType::VELOCITY;
-        if (s == "acceleration")         return render::FringeType::ACCELERATION;
-        if (s == "pressure")             return render::FringeType::PRESSURE;
-        return render::FringeType::VON_MISES;
-    };
-
     // 폴더 이름 — 덱 *PART 제목(deep 의 파트별 단면 키워드가 맞추는 이름과 같은 출처). 덱이 없으면 PID 표식.
     // 예전에는 「d3plot 에는 이름이 없다」 며 늘 Part<id> 라 폴더를 보고 키워드를 고르면 헛쳤다(2026-11-08 v50 판정).
     auto mesh = reader.read_mesh();
@@ -1033,7 +1017,7 @@ bool UnifiedAnalyzer::processPartSectionRenders(
 
         // Build options
         render::RenderOptions ropts;
-        ropts.fringe_type = parseFringe(job.fringe_type);
+        ropts.fringe_type = fringeForJob(job.fringe_type, job.name, callback);
         ropts.image_width  = job.resolution.size() > 0 ? job.resolution[0] : 1280;
         ropts.image_height = job.resolution.size() > 1 ? job.resolution[1] : 720;
         ropts.fps = job.fps;

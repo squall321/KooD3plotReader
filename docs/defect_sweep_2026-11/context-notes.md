@@ -638,3 +638,35 @@ erode7(47,257 개 중 33,257 개)은 99장이 그대로인데, 색 범위를 6.5
 **닿는 범위** — 사면체 · 오면체 · 삼각 셸이 있는 덱의 소프트웨어 단면뷰 · 세트 뷰(색 · 색 막대 · 피크). 사면체로 짠 파트일수록 크다. 알림에 넣는다.
 
 **시험** — C++ 전체 렌더 켠 빌드 통과 30 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/u_ctests.out`).
+
+### 4.10 X — LS-PrePost 백엔드의 fringe 이름 (11-22)
+
+**재현(실렌더)** — Test_006(링크 덱 `.work/beam_viewfit/deck006`), 타깃 파트 6, z 단면, 렌더 잡 넷(`.work/defect_sweep/w/cfg.yaml`).
+LS-PrePost 가 영상에 적는 범례 제목을 읽었다(`w/before_*.png`).
+
+| 잡 fringe(deep 이 보내는 이름) | LS-PrePost 범례 — 고치기 전 | 고친 뒤 |
+| --- | --- | --- |
+| `von_mises` | Effective Stress (v-m) | 같음(영상 바이트까지 같다) |
+| `eff_plastic_strain` | Effective Plastic Strain | 같음(영상 바이트까지 같다) |
+| `displacement_mag` | **Effective Stress (v-m)** | Resultant Displacement |
+| `max_shear` | **Effective Stress (v-m)** | Tresca (max shear stress) |
+| `pressure`(렌더 잡 경로) | **Effective Stress (v-m)** | Pressure |
+| `max_shear`(파트별 단면 `part_section_renders`) | (같은 표 — 고치기 전 von Mises) | Tresca (max shear stress) |
+
+C++ 쪽 대응표가 세 곳에 따로 있었다 — 렌더 잡 두 곳(von_mises · eff_plastic_strain · displacement [+ velocity · acceleration])과 파트별 단면
+`parseFringe`(+ pressure). deep 의 `_FRINGE_MAP` 이 보내는 `displacement_mag` · `max_shear` 를 어느 표도 몰랐고, 렌더 잡 경로는 `pressure` 도 몰랐다.
+모르는 이름은 말없이 von Mises 로 그려졌다 — 갤러리는 변위 · 최대 전단 · 압력이라 적는데 영상은 von Mises 였다.
+
+**시험 먼저** — `tests/test_lspp_fringe_names.cpp`(새) — 이름마다 FringeType 과, 명령 파일에 적히는 `fringe <번호>`(타겟 있음 · 없음 둘 다), 모르는 이름은 known 거짓.
+고치기 전에는 대응 함수가 없어 빌드가 안 된다(`run/x_test_before.out`) — 고치기 전 동작은 위 실렌더가 보여 준다. 고친 뒤 전부 통과(`run/x_test_after.out`).
+
+**바꾼 것** — `render::fringeTypeFromName`(이름 표 하나 — 위 다섯 이름 + displacement · velocity · acceleration, `displacement_mag` → 합 변위 20,
+`max_shear` → 13). `UnifiedAnalyzerRender` 의 세 곳이 그것을 부르고(`fringeForJob`), 모르는 이름은 `WARNING: [잡] 알 수 없는 fringe '…' — von Mises 로 그린다` 를 남긴다.
+`parseFringe` 람다는 지웠다(쓰는 곳이 없어졌다).
+
+**보고만 — `strain` 의 이름표** — deep 의 기본 field 는 `von_mises` · `strain`, 기본 백엔드는 LS-PrePost 다. `_FRINGE_MAP` 이 `strain` 을 `eff_plastic_strain` 으로 보내
+LS-PrePost 영상은 유효 소성 변형률(탄성 재료면 그 자리의 다른 값)인데, 갤러리는 「변형률 (Total Strain)」, CLI 도움말은 「strain=변위기반 총변형률」 이라 적는다
+(소프트웨어 렌더는 변위로 총변형률을 낸다). 무엇을 고칠지(이름표를 「유효 소성 변형률」 로 · LS-PrePost 에서 총변형률을 그리는 다른 길 · 그대로)는
+기본 산출물의 내용을 정하는 일이라 사용자 결정으로 남긴다.
+
+**시험** — C++ 전체 렌더 켠 빌드 통과 31(새 시험 포함) · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/x_ctests.out`).

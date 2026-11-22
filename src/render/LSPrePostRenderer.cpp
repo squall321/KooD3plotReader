@@ -1294,6 +1294,27 @@ int LSPrePostRenderer::renderSlidingSection(
 // Helper Methods
 // ============================================================
 
+FringeType fringeTypeFromName(const std::string& name, bool* known) {
+    static const std::pair<const char*, FringeType> kNames[] = {
+        {"von_mises",          FringeType::VON_MISES},
+        {"eff_plastic_strain", FringeType::EFFECTIVE_PLASTIC_STRAIN},
+        {"displacement",       FringeType::DISPLACEMENT},
+        {"displacement_mag",   FringeType::DISPLACEMENT},       // deep 이 보내는 이름 — 합 변위
+        {"pressure",           FringeType::PRESSURE},
+        {"max_shear",          FringeType::MAX_SHEAR_STRESS},   // deep 이 보내는 이름 — LS-PrePost 13 = (σ1−σ3)/2
+        {"velocity",           FringeType::VELOCITY},
+        {"acceleration",       FringeType::ACCELERATION},
+    };
+    for (const auto& kv : kNames) {
+        if (name == kv.first) {
+            if (known) *known = true;
+            return kv.second;
+        }
+    }
+    if (known) *known = false;
+    return FringeType::VON_MISES;
+}
+
 int LSPrePostRenderer::fringeTypeToCode(FringeType type) const {
     // LSPrePost numeric fringe codes (from KooDynaPostProcessor mapping)
     switch (type) {

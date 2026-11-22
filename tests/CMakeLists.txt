@@ -164,6 +164,14 @@ if(TARGET kood3plot_render)
     add_test(NAME LsppViewFit COMMAND test_lspp_view_fit)
 endif()
 
+# 설정 · deep 의 fringe 이름이 LS-PrePost fringe 번호로 옮겨지는지(모르는 이름이 말없이 von Mises 로 그려지던 것)
+if(TARGET kood3plot_render)
+    add_executable(test_lspp_fringe_names test_lspp_fringe_names.cpp)
+    target_link_libraries(test_lspp_fringe_names PRIVATE kood3plot_render)
+    target_include_directories(test_lspp_fringe_names PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME LsppFringeNames COMMAND test_lspp_fringe_names)
+endif()
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)
