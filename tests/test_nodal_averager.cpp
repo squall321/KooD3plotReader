@@ -19,6 +19,8 @@
  *   7. ε_p 를 적지 않은 덱(IOSHL(2) = 0)의 ε_p 는 0 — 옆 워드(이력 변수 · 다음 층 응력)를 ε_p 로 읽지 않는다
  *   8. 최대 전단(max_shear) = (σ1 − σ3)/2 — LS-PrePost 의 max shear, 핫스팟 기준 max_shear 와 같은 정의(σ_vm/√3 이 아니다).
  *      기대값은 시험 안의 야코비 회전으로 낸 주응력에서 낸다(코드의 주응력 공식과 따로)
+ *   9. 연결 목록에 같은 절점이 되풀이되는 요소(사면체의 넷째 절점 다섯 번 · 오면체 · 삼각 셸) — 요소 하나는 절점 하나에
+ *      한 번만 들어간다(응력 경로 · 총변형률 경로). 여러 번 세면 그 절점에서 그 요소만 가중이 커진다
  *
  * Run: ./test_nodal_averager
  */
@@ -540,6 +542,140 @@ void caseLayDeck(const LayDeck& d) {
     }
 }
 
+// ---- 되풀이 절점 ----
+
+// 육면체 H(1..8), 사면체 T(넷째 절점 2 를 다섯 번 — 2 는 H 의 절점), 오면체 W(겹친 절점 7 을 두 번 — 7 은 H 의 절점),
+// 사각 셸 Q 와 삼각 셸 R(셋째 절점 19 를 두 번 — 19 는 Q 의 절점). 요소 값은 σxx 하나(von Mises = 그 값).
+constexpr int kRepNodes = 21;
+constexpr int kRepSolids = 3;
+constexpr int kRepShells = 2;
+constexpr int kRepSolidConn[kRepSolids][8] = {
+    {1, 2, 3, 4, 5, 6, 7, 8},
+    {9, 10, 11, 2, 2, 2, 2, 2},
+    {12, 13, 14, 15, 7, 7, 16, 16}};
+constexpr int kRepShellConn[kRepShells][4] = {{17, 18, 19, 20}, {18, 21, 19, 19}};
+constexpr double kRepSolidValue[kRepSolids] = {100.0, 400.0, 700.0};
+constexpr double kRepShellValue[kRepShells] = {1000.0, 4000.0};
+constexpr double kRepXyz[kRepNodes][3] = {
+    {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1},
+    {2, 0, 0}, {1.6, 1, 0}, {1.5, 0.4, 1},
+    {0, 0, 2}, {1, 0, 2}, {1, 1, 2}, {0, 1, 2}, {0, 1, 1.5},
+    {0, 0, 3}, {1, 0, 3}, {1, 1, 3}, {0, 1, 3}, {2, 0.5, 3}};
+
+/// 되풀이 절점 메시 — solids 는 넣을 솔리드의 순번(0부터), shells 가 거짓이면 셸을 뺀다
+data::Mesh buildRepMesh(const std::vector<int>& solids, bool shells) {
+    data::Mesh mesh;
+    for (int i = 0; i < kRepNodes; ++i) mesh.nodes.push_back({i + 1, kRepXyz[i][0], kRepXyz[i][1], kRepXyz[i][2]});
+    for (int e : solids) {
+        Element el;
+        el.id = e + 1;
+        el.type = ElementType::SOLID;
+        el.material_id = 1;
+        el.node_ids.assign(kRepSolidConn[e], kRepSolidConn[e] + 8);
+        mesh.solids.push_back(el);
+        mesh.solid_parts.push_back(1);
+    }
+    for (int e = 0; shells && e < kRepShells; ++e) {
+        Element el;
+        el.id = e + 1;
+        el.type = ElementType::SHELL;
+        el.material_id = 1;
+        el.node_ids.assign(kRepShellConn[e], kRepShellConn[e] + 4);
+        mesh.shells.push_back(el);
+        mesh.shell_parts.push_back(2);
+    }
+    mesh.num_solids = mesh.solids.size();
+    mesh.num_shells = mesh.shells.size();
+    mesh.num_thick_shells = 0;
+    return mesh;
+}
+
+data::ControlData buildRepControl(const data::Mesh& mesh) {
+    data::ControlData c;
+    c.NDIM = 4;
+    c.NUMNP = kRepNodes;
+    c.IU = 1;
+    c.NEL8 = static_cast<int32_t>(mesh.solids.size());
+    c.NV3D = 7;
+    c.IOSOL[0] = c.IOSOL[1] = 1;
+    c.NEL4 = static_cast<int32_t>(mesh.shells.size());
+    c.NV2D = 7;
+    c.MAXINT = 1;
+    c.IOSHL[0] = c.IOSHL[1] = 1;
+    return c;
+}
+
+/// 상태 하나 — 요소 값은 σxx 하나, 절점은 고르지 않게 옮긴다(요소마다 총변형률이 다르게)
+data::StateData buildRepState(const data::Mesh& mesh, const std::vector<int>& solids) {
+    data::StateData st;
+    st.time = 1.0;
+    for (int i = 0; i < kRepNodes; ++i) {
+        const double x = kRepXyz[i][0], y = kRepXyz[i][1], z = kRepXyz[i][2];
+        st.node_displacements.push_back(x + 0.01 * x * x);
+        st.node_displacements.push_back(y + 0.004 * x * y);
+        st.node_displacements.push_back(z - 0.003 * x * z);
+    }
+    st.solid_data.assign(mesh.solids.size() * 7, 0.0);
+    for (size_t k = 0; k < solids.size(); ++k) st.solid_data[k * 7] = kRepSolidValue[solids[k]];
+    st.shell_data.assign(mesh.shells.size() * 7, 0.0);
+    for (size_t k = 0; k < mesh.shells.size(); ++k) st.shell_data[k * 7] = kRepShellValue[k];
+    return st;
+}
+
+/// 요소 하나는 절점 하나에 한 번만 — 응력 경로는 값까지, 총변형률 경로는 요소 하나만 넣은 메시에서 낸 요소 값으로 기대값을 맞춘다
+void caseRepeatedNodes() {
+    Case c("되풀이 절점 — 사면체 · 오면체 · 삼각 셸의 겹친 절점을 한 번만 센다");
+    const PartMatcher all;
+    {
+        const std::vector<int> solids = {0, 1, 2};
+        const data::Mesh mesh = buildRepMesh(solids, true);
+        const data::ControlData ctrl = buildRepControl(mesh);
+        const data::StateData st = buildRepState(mesh, solids);
+        NodalAverager avg(mesh, ctrl);
+        avg.compute(st, FieldSelector::VonMises, all);
+        for (int n = 1; n <= kRepNodes; ++n) {
+            double sum = 0.0;
+            int cnt = 0;
+            for (int e = 0; e < kRepSolids; ++e) {
+                if (std::find(kRepSolidConn[e], kRepSolidConn[e] + 8, n) != kRepSolidConn[e] + 8) { sum += kRepSolidValue[e]; ++cnt; }
+            }
+            for (int e = 0; e < kRepShells; ++e) {
+                if (std::find(kRepShellConn[e], kRepShellConn[e] + 4, n) != kRepShellConn[e] + 4) { sum += kRepShellValue[e]; ++cnt; }
+            }
+            expectNear(avg.nodeValue(n - 1), cnt ? sum / cnt : 0.0, "σ_vm 절점 " + std::to_string(n));
+        }
+    }
+    // 총변형률 — 육면체 · 사면체. 요소마다의 값은 그 요소 하나만 넣은 메시에서 잰다(절점 가중과 무관한 값)
+    double elem_strain[2] = {0.0, 0.0};
+    for (int e = 0; e < 2; ++e) {
+        const std::vector<int> solids = {e};
+        const data::Mesh mesh = buildRepMesh(solids, false);
+        const data::ControlData ctrl = buildRepControl(mesh);
+        NodalAverager avg(mesh, ctrl);
+        avg.compute(buildRepState(mesh, solids), FieldSelector::TotalStrain, all);
+        elem_strain[e] = avg.nodeValue(kRepSolidConn[e][0] - 1);
+    }
+    expect(std::isfinite(elem_strain[0]) && std::isfinite(elem_strain[1]) &&
+           std::abs(elem_strain[0] - elem_strain[1]) > 1e-6 * std::max(std::abs(elem_strain[0]), 1e-12),
+           "육면체 · 사면체의 총변형률이 서로 달라야 한다(가중을 가를 수 있게) — " + std::to_string(elem_strain[0]) + " · " +
+           std::to_string(elem_strain[1]));
+    {
+        const std::vector<int> solids = {0, 1};
+        const data::Mesh mesh = buildRepMesh(solids, false);
+        const data::ControlData ctrl = buildRepControl(mesh);
+        NodalAverager avg(mesh, ctrl);
+        avg.compute(buildRepState(mesh, solids), FieldSelector::TotalStrain, all);
+        for (int n = 1; n <= kRepNodes; ++n) {
+            double sum = 0.0;
+            int cnt = 0;
+            for (int e = 0; e < 2; ++e) {
+                if (std::find(kRepSolidConn[e], kRepSolidConn[e] + 8, n) != kRepSolidConn[e] + 8) { sum += elem_strain[e]; ++cnt; }
+            }
+            expectNear(avg.nodeValue(n - 1), cnt ? sum / cnt : 0.0, "총변형률 절점 " + std::to_string(n));
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -574,6 +710,7 @@ int main() {
     };
     caseLayReference();
     for (const LayDeck& d : lay_decks) caseLayDeck(d);
+    caseRepeatedNodes();
 
     std::printf("\n");
     if (g_failed) {

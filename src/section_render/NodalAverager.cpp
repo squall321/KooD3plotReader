@@ -308,6 +308,24 @@ int32_t NodalAverager::nodeIndex(int32_t node_ref) const
     return static_cast<int32_t>(idx);
 }
 
+void NodalAverager::addToNodes(const std::vector<int32_t>& node_ids, size_t nn, double val)
+{
+    // d3plot 은 사면체를 n1 n2 n3 n4 n4 n4 n4 n4 로, 오면체 · 삼각 셸도 절점을 겹쳐 적는다. 연결 목록을 그대로 돌면
+    // 겹친 절점에서 그 요소만 가중이 커진다(사면체의 넷째 절점은 5배). 요소 하나는 절점 하나에 한 번만 더한다.
+    const size_t n = std::min(nn, node_ids.size());
+    for (size_t i = 0; i < n; ++i) {
+        const int32_t nid = node_ids[i];
+        bool seen = false;
+        for (size_t j = 0; j < i && !seen; ++j) seen = (node_ids[j] == nid);
+        if (seen) continue;
+        const int32_t idx = nodeIndex(nid);
+        if (idx >= 0 && static_cast<size_t>(idx) < node_sum_.size()) {
+            node_sum_[idx]   += val;
+            node_count_[idx] += 1;
+        }
+    }
+}
+
 // ============================================================
 // compute()
 // ============================================================
@@ -423,13 +441,7 @@ void NodalAverager::compute(const data::StateData& state,
             // 그 주변 절점의 변형률이 실제보다 낮게 깔린다.
             if (!val_ok) continue;
 
-            for (int i = 0; i < actual_nn; ++i) {
-                int32_t idx = nodeIndex(elem.node_ids[i]);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, static_cast<size_t>(actual_nn), val);
         }
 
         // Thick shell elements (8-node: treat as hex8)
@@ -453,13 +465,7 @@ void NodalAverager::compute(const data::StateData& state,
                 continue;   // 미산출 — 평균에서 제외
             }
 
-            for (int i = 0; i < nn; ++i) {
-                int32_t idx = nodeIndex(elem.node_ids[i]);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, static_cast<size_t>(nn), val);
         }
 
         // Shell elements (4-node quad)
@@ -479,13 +485,7 @@ void NodalAverager::compute(const data::StateData& state,
             double val = (nn == 4) ? computeQuad4Strain(coords, disp)
                                    : 0.0;  // Tri3: would need separate handling
 
-            for (int i = 0; i < nn; ++i) {
-                int32_t idx = nodeIndex(elem.node_ids[i]);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, static_cast<size_t>(nn), val);
         }
 
         // Divide + global range
@@ -513,13 +513,7 @@ void NodalAverager::compute(const data::StateData& state,
             if (!target.empty() && !target.matches(pid, "")) continue;
 
             double val = extractSolidValue(state, static_cast<int32_t>(ei), field);
-            for (int32_t nid : elem.node_ids) {
-                int32_t idx = nodeIndex(nid);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, elem.node_ids.size(), val);
         }
     }
 
@@ -532,13 +526,7 @@ void NodalAverager::compute(const data::StateData& state,
             if (!target.empty() && !target.matches(pid, "")) continue;
 
             double val = extractThickShellValue(state, static_cast<int32_t>(ei), field);
-            for (int32_t nid : elem.node_ids) {
-                int32_t idx = nodeIndex(nid);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, elem.node_ids.size(), val);
         }
     }
 
@@ -551,13 +539,7 @@ void NodalAverager::compute(const data::StateData& state,
             if (!target.empty() && !target.matches(pid, "")) continue;
 
             double val = extractShellValue(state, static_cast<int32_t>(ei), field);
-            for (int32_t nid : elem.node_ids) {
-                int32_t idx = nodeIndex(nid);
-                if (idx >= 0 && idx < numnp) {
-                    node_sum_[idx]   += val;
-                    node_count_[idx] += 1;
-                }
-            }
+            addToNodes(elem.node_ids, elem.node_ids.size(), val);
         }
     }
 

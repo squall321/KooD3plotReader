@@ -98,6 +98,9 @@ private:
     /// Convert a node ID (1-based external) to 0-based node array index
     int32_t nodeIndex(int32_t node_id) const;
 
+    /// 요소 값 val 을 연결 목록 앞 nn 개의 절점에 더한다 — 겹쳐 적힌 절점은 한 번만
+    void addToNodes(const std::vector<int32_t>& node_ids, size_t nn, double val);
+
     // Extraction helpers
     double extractSolidValue(const data::StateData& state,
                               int32_t elem_index,
