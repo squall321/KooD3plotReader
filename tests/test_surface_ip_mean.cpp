@@ -16,6 +16,8 @@
  *   4. 상태 집계(최대 · 최소 · 평균 · 대표 요소)가 면 값에서 그대로 난다
  *   5. 한 자리 덱, 머리말 식과 맞지 않는 덱은 종전 그대로(요소 블록 전체가 적분점 하나)
  *   6. 여덟 자리에 같은 값을 적은 덱은 한 자리 덱과 결과가 비트까지 같다
+ *   7. 침식 — 지운 요소의 면은 변형률 집계에서 빠지고(겉면 응력과 같다, 워드가 0 이라 넣으면 최소 · 평균이 0 쪽으로 끌린다),
+ *      면이 다 지워진 상태는 0 이 아니라 NaN
  *
  * Run: ./test_surface_ip_mean
  */
@@ -522,6 +524,61 @@ void checkStrain(D3plotReader& reader, const Deck& D, std::vector<double>* sink)
 }
 
 /// 덱 하나 — 쓰고, 읽어, 겉면 응력 · 변형률을 생성식에서 낸 기대값과 견준다. 분석기가 낸 집계 값은 sink 에 모은다.
+void checkStrainErosion(D3plotReader& reader, const Deck& D) {
+    SurfaceExtractor ex(reader);
+    expect(ex.initialize(), "겉면 추출기 초기화");
+    const std::vector<Face> faces =
+        SurfaceExtractor::filterByDirection(ex.extractSolidExteriorSurfaces({}).faces, Vec3(0, 0, 1), 45.0);
+    expect(faces.size() >= 2, "+Z 면이 둘 이상");
+    if (faces.size() < 2) return;
+    const int s = kStates - 1;
+    const size_t nv = static_cast<size_t>(reader.get_control_data().NV3D);
+    // LS-DYNA 처럼 지운 요소의 워드는 0 이고 삭제 목록에는 순번(1부터)이 실린다
+    const auto run = [&](const std::vector<int>& gone) {
+        data::StateData st = reader.read_state(static_cast<size_t>(s));
+        for (int e : gone) {
+            st.deleted_solids.push_back(e + 1);
+            std::fill(st.solid_data.begin() + static_cast<std::ptrdiff_t>(e * nv),
+                      st.solid_data.begin() + static_cast<std::ptrdiff_t>((e + 1) * nv), 0.0);
+        }
+        SurfaceStrainAnalyzer sa(reader);
+        sa.addSurface("+Z", Vec3(0, 0, 1), 45.0, {});
+        expect(sa.initialize(), "변형률 분석기 초기화");
+        sa.processState(st);
+        const std::vector<SurfaceStrainStats> res = sa.getResults();
+        return res.empty() || res[0].data.empty() ? SurfaceStrainTimePoint{} : res[0].data[0];
+    };
+
+    // 면 하나의 요소를 지운다 — 남은 면으로 집계한다
+    const int victim = faces.front().element_id;
+    const SurfaceStrainTimePoint tp = run({victim});
+    Agg ep, evm;
+    for (const Face& f : faces) {
+        if (f.element_id == victim) continue;
+        const ElemState w = wantState(D, f.element_id, s);
+        ep.add(w.ep, f.element_real_id);
+        evm.add(project(w.e, f.normal).evm, f.element_real_id);
+    }
+    expectNear(tp.eff_plastic_strain_max, ep.max, "침식 — ε_p 최대(남은 면)");
+    expectNear(tp.eff_plastic_strain_min, ep.min, "침식 — ε_p 최소(지운 면의 0 이 끼지 않는다)");
+    expectNear(tp.eff_plastic_strain_avg, ep.avg(), "침식 — ε_p 평균(지운 면으로 나누지 않는다)");
+    if (D.strain) {
+        expectNear(tp.vm_strain_min, evm.min, "침식 — ε_vm 최소");
+        expectNear(tp.vm_strain_avg, evm.avg(), "침식 — ε_vm 평균");
+    }
+
+    // 면의 요소를 다 지운다 — 값 없음(NaN)
+    std::vector<int> all;
+    for (const Face& f : faces) all.push_back(f.element_id);
+    const SurfaceStrainTimePoint none = run(all);
+    expect(std::isnan(none.eff_plastic_strain_max) && std::isnan(none.eff_plastic_strain_min) &&
+           std::isnan(none.eff_plastic_strain_avg), "면이 다 지워진 상태의 ε_p 는 0 이 아니라 NaN");
+    if (D.strain) {
+        expect(std::isnan(none.vm_strain_max) && std::isnan(none.normal_strain_max) &&
+               std::isnan(none.max_principal_strain_max), "면이 다 지워진 상태의 변형률 텐서 값은 NaN");
+    }
+}
+
 void caseDeck(const fs::path& dir, const Deck& D, const std::string& tag, std::vector<double>* sink) {
     Case c(std::string("덱 — ") + D.name + " (NV3D " + std::to_string(D.nv3d()) + ")");
     const std::string path = deckPath(dir, tag);
@@ -537,6 +594,7 @@ void caseDeck(const fs::path& dir, const Deck& D, const std::string& tag, std::v
     expect(reader.get_num_states() == static_cast<size_t>(kStates), "상태 수");
     checkStress(reader, D, sink);
     checkStrain(reader, D, sink);
+    checkStrainErosion(reader, D);
 }
 
 } // namespace

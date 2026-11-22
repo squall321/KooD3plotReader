@@ -4,6 +4,7 @@
  */
 
 #include "kood3plot/analysis/SurfaceStrainAnalyzer.hpp"
+#include "kood3plot/analysis/SurfaceStressAnalyzer.hpp"
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -164,9 +165,15 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
     int32_t eps_max_elem_id = 0;
     size_t eps_count = 0;
 
+    // 침식된 요소의 면은 뺀다 — 워드가 0 으로 실려 넣으면 최소 · 평균이 '실측 0' 쪽으로 끌린다(겉면 응력과 같은 규칙)
+    const std::vector<bool> dead = SurfaceStressAnalyzer::deletedSolidMask(state, total_solids);
+
     for (const auto& face : faces) {
         const size_t elem_idx = static_cast<size_t>(face.element_id);
         if (elem_idx >= total_solids) {
+            continue;
+        }
+        if (!dead.empty() && dead[elem_idx]) {
             continue;
         }
         const size_t base = elem_idx * static_cast<size_t>(nv3d);
@@ -242,6 +249,19 @@ void SurfaceStrainAnalyzer::processStrainForSurface(size_t surface_idx,
         evm_sum += evm;
 
         tensor_count++;
+    }
+
+    // 읽은 면이 없다(전량 침식 등) — 0 으로 위장하지 않고 NaN(JSON null)으로 둔다. 겉면 응력과 같다.
+    const double nan_v = std::numeric_limits<double>::quiet_NaN();
+    if (eps_count == 0) {
+        point.eff_plastic_strain_max = point.eff_plastic_strain_min = point.eff_plastic_strain_avg = nan_v;
+    }
+    if (has_strain_tensor_ && tensor_count == 0) {
+        point.normal_strain_max = point.normal_strain_min = point.normal_strain_avg = nan_v;
+        point.shear_strain_max = point.shear_strain_avg = nan_v;
+        point.max_principal_strain_max = point.max_principal_strain_min = point.max_principal_strain_avg = nan_v;
+        point.min_principal_strain_max = point.min_principal_strain_min = point.min_principal_strain_avg = nan_v;
+        point.vm_strain_max = point.vm_strain_min = point.vm_strain_avg = nan_v;
     }
 
     if (eps_count > 0) {
