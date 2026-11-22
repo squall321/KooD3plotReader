@@ -301,6 +301,11 @@ class D3plotResult:
     #: 분석은 됐지만 렌더·단면 영상이 실패한 사연(unified_analyzer rc 3 등).
     #: 비어 있지 않으면 보고서 렌더 갤러리에 경고로 드러낸다.
     render_warnings: list[str] = field(default_factory=list)
+    #: 단면 영상을 그린 백엔드 — "lsprepost" · "software", 단면뷰를 끈 실행은 "". 같은 field 라도 백엔드마다 그리는 값이 다르다
+    #: (strain — LS-PrePost 는 유효 소성 변형률, 소프트웨어 렌더는 변위로 낸 총변형률). 갤러리 이름표가 이것을 본다.
+    section_view_backend: str = ""
+    #: 그린 field 목록. field 가 하나면 폴더 이름에 field 가 빠진다(section_view_z) — 갤러리가 그 폴더의 field 를 이것으로 안다.
+    section_view_fields: list[str] = field(default_factory=list)
     output_dir: Path | None = None
 
     @property

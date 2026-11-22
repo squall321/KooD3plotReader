@@ -281,6 +281,8 @@ def _build_js_data(result: SingleResult) -> dict:
             str(p.relative_to(renders_dir)) for p in dr.render_files
         ]
         data["render_warnings"] = list(dr.render_warnings)
+        data["section_view_backend"] = dr.section_view_backend
+        data["section_view_fields"] = list(dr.section_view_fields)
         data["element_quality"] = [
             {
                 "part_id": eq.part_id,
@@ -1833,6 +1835,33 @@ function _axisLabel(relPath) {
   return relPath.replace(/\.\w+$/, '');
 }
 
+// 단면뷰 field 의 이름표 — 같은 field 라도 백엔드마다 그리는 값이 다르다. strain 은 소프트웨어 렌더가 변위로 낸 총변형률,
+// LS-PrePost 는 유효 소성 변형률(job_builder._FRINGE_MAP). 백엔드를 모르는 옛 결과는 「변형률」 로만 적는다.
+function svFieldLabel(fld, backend) {
+  if (fld === 'strain') {
+    return backend === 'lsprepost' ? '유효 소성 변형률 (EPS)' : backend === 'software' ? '변형률 (Total Strain)' : '변형률';
+  }
+  const labels = {
+    'von_mises': '응력 (Von Mises)',
+    'eps': '소성 변형률 (EPS)',
+    'displacement': '변위',
+    'pressure': '정수압',
+    'max_shear': '최대 전단응력',
+  };
+  return labels[fld] || fld;
+}
+
+// 이름에 field 가 없는 단면 폴더(section_view_x · section_view_part_N_x)의 field — field 가 하나인 실행이면 그것, 모르면 von_mises
+function svUnnamedField() {
+  const f = DATA.section_view_fields || [];
+  return f.length === 1 ? f[0] : 'von_mises';
+}
+
+// 단면 영상의 부제 — 그린 백엔드
+function svBackendLabel(backend) {
+  return backend === 'lsprepost' ? 'LS-PrePost' : backend === 'software' ? '소프트웨어 렌더' : '단면 렌더';
+}
+
 function _folderHtml(folderId, title, subtitle, renders, openByDefault) {
   const axisOrder = ['x','y','z'];
   renders.sort((a,b) => {
@@ -2049,22 +2078,15 @@ function renderGallery() {
 
   // Collect section_view overview folders, grouped by field
   // Patterns: section_view_x (legacy), section_view_von_mises_x, section_view_strain_z, etc.
-  const FIELD_LABELS = {
-    'von_mises': '응력 (Von Mises)',
-    'strain': '변형률 (Total Strain)',
-    'eps': '소성 변형률 (EPS)',
-    'displacement': '변위',
-    'pressure': '정수압',
-    'max_shear': '최대 전단응력',
-  };
+  // 이름표는 그 영상을 그린 백엔드를 보고 정한다(svFieldLabel · svBackendLabel)
 
   const svOverviewByField = {};  // field -> [renders]
   const svOverviewFolders = [];
   for (const folder of Object.keys(groups)) {
-    // Legacy: section_view_x (no field name → von_mises)
+    // field 가 하나인 실행은 폴더 이름에 field 가 빠진다(section_view_x) — 그 field 를 쓴다. 모르면 옛 규칙대로 von_mises
     const mLeg = folder.match(/^section_view_([xyz])$/i);
     if (mLeg) {
-      const fld = 'von_mises';
+      const fld = svUnnamedField();
       if (!svOverviewByField[fld]) svOverviewByField[fld] = [];
       svOverviewByField[fld].push(...groups[folder]);
       svOverviewFolders.push(folder);
@@ -2085,9 +2107,9 @@ function renderGallery() {
     (fieldOrder.indexOf(b) === -1 ? 99 : fieldOrder.indexOf(b))
   );
   for (const fld of sortedFields) {
-    const label = FIELD_LABELS[fld] || fld;
+    const label = svFieldLabel(fld, DATA.section_view_backend);
     const isFirst = fld === sortedFields[0];
-    html += _folderHtml(`sv_${fld}`, `단면뷰 — ${label}`, '소프트웨어 렌더', svOverviewByField[fld], isFirst);
+    html += _folderHtml(`sv_${fld}`, `단면뷰 — ${label}`, svBackendLabel(DATA.section_view_backend), svOverviewByField[fld], isFirst);
   }
 
   // Collect section_view_part folders, grouped by field then part
@@ -2096,7 +2118,7 @@ function renderGallery() {
   for (const folder of Object.keys(groups)) {
     const mLeg = folder.match(/^section_view_part_(\d+)_([xyz])$/i);
     if (mLeg) {
-      const key = `von_mises|${mLeg[1]}`;
+      const key = `${svUnnamedField()}|${mLeg[1]}`;
       if (!svPartByFieldPart[key]) svPartByFieldPart[key] = [];
       svPartByFieldPart[key].push(...groups[folder]);
       svOverviewFolders.push(folder);
@@ -2117,7 +2139,7 @@ function renderGallery() {
     (fieldOrder.indexOf(b) === -1 ? 99 : fieldOrder.indexOf(b))
   );
   for (const fld of svPartFields) {
-    const label = FIELD_LABELS[fld] || fld;
+    const label = svFieldLabel(fld, DATA.section_view_backend);
     const partKeys = Object.keys(svPartByFieldPart)
       .filter(k => k.startsWith(fld + '|'))
       .map(k => parseInt(k.split('|')[1]))

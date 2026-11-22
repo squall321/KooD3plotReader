@@ -888,3 +888,22 @@ deep 의 단면뷰 경로는 「렌더 없음」 과 따로 돌기 때문이다.
   `surface/Bottom__-Z__strain.csv` 의 ε_p 평균 열 10줄이 바뀌는 것을 보였다 — 4.18 과 같은 의도한 변경이라 그 덱에도 침식 허용을 줬다.
 - pykoocae-53 에 v53 배포를 요청했다(9b3c081). 굽는 동안 push · `apptainer/` · `scripts/` 수정은 하지 않는다.
 - pykoocae-53 답 — pyKooCAE 는 deep 에 --parts 를 스스로 넘기지 않는다(사용자가 deep_extra_args 에 적을 때만). smarttwin-mcp 레시피는 확인하지 못했다고 했다.
+
+## 7. 사용자 결정 뒤 새 작업 (11-22)
+
+### 7.1 단면 영상 갤러리의 이름표 — 「이름표를 실제 값으로」
+
+**재현** — 단면뷰 field `strain` 은 소프트웨어 렌더에서는 변위로 낸 총변형률이고, LS-PrePost(기본 백엔드)에서는 `_FRINGE_MAP` 이
+`eff_plastic_strain` 으로 보내 유효 소성 변형률이다(영상 범례 「Contours of Effective Plastic Strain」). 그런데 갤러리는
+- `strain` 을 백엔드와 무관하게 「변형률 (Total Strain)」 이라 적었고,
+- 단면 영상의 부제를 늘 「소프트웨어 렌더」 라 적었고,
+- field 가 하나인 실행은 폴더 이름에 field 가 빠지는데(`section_view_z`) 그 폴더를 늘 「응력 (Von Mises)」 로 적었다.
+실제 deep(Test_006, LS-PrePost, `--section-view-fields strain`)의 report.html 로 갤러리 함수를 node 에서 돌리면 고치기 전 제목은
+「단면뷰 — 응력 (Von Mises)」 · 부제 소프트웨어 렌더, 고친 뒤는 「단면뷰 — 유효 소성 변형률 (EPS)」 · 부제 LS-PrePost 다(같은 DATA, `.work/defect_sweep/sl/`).
+
+**바꾼 것** — `D3plotResult.section_view_backend` · `section_view_fields`(run_analysis 가 단면뷰 설정에서 채운다)를 보고서 DATA 에 싣고,
+JS `svFieldLabel(fld, backend)` · `svBackendLabel(backend)` · `svUnnamedField()` 로 이름표를 정한다. 모르는 옛 결과는 「변형률」 · 「단면 렌더」 · von_mises.
+CLI 도움말도 백엔드별로 적었다. Tab 11(내보내기)의 선택지는 소프트웨어 렌더 YAML 을 만드는 곳이라 「Total Strain」 이 맞아 그대로 둔다.
+
+**시험** — `tests/test_section_field_labels.py`(새 — node 로 이름표 함수, 갤러리 호출부, DATA 에 백엔드 · field 목록). 고치기 전 4건 실패, 고친 뒤 5건 통과.
+deep 시험 전체 통과(`run/sl_deep_pytest.out`).

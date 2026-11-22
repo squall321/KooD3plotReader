@@ -209,6 +209,9 @@ def run_analysis(
             result.render_files = render_files
 
     result.render_warnings = render_warnings
+    sv_on = section_view_config is not None and section_view_config.enabled
+    result.section_view_backend = section_view_config.backend if sv_on else ""
+    result.section_view_fields = list(section_view_config.effective_fields) if sv_on else []
     for w in render_warnings:
         print(f"[koo_deep_report] 렌더 경고: {w}", file=sys.stderr)
     return result

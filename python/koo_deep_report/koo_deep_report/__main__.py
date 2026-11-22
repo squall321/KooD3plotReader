@@ -159,7 +159,8 @@ def _add_single_args(p: argparse.ArgumentParser, add_path: bool = True) -> None:
     p.add_argument("--section-view-fields", nargs="+", default=None,
                    choices=["von_mises", "eps", "strain", "displacement", "pressure", "max_shear"],
                    metavar="FIELD",
-                   help="단면뷰 스칼라 필드 (기본: von_mises strain). strain=변위기반 총변형률, eps=소성변형률")
+                   help="단면뷰 스칼라 필드 (기본: von_mises strain). strain=소프트웨어 렌더는 변위기반 총변형률, "
+                        "LS-PrePost 백엔드(기본)는 유효 소성변형률. eps=소성변형률")
     p.add_argument("--section-view-target-ids", nargs="+", type=int, default=None, metavar="ID",
                    help="단면뷰 타겟 파트 ID 목록 (미지정=전체). 주면 개관에서 강조하고 그 파트들의 파트별 단면도 만든다 "
                         "— 분석 대상은 좁히지 않는다(--parts 와 다르다)")
