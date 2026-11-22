@@ -46,7 +46,7 @@
 
 ## 5. 그 밖
 - [x] R `PartAnalyzer::get_nv3d()` — 이력 변수 있는 실덱(bat1x26)으로 전후 대조 · 시험(고치기 전 10건 실패) → 커밋
-- [ ] P 「lasso 2.2.6」 표기 정정(내 문서 · 메모리. a9 원장은 알리기만)
+- [x] P 「lasso 2.2.6」 표기 정정 — 내 문서 2곳 · 메모리 1곳을 lasso-python 2.0.3 으로(a9 원장 `release-verdicts.md:116` 은 알리기만)
 
 ## 6. 마감
 - [ ] 전체 시험 — C++(렌더 켠 빌드 · 끈 빌드) · 파이썬 여섯 패키지 · `test_post_analyze.sh`
