@@ -8,6 +8,7 @@
 #pragma once
 
 #include "LSPrePostRenderer.h"
+#include "kood3plot/data/Mesh.hpp"
 #include <array>
 #include <vector>
 #include <string>
@@ -107,6 +108,15 @@ public:
         int part_id,
         size_t state_index = 0
     );
+
+    /**
+     * @brief 단면 위치 상자에 넣을 타겟 — 솔리드 · 셸 · 두꺼운 셸 요소가 있고 숨기지 않은 것만(타겟 순서, 중복 없이)
+     *
+     * calculatePartBounds 는 그런 요소가 없는 파트(빔 · 질량 · 모델에 없는 번호)에 모델 전체 상자를 돌려준다.
+     * 그런 타겟이나 숨긴 타겟을 합치면 상자가 모델 전체로 커져 단면이 타겟을 비켜 간다. 빈 목록이면 부르는 쪽이 모델 상자를 쓴다.
+     */
+    static std::vector<int32_t> boxTargets(const data::Mesh& mesh, const std::vector<int32_t>& targets,
+                                           const std::vector<int32_t>& hidden);
 
     // ============================================================
     // Section Plane Generation

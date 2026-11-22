@@ -180,6 +180,14 @@ if(TARGET kood3plot_render)
     add_test(NAME LsppFringeRange COMMAND test_lspp_fringe_range)
 endif()
 
+# LS-PrePost 단면 렌더 잡의 단면 위치 상자에 넣을 타겟(면이 있고 숨기지 않은 것만) — 덱 없이 메모리의 메시
+if(TARGET kood3plot_render)
+    add_executable(test_section_box_targets test_section_box_targets.cpp)
+    target_link_libraries(test_section_box_targets PRIVATE kood3plot_render)
+    target_include_directories(test_section_box_targets PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SectionBoxTargets COMMAND test_section_box_targets)
+endif()
+
 # 요소 품질 시계열 다운샘플이 극값을 보존하는지 보는 tests
 add_executable(test_element_quality_downsample test_element_quality_downsample.cpp)
 target_link_libraries(test_element_quality_downsample PRIVATE kood3plot)

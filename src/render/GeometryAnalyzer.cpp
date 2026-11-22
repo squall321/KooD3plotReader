@@ -57,6 +57,18 @@ BoundingBox GeometryAnalyzer::calculateModelBounds(
     return bbox;
 }
 
+std::vector<int32_t> GeometryAnalyzer::boxTargets(const data::Mesh& mesh, const std::vector<int32_t>& targets,
+                                                  const std::vector<int32_t>& hidden)
+{
+    auto has = [](const std::vector<int32_t>& v, int32_t pid) { return std::find(v.begin(), v.end(), pid) != v.end(); };
+    std::vector<int32_t> out;
+    for (int32_t pid : targets) {
+        if (has(out, pid) || has(hidden, pid)) continue;
+        if (has(mesh.solid_parts, pid) || has(mesh.shell_parts, pid) || has(mesh.thick_shell_parts, pid)) out.push_back(pid);
+    }
+    return out;
+}
+
 BoundingBox GeometryAnalyzer::calculatePartBounds(
     D3plotReader& reader,
     int part_id,

@@ -408,21 +408,31 @@ bool UnifiedAnalyzer::processRenderJobs(
         // Calculate bounding boxes
         std::vector<char> hide_kinds;
         render::BoundingBox model_bbox = visibleModelBounds(reader, job.hide_part_ids, &hide_kinds);
-        render::BoundingBox bbox;
+        render::BoundingBox bbox = model_bbox;
 
-        if (target_parts.empty()) {
-            bbox = model_bbox;
-        } else {
-            bbox = render::GeometryAnalyzer::calculatePartBounds(reader, target_parts[0], 0);
-            for (size_t i = 1; i < target_parts.size(); ++i) {
-                auto part_bbox = render::GeometryAnalyzer::calculatePartBounds(reader, target_parts[i], 0);
+        // 단면 위치 상자 — 면이 있고 숨기지 않은 타겟만 합친다. 빔 · 질량 · 없는 번호 · 숨긴 타겟이 섞이면
+        // 상자가 모델 전체로 커져 단면이 타겟을 비켜 갔다. 넣을 타겟이 없으면 보이는 모델 상자.
+        if (!target_parts.empty()) {
+            const std::vector<int32_t> box_targets =
+                render::GeometryAnalyzer::boxTargets(reader.read_mesh(), target_parts, job.hide_part_ids);
+            if (box_targets.size() < target_parts.size() && callback) {
+                std::string left_out;
+                for (int32_t pid : target_parts) {
+                    if (std::find(box_targets.begin(), box_targets.end(), pid) == box_targets.end())
+                        left_out += (left_out.empty() ? "" : ", ") + std::to_string(pid);
+                }
+                callback("    Section box: 타겟 파트 " + left_out + " 은 면이 없거나 숨김 대상이라 단면 위치 상자에서 뺍니다" +
+                         (box_targets.empty() ? " — 보이는 모델 상자를 씁니다" : ""));
+            }
+            for (size_t i = 0; i < box_targets.size(); ++i) {
+                const auto part_bbox = render::GeometryAnalyzer::calculatePartBounds(reader, box_targets[i], 0);
                 for (int a = 0; a < 3; ++a) {
-                    bbox.min[a] = std::min(bbox.min[a], part_bbox.min[a]);
-                    bbox.max[a] = std::max(bbox.max[a], part_bbox.max[a]);
+                    bbox.min[a] = i ? std::min(bbox.min[a], part_bbox.min[a]) : part_bbox.min[a];
+                    bbox.max[a] = i ? std::max(bbox.max[a], part_bbox.max[a]) : part_bbox.max[a];
                 }
             }
-            for (int a = 0; a < 3; ++a) {
-                bbox.center[a] = (bbox.min[a] + bbox.max[a]) / 2.0;
+            if (!box_targets.empty()) {
+                for (int a = 0; a < 3; ++a) bbox.center[a] = (bbox.min[a] + bbox.max[a]) / 2.0;
             }
         }
 
