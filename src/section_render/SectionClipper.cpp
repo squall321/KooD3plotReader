@@ -268,7 +268,6 @@ void SectionClipper::clip(const data::StateData& state,
 
     // ---- Shell elements ----
     for (size_t ei = 0; ei < mesh_.shells.size(); ++ei) {
-        const auto& elem = mesh_.shells[ei];
         if (!del_shells.empty() && del_shells.count(static_cast<int32_t>(ei) + 1)) continue;
         int32_t pid = (ei < mesh_.shell_parts.size()) ? mesh_.shell_parts[ei] : 0;
 
