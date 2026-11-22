@@ -844,3 +844,23 @@ deep 시험 262 · impact 시험 150 통과.
    - 회귀(`reg_set.sh se`, `030a7ba` 대 지금, `run/se_reg.out`) — 침식 없는 덱은 그대로. erode7 은 파일 2개만 달라진다 —
      `surface/Top__+Z__strain.csv` · `Bottom__-Z__strain.csv` 의 ε_p **평균** 열이 면이 지워진 상태들에서(예: 1.593391e-02 → 1.593494e-02). 겉면 응력 · 그 밖은 바이트까지 같다.
    - C++ 전체 렌더 켠 빌드 통과 33 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/se_ctests.out`).
+
+## 5. 마감 (11-22)
+
+**전체 시험** — C++ 렌더 켠 빌드 통과 33 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/se_ctests.out`). 파이썬 여섯 패키지 830 통과
+(deep 262 · sphere 187 · impact 150 · federate 211 · custom 13 · scatter 7, `run/final_pytest.out`). `tests/scripts/test_post_analyze.sh` 통과(검사 71, 실패 0, `run/final_post_analyze.out`).
+post_analyze 는 분석기 빌드 커밋 · 실행 파일이 바뀌면 다시 분석하므로 `UA_OUTPUT_SCHEMA` 를 올릴 필요는 없다(새 판이 옛 산출물을 다시 쓰지 않는다).
+
+**작업 전체 회귀** — 작업 전 커밋 `d2f0d6b` 를 렌더 켠 제품 플래그로 빌드해 여덟 덱 분석기 산출을 견줬다(`reg_set.sh final`, `run/final_reg.out`).
+
+| 덱 | 결과 | 까닭 |
+| --- | --- | --- |
+| vib13 · bat1x26 · bat8x26 · drop13 | 같음(도장만) | — |
+| eb8x7(ElasticBeam) | 다름 | 적분점 여덟 자리(4.1 · 4.3) — 의도한 변경 |
+| erode7 | 다름 | 겉면 변형률 ε_p 평균(4.18) — 의도. 주응력 CSV 의 10번째 유효숫자 · 동률 요소 번호(4.1 의 제품 플래그 FMA 현상) |
+| tape8x13 · tape8x13s | 요소 번호만 | 주응력 동률 요소 번호 한 곳씩(4.1 의 FMA 현상 — `-ffp-contract=off` 빌드끼리는 바이트까지 같았다) |
+
+**알림** — a9(sphere 로 가는 값 · parts · `release-verdicts.md:116` 의 lasso 표기 · FMA), kooremapper-4a(S1 값 정의 · 계약 문구 · 세트 · 단면 렌더 · LS-PrePost 렌더 · rc 3 · None),
+pykoocae-53(parts 를 넘기는 파이프라인이 있는지 질문 — 답 대기). 모두 「로컬 커밋, push · 배포는 사용자 승인 뒤」 라고 적었다.
+
+**메모리** — 새 작업 기록 `defect_sweep_2026_11.md`, 옛 줄 정정(`render_pipeline_sif_diagnosis.md` 의 ② ③ · SW 단면 렌더 — 코드로 확인), lasso 표기(98a8d43 과 같이).
