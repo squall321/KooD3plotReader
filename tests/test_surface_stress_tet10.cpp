@@ -38,9 +38,7 @@ void chk(const char* what, bool ok, const std::string& detail) {
 
 /// 육면체 2개(요소 0 = 살아 있음, 요소 1 = 침식)짜리 d3plot 을 만든다.
 /// nel8_sign 이 -1 이면 NEL8 을 음수로 적어 TET10 표식을 흉내낸다.
-///
-/// D3plotWriter 는 삭제(MDLOPT) 구역을 쓰지 않으므로, 상태가 하나뿐인 점을
-/// 이용해 EOF 표식 앞에 삭제 워드를 직접 끼워 넣는다.
+/// 삭제 표는 D3plotWriter 가 쓴다(MAXINT < -10000 이면 상태의 deleted_solids 로).
 bool writeDeck(const std::string& path, int nel8_sign) {
     data::ControlData control;
     control.NDIM = 4;
@@ -99,35 +97,13 @@ bool writeDeck(const std::string& path, int nel8_sign) {
     }
     st.solid_data.assign(static_cast<size_t>(2) * control.NV3D, 0.0);
     st.solid_data[0] = 100.0;   // sxx → σ_vm = 100
+    st.deleted_solids = {2};    // 요소 2(순번)가 삭제
 
     writer::D3plotWriter w(path);
     w.setControlData(control);
     w.setMesh(mesh);
     w.setStates({st});
     if (w.write() != ErrorCode::SUCCESS) return false;
-
-    // EOF 표식(-999999.0f) 을 떼고 삭제 워드(0 = 삭제) 2개를 넣은 뒤 다시 붙인다.
-    namespace fs = std::filesystem;
-    const auto size = fs::file_size(path);
-    if (size < 4) return false;
-    std::vector<char> bytes(static_cast<size_t>(size));
-    {
-        FILE* f = std::fopen(path.c_str(), "rb");
-        if (!f) return false;
-        const size_t got = std::fread(bytes.data(), 1, bytes.size(), f);
-        std::fclose(f);
-        if (got != bytes.size()) return false;
-    }
-    const float del[2] = {1.0f, 0.0f};   // 요소 1 은 살아 있고 요소 2 는 삭제
-    const float eof_marker = -999999.0f;
-    {
-        FILE* f = std::fopen(path.c_str(), "wb");
-        if (!f) return false;
-        std::fwrite(bytes.data(), 1, bytes.size() - 4, f);   // EOF 표식 제거
-        std::fwrite(del, sizeof(float), 2, f);
-        std::fwrite(&eof_marker, sizeof(float), 1, f);
-        std::fclose(f);
-    }
     return true;
 }
 

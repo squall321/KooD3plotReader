@@ -193,7 +193,9 @@ ErrorCode D3plotWriter::Impl::writeAll() {
     for (size_t i = 0; i < states.size(); ++i) {
         // Check if we need to split to a new file
         // Estimate state size
-        size_t state_size = (1 + control.NGLBV + control.NND + control.ENN) * writer.get_word_size();
+        const size_t del_words = control.MAXINT < -10000
+            ? static_cast<size_t>(std::abs(control.NEL8) + control.NELT + control.NEL4 + control.NEL2) : 0;
+        size_t state_size = (1 + control.NGLBV + control.NND + control.ENN + del_words) * writer.get_word_size();
         if (shouldSplitFile(state_size)) {
             writer.close();
             startNewFile();
@@ -749,6 +751,27 @@ void D3plotWriter::Impl::writeState(const data::StateData& state) {
         } else {
             writer.write_float(0.0);
         }
+    }
+
+    // ========================================
+    // 요소 삭제 표 — MDLOPT 2(머리말 MAXINT < -10000). 길이 NEL8 + NELT + NEL4 + NEL2, 이 순서.
+    // 0 = 지워진 요소(상태의 deleted_* — 그 종류 배열 안 1부터 순번), 아니면 재질 번호. MDLOPT 1(절점 표)은 쓰지 않는다.
+    // ========================================
+    if (control.MAXINT < -10000) {
+        const auto table = [&](const std::vector<Element>& els, int count, const std::vector<int32_t>& deleted) {
+            std::vector<char> dead(static_cast<size_t>(count), 0);
+            for (int32_t ord : deleted) {
+                if (ord >= 1 && ord <= count) dead[static_cast<size_t>(ord - 1)] = 1;
+            }
+            for (int i = 0; i < count; ++i) {
+                const int mat = i < static_cast<int>(els.size()) ? els[i].material_id : 0;
+                writer.write_float(dead[static_cast<size_t>(i)] ? 0.0 : (mat > 0 ? mat : 1));
+            }
+        };
+        table(mesh.solids, nel8, state.deleted_solids);
+        table(mesh.thick_shells, control.NELT, state.deleted_thick_shells);
+        table(mesh.shells, control.NEL4, state.deleted_shells);
+        table(mesh.beams, control.NEL2, state.deleted_beams);
     }
 }
 
