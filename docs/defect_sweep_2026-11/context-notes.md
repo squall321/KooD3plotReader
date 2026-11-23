@@ -933,3 +933,17 @@ deep 시험 전체 통과(`run/sl_deep_pytest.out`).
 **실렌더**(Test_006, 타깃 6 · 바닥 23 숨김, 보폭 400, `w/cfg_tr_{old,new}.yaml`) — 범례가 렌더 잡 · 파트별 단면 모두 0.5106 ~ 199.1 → **0 ~ 50.21**,
 파트 6 단면이 한 색에서 응력 분포가 보이는 그림으로. 범위 50.2103 은 분석기 파트 6 이력의 전 상태 최대 50.21032871(992 상태, 최소 0)과 같다 — 따로 짠 코드다.
 C++ 전체 렌더 켠 빌드 통과 34 · 실패 0, 렌더 끈 빌드 통과 8 · 실패 0(`run/tr_ctests.out`).
+
+## 8. v53 배포 · 확인 (11-23) · v54 로
+
+- **배포** — pykoocae-53 이 그쪽 사용자 승인을 받아 Pre v141 굽기 뒤 9b3c081 로 구웠다(MemoryMax 28G · CPU 8 · 감시 래퍼, RELEASE_RC 0).
+  헤드리스 SIF sha256 `8a08d0c2b7d323429ccc3a9f007d9b8aca29baae793fe9b60563660ef66e203e` · GUI `1cf90256a39d9bcc030b506c0cd60765fc7b321e35db7fd2e0ee335a8d8aeee1`,
+  VERSION 9b3c081(Built 2026-11-22T23:22:12Z). 빌드 폴더 · compute-node-images · /data 세 곳 같고, 헤드 /opt 도 교체했다(v52 는 `*_backup_20261123_000820.sif`).
+  tar `/data/SmartTwinPostprocessor/SmartTwinPostprocessor_20261122_v53.tar.gz`(575,443,949 B). 노드는 꺼져 있어 v47 그대로. Drive · 메일은 포털 요청대로 cae00 수신 알림 뒤.
+- **확인** — pykoocae-53 이 `v53_pk` 태그로 꾸러미를 돌려 「어긋난 것 0」(`/data/koopark/Post_v53_release/`), 내 `v53` 태그도
+  `check_v53.sh <헤드 SIF> v53` → `cmp_v53.py v52 v53 local` 「어긋난 것 0」, 남은 Xvfb 0, 원본 덱 폴더 그대로.
+- 사용자는 새 커밋(fc9cdb3 · 78573e6 · 32cc164)을 「v53 에 합침」 으로 골랐지만 그 답이 닿기 전에 v53 이 9b3c081 로 배포돼, 다시 물어 「push + v54 배포 요청」 을 받았다.
+  push 에는 그 아래의 a9 문서 커밋 6f17612 가 함께 나간다(a9 동의, 사용자에게 물을 때 적었다).
+- **포털 항목 7(F6)** — 사용자 결정 「pyKooCAE 와 형식부터 맞춘다」. pykoocae-53 에 안을 보냈다 — package_module.sh 가 tar 옆에 `SHA256SUMS` 와
+  `release.json`({product, release, commit, built, files[{name, bytes, sha256}]})을 쓰고, SIF 줄 · Drive 이름 · sha256 메일은 굽기 스크립트가 같은 release.json 에 덧붙인다.
+  그쪽 사용자 결정이 나면 맞춰 고친다.

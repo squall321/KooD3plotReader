@@ -60,7 +60,9 @@
 ## 7. push · 배포
 - [x] push(`873a153` + 이 작업의 커밋, af0b301..9b3c081) — 사용자 승인으로
 - [x] 판정 꾸러미 `/data/koopark/Post_v53/`(로컬 예행 어긋남 0) · pykoocae-53 에 v53 배포 요청
-- [ ] v53 배포 확인 — `check_v53.sh <새 SIF> v53` → `cmp_v53.py v52 v53 local`
+- [x] v53 배포 확인 — `check_v53.sh <새 SIF> v53` → `cmp_v53.py v52 v53 local` 어긋남 0(헤드리스 8a08d0c2…, VERSION 9b3c081)
+- [ ] v54(fc9cdb3 · 78573e6 · 문서) — 꾸러미 `/data/koopark/Post_v54/` 로컬 예행 → push → pykoocae-53 굽기 요청 → 배포 확인
+- [ ] 포털 항목 7 — pykoocae-53 과 release.json · SHA256SUMS 형식을 맞춘 뒤 package_module.sh
 
 ## 8. 사용자 결정 뒤 새 작업(v54 감)
 - [x] deep `strain` 이름표를 실제 값으로(LS-PrePost 백엔드 = 유효 소성 변형률) — 부제 · field 하나인 폴더도 함께, 시험 · 실보고서로 확인
