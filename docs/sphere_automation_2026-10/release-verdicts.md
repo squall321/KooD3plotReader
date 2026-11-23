@@ -147,3 +147,41 @@ v52 부터 그 빔 파트의 σ_vm · σ1 · σ3 · ε_p 가 sphere 에 실린�
 
 **정정 받음.** 위 「빔 값의 근거 한계」 에 적었던 `lasso 2.2.6` 은 틀렸다 —
 설치된 판은 **`lasso-python 2.0.3`** 이다(SIF 안에서 확인). bf 지적.
+
+
+### v54 — `9b3c081..da81ad3` · **회귀 불요** (판정은 **배포 뒤**, 2026-11-23)
+
+**이 판은 배포 요청이 제 쪽을 거치지 않았다.** 배포·확인이 끝난 뒤 알림으로 알았고,
+그래서 아래 판정은 소급이다. 통로가 깨끗해서 결과적으로 문제는 없었지만,
+원장에 사실대로 적는다 — 관례는 **굽기 전** 판정이다.
+
+| 통로 | 결과 |
+|---|---|
+| 1 `koo_sphere_report` | 0건 |
+| 2 의존 다섯 | 0건 |
+| 3 `ontology/` 전체 | 0건 |
+| 4 분석기 산출(파트 CSV · `analysis_result.json`) | **0건** — 바뀐 C++ 일곱은 전부 렌더·단면렌더다 |
+
+바뀐 C++: `UnifiedAnalyzerRender.cpp` · `LSPrePostRenderer.cpp` ·
+`TargetFringeRange.{h,cpp}` · `NodalAverager.{hpp,cpp}` ·
+`ShellLayerLayout.hpp`(신규). 마지막 것은 셸 층 배치라 파트 CSV 에 닿을 수 있어
+포함 관계를 확인했다 — **`render/` · `section_render/` 에서만 쓰이고**
+`SinglePassAnalyzer` · `unified_analyzer.cpp` · `UnifiedAnalyzer.cpp` 어디에도
+들어가지 않는다. 더해 내 캠페인 셋은 `nel4=0`(셸 없음)이다.
+
+### 대기 중인 로컬 커밋 `6d4e947` (deep `_aggregate` 0.0 → None) · **통로 없음**
+
+파트에 없는 시계열을 0.0 대신 None 으로 두고 `result.json` 의 `peak_strain` ·
+`peak_acc_mag` 를 null 로 내는 변경. **sphere 에 통로가 없다.**
+
+- `_aggregate` 는 `koo_deep_report/__main__.py` 에 있다 — **sphere 가 import 하는
+  다섯에 없다**(`core/{binout_reader,contact_map,contact_metrics,energy_flow_builder}` ·
+  `ontology/emit`).
+- **sphere 는 deep 의 `result.json` 을 읽지 않는다.** 읽는 것은
+  `analysis_results/<run>/analysis_result.json`(`loader.py:694`)과 파트별 CSV 다.
+- sphere 에도 `peak_strain` 이 있지만 **출처가 다르다** —
+  `part_<pid>_eff_plastic_strain.csv`(`json_report.py:166` 주석에 명시).
+  이름이 같아서 섞기 쉬운 자리다.
+- sphere 쪽은 이미 None 을 제대로 다룬다(`analyzer.py:134` ·
+  `terminal.py:80` 의 `is not None` 검사, `json_report.py:172` 의 "실제로 실린
+  값에만 별칭을 건다").
