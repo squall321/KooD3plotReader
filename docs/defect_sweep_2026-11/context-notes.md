@@ -998,3 +998,25 @@ ontology 가 통째로 달라 보인다) 고치기 전과 맞대면, result.json
 **소비처에 바뀌는 것** — result.json 의 `parts.<id>.peak_strain` · `peak_acc_mag` 가 그 시계열이 없으면 null 이다(`peak_stress` 는 이미 그렇다). 0 은 측정된 0 만 뜻한다.
 
 **알림** — kooremapper-4a(DynaForge 쪽 — result.json 의 peak_strain · peak_acc_mag 가 null 일 수 있다), a9(공유 작업 트리). 둘 다 「로컬 커밋, push · 배포는 사용자 승인 뒤」.
+답 — kooremapper-4a: DynaForge 리포트 파서(`platform/backend/app/reports/parser.py` `_num`)는 숫자일 때만 받고 null 은 None 으로 둔다, 막히는 곳 없음.
+a9: sphere 는 deep result.json 을 읽지 않는다(sphere 의 peak_strain 은 파트 ε_p CSV 출처, 이미 `is not None`) — 통로 없음. v55 부터는 굽기 요청 전에 a9 에 한 줄(판정은 굽기 전에).
+
+## 11. 「보고만」 다시 보기 — 파트별 단면의 면 없는 파트 · 미끄럼 영상 수 (11-23)
+
+**왜 지금** — 4.13 B 에서 「빔만 있는 파트를 파트별 단면 대상으로 주면 모델 중앙을 자른다 — deep 은 이름 키워드로 고르니 드물다」 고 보고만 했다.
+다시 재 보니 드물지 않다. `processPartSectionRenders` 는 대상이 비면 분석 파트 목록(`metadata.analyzed_parts`)을 쓰는데 거기에는 빔 파트가 들어 있고
+(ElasticBeam [1, 2, 3, 4] — 4 가 빔, DynaAnalysis [1, 2, 3, 4]), deep `--section-view-per-part`(모든 파트)가 바로 그 길이다.
+
+**재현** — `.work/defect_sweep/psr/run.sh`(ElasticBeam 심링크 덱, 배포판 v54 SIF 대 작업 트리 빌드, 1280x720 실렌더).
+고치기 전: `part_4_Part4/section_z.mp4` 가 생기는데 모델이 하나도 없는 빈 화면이다(`png/before_part4_*.png`, 파트 1 은 정상 — `before_part1_first.png`).
+파트 4 의 상자는 `calculatePartBounds` 의 모델 전체 대체라 모델 중앙을 자르고, 파트 4 만 남기면 잘린 면이 없다. 「Done: 4/4」 — 성공으로 센다.
+
+**같은 자리의 셈 — 미끄럼 영상** — 호출부의 기대 수가 단면 · 등각만 세고 미끄럼 영상을 빼, `renderAllPartSections` 의 성공 수(미끄럼 포함)와 단위가 달랐다.
+고치기 전 미끄럼 잡이 「Done: 2/1」. 미끄럼 영상의 성공이 단면 영상의 실패를 가려 rc 3(렌더 실패)이 안 나고, 미끄럼 영상의 실패는 아예 드러나지 않는다.
+
+**바꾼 것** — 호출부에서 숨김 파트를 뺀 다음 면이 있는 요소가 없는 파트(빔 · 질량 · 없는 번호 — B 의 `boxTargets` 기준)를 한 줄 알리고 뺀다
+(`[psr_all] 면이 있는 요소가 없는 파트(빔 · 질량 · 없는 번호)는 자를 것이 없어 건너뜁니다: [4]`). 빼는 것은 실패가 아니다(기대 수에서도 빠진다).
+기대 수에 미끄럼 영상(켜진 양식 수)을 넣는다 — `renderAllPartSections` 의 total 과 같은 식.
+
+**확인** — 고친 뒤 「3 parts」 · 「Done: 3/3」 · 미끄럼 잡 「Done: 2/2」, 파트 1~3 · 미끄럼 영상 첫 · 끝 프레임이 고치기 전과 화소까지 같다. 남은 Xvfb 0.
+C++ 시험 렌더 켠 빌드 34 · 끈 빌드 8 통과. 이 함수는 실행 파일에만 들어가(라이브러리 밖) 단위 시험 대신 실렌더 전 · 뒤로 확인했다.

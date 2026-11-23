@@ -944,6 +944,21 @@ bool UnifiedAnalyzer::processPartSectionRenders(
         part_ids.erase(std::remove_if(part_ids.begin(), part_ids.end(), [&](int pid) {
             return std::find(job.hide_part_ids.begin(), job.hide_part_ids.end(), pid) != job.hide_part_ids.end();
         }), part_ids.end());
+        // 면이 있는 요소(솔리드 · 셸 · 두꺼운 셸)가 없는 파트(빔 · 질량 · 모델에 없는 번호)는 자를 것이 없다 — 그 파트의 상자가
+        // 모델 전체라 모델 중앙을 자른 영상이 그 파트 이름으로 나왔다. 분석 파트 목록에는 빔 파트가 들어 있다.
+        {
+            const auto cut = render::GeometryAnalyzer::boxTargets(
+                mesh, std::vector<int32_t>(part_ids.begin(), part_ids.end()), {});
+            std::string skipped;
+            for (int pid : part_ids) {
+                if (std::find(cut.begin(), cut.end(), pid) == cut.end())
+                    skipped += (skipped.empty() ? "" : ", ") + std::to_string(pid);
+            }
+            if (!skipped.empty() && callback) {
+                callback("  [" + job.name + "] 면이 있는 요소가 없는 파트(빔 · 질량 · 없는 번호)는 자를 것이 없어 건너뜁니다: [" + skipped + "]");
+            }
+            part_ids.assign(cut.begin(), cut.end());
+        }
         if (part_ids.empty()) {
             if (callback) callback("  [" + job.name + "] No parts to render — skipped");
             continue;
@@ -1008,9 +1023,12 @@ bool UnifiedAnalyzer::processPartSectionRenders(
             ropts,
             psopts
         );
+        // renderAllPartSections 가 세는 것과 같게 — 미끄럼 영상을 빼면 그 성공이 단면 영상의 실패를 가리고, 미끄럼 영상의 실패는 드러나지 않는다
+        const int sliding_views = job.sliding_view
+            ? (job.sliding_section_style ? 1 : 0) + (job.sliding_iso_style ? 1 : 0) : 0;
         int total_views = static_cast<int>(part_ids.size()) *
                           static_cast<int>(job.axes.size()) *
-                          ((job.section_view ? 1 : 0) + (job.iso_clip_view ? 1 : 0));
+                          ((job.section_view ? 1 : 0) + (job.iso_clip_view ? 1 : 0) + sliding_views);
 
         if (callback) {
             callback("  [" + job.name + "] Done: " +

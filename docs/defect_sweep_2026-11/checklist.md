@@ -74,3 +74,8 @@
 - [x] 고침 — `_aggregate` · `PartSummary` · `MotionData` 속도 · 가속도 · 보고서 JS 순위 거르기 · 요약 문구
 - [x] deep 시험 전체 · 실덱(DynaAnalysis 파트 2 — 운동만) 보고서 전 · 뒤
 - [x] 결정 기록 · 소비자 알림(result.json 의 peak_strain · peak_acc_mag 가 null 이 될 수 있다) — kooremapper-4a · a9
+
+## 10. 「보고만」 다시 보기 — 파트별 단면의 면 없는 파트 · 미끄럼 영상 수(11-23)
+- [x] 재현 — ElasticBeam 분석 파트 목록의 빔 파트 4 가 빈 화면 영상, 미끄럼 잡 「Done: 2/1」(배포판 v54 실렌더)
+- [x] 고침 — 호출부에서 면 없는 파트를 알리고 뺀다, 기대 수에 미끄럼 영상
+- [x] 실렌더 전 · 뒤(파트 1~3 · 미끄럼 영상 화소까지 같음) · C++ 시험 34 · 8
