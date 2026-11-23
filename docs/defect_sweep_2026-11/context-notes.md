@@ -1052,3 +1052,22 @@ EOF 앞에 삭제 워드를 직접 끼워 넣던 우회를 걷었다). 고치기
 C++ 시험 렌더 켠 빌드 34 · 끈 빌드 9 통과.
 
 **소비처** — custom · sphere · impact 는 세트의 `metrics.json`(피크)만 읽는다 — 실덱에서 그대로. 상태별 CSV 는 읽는 패키지가 없다(직접 보는 사람만 바뀐 행을 본다).
+
+## 13. v55 준비 (11-23)
+
+- **사용자 결정** — 「push + v55 굽기 요청」. 순서는 v55 판정 꾸러미 로컬 예행 → a9 굽기 전 판정 → push → pykoocae-53 굽기 요청 → 배포 뒤 확인.
+- **v55 판정 꾸러미 `/data/koopark/Post_v55/`** — `check_v55.sh <SIF|local> <태그>` · `cmp_v55.py <옛> <새> [local]`. v54 항목(분석 8덱 · deep · 단면뷰 · LS-PrePost · 갤러리)은
+  그대로 다시 보고(v55 는 그림까지 같아야 한다), 새 절 셋 — 6. deep DynaAnalysis(파트 2 peak_strain 0.0 → null · DATA · 상세 카드),
+  7. 파트별 단면 ElasticBeam(분석 파트 목록 — 파트 4 건너뜀 · 「Done: 3/3」 · 미끄럼 「Done: 2/2」, 파트 1~3 그림 같음),
+  8. erode7 덱 세트 55개(세그먼트 CSV 680 상태 빠짐 · 18 상태 0 → 음수, 피크 그대로, 세트 44 · 47 끝 값 −3.42 · −4.50). 로컬 실행은 SIF 처럼 파이썬 여섯 패키지를 PYTHONPATH 에 싣는다.
+- **a9 판정 요청** — 세 커밋의 파일과 sphere 통로 후보(set_reports metrics.json 피크)를 적어 보냈다.
+- **포털(hwaxportal-87)** — 4차 라운드 동결 해제, Post v54 Drive 올리기는 pyKooCAE 에 알렸다. cae00 운영판은 아직 Post v50(2780f20), v53 은 받아 준비만.
+- **로컬 예행** — `check_v55.sh <헤드 SIF(v54)> v54` · `check_v55.sh local local` → `cmp_v55.py v54 local` 「어긋난 것 0」(`cmp_v54_local.log`).
+  처음 돌렸을 때 하나 어긋났다 — analysis_result.json 세트 필드의 점 수(`num_points`, 52곳)가 값 없는 상태를 빼서 줄었다. 의도한 변화라 판정 규칙에 넣었다(그 밖 JSON 차이 0).
+- **a9 판정** — v55 sphere 회귀 불요. a9 캠페인에 세트 리포트가 있지만(Test_006 12개) 전부 `set_type = part` 라 바뀐 두 분기(`metric_source` segments · nodes)를 타지 않는다.
+  sphere 는 세트의 metrics.json 만 읽는다. a9 캠페인 덱은 `MAXINT = -10003`(삭제 표 있음)이다.
+- **push(11-23)** — 승인 범위(제 7 + a9 0bf9ae9)대로 `git push origin a42043b:main`(da81ad3..a42043b). 그사이 a9 가 얹은 06f9510 은 범위 밖이라 로컬에 두었다(a9 제안).
+  pykoocae-53 에 a42043b 로 v55 굽기를 요청했다.
+- **새로 찾은 것 — 세트 파일의 고정폭 카드** — 꾸러미 8절에서 erode7 `DropSet.k` 의 *SET_NODE_LIST 1~5 가 「세트 파일에 없음」 이었다. 첫 카드가
+  `         10.0000e+000.0000e+000.0000e+000.0000e+00      MECH         0`(LS-DYNA 고정폭 10칸, 칸 사이 공백 없음)인데 `KeywordSetParser::tokenize` 가 쉼표 · 공백으로만 나눠
+  SID 를 못 읽고 「카드 1 의 SID 파싱 실패, 세트 스킵」(로그 5건). 같은 덱의 *SET_SEGMENT 는 첫 카드에 공백이 있어 읽혔다. 사용자가 준 세트가 버려지는 결함 — v55 범위 밖이라 다음 작업으로.

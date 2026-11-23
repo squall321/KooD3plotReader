@@ -85,3 +85,13 @@
 - [x] 작성기 MDLOPT 2 삭제 표(ac69f81) · `test_surface_stress_tet10` 우회 걷기
 - [x] 시험 먼저 `test_set_deleted_parents` → 고침(지운 부모 거르기 · 첫 값에서 시작 · NaN 상태 건너뛰기)
 - [x] 실덱 전 · 뒤(피크 110 필드 그대로) · C++ 시험 34 · 9 · 4.18 NaN 정정
+
+## 12. v55 뒤 — 세트 파일의 고정폭 카드(11-23 v55 꾸러미에서 찾음)
+- [ ] 재현 — erode7 `DropSet.k` 의 *SET_NODE_LIST 1~5 가 「세트 파일에 없음」(첫 카드 `         10.0000e+000.0000e+00…` — 칸 사이 공백이 없다). `tokenize` 가 쉼표 · 공백으로만 나눈다
+- [ ] 시험 먼저 — 고정폭(10칸) · 쉼표 자유형 · 공백만 둔 옛 꼴, NODE · PART · SEGMENT 첫 카드와 ID 줄
+- [ ] 고침 · 실덱(erode7 절점 세트 다섯) 전 · 뒤 · 소비자 알림 — push · 굽기는 따로 승인
+
+## 13. v55
+- [x] 판정 꾸러미 `/data/koopark/Post_v55/` — v54 기준선 · 로컬 예행 어긋남 0
+- [x] a9 굽기 전 판정(불요) · push `da81ad3..a42043b`(a9 06f9510 은 범위 밖 — 로컬) · pykoocae-53 굽기 요청
+- [ ] v55 배포 확인 — `check_v55.sh <새 SIF> v55` → `cmp_v55.py v54 v55 local`
