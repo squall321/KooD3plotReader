@@ -35,8 +35,21 @@ std::string trim(const std::string& s) {
     return s.substr(b, e - b + 1);
 }
 
-/// 콤마·공백 혼용 토큰화. 세트 카드의 필드는 공백을 품지 않으므로 안전하다.
+/// 카드 한 줄을 필드로 나눈다. 쉼표가 있으면 자유형(쉼표 · 공백), 없으면 LS-DYNA 고정폭 — 10칸씩 자른다.
+/// LS-PrePost 는 첫 카드의 DA1..DA4 를 `0.0000e+000.0000e+00` 처럼 칸 사이 공백 없이 쓴다. 공백으로만 나누면 SID 를 못 읽어
+/// 세트를 버렸다(erode7 DropSet.k 의 *SET_NODE_LIST). 칸에 맞지 않게 공백 · 탭으로 나눈 줄(칸 안에 공백이 든다)은 종전처럼
+/// 공백으로 나눈다. 빈 칸은 뺀다. line 은 앞 공백을 지우지 않은 원래 줄이어야 칸이 맞는다.
 std::vector<std::string> tokenize(const std::string& line) {
+    if (line.find(',') == std::string::npos) {
+        std::vector<std::string> cols;
+        bool aligned = true;
+        for (size_t i = 0; i < line.size(); i += 10) {
+            const std::string f = trim(line.substr(i, 10));
+            if (f.find_first_of(" \t") != std::string::npos) { aligned = false; break; }
+            if (!f.empty()) cols.push_back(f);
+        }
+        if (aligned) return cols;
+    }
     std::vector<std::string> out;
     std::string cur;
     for (char c : line) {
@@ -204,7 +217,7 @@ KeywordSetParseResult parseKeywordSetFile(const std::string& path) {
             continue;
         }
 
-        auto toks = tokenize(t);
+        auto toks = tokenize(line);     // 고정폭 칸을 맞추려면 앞 공백을 지우지 않은 줄이어야 한다
         if (toks.empty()) continue;
 
         if (need_sid) {
