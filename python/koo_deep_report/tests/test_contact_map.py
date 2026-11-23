@@ -191,3 +191,51 @@ def test_missing_keyword_file(tmp_path):
     cmap = parse_contact_map(tmp_path / "does_not_exist.k", {})
     assert cmap.endpoints == {}
     assert "not found" in cmap.note
+
+
+# --- LS-DYNA 고정폭(10칸) 카드 ----------------------------------------------------
+# LS-PrePost 는 세트 첫 카드의 DA1..DA4 를 칸 사이 공백 없이 쓴다(`10.0000e+000.0000e+00…`). 공백으로만 나누면
+# SID 를 못 읽어 세트를 잃고 그 접촉은 iface 로 강등됐다. 접촉 카드 1 의 빈 칸(단일면 접촉의 MSID · MSTYP)은
+# 공백으로 나누면 뒤 필드가 앞으로 당겨져 SSTYP 를 MSID 로 읽었다. 요소 카드(8칸)는 종전대로 읽는다.
+_KEXCERPT_FIXED = """\
+*KEYWORD
+*ELEMENT_SOLID
+       1       1      11      12      13      14      15      16      17      18
+       2       2      21      22      23      24      25      26      27      28
+*SET_SEGMENT_TITLE
+                                                                     SegmentSet1
+         10.0000e+000.0000e+000.0000e+000.0000e+00      MECH         0
+        11        12        13        13     0.000     0.000     0.000     0.000
+*SET_PART_LIST
+         80.0000e+000.0000e+000.0000e+000.0000e+00
+         1         2
+*CONTACT_TIED_SURFACE_TO_SURFACE_OFFSET_ID
+        60                                                         Fixed Region
+         1         8         0         2         0         0         1         1
+*CONTACT_AUTOMATIC_SINGLE_SURFACE_ID
+        61                                                          Single Body
+         2                   3
+*END
+"""
+
+
+@pytest.fixture
+def kfile_fixed(tmp_path):
+    p = tmp_path / "fixed.k"
+    p.write_text(_KEXCERPT_FIXED)
+    return p
+
+
+def test_packed_set_first_cards(kfile_fixed):
+    cmap = parse_contact_map(kfile_fixed, {1: "A", 2: "B"})
+    e = cmap.endpoints[60]
+    assert e.slave.kind == "part" and e.slave.part_id == 1, e.slave   # 세그먼트 세트 1 → 파트 1
+    assert e.master.kind == "set" and e.master.node_id == "set:8", e.master
+    assert "demoted" not in cmap.note
+
+
+def test_blank_contact_fields_keep_positions(kfile_fixed):
+    cmap = parse_contact_map(kfile_fixed, {1: "A", 2: "B"})
+    e = cmap.endpoints[61]
+    assert e.slave.kind == "part" and e.slave.part_id == 2, e.slave   # SSID 2 · SSTYP 3(파트 번호)
+    assert e.master.kind == "all", e.master                          # MSID · MSTYP 빈 칸 → 0

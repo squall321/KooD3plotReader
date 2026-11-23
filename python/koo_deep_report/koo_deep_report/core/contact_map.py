@@ -87,6 +87,28 @@ def _int_fields(line: str) -> list[int | None]:
     return out
 
 
+def _card_fields(line: str) -> list[int | None]:
+    """10칸 카드(세트 · 접촉 카드 1)의 정수 필드. 쉼표가 있으면 자유형, 없으면 LS-DYNA 고정폭 10칸.
+
+    LS-PrePost 는 세트 첫 카드의 DA1..DA4 를 `0.0000e+000.0000e+00` 처럼 칸 사이 공백 없이 써서 공백으로만
+    나누면 SID 를 잃는다. 접촉 카드 1 의 빈 칸(단일면 접촉의 MSID · MSTYP)은 공백으로 나누면 뒤 필드가
+    당겨진다 — 빈 칸은 None 으로 자리를 지킨다. 칸 안에 공백이 든 줄(칸에 맞지 않는 옛 꼴)은 _int_fields 로.
+    요소 카드(8칸)는 _int_fields 를 쓴다.
+    """
+    raw = line.rstrip()
+    if "," not in raw:
+        cols = [raw[i:i + 10].strip() for i in range(0, len(raw), 10)]
+        if not any(" " in c or "\t" in c for c in cols):
+            out: list[int | None] = []
+            for c in cols:
+                try:
+                    out.append(int(float(c)) if c else None)
+                except ValueError:
+                    out.append(None)
+            return out
+    return _int_fields(line)
+
+
 def _parse_heading(line: str) -> tuple[int | None, str]:
     """Parse a CID/NAME heading line: leading integer CID, rest is the name.
 
@@ -156,7 +178,7 @@ def _parse_contact(lines: list[str], i: int, keyword: str) -> tuple[_RawContact 
     i = _skip_comments(lines, i)
     if i >= len(lines):
         return None, i
-    f = _int_fields(lines[i])
+    f = _card_fields(lines[i])
     i += 1
 
     def g(idx: int) -> int:
@@ -182,7 +204,7 @@ def _parse_set_part(lines: list[str], i: int, has_title: bool,
     if i >= len(lines):
         return i
     # SID line
-    sid_fields = _int_fields(lines[i])
+    sid_fields = _card_fields(lines[i])
     i += 1
     sid = sid_fields[0] if sid_fields and sid_fields[0] is not None else None
     # Member lines until next keyword
@@ -192,7 +214,7 @@ def _parse_set_part(lines: list[str], i: int, has_title: bool,
         if s.lstrip().startswith("*"):
             break
         if s.strip() and not _is_comment(s):
-            for v in _int_fields(s):
+            for v in _card_fields(s):
                 if v is not None and v > 0:
                     members.append(v)
         i += 1
@@ -214,7 +236,7 @@ def _parse_set_segment(lines: list[str], i: int, has_title: bool,
     if i >= len(lines):
         return i
     # SID line (first field = SID; rest are floats + solver string)
-    sid_fields = _int_fields(lines[i])
+    sid_fields = _card_fields(lines[i])
     i += 1
     sid = sid_fields[0] if sid_fields and sid_fields[0] is not None else None
     nodes: set[int] = seg_sets.setdefault(sid, set()) if sid is not None else set()
@@ -224,7 +246,7 @@ def _parse_set_segment(lines: list[str], i: int, has_title: bool,
         if s.lstrip().startswith("*"):
             break
         if s.strip() and not _is_comment(s):
-            f = _int_fields(s)
+            f = _card_fields(s)
             for v in f[:4]:  # N1..N4
                 if v is not None and v > 0:
                     nodes.add(v)
