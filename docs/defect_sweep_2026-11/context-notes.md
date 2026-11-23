@@ -955,3 +955,7 @@ C++ 전체 렌더 켠 빌드 통과 34 · 실패 0, 렌더 끈 빌드 통과 8 �
 - **포털 Drive 이름 규칙**(HWAXPortal c5fa9403, PLAN §3-1, Post v54 부터) — 판 파일 `SmartTwinPostprocessor[GUI]_<YYYYMMDD>_v<N>.sif` · tar(지금 꼴) 덮어쓰기 금지,
   판 해시 `SmartTwinPostprocessor_<YYYYMMDD>_v<N>.SHA256SUMS`, 별칭 = 옛 고정 이름, `SmartTwinPostprocessor.release.json` 은 마지막, 알림은 sha256.
   내가 낸 package_module.sh 안은 거뒀다. Post 판 해시 · release.json 을 누가 쓸지는 pykoocae-53 과 정한다(정해지면 포털에 한 줄). Drive 는 포털의 동결 해제 알림 뒤.
+- **v54 push · 요청(11-23)** — 사용자 승인(「push + v54 배포 요청」)으로 `9b3c081..da81ad3`(a9 의 6f17612 포함 6개) push, 굽는 프로세스가 없는 것을 본 뒤다.
+  pykoocae-53 에 da81ad3 굽기를 요청했다 — Drive 는 새 이름 규칙의 첫 적용이라 포털의 동결 해제 알림 뒤.
+- **항목 7 주인** — pykoocae-53 이 (가)로 정했다: serviceApptainers 굽기 스크립트의 `release_manifest.py` 가 판 해시 · release.json 을 쓰고 `notify_build.py` 가 §3-1 차례로 올린다
+  (built_from 은 헤드리스 SIF 안 /opt/kood3plot/VERSION 2행, 날짜는 KST — tar 이름도). KooD3plotReader 는 고칠 것 없음. 포털에 주인을 알렸다.
