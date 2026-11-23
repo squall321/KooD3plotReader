@@ -33,6 +33,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -1578,9 +1579,10 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                     }
                     f.measured = true;
                 };
-                push(f_disp, dmax, d_id, true);
-                push(f_vel, vmax, v_id, has_v);
-                push(f_acc, amax, a_id, has_a);
+                // 세트 절점이 전부 NaN(지운 요소에만 속한 절점)인 상태는 값이 없다 — 초기값 −1 을 찍지 않는다
+                push(f_disp, dmax, d_id, dmax >= 0.0);
+                push(f_vel, vmax, v_id, has_v && vmax >= 0.0);
+                push(f_acc, amax, a_id, has_a && amax >= 0.0);
             }
             if (!has_v) f_vel.note = "속도 미기록 (IV=0)";
             if (!has_a) f_acc.note = "가속도 미기록 (IA=0)";
@@ -1608,7 +1610,11 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                 // 피크를 낸 요소의 **인덱스**도 들고 간다 — 파트를 매기려면 실 ID 가
                 // 아니라 인덱스가 필요하다 (mesh.solid_parts 는 인덱스로 찾는다).
                 int32_t s_idx = -1, e_idx = -1;
+                // 지운 부모(상태별 삭제 목록 — 1부터 순번)는 거른다. 워드가 0 이라 부모가 다 지워진 상태가 0 으로,
+                // ε_p 워드가 음수인 덱에서는 지운 부모의 0 이 최대로 나왔다. 다 지워졌으면 아래에서 그 상태를 건너뛴다.
+                const std::unordered_set<int32_t> dead(st.deleted_solids.begin(), st.deleted_solids.end());
                 for (int32_t ei : sr.parent_elem_idx) {
+                    if (dead.count(ei + 1)) continue;
                     const size_t base = (size_t)ei * nv3d;
                     // 적분점 여덟 자리 덱은 요소 블록 전체가 있어야 자리를 고를 수 있다
                     const size_t need_words = solid_ip.nip > 1 ? (size_t)nv3d : 7;
@@ -1628,10 +1634,11 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
                     }
                     const int32_t rid = ((size_t)ei < mesh.solids.size())
                                         ? mesh.solids[ei].id : ei + 1;
-                    if (vm > smax) { smax = vm; s_id = rid; s_idx = ei; }
-                    if (ep > emax) { emax = ep; e_id = rid; e_idx = ei; }
+                    // 첫 부모의 값에서 시작한다 — 초기값 −1 에서 시작하면 ε_p 워드가 전부 −1 보다 작은 상태에 −1 이 나갔다
+                    if (s_idx < 0 || vm > smax) { smax = vm; s_id = rid; s_idx = ei; }
+                    if (e_idx < 0 || ep > emax) { emax = ep; e_id = rid; e_idx = ei; }
                 }
-                if (smax < 0) continue;
+                if (s_idx < 0) continue;
                 // 세그먼트 세트는 부모 solid 요소를 훑는다. 그 요소가 어느 파트인지는
                 // 알 수 있는데 종전에는 채우지 않아 **peak_part_id 가 0 으로 남았다**
                 // (파트 ID 는 1부터라 0 은 존재하지 않는 파트다 — 화면에 "0" 으로 찍혀

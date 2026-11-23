@@ -75,6 +75,14 @@ if(TARGET kood3plot_writer)
     add_test(NAME SetSegmentIp COMMAND test_set_segment_ip)
 endif()
 
+# set 리포트 — 지운 부모 요소의 0 · NaN 절점의 초기값을 세트 값으로 내지 않는다(합성 d3plot 왕복, MDLOPT 2 삭제 표)
+if(TARGET kood3plot_writer)
+    add_executable(test_set_deleted_parents test_set_deleted_parents.cpp)
+    target_link_libraries(test_set_deleted_parents PRIVATE kood3plot kood3plot_writer)
+    target_include_directories(test_set_deleted_parents PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME SetDeletedParents COMMAND test_set_deleted_parents)
+endif()
+
 # MotionAnalyzer tests (합성 d3plot 왕복) — 절점 ID 규약·없는 파트·IV 속도
 if(TARGET kood3plot_writer)
     add_executable(test_motion_analyzer test_motion_analyzer.cpp)
