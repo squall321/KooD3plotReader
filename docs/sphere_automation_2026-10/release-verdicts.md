@@ -185,3 +185,36 @@ v52 부터 그 빔 파트의 σ_vm · σ1 · σ3 · ε_p 가 sphere 에 실린�
 - sphere 쪽은 이미 None 을 제대로 다룬다(`analyzer.py:134` ·
   `terminal.py:80` 의 `is not None` 검사, `json_report.py:172` 의 "실제로 실린
   값에만 별칭을 건다").
+
+
+### v55 — `0bf9ae9..a42043b` (3커밋) · **회귀 불요** (2026-11-23, 굽기 전 판정)
+
+**처음으로 통로가 비어 있지 않았던 판이다.** 상류가 후보를 스스로 짚어 왔고
+(`a42043b` 가 세트 리포트 피크를 바꿀 수 있다 · 내 `html_report.py:344` 가 그걸
+읽는다), 실제로 **내 캠페인에 set_reports 가 있었다** — `Test_006_Fibonacci_6deg`
+에 12개(`Test_005` · `Test_001` 은 0). "세트가 없다" 로 끝낼 수 없었다.
+
+**갈림은 `set_type` 이 아니라 `metric_source` 다.** 바뀐 두 분기가 거기 걸려 있다.
+
+- 세그먼트: `sr.metric_source == "segments" && !sr.parent_elem_idx.empty() && nv3d >= 7`
+  (`UnifiedAnalyzer.cpp:1601`)
+- 절점: `sr.metric_source == "nodes" && !sr.resolved_node_idx.empty()`
+
+내 세트 12개는 **`set_type = part` · `metric_source` 없음 ·
+`resolved_parts = [2,3,15]`** 이다. 둘 다 아니라 **바뀐 루프가 돌지 않는다.**
+그래서 「피크가 지운 부모의 0 이나 −1 이던 세트라면 바뀐다」 는 조건은
+**따질 필요조차 없다** — 파트 세트는 그 경로를 타지 않는다.
+
+더해 세그먼트 CSV 의 상태별 행이 바뀌는 것도 안 닿는다 —
+`_set_report_payload`(`html_report.py:803`)는 **`metrics.json` 만 스캔**하고
+세그먼트 CSV 를 읽지 않는다.
+
+나머지 둘: `fb89eb6`(part_section_renders) → sphere 에 렌더 경로 없음.
+`ac69f81`(D3plotWriter, `MAXINT < -10000` 삭제 표) → 작성기는 시험 전용.
+
+**다음에 다시 재야 하는 조건.** 세그먼트 세트나 절점 세트를 쓰는 sphere 캠페인이
+생기면 이 판정은 무효다. 지금은 파트 세트뿐이라 비켜갔을 뿐이다.
+
+**덱 성질 기록.** 캠페인 셋 모두 `MAXINT = -10003` → **삭제 표가 있는 덱**이다
+(`nel8=45,457` · `nel2=0` · `nel4=0` · `NV3D=13`). 침식이 실제로 일어나는 덱이라,
+지운 요소를 다루는 변경은 앞으로도 통로 후보로 본다.
