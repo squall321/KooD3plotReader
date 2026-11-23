@@ -175,6 +175,37 @@ def _deck_end_time(output_dir: Path) -> float | None:
     return None
 
 
+def _mat_fields(line: str, n: int = 8) -> list[str]:
+    """키워드 카드 한 줄을 필드로 나눈다 — 쉼표 · 10칸 고정폭 · 공백 차례로.
+
+    **10칸 판별은 원본 줄(rstrip 만)에서 해야 한다.** 앞 공백을 먼저 지우면
+    제 칸 오른쪽 끝에만 값이 있는 필드가 옆 칸과 붙는다 — `         1` 과
+    `7.8500e-09` 가 `17.8500e-09` 한 덩어리가 되어, 공백으로만 나누면 두 번째
+    토큰이 **포아송비**가 된다(밀도가 7.85e-09 대신 0.30).
+
+    규칙은 deep 의 `core/keyword_parser.py` `_read_fields` 와 같게 둔다 —
+    같은 덱을 두 도구가 다르게 읽으면 안 된다. (사사로이 쓰는 함수라 가져다
+    쓰지 않고 같은 규칙만 맞춘다. 의존을 늘리면 회귀 판정 범위가 넓어진다.)
+    """
+    raw = line.rstrip()
+    stripped = raw.strip()
+    if not stripped:
+        return [""] * n
+    if "," in stripped:
+        parts = [p.strip() for p in stripped.split(",")]
+        return parts[:n] + [""] * max(0, n - len(parts))
+    if len(raw) >= 20:
+        n_slots = min(n, (len(raw) + 9) // 10)
+        looks_fixed = all(
+            " " not in raw[i * 10:(i + 1) * 10].strip()
+            for i in range(n_slots)
+        )
+        if looks_fixed:
+            return [raw[i * 10:(i + 1) * 10].strip() for i in range(n)]
+    parts = stripped.split()
+    return parts[:n] + [""] * max(0, n - len(parts))
+
+
 def _deck_density(output_dir: Path) -> float | None:
     """덱의 *MAT 카드에서 밀도 대푯값(중앙값). 못 읽으면 None.
 
@@ -200,8 +231,8 @@ def _deck_density(output_dir: Path) -> float | None:
         if not want or not s or s.startswith("$"):
             continue
         # *MAT 첫 데이터 줄: MID RO ... (제목 줄은 숫자가 아니라 걸러진다)
-        f = s.replace(",", " ").split()
-        if len(f) >= 2:
+        f = _mat_fields(ln)
+        if f[1]:
             try:
                 ro = float(f[1])
             except ValueError:
