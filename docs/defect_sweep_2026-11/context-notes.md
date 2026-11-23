@@ -947,3 +947,11 @@ C++ 전체 렌더 켠 빌드 통과 34 · 실패 0, 렌더 끈 빌드 통과 8 �
 - **포털 항목 7(F6)** — 사용자 결정 「pyKooCAE 와 형식부터 맞춘다」. pykoocae-53 에 안을 보냈다 — package_module.sh 가 tar 옆에 `SHA256SUMS` 와
   `release.json`({product, release, commit, built, files[{name, bytes, sha256}]})을 쓰고, SIF 줄 · Drive 이름 · sha256 메일은 굽기 스크립트가 같은 release.json 에 덧붙인다.
   그쪽 사용자 결정이 나면 맞춰 고친다.
+- **v54 판정 꾸러미 `/data/koopark/Post_v54/`** — `check_v54.sh <SIF|local> <태그>` · `cmp_v54.py <옛> <새> [local]` · `gallery_title.py`(보고서 갤러리 함수를 node 로 돌려 제목 · 부제를 뽑는다).
+  v53 꾸러미에 파트별 단면 잡(`psr_vm`)과 deep 「field strain 하나」 실행(`sv_strain`)을 더했다. 기대 — 분석 · deep · 소프트웨어 단면뷰는 v53 과 같고, 사용자 범위 영상(`range_z`)도 같으며,
+  자동 범위였던 타깃 영상 일곱은 타깃 파트 범위로 바뀌어 v53 과 다르고, 로그에 `Fringe range: 타깃 파트 0 ~ 50.2103 (전 상태)` · `Part 6 fringe range: 0 ~ 50.2103 (전 상태)`,
+  갤러리 제목 「단면뷰 — 유효 소성 변형률 (EPS)」 · 부제 LS-PrePost.
+  v53 기준선(헤드 SIF, `check_v53.log`)과 로컬 예행(`check_local.log`)을 맞대면 「어긋난 것 0」(`cmp_v53_local.log`).
+- **포털 Drive 이름 규칙**(HWAXPortal c5fa9403, PLAN §3-1, Post v54 부터) — 판 파일 `SmartTwinPostprocessor[GUI]_<YYYYMMDD>_v<N>.sif` · tar(지금 꼴) 덮어쓰기 금지,
+  판 해시 `SmartTwinPostprocessor_<YYYYMMDD>_v<N>.SHA256SUMS`, 별칭 = 옛 고정 이름, `SmartTwinPostprocessor.release.json` 은 마지막, 알림은 sha256.
+  내가 낸 package_module.sh 안은 거뒀다. Post 판 해시 · release.json 을 누가 쓸지는 pykoocae-53 과 정한다(정해지면 포털에 한 줄). Drive 는 포털의 동결 해제 알림 뒤.
