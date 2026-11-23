@@ -959,3 +959,14 @@ C++ 전체 렌더 켠 빌드 통과 34 · 실패 0, 렌더 끈 빌드 통과 8 �
   pykoocae-53 에 da81ad3 굽기를 요청했다 — Drive 는 새 이름 규칙의 첫 적용이라 포털의 동결 해제 알림 뒤.
 - **항목 7 주인** — pykoocae-53 이 (가)로 정했다: serviceApptainers 굽기 스크립트의 `release_manifest.py` 가 판 해시 · release.json 을 쓰고 `notify_build.py` 가 §3-1 차례로 올린다
   (built_from 은 헤드리스 SIF 안 /opt/kood3plot/VERSION 2행, 날짜는 KST — tar 이름도). KooD3plotReader 는 고칠 것 없음. 포털에 주인을 알렸다.
+
+## 9. v54 배포 · 확인 (11-23)
+
+- **배포** — pykoocae-53 이 da81ad3 로 구웠다. 헤드리스 SIF sha256 `bbaa491b45cc07d99ca1551338e47f8aaf692f7b75f16ccc47e2a31cd3c3b368` ·
+  GUI `6025f32f23c293031b4695c95b83452bc24f6184272dd0d789d19c53701bab6a`, VERSION da81ad3(Built 2026-11-23T08:49:58Z). 헤드 /opt 교체(v53 은 `*_backup_20261123_090601.sif`).
+  tar `/data/SmartTwinPostprocessor/SmartTwinPostprocessor_20261123_v54.tar.gz`(575,452,088 B, sha256 `f2025222…`) 옆에 새 규칙의 판 해시 `…_v54.SHA256SUMS`(SIF 둘 · tar 하나) ·
+  `…_v54.release.json`(built_from KooD3plotReader da81ad3)이 처음 생겼다. 노드는 v47 그대로. Drive 는 포털 동결 해제 알림 뒤(pyKooCAE 몫).
+- **확인** — pykoocae-53 의 `v54_pk` 태그 「어긋난 것 0」, 내 `v54` 태그도 `check_v54.sh <헤드 SIF> v54` → `cmp_v54.py v53 v54 local` 「어긋난 것 0」(두 실행은 시간이 겹치지 않았다 — 09:01–09:05 · 09:07–09:08).
+  분석기 여덟 묶음 · deep · 소프트웨어 단면뷰는 v53 과 같고, 사용자 범위 영상(`range_z`)도 같다. 자동 범위였던 타깃 영상 일곱은 v53 과 달라지고 로컬 예행과는 같다.
+  로그 `Fringe range: 타깃 파트 0 ~ 50.2103 (전 상태)` · `Part 6 fringe range: 0 ~ 50.2103 (전 상태)`, 갤러리 제목 「단면뷰 — 유효 소성 변형률 (EPS)」 · 부제 LS-PrePost.
+  남은 Xvfb 0, 원본 덱 폴더 일곱 곳 그대로.
