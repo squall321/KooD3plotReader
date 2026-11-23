@@ -996,3 +996,5 @@ ontology 가 통째로 달라 보인다) 고치기 전과 맞대면, result.json
 보고서 DATA 는 의도한 11 값(파트 2 변형률 · σ₁ · σ₃ · ε₁ · ε₃, 나머지 파트의 ε₁ · ε₃)만 0.0 → null. 파트 2 상세 카드는 「— · — · —」. 원본 덱 폴더 그대로.
 
 **소비처에 바뀌는 것** — result.json 의 `parts.<id>.peak_strain` · `peak_acc_mag` 가 그 시계열이 없으면 null 이다(`peak_stress` 는 이미 그렇다). 0 은 측정된 0 만 뜻한다.
+
+**알림** — kooremapper-4a(DynaForge 쪽 — result.json 의 peak_strain · peak_acc_mag 가 null 일 수 있다), a9(공유 작업 트리). 둘 다 「로컬 커밋, push · 배포는 사용자 승인 뒤」.

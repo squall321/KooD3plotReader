@@ -73,4 +73,4 @@
 - [x] 시험 먼저 — 운동만 있는 파트 · 응력만 있는 파트의 변형률 · 주응력 · 주변형률 · 속도 · 가속도가 None, result.json 이 null, 전체 변형률 최대, 보고서 σ₁ · σ₃ 순위 · 상세 카드
 - [x] 고침 — `_aggregate` · `PartSummary` · `MotionData` 속도 · 가속도 · 보고서 JS 순위 거르기 · 요약 문구
 - [x] deep 시험 전체 · 실덱(DynaAnalysis 파트 2 — 운동만) 보고서 전 · 뒤
-- [ ] 결정 기록 · 소비자 알림(result.json 의 peak_strain · peak_acc_mag 가 null 이 될 수 있다)
+- [x] 결정 기록 · 소비자 알림(result.json 의 peak_strain · peak_acc_mag 가 null 이 될 수 있다) — kooremapper-4a · a9
