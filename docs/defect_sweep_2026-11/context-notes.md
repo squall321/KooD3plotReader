@@ -970,3 +970,29 @@ C++ 전체 렌더 켠 빌드 통과 34 · 실패 0, 렌더 끈 빌드 통과 8 �
   분석기 여덟 묶음 · deep · 소프트웨어 단면뷰는 v53 과 같고, 사용자 범위 영상(`range_z`)도 같다. 자동 범위였던 타깃 영상 일곱은 v53 과 달라지고 로컬 예행과는 같다.
   로그 `Fringe range: 타깃 파트 0 ~ 50.2103 (전 상태)` · `Part 6 fringe range: 0 ~ 50.2103 (전 상태)`, 갤러리 제목 「단면뷰 — 유효 소성 변형률 (EPS)」 · 부제 LS-PrePost.
   남은 Xvfb 0, 원본 덱 폴더 일곱 곳 그대로.
+
+## 10. 「보고만」 다시 보기 — deep `_aggregate` 의 없는 시계열 0 채움 (11-23)
+
+**왜 지금** — 4.16 에서 「같은 측정된 0 문제지만 float 전제가 곳곳이라 함께 바꾸지 않았다」 고 보고만 했다. 「실제 결함은 보고만 하지 말고 고친다」(11-21) 에 걸리는지
+실덱으로 다시 쟀다. 판정 꾸러미의 DynaAnalysis 덱(`da`) 파트 2 는 응력 · 변형률 · 주응력 이력이 없고 운동만 있다. 배포판 v54 로 deep(렌더 없이)을 돌리면
+result.json 파트 2 가 `"peak_stress": null`(사유 있음) 옆에 `"peak_strain": 0.0` 이고, 보고서 상세 카드가 「피크 응력 —」 옆에 「피크 변형률 0 · σ₁ 0 · σ₃ 0」 이다.
+같은 파트의 응력은 「값 없음」, 변형률 · 주응력은 「0 으로 측정됨」 으로 읽힌다 — 틀린 값이다. 변형률 텐서를 쓰지 않은 덱(꾸러미 일곱 중 다섯)은 모든 파트의 주변형률이 0.0 이었다
+(보고서 순위는 0 을 걸러 드러나지 않았다).
+
+**float 전제는 생각보다 좁았다** — 이 값을 쓰는 곳을 다 훑었다. 파이썬은 `_aggregate` 의 변형률 비율 · 전체 최대 둘뿐(요약 출력 · 경고 줄은 이미 None 을 다룬다),
+보고서 JS 는 σ₁ · σ₃ · ε₁ · ε₃ 순위의 `!== 0` 거르기 넷(null 이 통과한다)뿐이고 `fmt` · 변형률 순위 · 상세 카드는 null 을 「—」 로 다룬다.
+result.json 을 읽는 패키지 안 소비처(figures · batch)는 peak_strain 을 셈에 쓰지 않거나 `?? null` 로 받는다. ontology 어댑터는 이미 시계열을 직접 본다.
+
+**시험 먼저** — deep `tests/test_absent_series_none.py`(새 — 운동만 · 응력만 있는 파트의 변형률 · 주응력 · 주변형률 · 속도 · 가속도가 None, 전체 최대, result.json null,
+요약 출력, node 로 돌린 보고서 σ₁ · σ₃ 순위 · 상세 카드). 고치기 전 4건 실패(순위 시험은 0 이 걸러져 통과 — 파이썬만 고치면 null 이 순위에 끼어 실패하는 것을 본 뒤 JS 를 고쳤다).
+
+**바꾼 것** — `_aggregate`(없는 시계열 · motion 없음 → None, 변형률 비율 · 전체 최대가 None 을 건너뛴다), `PartSummary`(다섯 · 속도 · 가속도 float | None, 기본 None),
+`MotionData.peak_vel_mag` · `peak_acc_mag`(열이 없으면 None — `peak_disp_mag` 와 같게), 요약 문구(「소성 변형률 이력이 있는 파트 없음」),
+보고서 순위 거르기 넷(`!= null && !== 0`), ontology 어댑터의 가속도(이제 속성이 None 을 준다 — 「0.0 을 준다」 주석이 틀리게 돼 속성으로 바꿨다).
+
+**확인** — deep 시험 272 · sphere 187 · impact 150 · federate 211 · custom 13 · scatter 7 통과(`build/` 의 10-30 옛 분석기 대신 `KOOD3PLOT_HOME=.work/defect_sweep/inst_v54`).
+실덱 — 같은 v54 SIF 안에서 deep 소스만 작업 트리 것으로 바꿔(`.work/defect_sweep/absent/run_sif_after.sh`, SIF PYTHONPATH 앞에 붙인다 — 덮어쓰면 단위 검출기가 빠져
+ontology 가 통째로 달라 보인다) 고치기 전과 맞대면, result.json 은 파트 2 `peak_strain` 0.0 → null 한 값, ontology 는 보고서 sha256 한 값, 그림 manifest 는 같고,
+보고서 DATA 는 의도한 11 값(파트 2 변형률 · σ₁ · σ₃ · ε₁ · ε₃, 나머지 파트의 ε₁ · ε₃)만 0.0 → null. 파트 2 상세 카드는 「— · — · —」. 원본 덱 폴더 그대로.
+
+**소비처에 바뀌는 것** — result.json 의 `parts.<id>.peak_strain` · `peak_acc_mag` 가 그 시계열이 없으면 null 이다(`peak_stress` 는 이미 그렇다). 0 은 측정된 0 만 뜻한다.

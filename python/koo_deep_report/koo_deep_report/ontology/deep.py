@@ -117,8 +117,7 @@ def build(result, *, flow=None, keyword=None, html_path: Path | None = None) -> 
         evm = get(d3.get_vm_strain if d3 else None)
         mo = d3.get_motion(pid) if d3 else None
         en = energy.get(pid) or {}
-        # MotionData.peak_acc_mag 는 열이 없어도 0.0 을 준다 — 열을 직접 본다
-        acc = max(mo.acc_mag) if (mo is not None and mo.acc_mag) else None
+        acc = mo.peak_acc_mag if mo is not None else None
         resp = {
             "peak_von_mises": st.global_max if st else None,
             "peak_von_mises_time": st.time_of_max if st else None,

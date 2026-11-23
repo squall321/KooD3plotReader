@@ -1730,18 +1730,19 @@ def _aggregate(
             stress_element_type=(getattr(st, "element_type", "") if st else ""),
             peak_element_id=st.peak_element_id if st else None,
             peak_element_reason=(st.peak_element_reason if st else ""),
-            peak_strain=sr.global_max if sr else 0.0,
-            peak_max_principal=s1.global_max if s1 else 0.0,
-            peak_min_principal=s3.global_min if s3 else 0.0,
-            peak_max_principal_strain=e1.global_max if e1 else 0.0,
-            peak_min_principal_strain=e3.global_min if e3 else 0.0,
+            # 없는 시계열은 None 이다 — 0 으로 채우면 운동만 있는 파트가 「소성 변형률 · 주응력 0 으로 측정됐다」 로 읽힌다
+            peak_strain=sr.global_max if sr else None,
+            peak_max_principal=s1.global_max if s1 else None,
+            peak_min_principal=s3.global_min if s3 else None,
+            peak_max_principal_strain=e1.global_max if e1 else None,
+            peak_min_principal_strain=e3.global_min if e3 else None,
             peak_vm_strain=(evm.global_max if evm else None),
             peak_disp_mag=mo.peak_disp_mag if mo else None,
             peak_avg_disp_mag=mo.peak_avg_disp_mag if mo else None,
             peak_disp_node=mo.peak_disp_node if mo else None,
             peak_disp_reason=(mo.peak_disp_reason if mo else "motion CSV 없음"),
-            peak_vel_mag=mo.peak_vel_mag if mo else 0.0,
-            peak_acc_mag=mo.peak_acc_mag if mo else 0.0,
+            peak_vel_mag=mo.peak_vel_mag if mo else None,
+            peak_acc_mag=mo.peak_acc_mag if mo else None,
         )
 
         # Apply design criteria (per-part from keyword, or global fallback)
@@ -1765,7 +1766,7 @@ def _aggregate(
         if ps.stress_limit > 0 and ps.peak_stress is not None and ps.peak_stress > 0:
             ps.safety_factor = ps.stress_limit / ps.peak_stress
             ps.stress_ratio = ps.peak_stress / ps.stress_limit
-        if ps.strain_limit > 0 and ps.peak_strain > 0:
+        if ps.strain_limit > 0 and ps.peak_strain is not None and ps.peak_strain > 0:
             ps.strain_ratio = ps.peak_strain / ps.strain_limit
 
         result.parts[pid] = ps
@@ -1777,7 +1778,8 @@ def _aggregate(
             best = max(stressed, key=lambda p: p.peak_stress)
             result.peak_stress_global = best.peak_stress
             result.peak_stress_part_id = best.part_id
-        result.peak_strain_global = max(p.peak_strain for p in result.parts.values())
+        strains = [p.peak_strain for p in result.parts.values() if p.peak_strain is not None]
+        result.peak_strain_global = max(strains) if strains else None
         # 절점 최대 변위가 하나도 계측되지 않았으면 0 이 아니라 None 이다.
         disps = [p.peak_disp_mag for p in result.parts.values()
                  if p.peak_disp_mag is not None]
@@ -1812,7 +1814,7 @@ def _print_summary(result: SingleResult) -> None:
         print(f"               ({n_nostress}개 파트는 응력 미산출 — 적분점 응력이 없는 빔 · 이산 요소, "
               "또는 그 요소 종류를 집계하지 않던 옛 해석기 판)")
     if result.peak_strain_global is None:
-        print("  피크 변형률  : 미산출 (집계된 파트 없음)")
+        print("  피크 변형률  : 미산출 (소성 변형률 이력이 있는 파트 없음)")
     else:
         print(f"  피크 변형률  : {result.peak_strain_global:.4f}")
     if result.peak_disp_global is None:

@@ -955,7 +955,7 @@ function renderStress() {
     }).join('');
 
   // Max principal stress ranking
-  const maxPrincipalParts = filteredParts().filter(([,p]) => p.peak_max_principal !== 0)
+  const maxPrincipalParts = filteredParts().filter(([,p]) => p.peak_max_principal != null && p.peak_max_principal !== 0)
     .sort((a,b) => b[1].peak_max_principal - a[1].peak_max_principal);
   const maxP1 = maxPrincipalParts[0]?.[1].peak_max_principal || 1;
   const maxPrincipalBars = maxPrincipalParts.map(([pid, p]) => {
@@ -968,7 +968,7 @@ function renderStress() {
   }).join('');
 
   // Min principal stress ranking (most compressive = most negative)
-  const minPrincipalParts = filteredParts().filter(([,p]) => p.peak_min_principal !== 0)
+  const minPrincipalParts = filteredParts().filter(([,p]) => p.peak_min_principal != null && p.peak_min_principal !== 0)
     .sort((a,b) => a[1].peak_min_principal - b[1].peak_min_principal);
   const minP3 = Math.abs(minPrincipalParts[0]?.[1].peak_min_principal) || 1;
   const minPrincipalBars = minPrincipalParts.map(([pid, p]) => {
@@ -981,7 +981,7 @@ function renderStress() {
   }).join('');
 
   // Max principal strain ranking (conditional — only when strain tensor data exists)
-  const maxPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_max_principal_strain !== 0)
+  const maxPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_max_principal_strain != null && p.peak_max_principal_strain !== 0)
     .sort((a,b) => b[1].peak_max_principal_strain - a[1].peak_max_principal_strain);
   const maxPE1 = maxPrincipalStrainParts[0]?.[1].peak_max_principal_strain || 1;
   const maxPrincipalStrainBars = maxPrincipalStrainParts.map(([pid, p]) => {
@@ -993,7 +993,7 @@ function renderStress() {
     </div>`;
   }).join('');
 
-  const minPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_min_principal_strain !== 0)
+  const minPrincipalStrainParts = filteredParts().filter(([,p]) => p.peak_min_principal_strain != null && p.peak_min_principal_strain !== 0)
     .sort((a,b) => a[1].peak_min_principal_strain - b[1].peak_min_principal_strain);
   const minPE3 = Math.abs(minPrincipalStrainParts[0]?.[1].peak_min_principal_strain) || 1;
   const minPrincipalStrainBars = minPrincipalStrainParts.map(([pid, p]) => {

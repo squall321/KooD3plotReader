@@ -227,12 +227,14 @@ class MotionData:
         return "motion CSV 에 Max_Disp_Mag 열이 없다 — 절점 최대 변위 미계측"
 
     @property
-    def peak_vel_mag(self) -> float:
-        return max(self.vel_mag) if self.vel_mag else 0.0
+    def peak_vel_mag(self) -> float | None:
+        """속도 크기의 최대. 그 열이 없으면 None."""
+        return max(self.vel_mag) if self.vel_mag else None
 
     @property
-    def peak_acc_mag(self) -> float:
-        return max(self.acc_mag) if self.acc_mag else 0.0
+    def peak_acc_mag(self) -> float | None:
+        """가속도 크기의 최대. 그 열이 없으면 None."""
+        return max(self.acc_mag) if self.acc_mag else None
 
 
 @dataclass
@@ -363,11 +365,12 @@ class PartSummary:
     peak_element_id: int | None = None
     #: peak_element_id 가 None 인 사유 (시계열 잘림 등). 정상이면 빈 문자열.
     peak_element_reason: str = ""
-    peak_strain: float = 0.0
-    peak_max_principal: float = 0.0
-    peak_min_principal: float = 0.0
-    peak_max_principal_strain: float = 0.0
-    peak_min_principal_strain: float = 0.0
+    #: 그 파트에 시계열이 없으면(운동만 있는 파트 · 변형률 텐서를 안 쓴 덱 등) None — 0 이 아니다.
+    peak_strain: float | None = None
+    peak_max_principal: float | None = None
+    peak_min_principal: float | None = None
+    peak_max_principal_strain: float | None = None
+    peak_min_principal_strain: float | None = None
     #: ε_vm. 미기록이면 None — 0 이 아니다(유효소성변형률로 대체 금지).
     peak_vm_strain: float | None = None
     #: 절점 최대 변위. Max_Disp_Mag 열이 없으면 None — 0 이 아니다.
@@ -378,8 +381,9 @@ class PartSummary:
     peak_disp_node: int | None = None
     #: peak_disp_mag 가 None 인 사유.
     peak_disp_reason: str = ""
-    peak_vel_mag: float = 0.0
-    peak_acc_mag: float = 0.0
+    #: motion CSV 가 없거나 그 열이 없으면 None.
+    peak_vel_mag: float | None = None
+    peak_acc_mag: float | None = None
     internal_energy: float = 0.0
     safety_factor: float | None = None   # yield_stress / peak_stress
 
@@ -438,7 +442,7 @@ class SingleResult:
     #: 응력이 산출된 파트가 하나도 없으면 None.
     peak_stress_global: float | None = None
     peak_stress_part_id: int | None = None
-    #: 집계된 파트가 하나도 없으면 None (0.0 으로 채우면 '변형률 0 으로
+    #: 소성 변형률 이력이 있는 파트가 하나도 없으면 None (0.0 으로 채우면 '변형률 0 으로
     #: 측정됐다' 로 읽힌다).
     peak_strain_global: float | None = None
     #: 절점 최대 변위의 전체 최대. 아무 파트도 계측되지 않았으면 None.
