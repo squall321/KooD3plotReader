@@ -241,7 +241,7 @@ v55 판정 중에 찾았다. 저 12개의 `_custom_report_ua.yaml` 이 세트 �
 일이다. `/data` 쓰기라 **사용자 승인 뒤에** 손댄다.
 
 
-### v56 (예정) — 침식 절점 제외 · **조건 측정 완료, 최종 판정은 커밋을 보고** (2026-11-27)
+### v56 — `9e9b667` 침식 절점 제외 · **회귀 불요** (2026-11-27, 굽기 전 판정)
 
 상류 예고: 침식 덱에서 떨어져 나간 절점(지운 요소에만 속한 절점)을 운동 지표에서
 뺀다. `MotionAnalyzer`(파트 운동 CSV)와 세트 리포트 절점 세트가 대상이고, 파트가
@@ -272,9 +272,32 @@ v55 판정 중에 찾았다. 저 12개의 `_custom_report_ua.yaml` 이 세트 �
 → **지운 요소가 없으니 떨어져 나간 절점도 없다.** 운동 지표 변경은 내 캠페인에서
 값을 바꿀 수가 없다.
 
-**최종 판정은 커밋을 보고 낸다.** 위는 「운동 CSV 통로」 하나에 대한 조건 측정이다.
-커밋이 다른 산출물(파트 CSV · `analysis_result.json` · 핫스팟)에도 손대면 통로
-네 갈래를 다시 재야 한다. 상류가 준비되면 그때 한다.
+**커밋(`9e9b667`)을 보고 낸 최종 판정.** 통로 1·2·3 은 0건. 통로 4 에서 바뀐 것은
+`MotionAnalyzer.{hpp,cpp}`(내 운동 CSV 생산자) · `UnifiedAnalyzer.cpp` +6 ·
+`LiveNodes.hpp`(신규) · `TargetFringeRange.{h,cpp}`(렌더, 내 것 아님)이다.
+
+**실측 부재보다 강한 근거가 있다 — 전부 생존 경로가 손대지 않은 코드다.**
+`MotionAnalyzer` 의 모든 사용처가 `if (alive && !(*alive)[node_idx]) continue;`
+꼴이고, NaN 분기도 `else if (alive)` 안에 있다. 그래서 `alive == nullptr` 이면
+루프 본문이 **종전과 똑같다**(누적 순서도 안 바뀌어 부동소수 끝자리도 그대로다).
+그리고 `LiveNodes::forState()` 는 **삭제 목록 다섯이 모두 비면 `nullptr`**
+(`LiveNodes.hpp:36`)이다.
+
+내 덱에서 그 다섯이 비어 있음은 이렇게 확정된다.
+
+| 목록 | 근거 |
+|---|---|
+| `deleted_solids` | **실측 0** — 992상태 × 45,457요소, 8런 |
+| `deleted_nodes` | `MAXINT = -10003` → **MDLOPT 2 = 요소 삭제 표**, 절점 삭제 자료가 파일에 없다 |
+| `deleted_beams` | `nel2 = 0` — 요소가 없다 |
+| `deleted_shells` | `nel4 = 0` — 요소가 없다 |
+| `deleted_thick_shells` | `nelt = 0` — 요소가 없다 |
+
+→ `forState` 가 **모든 상태에서 `nullptr`** 이므로 운동 CSV 는 비트 단위로 같다.
+
+`UnifiedAnalyzer.cpp` +6 은 `computeDirectSetMetrics` 의 **절점 세트 분기**다
+(v55 에서 내 세트가 `metric_source=part` 라 그 경로를 안 탄다고 확인했다).
+역시 `alive &&` 보호가 걸려 있다.
 
 **다음 판부터 다시 재야 하는 것.** 이 판정은 **덱에 매여 있다.** 침식이 실제로 나는
 덱으로 캠페인을 돌리면 v56 부터 파트 운동 CSV 가 달라지고 내 `peak_g` ·
