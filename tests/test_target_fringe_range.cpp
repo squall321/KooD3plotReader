@@ -199,10 +199,12 @@ data::StateData buildState(int s, int nv2d) {
     data::StateData st;
     st.time = 0.5 * s;
     for (int i = 1; i <= kNodes; ++i) {
-        st.node_displacements.push_back(nodeX(i) + s * 0.01 * i);
+        // 상태 2 에서 지워진 솔리드 3 에만 속한 절점(11~18)은 떨어져 나간 절점 — 좌표 · 속도가 튄다(빼지 않으면 범위가 이 값까지 커진다)
+        const double debris = (s == 2 && i >= 11 && i <= 18) ? kSentinel : 0.0;
+        st.node_displacements.push_back(nodeX(i) + s * 0.01 * i + debris);
         st.node_displacements.push_back(nodeY(i) + s * 0.002);
         st.node_displacements.push_back(nodeZ(i) - s * 0.003 * (i % 4));
-        st.node_velocities.push_back(s * 0.1 * i);
+        st.node_velocities.push_back(s * 0.1 * i + debris);
         st.node_velocities.push_back(s * 0.5);
         st.node_velocities.push_back(0.0);
     }
@@ -277,6 +279,7 @@ Want wantNode(int pid, FringeType t) {
     Want w;
     for (int s = 0; s < kStates; ++s) {
         for (int i : nodesOf(pid)) {
+            if (s == 2 && i >= 11 && i <= 18) continue;   // 그 상태에서 산 요소에 하나도 속하지 않는다(솔리드 3 이 지워졌다)
             double x, y, z;
             if (t == FringeType::DISPLACEMENT) { x = s * 0.01 * i; y = s * 0.002; z = -s * 0.003 * (i % 4); }
             else { x = s * 0.1 * i; y = s * 0.5; z = 0.0; }

@@ -32,6 +32,8 @@
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/AnalysisTypes.hpp"
 #include "kood3plot/analysis/VectorMath.hpp"
+#include "kood3plot/data/LiveNodes.hpp"
+#include <memory>
 #include <vector>
 #include <unordered_map>
 
@@ -115,6 +117,9 @@ private:
     // Node to part mapping (sorted vectors for cache-friendly access)
     std::unordered_map<int32_t, std::vector<size_t>> part_node_indices_;
 
+    // 침식 덱 — 상태마다 산 요소에 하나라도 속한 절점 표. 지운 요소에만 속해 떨어져 나간 절점은 운동 지표에서 뺀다
+    std::unique_ptr<data::LiveNodes> live_nodes_;
+
     // Part information
     std::vector<int32_t> active_parts_;  // Parts actually being analyzed
     std::unordered_map<int32_t, size_t> part_id_to_result_index_;
@@ -131,11 +136,14 @@ private:
 
     // Internal methods
     void buildNodeToPartMapping();
-    Vec3 computeAverageDisplacement(int32_t part_id, const std::vector<double>& displacements);
+    /// alive — 그 상태의 산 절점 표(nullptr 이면 모두 산 것). 산 절점이 하나도 없으면 NaN(값 없음)이다.
+    Vec3 computeAverageDisplacement(int32_t part_id, const std::vector<double>& displacements,
+                                    const std::vector<char>* alive);
     /// 절점당 3성분 배열(기록된 속도·가속도)을 파트 절점들에 대해 평균낸다.
     /// computeAverageDisplacement 와 달리 초기좌표를 빼지 않는다.
-    Vec3 computeAverageNodalVector(int32_t part_id, const std::vector<double>& values);
-    std::pair<double, int32_t> computeMaxDisplacement(int32_t part_id, const std::vector<double>& displacements);
+    Vec3 computeAverageNodalVector(int32_t part_id, const std::vector<double>& values, const std::vector<char>* alive);
+    std::pair<double, int32_t> computeMaxDisplacement(int32_t part_id, const std::vector<double>& displacements,
+                                                      const std::vector<char>* alive);
 };
 
 } // namespace analysis

@@ -10,6 +10,8 @@
  *   그리고 훑기가 초기값 −1 에서 시작해, 산 부모의 ε_p 가 전부 −1 보다 작으면 −1 이 값으로 나갔다(erode7 세트 44 · 47 — 산 부모 −3.42 · −4.50).
  * 절점 세트는 세트 절점의 변위가 전부 NaN 인 상태에 초기값 −1 을 값으로 냈다. 값이 없는 상태는 점을 찍지 않는다
  * (부모 블록이 없는 상태를 건너뛰는 것과 같은 규칙).
+ * 절점 세트는 그 상태에서 산 요소에 하나도 속하지 않는 절점(지운 요소에만 속해 떨어져 나간 절점)을 뺀다 —
+ * 그 좌표는 발산해도 유한값일 수 있다(erode7 ~1e21). 다 빠지면 그 상태는 점이 없다.
  *
  * 덱 — 육면체 셋(파트 1)을 x 로 이어 붙인 줄, 적분점 하나(NV3D 7), MDLOPT 2(요소 삭제 표).
  *   요소 e · 상태 s: σxx = 128 (e+1)(s+1) (σ_vm 과 같다), ε_p = (s+1)/64 · (s+1)/32 · −1.5 (s+1).
@@ -141,8 +143,10 @@ bool writeSets(const std::string& path) {
          "*SET_SEGMENT\n        22\n"          // 요소 0 의 끝면 · 요소 2 의 끝면 — 요소 2 의 ε_p 는 음수다
          "         1         2         3         4\n"
          "        13        14        15        16\n"
-         "*SET_NODE_LIST\n        31\n"        // 요소 0 에만 속한 절점 — 상태 3 에서 다 NaN
+         "*SET_NODE_LIST\n        31\n"        // 요소 0 에만 속한 절점 — 상태 2 부터 떨어져 나간 절점, 상태 3 에서 다 NaN
          "         1         2         3         4\n"
+         "*SET_NODE_LIST\n        33\n"        // 요소 0 · 1 이 함께 쓰는 절점 — 요소 1 이 살아 있는 상태 2 까지 산 절점
+         "         5         6         7         8\n"
          "*END\n";
     return static_cast<bool>(f);
 }
@@ -202,7 +206,7 @@ int main() {
     cfg.verbose = false;
     cfg.sets_file = sets;
     const struct { const char* name; const char* type; int sid; } specs[] = {
-        {"gone", "segment", 21}, {"mixed", "segment", 22}, {"nan_nodes", "node", 31}};
+        {"gone", "segment", 21}, {"mixed", "segment", 22}, {"nan_nodes", "node", 31}, {"shared_nodes", "node", 33}};
     for (const auto& s : specs) {
         SetReportSpec spec;
         spec.name = s.name;
@@ -216,8 +220,8 @@ int main() {
     UnifiedAnalyzer analyzer;
     const ExtendedAnalysisResult res = analyzer.analyze(cfg);
     expect(analyzer.getLastError().empty(), "분석이 끝났다 — " + analyzer.getLastError());
-    expect(res.set_report_results.size() == 3, "세트 리포트 수 — " + std::to_string(res.set_report_results.size()));
-    if (res.set_report_results.size() == 3) {
+    expect(res.set_report_results.size() == 4, "세트 리포트 수 — " + std::to_string(res.set_report_results.size()));
+    if (res.set_report_results.size() == 4) {
         const SetReportResult& gone = res.set_report_results[0];
         const SetReportResult& mixed = res.set_report_results[1];
         const SetReportResult& nodes = res.set_report_results[2];
@@ -237,8 +241,10 @@ int main() {
             expect(mep->peak_element_id == 1, "피크 요소 [mixed ε_p] — " + std::to_string(mep->peak_element_id));
         }
 
-        // 세트 절점이 상태 3 에서 다 NaN — 그 상태는 점이 없다(초기값 −1 이 아니다)
-        checkSeries(field(nodes, "disp_mag"), {0, 1, 2}, {0.0, 0.5, 1.0}, " [nan_nodes 변위]");
+        // 요소 0 에만 속한 절점은 상태 2 부터 떨어져 나간 절점이라 뺀다 — 상태 2 · 3 은 점이 없다(초기값 −1 도 0 도 아니다)
+        checkSeries(field(nodes, "disp_mag"), {0, 1}, {0.0, 0.5}, " [nan_nodes 변위]");
+        // 요소 0 · 1 이 함께 쓰는 절점은 요소 1 이 살아 있는 상태 2 까지 산 절점, 상태 3 은 둘 다 지워져 점이 없다
+        checkSeries(field(res.set_report_results[3], "disp_mag"), {0, 1, 2}, {0.0, 0.5, 1.0}, " [shared_nodes 변위]");
     }
 
     fs::remove_all(dir);

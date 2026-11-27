@@ -17,6 +17,7 @@
 #include "kood3plot/analysis/HotspotClusterAnalyzer.hpp"
 #include "kood3plot/parsers/KeywordSetParser.hpp"
 #include "kood3plot/data/NodeKinematics.hpp"
+#include "kood3plot/data/LiveNodes.hpp"
 #include "kood3plot/data/SolidIpLayout.hpp"
 #include "kood3plot/Version.hpp"
 #include <algorithm>
@@ -1536,12 +1537,17 @@ void UnifiedAnalyzer::computeDirectSetMetrics(
 
             const bool has_v = !all_states.front().node_velocities.empty();
             const bool has_a = !all_states.front().node_accelerations.empty();
+            // 침식 덱 — 그 상태에서 산 요소에 하나도 속하지 않는 절점(지운 요소에만 속해 떨어져 나간 절점)은 뺀다.
+            // 그 좌표 · 속도는 발산해도 유한값일 수 있다(erode7 ~1e21) — NaN 만 거르면 세트 피크를 차지한다.
+            data::LiveNodes live(mesh);
 
             for (size_t t = 0; t < n_state; ++t) {
                 const auto& st = all_states[t];
+                const std::vector<char>* alive = live.forState(st);
                 double dmax = -1.0, vmax = -1.0, amax = -1.0;
                 int32_t d_id = 0, v_id = 0, a_id = 0;
                 for (int32_t ni : sr.resolved_node_idx) {
+                    if (alive && (size_t)ni < alive->size() && !(*alive)[(size_t)ni]) continue;
                     const double dm = data::nodeDisplacementMagnitude(mesh, st, (size_t)ni);
                     if (dm > dmax) {
                         dmax = dm;

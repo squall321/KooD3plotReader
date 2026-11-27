@@ -3,6 +3,7 @@
 
 #include "kood3plot/D3plotReader.hpp"
 #include "kood3plot/analysis/VectorMath.hpp"
+#include "kood3plot/data/LiveNodes.hpp"
 #include "kood3plot/data/ShellLayerLayout.hpp"
 #include "kood3plot/data/SolidIpLayout.hpp"
 
@@ -113,6 +114,9 @@ std::map<int32_t, FringeRange> partFringeRanges(const data::Mesh& mesh, const da
     const bool node_data = (type == FringeType::DISPLACEMENT && control.IU == 1) ||
                            (type == FringeType::VELOCITY && control.IV == 1) ||
                            (type == FringeType::ACCELERATION && control.IA == 1);
+    // 침식 덱 — 그 상태에서 산 요소에 하나도 속하지 않는 절점(지운 요소에만 속해 떨어져 나간 절점)은 뺀다.
+    // LS-PrePost 는 지운 요소를 그리지 않고, 그 절점의 좌표 · 속도는 발산해도 유한값일 수 있다(erode7 ~1e21)
+    data::LiveNodes live(mesh);
 
     const data::SolidIpLayout solid = data::SolidIpLayout::from(control);
     const size_t solid_words = control.IOSOL[1] ? 7 : 6;
@@ -144,8 +148,10 @@ std::map<int32_t, FringeRange> partFringeRanges(const data::Mesh& mesh, const da
             const std::vector<double>& arr = type == FringeType::DISPLACEMENT ? st.node_displacements
                                            : type == FringeType::VELOCITY     ? st.node_velocities
                                                                               : st.node_accelerations;
+            const std::vector<char>* alive = live.forState(st);
             for (const auto& kv : part_nodes) {
                 for (int32_t idx : kv.second) {
+                    if (alive && !(*alive)[static_cast<size_t>(idx)]) continue;
                     const size_t b = static_cast<size_t>(idx) * 3;
                     if (b + 2 >= arr.size()) continue;
                     double x = arr[b], y = arr[b + 1], z = arr[b + 2];

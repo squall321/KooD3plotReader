@@ -9,6 +9,9 @@
 //   2. 메시에 없는 파트를 요청하면 전 0 시계열을 만들지 않고 걸러내는가
 //   3. d3plot 이 절점 속도(IV)·가속도(IA)를 싣고 있으면 그것을 쓰는가
 //      (첫 상태 속도가 차분 불가라고 0 으로 나가면 안 된다)
+//   4. 침식 덱 — 그 상태에서 산 요소에 하나도 속하지 않는 절점(지운 요소에만 속해 떨어져 나간 절점)은
+//      운동 지표에서 뺀다. 그 좌표 · 속도는 발산해도 유한값일 수 있다(erode7 ~1e21). 파트가 통째로 지워진
+//      상태는 0 이 아니라 값 없음(NaN)이다.
 //
 // Run:
 //   # --target unified_analyzer 만으로는 kood3plot_writer 가 빌드되지 않는다
@@ -217,6 +220,105 @@ void runCases(const std::string& path) {
     }
 }
 
+// 침식 덱 — 육면체 둘이 면(절점 순번 5~8)을 공유한다. 둘 다 파트 1. MDLOPT 2(삭제 표).
+// 상태 2 에서 요소 1(순번) · 상태 3 에서 요소 1 · 2 가 지워진다. 요소 1 에만 속한 절점 1~4 는 상태 2 부터
+// 좌표가 x 로 1e6 · 속도가 1e9 로 튄다(떨어져 나간 절점 — 유한값). 나머지 절점은 상태마다 z 로 0.1 s 내려가고 속도 −100.
+constexpr int kErodeNodes = 12;
+
+bool writeErosionD3plot(const std::string& path) {
+    data::ControlData control;
+    control.NDIM = 4;
+    control.NUMNP = kErodeNodes;
+    control.NEL8 = 2;
+    control.NV3D = 7;
+    control.NUMMAT8 = 1;
+    control.NMMAT = 1;
+    control.IU = 1;
+    control.IV = 1;
+    control.NGLBV = 6;
+    control.MAXINT = -10003;            // MDLOPT 2 — 상태마다 요소 삭제 표
+    control.ENN = control.NEL8 * control.NV3D;
+    control.NND = 3 * control.NUMNP;
+
+    data::Mesh mesh;
+    mesh.nodes.resize(kErodeNodes);
+    for (int i = 0; i < kErodeNodes; ++i) {
+        mesh.nodes[i] = {i + 1, static_cast<double>(i % 2), static_cast<double>((i / 2) % 2), static_cast<double>(i / 4)};
+    }
+    mesh.solids.resize(2);
+    mesh.solid_parts = {1, 1};
+    for (int e = 0; e < 2; ++e) {
+        mesh.solids[e].id = e + 1;
+        mesh.solids[e].type = ElementType::SOLID;
+        mesh.solids[e].material_id = 1;
+        for (int k = 0; k < 8; ++k) mesh.solids[e].node_ids.push_back(4 * e + k + 1);   // 요소 1: 1~8, 요소 2: 5~12
+    }
+    mesh.num_solids = 2;
+
+    std::vector<data::StateData> states;
+    for (int s = 0; s < 4; ++s) {
+        data::StateData st;
+        st.time = 1e-3 * s;
+        st.global_vars.assign(control.NGLBV, 0.0);
+        st.node_displacements.resize(kErodeNodes * 3);
+        st.node_velocities.resize(kErodeNodes * 3);
+        for (int i = 0; i < kErodeNodes; ++i) {
+            const bool debris = (s >= 2 && i < 4);
+            st.node_displacements[i * 3 + 0] = mesh.nodes[i].x + (debris ? 1e6 : 0.0);
+            st.node_displacements[i * 3 + 1] = mesh.nodes[i].y;
+            st.node_displacements[i * 3 + 2] = mesh.nodes[i].z - 0.1 * s;
+            st.node_velocities[i * 3 + 0] = debris ? 1e9 : 0.0;
+            st.node_velocities[i * 3 + 1] = 0.0;
+            st.node_velocities[i * 3 + 2] = -100.0;
+        }
+        st.solid_data.assign(static_cast<size_t>(control.NEL8) * control.NV3D, 0.0);
+        if (s >= 2) st.deleted_solids.push_back(1);
+        if (s >= 3) st.deleted_solids.push_back(2);
+        states.push_back(std::move(st));
+    }
+
+    writer::D3plotWriter w(path);
+    w.setControlData(control);
+    w.setMesh(mesh);
+    w.setStates(states);
+    return w.write() == ErrorCode::SUCCESS;
+}
+
+void runErosionCase(const std::string& path) {
+    std::printf("\n[5] 침식 덱 — 떨어져 나간 절점을 운동 지표에서 뺀다\n");
+    D3plotReader reader(path);
+    if (reader.open() != ErrorCode::SUCCESS) {
+        std::printf("  [FAIL] 침식 d3plot 열기 실패\n");
+        ++g_failed;
+        return;
+    }
+    auto states = reader.read_all_states();
+    checkTrue("상태 4개 · 상태 2 에 지운 요소 1개 · 상태 3 에 2개",
+              states.size() == 4 && states[2].deleted_solids.size() == 1 && states[3].deleted_solids.size() == 2);
+    if (states.size() != 4) return;
+    MotionAnalyzer an(reader);
+    an.setParts({1});
+    checkTrue("initialize 성공", an.initialize());
+    for (const auto& st : states) an.processState(st);
+    auto res = an.getResults();
+    if (res.size() != 1 || res[0].data.size() != 4) {
+        ++g_failed;
+        std::printf("  [FAIL] 파트 1 시계열이 4점이 아님\n");
+        return;
+    }
+    const auto& d = res[0].data;
+    check("상태 1 최대 변위(모든 절점)", d[1].max_displacement_magnitude, 0.1);
+    check("상태 2 최대 변위 — 떨어진 절점 1~4 를 뺀다", d[2].max_displacement_magnitude, 0.2);
+    check("상태 2 평균 변위 크기", d[2].avg_displacement_magnitude, 0.2);
+    check("상태 2 평균 속도 크기 — 떨어진 절점 속도 1e9 를 뺀다", d[2].avg_velocity_magnitude, 100.0, 1e-6);
+    checkTrue("상태 3 — 파트가 통째로 지워졌다: 최대 변위는 0 이 아니라 값 없음(NaN)",
+              std::isnan(d[3].max_displacement_magnitude));
+    checkTrue("상태 3 — 평균 변위도 값 없음(NaN)", std::isnan(d[3].avg_displacement_magnitude));
+    res[0].computeGlobalStats();
+    check("전 구간 최대 변위 — 산 절점만(0.2)", res[0].max_displacement_magnitude, 0.2);
+    check("전 구간 최대 속도 — 산 절점만(100)", res[0].peak_velocity_magnitude, 100.0, 1e-6);
+}
+
 }  // namespace
 
 int main() {
@@ -232,6 +334,15 @@ int main() {
     }
 
     runCases(path);
+
+    const std::string erode_dir = dir + "/erode";
+    std::filesystem::create_directories(erode_dir);
+    if (!writeErosionD3plot(erode_dir + "/d3plot")) {
+        std::printf("  [FAIL] 침식 d3plot 쓰기 실패\n");
+        ++g_failed;
+    } else {
+        runErosionCase(erode_dir + "/d3plot");
+    }
 
     std::filesystem::remove_all(dir);
     std::printf("\n%s  (%d fail)\n", g_failed ? "실패" : "전부 통과", g_failed);
