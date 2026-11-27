@@ -10,6 +10,8 @@ Supports fixed-width (10-col) and comma-separated keyword formats.
 """
 from __future__ import annotations
 
+from .keyword_fields import card_fields
+
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -162,50 +164,15 @@ class KeywordData:
 # Keyword file field reader
 # ---------------------------------------------------------------------------
 def _read_fields(line: str, n: int = 8) -> list[str]:
-    """Read up to n fields from a keyword line.
+    """Read exactly n fields from a keyword line (missing ones are "").
 
-    Supports:
-      - Comma-separated: "1, 7.85e-9, 210000, 0.3, 250"
-      - Fixed 10-col: "         1    7.85-9    210000       0.3       250"
-      - Space-separated fallback: "1 7.85E-09 210000 0.3 250"
-
-    Detect fixed-col format on the ORIGINAL (rstripped) line, since
-    pre-stripping leading whitespace can fuse columns whose left field
-    has only a value at the right edge of its 10-char slot (e.g. "         1"
-    followed by "2.7000E-09" would otherwise collapse into "12.7000E-09").
+    Splitting rule lives in `core.keyword_fields.card_fields` (shared with contact_map):
+    comma → free format, otherwise LS-DYNA fixed 10-col detected on the ORIGINAL line
+    (fields may touch — "         1" followed by "2.7000E-09"), and lines whose 10-col
+    slots hold embedded whitespace fall back to whitespace splitting.
     """
-    raw = line.rstrip("\n").rstrip()
-    stripped = raw.strip()
-    if not stripped:
-        return [""] * n
-
-    # 1. Comma-separated
-    if "," in stripped:
-        parts = stripped.split(",")
-        return [p.strip() for p in parts[:n]] + [""] * max(0, n - len(parts))
-
-    # 2. Fixed 10-col: detect by checking whether each 10-col slot in the RAW
-    #    line is internally a single token (no embedded whitespace) — this
-    #    catches LS-DYNA fixed format regardless of total line length.
-    if len(raw) >= 20:
-        looks_fixed = True
-        n_slots = min(n, (len(raw) + 9) // 10)
-        for i in range(n_slots):
-            slot = raw[i * 10:(i + 1) * 10].strip()
-            if slot and " " in slot:
-                looks_fixed = False
-                break
-        if looks_fixed:
-            fields = []
-            for i in range(n):
-                start = i * 10
-                end = start + 10
-                fields.append(raw[start:end].strip() if start < len(raw) else "")
-            return fields
-
-    # 3. Space-separated fallback
-    parts = stripped.split()
-    return [p for p in parts[:n]] + [""] * max(0, n - len(parts))
+    fields = card_fields(line)
+    return fields[:n] + [""] * max(0, n - len(fields))
 
 
 def _to_float(s: str, default: float = 0.0) -> float:

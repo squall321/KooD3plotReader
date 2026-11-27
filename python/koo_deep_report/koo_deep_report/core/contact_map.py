@@ -28,6 +28,8 @@ Limitations:
 """
 from __future__ import annotations
 
+from .keyword_fields import card_fields
+
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,25 +90,18 @@ def _int_fields(line: str) -> list[int | None]:
 
 
 def _card_fields(line: str) -> list[int | None]:
-    """10칸 카드(세트 · 접촉 카드 1)의 정수 필드. 쉼표가 있으면 자유형, 없으면 LS-DYNA 고정폭 10칸.
+    """10칸 카드(세트 · 접촉 카드 1)의 정수 필드 — 나누기는 `keyword_fields.card_fields`(공용 규칙).
 
-    LS-PrePost 는 세트 첫 카드의 DA1..DA4 를 `0.0000e+000.0000e+00` 처럼 칸 사이 공백 없이 써서 공백으로만
-    나누면 SID 를 잃는다. 접촉 카드 1 의 빈 칸(단일면 접촉의 MSID · MSTYP)은 공백으로 나누면 뒤 필드가
-    당겨진다 — 빈 칸은 None 으로 자리를 지킨다. 칸 안에 공백이 든 줄(칸에 맞지 않는 옛 꼴)은 _int_fields 로.
-    요소 카드(8칸)는 _int_fields 를 쓴다.
+    세트 첫 카드가 붙어 있어도(`10.0000e+000.0000e+00…`) SID 를 읽고, 접촉 카드 1 의 빈 칸(단일면 접촉의
+    MSID · MSTYP)은 None 으로 자리를 지킨다. 요소 카드(8칸)는 _int_fields 를 쓴다.
     """
-    raw = line.rstrip()
-    if "," not in raw:
-        cols = [raw[i:i + 10].strip() for i in range(0, len(raw), 10)]
-        if not any(" " in c or "\t" in c for c in cols):
-            out: list[int | None] = []
-            for c in cols:
-                try:
-                    out.append(int(float(c)) if c else None)
-                except ValueError:
-                    out.append(None)
-            return out
-    return _int_fields(line)
+    out: list[int | None] = []
+    for c in card_fields(line):
+        try:
+            out.append(int(float(c)) if c else None)
+        except ValueError:
+            out.append(None)
+    return out
 
 
 def _parse_heading(line: str) -> tuple[int | None, str]:

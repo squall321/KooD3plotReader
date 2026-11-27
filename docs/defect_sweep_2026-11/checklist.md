@@ -100,5 +100,5 @@
 ## 14. 사용자 결정 넷(11-27)
 - [x] 침식 덱 떨어진 절점을 운동 지표에서 뺀다 — `data::LiveNodes` · MotionAnalyzer · 절점 세트 · 타깃 색 범위, 시험 셋 · erode7 전 · 뒤
 - [ ] v56 판정 꾸러미 · 로컬 예행 → a9 굽기 전 판정 → push → v56 굽기 요청
-- [ ] 파이썬 고정폭 읽기 공용 함수(deep keyword_parser · contact_map, sphere 는 a9 선택)
+- [x] 파이썬 고정폭 읽기 공용 함수 `core/keyword_fields.card_fields`(deep keyword_parser · contact_map, sphere 는 a9 선택) — 실덱 88곳 같음
 - [ ] 원시 내보내기 적분점 최대 · 평균 선택지

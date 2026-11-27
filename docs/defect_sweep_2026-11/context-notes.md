@@ -1128,3 +1128,12 @@ b1476e9(contact_map — 파트 · 세그먼트 세트만 읽는다)는 이 덱 �
 파트 5 1.195e8 → 4.27. 통째로 지워진 마지막 14~17 상태는 NaN. 운동 밖 산출은 파일까지 같고 analysis_result.json 은 motion_analysis 의 세 값만 다르다.
 절점 세트 1 · 3 · 4 피크 변위 1.529e21 → 8,600(파트 22 와 같다). 남은 큰 값 — 속도 7.6e11 mm/s · 가속도 2.6e19 — 은 **산 요소의 절점**이다(해석 불안정).
 이번 규칙의 대상이 아니고, AI 계획(`docs/ai_readable_results_2026-11/plan.md`) P2 품질 장부가 표지를 달 자리다.
+
+## 16. 파이썬 고정폭 읽기를 공용 함수 하나로 (11-27, 사용자 결정)
+
+- `koo_deep_report/core/keyword_fields.py` `card_fields(line, width=10, max_fields=8)` — 쉼표 → 자유형, 없으면 10칸(80칸 안에서만 판별 · 추출, 빈 칸은 ""),
+  칸 안에 공백 · 탭이 든 줄은 공백으로. deep 키워드 파서 `_read_fields` 와 접촉 지도 `_card_fields` 는 이것을 부르는 감싸개로 남겼다(impact 로더가 `_read_fields` 를 가져다 쓴다).
+- 종전 `_read_fields` 와 다른 점 셋 — 20칸 안 되는 줄도 고정폭으로 본다(`        2310` → 23 · 10), 탭이 든 줄은 공백으로 나눈다, 판별을 앞 n 칸이 아니라 80칸으로 한다.
+  모두 LS-DYNA 규칙 쪽이다. 실덱 88곳(대표 8 + 서로 다른 덱 표본 80)에서 파트 · 재료 · 초기 속도가 종전과 같다(`.work/defect_sweep/setcard/cmp_kw.py`).
+- 시험 — `tests/test_keyword_fields.py`(붙은 칸 · 빈 칸 자리 · 짧은 고정폭 · 쉼표 · 공백 · 탭 · 80칸 뒤 글 · 감싸개 꼴). deep 280 · impact 150 · sphere 192 통과.
+- sphere `_deck_density`(a9 3d2a903)는 같은 규칙을 따로 갖고 있다 — 갈아탈지는 a9 가 정한다(의존 범위 때문에). 함수 이름을 알렸다.
